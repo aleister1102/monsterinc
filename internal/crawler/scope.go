@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log" // For logging regex compilation errors
+	"monsterinc/internal/urlhandler"
 	"net/url"
 	"regexp" // For path restriction logic
 	"strings"
@@ -65,16 +66,6 @@ func NewScopeSettings(
 	}
 }
 
-// isDomainOrSubdomain checks if `domain` is equal to `baseDomain` or is a subdomain of `baseDomain`.
-// Both inputs should be normalized (e.g., lowercase).
-func isDomainOrSubdomain(domain, baseDomain string) bool {
-	if domain == baseDomain {
-		return true // Exact match
-	}
-	// Check for subdomain: domain must end with ".baseDomain"
-	return strings.HasSuffix(domain, "."+baseDomain)
-}
-
 // CheckHostnameScope evaluates if the given hostname is within the configured scope
 // based on AllowedHostnames, AllowedSubdomains, DisallowedHostnames, and DisallowedSubdomains.
 // Task 2.1: Implement hostname and subdomain control logic.
@@ -96,7 +87,7 @@ func (ss *ScopeSettings) CheckHostnameScope(hostname string) bool {
 	for _, disallowedSubdomain := range ss.DisallowedSubdomains {
 		// This checks if normalizedHostname is "disallowedSubdomain" or "anything.disallowedSubdomain"
 		// Example: if "internal.example.com" is disallowed, then "internal.example.com" and "api.internal.example.com" are out.
-		if isDomainOrSubdomain(normalizedHostname, disallowedSubdomain) {
+		if urlhandler.IsDomainOrSubdomain(normalizedHostname, disallowedSubdomain) {
 			// log.Printf("[DEBUG] Scope: Hostname '%s' disallowed by DisallowedSubdomains ('%s').", hostname, disallowedSubdomain)
 			return false
 		}

@@ -1,8 +1,8 @@
 package crawler
 
 import (
-	"errors"  // Added for resolveURL
-	"fmt"     // Added for more detailed logging
+	"errors" // Added for resolveURL
+	// Added for more detailed logging
 	"log"     // Placeholder for proper logging integration later
 	"net/url" // For URL parsing and manipulation
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"monsterinc/internal/config" // Import the config package
+	"monsterinc/internal/urlhandler"
 
 	"github.com/gocolly/colly/v2"
 )
@@ -142,7 +143,7 @@ func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
 
 // DiscoverURL attempts to add a new URL to the crawl queue if it hasn't been discovered and processed by us yet.
 func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
-	absURL, err := cr.resolveURL(rawURL, base)
+	absURL, err := urlhandler.ResolveURL(rawURL, base)
 	if err != nil {
 		log.Printf("[WARN] Crawler: Could not resolve URL '%s' relative to '%s': %v", rawURL, base, err)
 		return
@@ -200,26 +201,6 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 	}
 }
 
-// resolveURL resolves a (possibly relative) URL string against a base URL.
-func (cr *Crawler) resolveURL(href string, base *url.URL) (string, error) {
-	if base == nil { // If no base, href must be absolute
-		parsedHref, err := url.Parse(strings.TrimSpace(href))
-		if err != nil {
-			return "", fmt.Errorf("error parsing base-less href '%s': %w", href, err)
-		}
-		if !parsedHref.IsAbs() {
-			return "", fmt.Errorf("cannot process relative URL '%s' without a base URL", href)
-		}
-		return parsedHref.String(), nil
-	}
-
-	resolved, err := base.Parse(strings.TrimSpace(href))
-	if err != nil {
-		return "", fmt.Errorf("error parsing href '%s' against base '%s': %w", href, base.String(), err)
-	}
-	return resolved.String(), nil
-}
-
 // GetDiscoveredURLs returns a slice of all unique URLs discovered by our logic.
 func (cr *Crawler) GetDiscoveredURLs() []string {
 	cr.mutex.RLock()
@@ -245,7 +226,7 @@ func (cr *Crawler) Start() {
 	for _, seed := range cr.seedURLs {
 		// Resolve the seed URL against nil base to ensure it's absolute and valid
 		// DiscoverURL will then handle adding it to the collector
-		parsedSeed, err := cr.resolveURL(seed, nil) // base is nil for seed
+		parsedSeed, err := urlhandler.ResolveURL(seed, nil) // base is nil for seed
 		if err != nil {
 			log.Printf("[ERROR] Crawler: Invalid or non-absolute seed URL '%s': %v. Skipping.", seed, err)
 			continue

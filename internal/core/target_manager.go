@@ -3,7 +3,7 @@ package core
 import (
 	"bufio"
 	"monsterinc/internal/models"
-	"monsterinc/internal/normalizer"
+	"monsterinc/internal/urlhandler"
 	"os"
 )
 
@@ -41,7 +41,7 @@ func (tm *TargetManager) LoadTargetsFromFile(filePath string) ([]models.Target, 
 
 		// NormalizeURL can be called concurrently if the list is very large
 		// For now, keeping it simple and sequential.
-		normalizedURL, err := normalizer.NormalizeURL(originalURL)
+		normalizedURL, err := urlhandler.NormalizeURL(originalURL)
 		if err != nil {
 			// Optionally log this error or handle it more gracefully
 			// fmt.Printf("Skipping URL %s due to normalization error: %v\n", originalURL, err)
