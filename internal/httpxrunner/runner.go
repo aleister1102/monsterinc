@@ -2,11 +2,15 @@ package httpxrunner
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
-	"time"
 
 	"github.com/projectdiscovery/httpx/common/customheader"
 	"github.com/projectdiscovery/httpx/runner"
+	// Thêm import cho clients và wappalyzer nếu thực sự cần và có sẵn
+	// "github.com/projectdiscovery/httpx/common/httpx/clients"
+	// "github.com/projectdiscovery/wappalyzergo"
 )
 
 // Runner wraps the httpx library runner and provides MonsterInc-specific functionality
@@ -37,71 +41,75 @@ type Config struct {
 	// Headers and proxy
 	CustomHeaders map[string]string
 	Proxy         string
+
+	// Data extraction flags - mapped to httpx.Options
+	TechDetect           bool
+	ExtractTitle         bool
+	ExtractStatusCode    bool
+	ExtractLocation      bool
+	ExtractContentLength bool
+	ExtractServerHeader  bool
+	ExtractContentType   bool
+	ExtractIPs           bool
+	// ExtractCNAMEs        bool // Loại bỏ theo yêu cầu
+	// ExtractASN           bool // Loại bỏ theo yêu cầu
+	ExtractBody    bool
+	ExtractHeaders bool
+	// ExtractTLSData       bool // Loại bỏ theo yêu cầu
 }
 
 // NewRunner creates a new instance of the httpx runner wrapper
 func NewRunner(config *Config) *Runner {
 	resultsChan := make(chan *ProbeResult, 100)
 	options := &runner.Options{
-		// Set default values
-		Methods:         "GET",
-		FollowRedirects: true,
-		Timeout:         5,
-		Retries:         1,
-		Threads:         40,
-		Output:          "json",
-		OnResult: func(res runner.Result) {
-			probeResult := &ProbeResult{
-				URL:           res.URL,
-				Method:        res.Method,
-				Timestamp:     time.Now(),
-				StatusCode:    res.StatusCode,
-				ContentLength: int64(res.ContentLength),
-				ContentType:   res.ContentType,
-				Error:         res.Error,
-			}
-
-			// Technologies (nếu có)
-			if len(res.Technologies) > 0 {
-				probeResult.Technologies = make([]Technology, len(res.Technologies))
-				for i, tech := range res.Technologies {
-					probeResult.Technologies[i] = Technology{
-						Name: tech,
-					}
-				}
-			}
-
-			resultsChan <- probeResult
-		},
+		// Sensible defaults for library usage
+		Methods:                 "GET",
+		FollowRedirects:         true,
+		Timeout:                 10,
+		Retries:                 1,
+		Threads:                 25,
+		MaxRedirects:            10,
+		RespectHSTS:             true,
+		NoColor:                 true,
+		Silent:                  true,
+		OmitBody:                false,
+		ResponseHeadersInStdout: true,
+		// TLSProbe:                false, // Tắt TLSProbe vì không thu thập TLS nữa
+		TechDetect: true,
+		// Asn:                     false, // Tắt ASN vì không thu thập ASN nữa
+		OutputIP: true,
+		// OutputCName:             false, // Tắt OutputCName vì không thu thập CNAME nữa
+		StatusCode:         true,
+		ContentLength:      true,
+		OutputContentType:  true,
+		ExtractTitle:       true,
+		OutputServerHeader: true,
+		Location:           true,
 	}
 
-	// Apply custom configuration if provided
+	// Apply MonsterInc's specific configuration
 	if config != nil {
 		if config.Method != "" {
 			options.Methods = config.Method
 		}
 		if len(config.RequestURIs) > 0 {
-			options.RequestURIs = config.RequestURIs[0] // Use first URI as default
+			options.RequestURI = config.RequestURIs[0]
 		}
 		options.FollowRedirects = config.FollowRedirects
 		if config.Timeout > 0 {
 			options.Timeout = config.Timeout
 		}
-		if config.Retries > 0 {
+		if config.Retries >= 0 {
 			options.Retries = config.Retries
 		}
 		if config.Threads > 0 {
 			options.Threads = config.Threads
 		}
-		if config.OutputFormat != "" {
-			options.Output = config.OutputFormat
-		}
 		if len(config.CustomHeaders) > 0 {
 			headers := customheader.CustomHeaders{}
 			for k, v := range config.CustomHeaders {
-				header := k + ": " + v
-				if err := headers.Set(header); err != nil {
-					// Log error but continue
+				headerVal := k + ": " + v
+				if err := headers.Set(headerVal); err != nil {
 					continue
 				}
 			}
@@ -110,6 +118,87 @@ func NewRunner(config *Config) *Runner {
 		if config.Proxy != "" {
 			options.Proxy = config.Proxy
 		}
+		options.TechDetect = config.TechDetect
+		options.ExtractTitle = config.ExtractTitle
+		options.StatusCode = config.ExtractStatusCode
+		options.Location = config.ExtractLocation
+		options.ContentLength = config.ExtractContentLength
+		options.OutputServerHeader = config.ExtractServerHeader
+		options.OutputContentType = config.ExtractContentType
+		options.OutputIP = config.ExtractIPs
+		// options.OutputCName = config.ExtractCNAMEs // Loại bỏ
+		// options.Asn = config.ExtractASN             // Loại bỏ
+		options.OmitBody = !config.ExtractBody
+		options.ResponseHeadersInStdout = config.ExtractHeaders
+		// options.TLSProbe = config.ExtractTLSData    // Loại bỏ
+	}
+
+	// OnResult Callback: Maps httpx.Result to our ProbeResult
+	options.OnResult = func(res runner.Result) {
+		probeResult := &ProbeResult{
+			InputURL:      res.URL,
+			Method:        res.Method,
+			Timestamp:     res.Timestamp,
+			StatusCode:    res.StatusCode,
+			ContentLength: int64(res.ContentLength),
+			ContentType:   res.ContentType,
+			Error:         res.Error,
+			FinalURL:      res.FinalURL,
+			Title:         res.Title,
+			WebServer:     res.WebServer,
+			Body:          res.ResponseBody,
+		}
+
+		if res.ResponseTime != "" {
+			durationStr := strings.TrimSuffix(res.ResponseTime, "s")
+			if dur, err := strconv.ParseFloat(durationStr, 64); err == nil {
+				probeResult.Duration = dur
+			}
+		}
+
+		if len(res.ResponseHeaders) > 0 {
+			probeResult.Headers = make(map[string]string)
+			for k, v := range res.ResponseHeaders {
+				switch val := v.(type) {
+				case string:
+					probeResult.Headers[k] = val
+				case []string:
+					probeResult.Headers[k] = strings.Join(val, ", ")
+				case []interface{}:
+					var strVals []string
+					for _, iv := range val {
+						if sv, ok := iv.(string); ok {
+							strVals = append(strVals, sv)
+						}
+					}
+					probeResult.Headers[k] = strings.Join(strVals, ", ")
+				default:
+				}
+			}
+		}
+
+		// TLSData, CNAMEs, ASN processing is removed as per request.
+
+		if len(res.Technologies) > 0 {
+			probeResult.Technologies = make([]Technology, 0, len(res.Technologies))
+			for _, techName := range res.Technologies {
+				// Tạm thời chỉ lấy Name. Version và Category sẽ được cập nhật sau khi có cấu trúc chính xác.
+				tech := Technology{Name: techName}
+				// if res.TechnologyDetails != nil {
+				// 	if appInfo, ok := res.TechnologyDetails[techName]; ok {
+				// 		// Logic để lấy Version và Category sẽ được thêm ở đây
+				// 	}
+				// }
+				probeResult.Technologies = append(probeResult.Technologies, tech)
+			}
+		}
+
+		if len(res.A) > 0 {
+			probeResult.IPs = res.A
+		}
+		// CNAMEs and ASN are removed here.
+
+		resultsChan <- probeResult
 	}
 
 	return &Runner{
@@ -154,9 +243,16 @@ func (r *Runner) Run() error {
 		return fmt.Errorf("runner not initialized")
 	}
 
-	// Chạy httpx, callback sẽ tự động đẩy kết quả vào channel
+	// RunEnumeration in httpx v1.7.0 does not return an error.
+	// It handles errors internally and sends results/errors via callbacks or logs.
 	r.httpxRunner.RunEnumeration()
-	close(r.results)
+
+	// Any critical error that stops RunEnumeration prematurely would likely be a panic
+	// or would be handled by httpx internal logging if not a panic.
+	// The design with OnResult callback implies results (and errors per result) are streamed.
+	// If there's a need to signal a global failure of RunEnumeration, httpx would need
+	// to provide a mechanism for that (e.g., a returned error or a specific callback).
+	// For now, assume RunEnumeration completes its course or panics on unrecoverable errors.
 	return nil
 }
 
@@ -166,6 +262,9 @@ func (r *Runner) Results() <-chan *ProbeResult {
 }
 
 // Errors returns a channel that receives errors during probing
+// This channel was intended for global errors from RunEnumeration.
+// Since RunEnumeration doesn't return an error, this channel might not receive data
+// unless we adapt httpx or use it for other types of runner-level errors.
 func (r *Runner) Errors() <-chan error {
 	return r.errors
 }

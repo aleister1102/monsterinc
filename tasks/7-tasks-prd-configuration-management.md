@@ -1,36 +1,72 @@
 ## Relevant Files
 
-- `internal/config/config.go` - Core configuration structure, loading, and validation logic.
-- `internal/config/validator.go` - Configuration validation rules and logic.
-- `internal/config/reloader.go` - Runtime configuration reloading logic.
-- `main.go` - Application entry point, initializes configuration.
-- `config.example.json` - Example configuration file with all available options and defaults.
+- `internal/config/config.go` - Defines core configuration structs (`GlobalConfig`, `HTTPXConfig`, `CrawlerConfig`, `ReporterConfig`, `StorageConfig`, `NotificationConfig`, etc.), default values, and loading logic.
+- `internal/config/loader.go` - Logic for loading configuration from file and environment variables.
+- `internal/config/validator.go` - Configuration validation rules and logic (e.g., using a library like `go-playground/validator`).
+- `cmd/monsterinc/main.go` - Application entry point, initializes and uses the configuration.
+- `config.json` (or `config.yaml`) - The actual configuration file used by the application.
+- `config.example.json` (or `config.example.yaml`) - Example configuration file with all available options, defaults, and comments explaining each field.
 
 ### Notes
 
-- All code should be placed in the `internal` directory to maintain proper Go package organization.
+- All configuration-related code should be placed in the `internal/config` package.
+- Strive for a clear separation of concerns: struct definitions, loading, and validation.
+- Provide comprehensive documentation via comments in the example configuration file.
 
 ## Tasks
 
-- [ ] 1.0 Define Configuration Structure and Validation Rules
-  - [ ] 1.1 Define Go structs in `internal/config/config.go` to represent the JSON configuration hierarchy.
-  - [ ] 1.2 Define validation rules (e.g., required fields, data types, formats) in `internal/config/validator.go`.
-  - [ ] 1.3 Create an example configuration file `config.example.json` with all options and defaults.
-- [ ] 2.0 Implement Configuration File Loading and Parsing
-  - [ ] 2.1 Implement logic to locate the configuration file (default path or command-line argument) in `internal/config/config.go`.
-  - [ ] 2.2 Implement JSON file reading and parsing into the defined structs in `internal/config/config.go`.
-- [ ] 3.0 Implement Configuration Validation Logic
-  - [ ] 3.1 Implement the validation logic using the defined rules in `internal/config/validator.go`.
-  - [ ] 3.2 Implement detailed error reporting for validation failures in `internal/config/validator.go`.
-- [ ] 4.0 Implement Runtime Configuration Reloading
-  - [ ] 4.1 Implement a mechanism to trigger configuration reload (e.g., SIGHUP handler) in `internal/config/reloader.go`.
-  - [ ] 4.2 Implement logic to reload the configuration file and re-validate in `internal/config/reloader.go`.
-  - [ ] 4.3 Implement logic to apply the new configuration to the running application in `internal/config/reloader.go`.
-- [ ] 5.0 Implement Error Handling and Default Values
-  - [ ] 5.1 Implement logic to handle missing configuration file in `internal/config/config.go`.
-  - [ ] 5.2 Implement logic to handle invalid JSON syntax in `internal/config/config.go`.
-  - [ ] 5.3 Implement logic to handle validation failures and apply defaults in `internal/config/config.go`.
-- [ ] 6.0 Implement Logging for Configuration Status
-  - [ ] 6.1 Implement logging for configuration file loading status in `internal/config/config.go`.
-  - [ ] 6.2 Implement logging for configuration validation status in `internal/config/validator.go`.
-  - [ ] 6.3 Implement logging for configuration reloading status in `internal/config/reloader.go`. 
+- [ ] 1.0 Define Core Configuration Structures (in `internal/config/config.go`)
+  - [ ] 1.1 Define `GlobalConfig` struct to hold all other configuration sections.
+  - [ ] 1.2 Define `InputConfig` struct (e.g., `InputFile`, `InputURLs []string`).
+  - [ ] 1.3 Define `HTTPXRunnerConfig` (previously probing config, e.g., `Threads`, `RateLimit`, `Timeout`, `Retries`, `Proxy`, `FollowRedirects`, `MaxRedirects`, `CustomHeaders`, `Resolvers`, `Ports`, `HttpxFlags`, `SkipDefaultPorts`, `DenyInternalIPs`).
+  - [ ] 1.4 Define `CrawlerConfig` (e.g., `MaxDepth`, `IncludeSubdomains`, `MaxConcurrentRequests`, `AllowedHostRegex`, `ExcludedHostRegex`).
+  - [ ] 1.5 Define `ReporterConfig` for HTML reports (e.g., `OutputDir`, `ItemsPerPage`, `EmbedAssets`).
+  - [ ] 1.6 Define `StorageConfig` for Parquet (e.g., `ParquetBasePath`, `CompressionCodec`).
+  - [ ] 1.7 Define `NotificationConfig` for Discord (e.g., `DiscordWebhookURL`, `MentionRoles []string`, `NotifyOnSuccess`, `NotifyOnFailure`).
+  - [ ] 1.8 Define `LogConfig` (e.g., `LogLevel` (debug, info, warn, error), `LogFormat` (text, json), `LogFile`).
+  - [ ] 1.9 Define `DiffConfig` (e.g., `PreviousScanLookbackDays`).
+  - [ ] 1.10 Define `MonitorConfig` for JS/HTML file monitoring (e.g., `JSFileExtensions`, `HTMLFileExtensions`).
+  - [ ] 1.11 Add `SetDefaults()` method to `GlobalConfig` and individual config structs to apply default values.
+
+- [ ] 2.0 Implement Configuration Loading (in `internal/config/loader.go`)
+  - [ ] 2.1 Implement `LoadConfig(configPath string) (*GlobalConfig, error)` function.
+  - [ ] 2.2 Add logic to determine config file path: command-line flag (e.g., `-config`), environment variable, default path (e.g., `config.json` in CWD or executable dir).
+  - [ ] 2.3 Implement reading the configuration file (JSON or YAML - choose one, YAML might be more user-friendly for comments).
+  - [ ] 2.4 Implement parsing the file content into the `GlobalConfig` struct.
+  - [ ] 2.5 After parsing, call `SetDefaults()` to ensure all fields have values.
+  - [ ] 2.6 (Optional) Implement merging/overriding with environment variables (e.g., `MONSTERINC_HTTPX_THREADS=20` overrides `Threads` in `HTTPXRunnerConfig`).
+  - [ ] 2.7 Handle file not found, parsing errors gracefully.
+
+- [ ] 3.0 Implement Configuration Validation (in `internal/config/validator.go`)
+  - [ ] 3.1 Implement `ValidateConfig(cfg *GlobalConfig) error` function.
+  - [ ] 3.2 Use a validation library (e.g., `go-playground/validator`) to define and apply validation tags to struct fields (e.g., `required`, `min`, `max`, `url`, `filepath`).
+  - [ ] 3.3 Validate `InputFile` existence if provided.
+  - [ ] 3.4 Validate `Threads`, `RateLimit`, `Timeout`, `Retries`, `MaxRedirects`, `MaxDepth`, `ItemsPerPage` are positive integers.
+  - [ ] 3.5 Validate `Proxy` and `DiscordWebhookURL` are valid URLs if provided.
+  - [ ] 3.6 Validate `LogLevel` is one of the allowed values.
+  - [ ] 3.7 Validate `LogFormat` is one of the allowed values.
+  - [ ] 3.8 Return detailed, user-friendly error messages indicating which field failed validation and why.
+
+- [ ] 4.0 Create Example Configuration File
+  - [ ] 4.1 Create `config.example.json` (or `config.example.yaml`) with all defined configuration options.
+  - [ ] 4.2 Include comments for each field explaining its purpose, type, and default value.
+  - [ ] 4.3 Ensure the example file reflects the default values set by `SetDefaults()`.
+
+- [ ] 5.0 Integrate Configuration into `main.go`
+  - [ ] 5.1 In `cmd/monsterinc/main.go`, add a command-line flag for the configuration file path.
+  - [ ] 5.2 Call `config.LoadConfig()` to load the configuration.
+  - [ ] 5.3 Call `config.ValidateConfig()` to validate the loaded configuration.
+  - [ ] 5.4 Handle errors from loading/validation by exiting with a clear message.
+  - [ ] 5.5 Pass the loaded and validated `GlobalConfig` (or specific sub-configs) to different modules/services (Runner, Crawler, Reporter, etc.).
+
+- [ ] 6.0 (Optional) Implement Runtime Configuration Reloading (consider if truly needed, SIGHUP might be complex)
+  - [ ] 6.1 (If implemented) Create `Reloader` struct in `internal/config/reloader.go`.
+  - [ ] 6.2 (If implemented) Implement a mechanism to watch for config file changes or receive a signal (e.g., SIGHUP).
+  - [ ] 6.3 (If implemented) Upon trigger, reload, re-validate, and atomically update the global config instance if valid.
+  - [ ] 6.4 (If implemented) Ensure components using the config can safely access the updated version.
+
+- [ ] 7.0 Unit Tests
+  - [ ] 7.1 Write unit tests for `LoadConfig` covering: valid file, missing file, invalid JSON/YAML, correct default application.
+  - [ ] 7.2 Write unit tests for `ValidateConfig` covering: valid config, various invalid field scenarios (missing required, wrong type, out of range).
+  - [ ] 7.3 (Optional) Write unit tests for environment variable overriding.
+  - [ ] 7.4 (If implemented) Write unit tests for configuration reloading. 

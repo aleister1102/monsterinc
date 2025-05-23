@@ -1,0 +1,35 @@
+{
+  "InputFile": "urls.txt",
+  "OutputDir": "results",
+  "Threads": 10,
+  "RateLimit": 100,
+  "Timeout": 10,
+  "Retries": 2,
+  "Proxy": "",
+  "FollowRedirects": true,
+  "MaxRedirects": 5,
+  "IncludeCDN": false,
+  "CustomHeaders": {
+    "User-Agent": "MonsterInc Prober/1.0"
+  },
+  "Resolvers": [],
+  "AllowInternalIPs": false,
+  "DenyInternalIPs": true,
+  "SkipDefaultPorts": false,
+  "Ports": "80,443,8080",
+  "HttpxFlags": [
+    "-title",
+    "-tech-detect",
+    "-status-code",
+    "-content-length",
+    "-cdn",
+    "-server",
+    "-ip"
+  ],
+  "ReporterConfig": {
+    "ItemsPerPage": 25
+  },
+  "StorageConfig": {
+    "ParquetBasePath": "data"
+  }
+}
