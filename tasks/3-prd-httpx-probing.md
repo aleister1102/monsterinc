@@ -1,83 +1,104 @@
-# PRD: HTTP/S Probing (`httpx-probing`)
+# PRD: HTTP/S Probing via `httpx` Library Integration
 
 ## 1. Introduction/Overview
 
-This document outlines the requirements for the "HTTP/S Probing" feature of the MonsterInc tool.
+This document outlines the requirements for the "HTTP/S Probing" feature of the MonsterInc tool, which will be implemented by **integrating the `httpx` library from ProjectDiscovery** (`github.com/projectdiscovery/httpx`).
 
-The primary purpose of this feature is to take a list of URLs (typically discovered by the `target-crawling` module), send HTTP/S requests to each, and extract key information about the responses. This mimics the functionality of tools like `httpx` with a specific set of data extraction options.
+The primary purpose is to leverage the robust and feature-rich `httpx` library to perform HTTP/S probing on a list of URLs, extract key information, and make this information available within the MonsterInc ecosystem. This approach replaces the previous plan of reimplementing `httpx`-like functionality from scratch.
 
 ## 2. Goals
 
-*   To determine the status and gather essential metadata for a large list of URLs efficiently.
-*   To extract specific data points from HTTP responses, including status code, content length, content type, page title, server headers, IP address, CNAME records, and detected technologies.
-*   To provide configurable options for the probing process, such as concurrency and request timeouts.
-*   To produce structured data for each probed URL, suitable for reporting and storage.
+*   To efficiently probe a large list of URLs using the underlying power of the `httpx` library.
+*   To extract specific data points from HTTP responses by configuring and utilizing the `httpx` library's capabilities. Supported data points include status code, content length, content type, page title, server header, detected technologies, IP address, CNAME records, and final URL after redirects.
+*   To provide a configurable Go interface within MonsterInc to control the `httpx` library's probing behavior (e.g., concurrency, timeouts, redirects, JSON output).
+*   To parse and normalize the output from the `httpx` library (expected to be JSON or Go structs) into a structured format usable by other MonsterInc modules.
 
 ## 3. User Stories
 
-*   As a security analyst, I want to quickly probe all URLs discovered by the crawler to get their status codes, server types, and page titles, so I can prioritize further investigation.
-*   As a reconnaissance specialist, I want to identify the technologies running on discovered web servers so I can tailor my subsequent testing methodologies.
-*   As a system administrator, I want to verify the reachability and CNAME records for a list of internal web assets after a migration.
+*   As a security analyst, I want MonsterInc to use the trusted `httpx` library to quickly probe discovered URLs for their status codes, server types, page titles, and technologies, so I can rely on its established capabilities for further investigation.
+*   As a reconnaissance specialist, I want MonsterInc to leverage `httpx`'s technology detection to identify services on discovered web servers, so I can tailor subsequent testing.
+*   As a system administrator, I want MonsterInc to use `httpx` to verify reachability, CNAME records, and IP addresses for internal web assets.
 
 ## 4. Functional Requirements
 
-1.  The system must accept a list of unique URLs (output from the `target-crawling` module) as input.
-2.  For each input URL, the system must perform an HTTP/S request.
-3.  **Data Extraction (corresponding to `httpx` flags):** The system must attempt to extract the following information for each successfully probed URL:
-    *   `StatusCode` (from `-sc`): The HTTP status code of the response.
-    *   `ContentLength` (from `-cl`): The value of the `Content-Length` header.
-    *   `ContentType` (from `-ct`): The value of the `Content-Type` header.
-    *   `Title` (from `-title`): The content of the `<title>` tag from HTML responses.
-    *   `ServerHeader` (from `-server`): The value of the `Server` HTTP header.
-    *   `Technologies` (from `-td`): A list of web technologies detected on the page/server. This will be based on integrating or emulating a Wappalyzer-like engine.
-    *   `IPAddress` (from `-ip`): The resolved IP address(es) of the hostname.
-    *   `CNAMERecord` (from `-cname`): The CNAME record(s) for the hostname, if any.
-    *   `FinalURL` (related to `-fr`): If redirects are followed, this is the URL of the final response.
-    *   `RedirectChain`: (related to `-fr`): A list of URLs in the redirect chain, if any.
-4.  **Control Options (Configurable, with defaults):**
-    *   `Threads` (from `-t`): Number of concurrent probing threads. (Default: `40`, configurable).
-    *   `RequestTimeout`: Timeout for each individual HTTP/S request. (Default: 10 seconds, configurable).
-    *   `FollowRedirects` (from `-fr`): Boolean, whether to follow HTTP redirects. (Default: `true`). If true, data should be extracted from the final response after all redirects.
-    *   `MaxRedirects`: Maximum number of redirects to follow for a single URL. (Default: 10, configurable).
-    *   `UserAgent`: User-Agent string for probing requests. (Default: "MonsterIncProber/1.0", configurable).
-    *   `ProxyURL`: Optional HTTP/S proxy URL to route probing traffic through. (Configurable).
-    *   `CustomHeaders`: Optional custom HTTP headers to include in every probing request. (Configurable).
-    *   `InsecureTLS`: Optional flag to disable TLS certificate verification. (Default: `false`, configurable).
-5.  **Output Structure:**
-    *   For each probed URL, the system must produce a structured data object (e.g., a Go struct) containing all the extracted fields mentioned above. If a piece of information cannot be retrieved (e.g., no title tag, CNAME not found), the corresponding field in the struct should be empty or indicate absence appropriately.
-    *   This list of structured data objects must be passed in memory to subsequent modules (`httpx-html-reporting` and `httpx-parquet-storage`).
+1.  **Input:** The system must accept a list of unique URLs as input for the probing module.
+2.  **`httpx` Library Integration:**
+    *   The system must use the `github.com/projectdiscovery/httpx/runner` package (or the appropriate Go library interface provided by `httpx`) to perform probing.
+    *   MonsterInc will act as a wrapper or a client to this library.
+3.  **Supported `httpx` Features/Flags (Data Extraction & Control):**
+    MonsterInc's probing module must support configuring the `httpx` library to achieve functionality equivalent to the following `httpx` command-line flags. The exact mapping will depend on the `httpx` library's Go API.
+    *   **Data Extraction Flags:**
+        *   `-sc`: Extract HTTP Status Code.
+        *   `-cl`: Extract Content-Length header value.
+        *   `-ct`: Extract Content-Type header value.
+        *   `-title`: Extract HTML page title.
+        *   `-server`: Extract Server HTTP header value.
+        *   `-td` / `-tech-detect`: Perform technology detection.
+        *   `-ip`: Resolve and extract host IP address(es).
+        *   `-cname`: Lookup and extract CNAME record(s).
+    *   **Control Flags:**
+        *   `-t <int>` (e.g., `-t 40`): Control concurrency (threads). MonsterInc should allow configuration, defaulting to 40 if not specified.
+        *   `-fr`: Follow HTTP redirects (boolean, default to true).
+        *   `-timeout <int>`: Request timeout (configurable, with a sensible default like 10 or 30 seconds).
+        *   `-retries <int>`: Number of retries (configurable, default 0 or 1).
+        *   `-proxy <url>`: Support for HTTP/S proxy.
+        *   `-H <header>`: Support for custom headers.
+        *   `-no-color` / `-nc`: While primarily for CLI, ensure any direct output parsing is not affected by color codes if `httpx` defaults to them even in library mode. Generally, JSON output should be clean.
+        *   *(Consider other relevant `httpx` options as discovered during implementation, e.g., `max-redirects`, `user-agent`)*
+4.  **Configuration within MonsterInc:**
+    *   A Go struct (e.g., `HttpxRunnerConfig` or similar within `internal/config` or `internal/httpxrunner`) will be used to hold settings for the `httpx` probing operations.
+    *   This struct will map to the `httpx` library options.
+5.  **Output Parsing and Structuring:**
+    *   The probing module must parse the output generated by the `httpx` library (expected to be JSON/JSONL or direct Go structs).
+    *   For each probed URL, the parsed data must be mapped to MonsterInc's internal `ProbeResult` struct (or an equivalent updated struct). This struct should contain fields for all data points listed in FR3.
+    *   The `ProbeResult` struct should include:
+        *   `InputURL` (Original URL sent for probing)
+        *   `FinalURL` (URL after redirects, if `FollowRedirects` is true)
+        *   `StatusCode`
+        *   `ContentLength`
+        *   `ContentType`
+        *   `Title`
+        *   `WebServer` (from Server header)
+        *   `Technologies` (as a list of strings)
+        *   `IPs` (list of strings)
+        *   `CNAMEs` (list of strings)
+        *   `Error` (string or error type, if probing failed for this URL)
+        *   `Duration` (time taken for this specific probe)
+        *   `JSONOutput` (Raw JSON line from `httpx` for the URL, for audit/debugging, optional)
+        *   *(Consider if `RedirectChain` is easily available from `httpx` output and if it should be stored)*
 6.  **Error Handling:**
-    *   If a URL probe results in a timeout, it should be logged, and the corresponding output struct should indicate the timeout (e.g., a specific error field or a special status code).
-    *   If a URL probe results in a connection error (e.g., connection refused, DNS lookup failed), it should be logged, and the output struct should reflect this error.
-    *   The system should continue processing other URLs even if some individual probes fail.
+    *   If the `httpx` library execution encounters a global error (e.g., invalid configuration passed to it), this should be logged and handled by MonsterInc.
+    *   For individual URL probe failures reported by `httpx` (e.g., timeout, connection error, DNS lookup failure), these details should be captured in the `Error` field of the corresponding `ProbeResult` struct.
+    *   MonsterInc should continue processing other URLs if one or more individual probes fail.
+    *   All significant errors from `httpx` operations should be logged by MonsterInc.
 
 ## 5. Non-Goals (Out of Scope)
 
-*   This module will not perform any form of active vulnerability scanning or fuzzing.
-*   This module will not attempt to bypass Web Application Firewalls (WAFs).
-*   While it detects technologies, it will not assess the vulnerability status of those technologies.
-*   The `-nc` (no-color) option is not directly applicable as the primary output is structured data, not direct console text.
+*   Re-implementing any core probing, technology detection, or output formatting logic that `httpx` library already provides.
+*   Directly shelling out to the `httpx` CLI executable. Integration must be via its Go library.
+*   Supporting every single flag or feature of the `httpx` CLI if it's not relevant or easily usable via its Go library. Focus on the core set defined in FR3.
 
-## 6. Design Considerations (Optional)
+## 6. Design Considerations
 
-*   The HTTP client used should be robust and highly configurable (e.g., Go's standard `net/http` with appropriate settings).
-*   The technology detection engine (`-td`) should be modular to allow for updates to its rules/signatures. Integration with or inspiration from `httpx`'s use of `wappalyzer` technologies is key.
+*   The wrapper around the `httpx` Go library should be kept clean and focused on configuration and result parsing.
+*   The `ProbeResult` struct in MonsterInc should be the canonical representation of probed data, abstracting away the direct `httpx` output structure.
 
-## 7. Technical Considerations (Optional)
+## 7. Technical Considerations
 
-*   Efficient concurrency management for a large number of URLs.
-*   Careful handling of HTTP client settings, especially timeouts and redirect policies.
-*   For CNAME and IP lookups, standard Go DNS resolution functions can be used.
+*   Thorough understanding of the `projectdiscovery/httpx/runner` API, its options struct(s), and the format of its results (Go objects or JSON).
+*   Ensuring `go.mod` includes the correct version of the `httpx` library.
+*   Error propagation and handling from the `httpx` library back to the MonsterInc caller.
 
 ## 8. Success Metrics
 
-*   The system correctly extracts all specified data fields (status code, title, server, IP, CNAME, tech) for over 95% of successfully responding URLs in a test set.
-*   Configurable options (threads, timeout, follow-redirects) are correctly applied and impact the probing behavior as expected.
-*   The system efficiently processes a large list of URLs (e.g., 10,000 URLs) within a reasonable timeframe.
-*   Failures (timeouts, connection errors) for individual URLs are logged appropriately without halting the processing of other URLs.
+*   MonsterInc correctly configures and runs the `httpx` library to extract all specified data fields (FR3) for over 95% of successfully responding URLs in a test set.
+*   MonsterInc accurately parses the results from `httpx` into the `ProbeResult` structure.
+*   Configurable options within MonsterInc correctly translate to `httpx` library behavior.
+*   Failures reported by `httpx` are correctly logged and stored in `ProbeResult.Error`.
 
 ## 9. Open Questions
 
-*   For `-td` (Tech Detected), what is the expected format of the output? A list of strings?
-*   When `FollowRedirects` is true, should we store information about intermediate redirect responses, or only the final one? (Current PRD suggests `FinalURL` and `RedirectChain`).
-*   Are there specific HTTP methods to use for probing (e.g., GET, HEAD)? (Current assumption: GET by default, HEAD as a configurable option perhaps for quicker checks). 
+*   What is the exact structure of the Go objects or JSON output provided by the `httpx` library when used programmatically? This will heavily influence the parsing logic. (Requires checking `httpx` library source/examples).
+*   How does the `httpx` library expose the list of redirects if `FollowRedirects` is true? Is a full `RedirectChain` easily obtainable?
+*   Does the `-td` (tech-detect) feature of `httpx` library require separate setup (e.g., downloading signature files) when used as a library? If so, how should MonsterInc manage this?
+*   The PRD for target crawling mentioned `httpx-parquet-storage` and `httpx-html-reporting` as subsequent modules. This PRD should ensure `ProbeResult` is suitable for them. 
