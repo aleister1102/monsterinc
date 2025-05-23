@@ -44,7 +44,7 @@ The primary purpose is to efficiently store the structured data collected by the
     *   Within the `data` directory, subdirectories must be created based on the date of the scan in `YYYYMMDD` format (e.g., `data/20240115/`).
     *   Each scan session must generate a new, separate Parquet file.
     *   The filename for each Parquet file should be unique and indicative of the scan, e.g., `scan_results_<timestamp_of_scan_start>.parquet` (e.g., `scan_results_20240115_143000.parquet`).
-6.  **Compression:** The Parquet files must be written using Snappy compression.
+6.  **Compression:** The Parquet files must be written using Zstandard compression.
 7.  **Error Handling:** If an error occurs during the writing of a Parquet file (e.g., I/O error, disk full), the system must log a detailed error message. It should attempt to complete storing other data if possible, or manage the error gracefully without crashing.
 
 ## 5. Non-Goals (Out of Scope)
@@ -65,7 +65,7 @@ The primary purpose is to efficiently store the structured data collected by the
 
 ## 8. Success Metrics
 
-*   All specified data fields from `httpx-probing` are accurately written to the Parquet files with the correct schema and Snappy compression.
+*   All specified data fields from `httpx-probing` are accurately written to the Parquet files with the correct schema and Zstandard compression.
 *   Generated Parquet files are valid and can be successfully read and queried by standard Parquet-compatible tools like DuckDB and Apache Spark/Pandas.
 *   The storage size of the Parquet files shows a significant reduction compared to equivalent uncompressed JSON or CSV data.
 *   File naming and directory structure conventions are correctly implemented.

@@ -4,7 +4,7 @@ Các tính năng:
 1. Nhóm target
 - Quản lý target: nhận vào danh sách target (là các URL) thông qua file text và chuẩn hóa các URL này.
 - Thực hiện crawl các target: sử dụng @https://github.com/hakluke/hakrawler
-- Với mỗi URL mà hakrawler có được, sử dụng @https://github.com/projectdiscovery/katana  để gửi request.
+- Với mỗi URL mà hakrawler có được, sử dụng @https://github.com/projectdiscovery/httpx  để gửi request.
 - Tạo ra báo cáo dạng HTML và có khả năng tìm kiếm dựa trên các trường của httpx, có khả năng sort theo các trường của httpx, có khả năng phân trang các kết quả của httpx. Mỗi lần scan là sẽ có một báo cáo (báo cáo có thể có nhiều target).
 - Các option httpx mà tôi sẽ sử dụng là: -sc -cl -ct -title -server -td -ip -cname -t 40 -fr -nc (sử dụng các httpx như là một thư viện và gọi các option trong type tương ứng)
 - Sử dụng database là parquet để giảm kích thước lưu trữ
