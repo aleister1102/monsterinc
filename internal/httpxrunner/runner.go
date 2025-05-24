@@ -2,6 +2,7 @@ package httpxrunner
 
 import (
 	"fmt"
+	"monsterinc/internal/models"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,7 +18,7 @@ import (
 type Runner struct {
 	httpxRunner *runner.Runner
 	options     *runner.Options
-	results     chan *ProbeResult
+	results     chan *models.ProbeResult
 	errors      chan error
 	wg          sync.WaitGroup
 }
@@ -60,7 +61,7 @@ type Config struct {
 
 // NewRunner creates a new instance of the httpx runner wrapper
 func NewRunner(config *Config) *Runner {
-	resultsChan := make(chan *ProbeResult, 100)
+	resultsChan := make(chan *models.ProbeResult, 100)
 	options := &runner.Options{
 		// Sensible defaults for library usage
 		Methods:                 "GET",
@@ -135,7 +136,7 @@ func NewRunner(config *Config) *Runner {
 
 	// OnResult Callback: Maps httpx.Result to our ProbeResult
 	options.OnResult = func(res runner.Result) {
-		probeResult := &ProbeResult{
+		probeResult := &models.ProbeResult{
 			InputURL:      res.URL,
 			Method:        res.Method,
 			Timestamp:     res.Timestamp,
@@ -180,10 +181,10 @@ func NewRunner(config *Config) *Runner {
 		// TLSData, CNAMEs, ASN processing is removed as per request.
 
 		if len(res.Technologies) > 0 {
-			probeResult.Technologies = make([]Technology, 0, len(res.Technologies))
+			probeResult.Technologies = make([]models.Technology, 0, len(res.Technologies))
 			for _, techName := range res.Technologies {
 				// Tạm thời chỉ lấy Name. Version và Category sẽ được cập nhật sau khi có cấu trúc chính xác.
-				tech := Technology{Name: techName}
+				tech := models.Technology{Name: techName}
 				// if res.TechnologyDetails != nil {
 				// 	if appInfo, ok := res.TechnologyDetails[techName]; ok {
 				// 		// Logic để lấy Version và Category sẽ được thêm ở đây
@@ -257,7 +258,7 @@ func (r *Runner) Run() error {
 }
 
 // Results returns a channel that receives probe results
-func (r *Runner) Results() <-chan *ProbeResult {
+func (r *Runner) Results() <-chan *models.ProbeResult {
 	return r.results
 }
 

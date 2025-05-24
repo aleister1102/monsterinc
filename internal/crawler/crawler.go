@@ -59,7 +59,7 @@ func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
 	if requestTimeout <= 0 {
 		requestTimeout = 10 * time.Second // Default from PRD if invalid in config
 	}
-	threads := cfg.Threads
+	threads := cfg.MaxConcurrentRequests // Use MaxConcurrentRequests from config
 	if threads <= 0 {
 		threads = 10 // Default from PRD if invalid in config
 	}

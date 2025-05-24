@@ -1,28 +1,36 @@
 package urlhandler
 
 import (
-	"errors"
 	"fmt"
 	"net/url"
 	"strings"
+
+	"monsterinc/internal/models" // Import the models package
 )
 
-// URLValidationError represents an error during URL validation
-type URLValidationError struct {
-	URL     string
-	Message string
-}
-
-func (e *URLValidationError) Error() string {
-	return fmt.Sprintf("invalid URL %s: %s", e.URL, e.Message)
-}
+// URLValidationError is now defined in internal/models/error.go
+// type URLValidationError struct {
+// 	URL     string
+// 	Message string
+// }
+//
+// func (e *URLValidationError) Error() string {
+// 	return fmt.Sprintf("invalid URL %s: %s", e.URL, e.Message)
+// }
 
 // ValidateURL validates a single URL
 func ValidateURL(rawURL string) error {
 	// Use NormalizeURL to validate
 	_, err := NormalizeURL(rawURL)
 	if err != nil {
-		return &URLValidationError{URL: rawURL, Message: err.Error()}
+		// Ensure we are returning the new models.URLValidationError type
+		if modelsErr, ok := err.(*models.URLValidationError); ok {
+			return modelsErr // Return as is if it's already the correct type (e.g. from NormalizeURL if it's updated)
+		}
+		// If NormalizeURL returns a generic error, wrap it.
+		// However, NormalizeURL itself should ideally return models.URLValidationError for consistency.
+		// For now, let's assume NormalizeURL might return a generic error related to validation.
+		return &models.URLValidationError{URL: rawURL, Message: err.Error()}
 	}
 	return nil
 }
@@ -45,10 +53,7 @@ func ValidateURLs(urls []string) map[string]error {
 func NormalizeURL(rawURL string) (string, error) {
 	trimmedURL := strings.TrimSpace(rawURL)
 	if trimmedURL == "" {
-		// According to the PRD, empty lines in the input file should be skipped.
-		// This function signals an empty URL to the caller (e.g., file processing logic)
-		// which can then decide to skip it.
-		return "", errors.New("input URL is empty")
+		return "", &models.URLValidationError{URL: rawURL, Message: "input URL is empty"} // Return specific error type
 	}
 
 	// Preserve the original fragment before parsing, as url.Parse might handle it.
@@ -63,8 +68,7 @@ func NormalizeURL(rawURL string) (string, error) {
 	// Attempt to parse the URL.
 	parsedURL, err := url.Parse(urlToParse)
 	if err != nil {
-		// This indicates a malformed URL that cannot be processed.
-		return "", err
+		return "", &models.URLValidationError{URL: rawURL, Message: fmt.Sprintf("parsing failed: %s", err.Error())}
 	}
 
 	// Task 1.2: Add default scheme if missing.
@@ -76,8 +80,7 @@ func NormalizeURL(rawURL string) (string, error) {
 		// Prepending a scheme ensures Host is correctly identified.
 		parsedURL, err = url.Parse("http://" + trimmedURL) // Use original trimmedURL for re-parsing
 		if err != nil {
-			// This could happen if, even after prepending http://, the URL is malformed.
-			return "", err
+			return "", &models.URLValidationError{URL: rawURL, Message: fmt.Sprintf("parsing with default scheme failed: %s", err.Error())}
 		}
 	}
 
@@ -95,7 +98,12 @@ func NormalizeURL(rawURL string) (string, error) {
 	// The .String() method reassembles the URL from the parsed components.
 	// More specific normalization rules (like scheme defaulting, case normalization, fragment removal)
 	// will be implemented in subsequent tasks (1.2, 1.3).
-	return parsedURL.String(), nil
+	finalURL := parsedURL.String()
+	if finalURL == "" || finalURL == "http://" || finalURL == "https://" { // Basic check for empty result post-normalization
+		return "", &models.URLValidationError{URL: rawURL, Message: "normalization resulted in an empty or scheme-only URL"}
+	}
+
+	return finalURL, nil
 }
 
 // NormalizeURLs normalizes multiple URLs and returns a map of original URLs to their normalized forms

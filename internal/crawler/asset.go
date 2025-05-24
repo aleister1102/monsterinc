@@ -6,22 +6,24 @@ import (
 	"net/url"
 	"strings"
 
+	"monsterinc/internal/models"
+
 	"github.com/PuerkitoBio/goquery"
 )
 
-// URLSource defines the tag and attribute from which a URL was extracted.
-type URLSource struct {
-	Tag       string
-	Attribute string
-}
+// URLSource is now defined in internal/models/asset.go
+// type URLSource struct {
+// 	Tag       string
+// 	Attribute string
+// }
 
-// ExtractedAsset represents a URL found in an HTML document.
-type ExtractedAsset struct {
-	AbsoluteURL string
-	SourceTag   string // e.g., "a"
-	SourceAttr  string // e.g., "href"
-	// ContextText string // Optional: text content of the link, or surrounding text
-}
+// ExtractedAsset is now defined in internal/models/asset.go
+// type ExtractedAsset struct {
+// 	AbsoluteURL string
+// 	SourceTag   string // e.g., "a"
+// 	SourceAttr  string // e.g., "href"
+// 	// ContextText string // Optional: text content of the link, or surrounding text
+// }
 
 // tagsToExtract defines which HTML tags and attributes to check for URLs.
 // Task 3.1: Define tags and attributes for URL extraction.
@@ -43,7 +45,7 @@ var tagsToExtract = map[string]string{
 // It resolves relative URLs against the provided basePageURL.
 // Task 3.1: Implement URL extraction from HTML tags.
 // Task 3.2 (partially): This function collects asset URLs.
-func ExtractAssetsFromHTML(htmlBody io.Reader, basePageURL *url.URL, crawlerInstance *Crawler) ([]ExtractedAsset, error) {
+func ExtractAssetsFromHTML(htmlBody io.Reader, basePageURL *url.URL, crawlerInstance *Crawler) ([]models.ExtractedAsset, error) {
 	if basePageURL == nil {
 		log.Println("[WARN] AssetExtractor: Base page URL is nil, cannot resolve relative URLs effectively.")
 	}
@@ -53,7 +55,7 @@ func ExtractAssetsFromHTML(htmlBody io.Reader, basePageURL *url.URL, crawlerInst
 		return nil, err
 	}
 
-	var extractedAssets []ExtractedAsset
+	var extractedAssets []models.ExtractedAsset
 
 	for tag, attribute := range tagsToExtract {
 		doc.Find(tag).Each(func(i int, s *goquery.Selection) {
@@ -97,7 +99,7 @@ func ExtractAssetsFromHTML(htmlBody io.Reader, basePageURL *url.URL, crawlerInst
 					// continue
 				}
 
-				asset := ExtractedAsset{
+				asset := models.ExtractedAsset{
 					AbsoluteURL: absoluteURL,
 					SourceTag:   tag,
 					SourceAttr:  attribute,

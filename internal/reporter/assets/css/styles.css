@@ -1,0 +1,145 @@
+/* Custom Styles for MonsterInc Report */
+
+body {
+    font-family: 'Nunito', sans-serif;
+    font-size: 0.9rem;
+    background-color: #f8f9fa; /* Light grey background */
+}
+
+.navbar {
+    box-shadow: 0 2px 4px rgba(0,0,0,.1);
+}
+
+#sidebarMenu {
+    box-shadow: 0 2px 4px rgba(0,0,0,.05);
+}
+
+#sidebarMenu .nav-link {
+    color: #333;
+}
+
+#sidebarMenu .nav-link.active,
+#sidebarMenu .nav-link:hover {
+    color: #007bff;
+    background-color: #e9ecef;
+    border-radius: .25rem;
+}
+
+.table th,
+.table td {
+    padding: 0.5rem;
+    vertical-align: middle;
+    border-top: 1px solid #dee2e6;
+}
+
+.table thead th {
+    vertical-align: bottom;
+    border-bottom: 2px solid #dee2e6;
+    background-color: #e9ecef;
+    font-weight: 600; /* Nunito bold */
+}
+
+.table-hover tbody tr:hover {
+    color: #212529;
+    background-color: rgba(0,0,0,.075);
+}
+
+.table {
+    border-radius: .3rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+}
+
+/* Truncation styling */
+td {
+    max-width: 200px; /* Adjust as needed */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+td a {
+    /* color: #0d6efd; */ /* Standard Bootstrap link color */
+    text-decoration: none;
+}
+td a:hover {
+    text-decoration: underline;
+}
+
+.status-code-200 {
+    /* color: green; */ /* Example: custom color for 200 status */
+}
+.status-code-301, .status-code-302 {
+    /* color: orange; */
+}
+.status-code-400, .status-code-401, .status-code-403, .status-code-404, .status-code-500 {
+    /* color: red; */
+}
+
+/* Search and Filter Bar */
+#globalSearch {
+    max-width: 300px;
+}
+
+/* Pagination */
+.pagination .page-link {
+    border-radius: .25rem;
+    margin: 0 2px;
+    color: #007bff;
+}
+.pagination .page-item.active .page-link {
+    z-index: 3;
+    color: #fff;
+    background-color: #007bff;
+    border-color: #007bff;
+}
+
+/* Styling for rounded corners, subtle box shadows, gradients (where appropriate) */
+.card, .alert, .modal-content {
+    border-radius: .3rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.24);
+}
+
+/* Interactive element feedback */
+.btn {
+    border-radius: .25rem;
+    transition: all 0.15s ease-in-out;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,.1);
+}
+
+.sortable:hover {
+    cursor: pointer;
+    background-color: #dde2e6;
+}
+
+/* Specific for long string display (truncation is handled by JS or template funcs, this is fallback) */
+.truncate-tooltip {
+    position: relative;
+    display: inline-block;
+}
+
+.truncate-tooltip .tooltiptext {
+    visibility: hidden;
+    width: auto; /* Adjust as needed, or set max-width */
+    background-color: #555;
+    color: #fff;
+    text-align: center;
+    border-radius: 6px;
+    padding: 5px 10px;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%; /* Position the tooltip above the text */
+    left: 50%;
+    margin-left: -60px; /* Use half of the tooltip's width to center it */
+    opacity: 0;
+    transition: opacity 0.3s;
+    white-space: normal; /* Allow tooltip text to wrap */
+}
+
+.truncate-tooltip:hover .tooltiptext {
+    visibility: visible;
+    opacity: 1;
+} 

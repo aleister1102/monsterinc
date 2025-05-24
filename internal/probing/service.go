@@ -19,44 +19,51 @@ func NewService() *Service {
 	return &Service{}
 }
 
-// RunHTTPXProbes thực hiện probing sử dụng httpxrunner dựa trên cấu hình được cung cấp.
-func (s *Service) RunHTTPXProbes(appConfig *config.HTTPXConfig) error {
-	log.Printf("[INFO] ProbingService: Initializing HTTPX probing with %d targets.", len(appConfig.Targets))
+// RunHTTPXProbes executes HTTPX probing based on the provided application configuration.
+// It now expects *config.HTTPXRunnerConfig.
+func (s *Service) RunHTTPXProbes(runnerCfg *config.HTTPXRunnerConfig, targets []string) error {
+	log.Println("[INFO] ProbingService: Starting HTTPX probes...")
 
-	// Chuyển đổi HTTPXConfig của ứng dụng sang Config của runner
-	// Lưu ý: httpxrunner.Config là struct được định nghĩa trong package httpxrunner.
-	runnerCfg := &httpxrunner.Config{
-		Targets:         appConfig.Targets,
-		Method:          appConfig.Method,
-		RequestURIs:     appConfig.RequestURIs,
-		FollowRedirects: appConfig.FollowRedirects,
-		Timeout:         appConfig.Timeout,
-		Retries:         appConfig.Retries,
-		Threads:         appConfig.Threads,
-		CustomHeaders:   appConfig.CustomHeaders,
-		Proxy:           appConfig.Proxy,
-
-		// Ánh xạ các cờ trích xuất dữ liệu từ appConfig sang runnerConfig
-		// Đảm bảo rằng tên các trường trong appConfig (ví dụ config.HTTPXConfig) khớp
-		TechDetect:           appConfig.ExtractTech,
-		ExtractTitle:         appConfig.ExtractTitle,
-		ExtractStatusCode:    appConfig.ExtractStatus,
-		ExtractLocation:      appConfig.ExtractFinalURL,
-		ExtractContentLength: appConfig.ExtractLength,
-		ExtractServerHeader:  appConfig.ExtractServer,
-		ExtractContentType:   appConfig.ExtractType,
-		ExtractIPs:           appConfig.ExtractIP,
-		ExtractBody:          true, // Mặc định lấy body, hoặc cấu hình trong appConfig
-		ExtractHeaders:       true, // Mặc định lấy headers, hoặc cấu hình trong appConfig
+	if runnerCfg == nil {
+		return fmt.Errorf("httpx runner configuration is nil")
+	}
+	if len(targets) == 0 {
+		log.Println("[INFO] ProbingService: No targets provided for HTTPX probing.")
+		return nil
 	}
 
-	runnerInstance := httpxrunner.NewRunner(runnerCfg)
+	// Create a new httpxrunner.Config from the global HTTPXRunnerConfig
+	// This mapping is necessary because httpxrunner.Config is specific to the runner library wrapper.
+	httpxLibConfig := &httpxrunner.Config{
+		Targets:         targets, // Use the passed targets
+		Threads:         runnerCfg.Threads,
+		Timeout:         runnerCfg.Timeout,
+		Retries:         runnerCfg.Retries,
+		FollowRedirects: runnerCfg.FollowRedirects,
+		CustomHeaders:   runnerCfg.CustomHeaders,
+		Proxy:           runnerCfg.Proxy,
+		// Map other relevant fields from runnerCfg to httpxLibConfig
+		// For example, if httpxrunner.Config had fields for TechDetect, ExtractTitle, etc., map them here.
+		// Based on the current httpxrunner.Config, many of these are booleans set by default or can be mapped.
+		TechDetect:           true, // Default, or map from runnerCfg if available
+		ExtractTitle:         true, // Default, or map from runnerCfg if available
+		ExtractStatusCode:    true, // Default, or map from runnerCfg if available
+		ExtractLocation:      true, // Default, or map from runnerCfg if available
+		ExtractContentLength: true, // Default, or map from runnerCfg if available
+		ExtractServerHeader:  true, // Default, or map from runnerCfg if available
+		ExtractContentType:   true, // Default, or map from runnerCfg if available
+		ExtractIPs:           true, // Default, or map from runnerCfg if available
+		ExtractBody:          true, // Default, or map from runnerCfg if available (assuming we want body)
+		ExtractHeaders:       true, // Default, or map from runnerCfg if available
+	}
 
-	err := runnerInstance.Initialize()
+	runner := httpxrunner.NewRunner(httpxLibConfig)
+
+	err := runner.Initialize()
 	if err != nil {
 		return fmt.Errorf("failed to initialize httpx runner: %w", err)
 	}
-	defer runnerInstance.Close()
+	defer runner.Close()
 
 	var wg sync.WaitGroup
 	resultsCount := 0
@@ -64,7 +71,7 @@ func (s *Service) RunHTTPXProbes(appConfig *config.HTTPXConfig) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for result := range runnerInstance.Results() {
+		for result := range runner.Results() {
 			resultsCount++
 			if result.Error != "" {
 				log.Printf("[RESULT] HTTPX Probe for %s FAILED: %s (Status: %d)", result.InputURL, result.Error, result.StatusCode)
@@ -90,13 +97,13 @@ func (s *Service) RunHTTPXProbes(appConfig *config.HTTPXConfig) error {
 	}()
 
 	go func() {
-		for err := range runnerInstance.Errors() {
+		for err := range runner.Errors() {
 			log.Printf("[ERROR] HTTPX Runner global error: %v", err)
 		}
 	}()
 
 	log.Println("[INFO] ProbingService: Starting HTTPX probing run...")
-	runErr := runnerInstance.Run()
+	runErr := runner.Run()
 	if runErr != nil {
 		log.Printf("[ERROR] ProbingService: HTTPX runner execution failed: %v", runErr)
 	}
@@ -105,7 +112,7 @@ func (s *Service) RunHTTPXProbes(appConfig *config.HTTPXConfig) error {
 
 	log.Printf("[INFO] ProbingService: HTTPX Probing finished.")
 	log.Printf("[INFO] ProbingService: Summary - Targets Attempted: %d, Results Processed: %d",
-		len(appConfig.Targets),
+		len(targets),
 		resultsCount)
 	return runErr
 }

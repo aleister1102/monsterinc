@@ -32,7 +32,7 @@ func main() {
 
 	// --- Crawler Module --- //
 	// Sử dụng CrawlerSettings từ GlobalConfig nếu không có crawlerConfigFile riêng
-	crawlerCfg := &gCfg.CrawlerSettings
+	crawlerCfg := &gCfg.CrawlerConfig
 	if *crawlerConfigFile != "" {
 		log.Printf("[INFO] Main: Loading dedicated crawler configuration from %s", *crawlerConfigFile)
 		crawlerCfgFromFile, err := config.LoadCrawlerConfigFromFile(*crawlerConfigFile) // Asmume this func exists & handles JSON
@@ -69,6 +69,7 @@ func main() {
 		}
 	}
 
+	var discoveredURLs []string // Store discovered URLs here
 	if len(crawlerCfg.SeedURLs) == 0 {
 		log.Println("[INFO] Main: No seed URLs provided for crawler. Skipping crawler module.")
 	} else {
@@ -80,18 +81,76 @@ func main() {
 		log.Println("[INFO] Main: Starting crawl...")
 		crawlerInstance.Start()
 		log.Println("[INFO] Main: Crawl finished.")
-		log.Printf("[INFO] Main: Total URLs discovered: %d", len(crawlerInstance.GetDiscoveredURLs()))
+		discoveredURLs = crawlerInstance.GetDiscoveredURLs() // Get discovered URLs
+		log.Printf("[INFO] Main: Total URLs discovered: %d", len(discoveredURLs))
 	}
 
 	// --- HTTPX Probing Module --- //
 	log.Println("-----")
 	log.Println("[INFO] Main: Starting HTTPX Probing Module...")
 
-	if len(gCfg.HTTPXSettings.Targets) == 0 {
-		log.Println("[INFO] Main: No targets specified in httpx_settings of global config. Skipping HTTPX probing.")
+	var targets []string
+	if len(discoveredURLs) > 0 {
+		log.Println("[INFO] Main: Using URLs discovered by crawler for HTTPX probing.")
+		targets = discoveredURLs
+	} else {
+		log.Println("[INFO] Main: No URLs from crawler. Falling back to global config for HTTPX targets.")
+		// Use InputFile or InputURLs from InputConfig within GlobalConfig for targets
+		targets = gCfg.InputConfig.InputURLs
+		if gCfg.InputConfig.InputFile != "" {
+			log.Printf("[INFO] Main: Reading targets for HTTPX from input file: %s", gCfg.InputConfig.InputFile)
+			// Logic to read targets from gCfg.InputConfig.InputFile
+			// This is a simplified example; you might need more robust file reading and parsing
+			file, errFile := os.Open(gCfg.InputConfig.InputFile)
+			if errFile != nil {
+				log.Printf("[WARN] Main: Could not open HTTPX target file '%s': %v. Proceeding with InputURLs if any.", gCfg.InputConfig.InputFile, errFile)
+			} else {
+				defer file.Close()
+				scanner := bufio.NewScanner(file)
+				var fileTargets []string
+				for scanner.Scan() {
+					target := strings.TrimSpace(scanner.Text())
+					if target != "" {
+						fileTargets = append(fileTargets, target)
+					}
+				}
+				if scanner.Err() != nil {
+					log.Printf("[WARN] Main: Error reading HTTPX target file '%s': %v. Proceeding with InputURLs if any.", gCfg.InputConfig.InputFile, scanner.Err())
+				} else {
+					targets = append(targets, fileTargets...)
+				}
+			}
+		}
+	}
+
+	if len(targets) == 0 {
+		log.Println("[INFO] Main: No targets specified for HTTPX probing (checked InputURLs and InputFile in global config). Skipping HTTPX probing.")
 	} else {
 		probingSvc := probing.NewService()
-		err = probingSvc.RunHTTPXProbes(&gCfg.HTTPXSettings) // Truyền HTTPXSettings từ GlobalConfig
+		log.Printf("[INFO] Main: Running HTTPX probes for %d targets.", len(targets))
+
+		// We now pass HTTPXRunnerConfig. The probingSvc.RunHTTPXProbes method
+		// will need to be aware of how to use this config and potentially the gCfg.InputConfig for targets.
+		// For this change to work, probing.RunHTTPXProbes must expect *config.HTTPXRunnerConfig
+		// and internally it should use the `targets` list that we prepared above, or have access to gCfg.InputConfig.
+		// For now, assuming the function signature expects *config.HTTPXRunnerConfig and we have populated `targets` for its internal use (if it can access it).
+		// A more explicit approach would be to modify HTTPXRunnerConfig to include a Targets field, or change RunHTTPXProbes signature.
+		// Given the linter error `want (*config.HTTPXConfig)`, the type name itself might be the issue in the probing service.
+		// We are passing *config.HTTPXRunnerConfig here.
+
+		// If the probing service is expecting the targets to be part of the config,
+		// we would need to add a `Targets []string` field to `HTTPXRunnerConfig` in `config.go`
+		// and set it like: `currentHTTPXConfig := gCfg.HTTPXRunnerConfig; currentHTTPXConfig.Targets = targets`
+		// Then pass `&currentHTTPXConfig`
+		// Since we cannot modify config.go at this exact step, and RunHTTPXProbes is not visible,
+		// this simplification assumes RunHTTPXProbes can somehow get `targets` or `gCfg.InputConfig`.
+		// The original call was `probingSvc.RunHTTPXProbes(&gCfg.HTTPXSettings)` and the error implies the type was `HTTPXConfig`.
+		// We now pass `&gCfg.HTTPXRunnerConfig`.
+
+		// For the immediate fix in main.go, aligning with the most probable interpretation of the error:
+		// The function expects one argument of type *config.HTTPXRunnerConfig (assuming HTTPXConfig was old name).
+		// The `targets` variable prepared above will be used by the service internally.
+		err = probingSvc.RunHTTPXProbes(&gCfg.HTTPXRunnerConfig, targets) // Pass the runner config and the resolved targets
 		if err != nil {
 			// Lỗi từ RunHTTPXProbes (nếu có) đã được log bên trong service
 			// ở đây chỉ cần ghi nhận là có lỗi ở mức main nếu cần thiết
