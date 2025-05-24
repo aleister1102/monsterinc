@@ -50,22 +50,24 @@ func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
 	}
 
 	// Use defaults from CrawlerConfig if specific values are not set or are zero-values
-	// (The NewDefaultCrawlerConfig already sets most, but this handles direct instantiation of CrawlerConfig)
 	userAgent := cfg.UserAgent
 	if userAgent == "" {
-		userAgent = "MonsterIncCrawler/1.0" // Default from PRD if empty in config
+		userAgent = config.DefaultCrawlerUserAgent // Use constant from config package
 	}
-	requestTimeout := cfg.RequestTimeout
-	if requestTimeout <= 0 {
-		requestTimeout = 10 * time.Second // Default from PRD if invalid in config
+
+	requestTimeoutSecs := cfg.RequestTimeoutSecs
+	if requestTimeoutSecs <= 0 {
+		requestTimeoutSecs = config.DefaultCrawlerRequestTimeoutSecs // Use constant from config package
 	}
-	threads := cfg.MaxConcurrentRequests // Use MaxConcurrentRequests from config
+	crawlerTimeoutDuration := time.Duration(requestTimeoutSecs) * time.Second
+
+	threads := cfg.MaxConcurrentRequests
 	if threads <= 0 {
-		threads = 10 // Default from PRD if invalid in config
+		threads = config.DefaultCrawlerMaxConcurrentRequests // Use constant from config package
 	}
 	maxDepth := cfg.MaxDepth
-	if maxDepth <= 0 { // PRD default MaxDepth is 5.
-		maxDepth = 5 // Default from PRD if invalid in config
+	if maxDepth <= 0 {
+		maxDepth = config.DefaultCrawlerMaxDepth // Use constant from config package
 	}
 
 	// Create ScopeSettings internally using scope parameters from CrawlerConfig
@@ -86,7 +88,7 @@ func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
 	}
 
 	c := colly.NewCollector(collectorOptions...)
-	c.SetRequestTimeout(requestTimeout)
+	c.SetRequestTimeout(crawlerTimeoutDuration) // Use the converted time.Duration
 
 	err := c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
@@ -100,10 +102,10 @@ func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
 	cr := &Crawler{
 		Collector:        c,
 		discoveredURLs:   make(map[string]bool),
-		UserAgent:        userAgent,      // Store the actual user agent used
-		RequestTimeout:   requestTimeout, // Store the actual timeout used
-		Threads:          threads,        // Store the actual thread count used
-		MaxDepth:         maxDepth,       // Store the actual max depth used
+		UserAgent:        userAgent,
+		RequestTimeout:   crawlerTimeoutDuration, // Assign the converted time.Duration
+		Threads:          threads,
+		MaxDepth:         maxDepth,
 		seedURLs:         append([]string(nil), cfg.SeedURLs...),
 		Scope:            currentScopeSettings,
 		RespectRobotsTxt: cfg.RespectRobotsTxt, // Store the actual setting used

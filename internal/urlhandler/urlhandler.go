@@ -22,17 +22,8 @@ import (
 func ValidateURL(rawURL string) error {
 	// Use NormalizeURL to validate
 	_, err := NormalizeURL(rawURL)
-	if err != nil {
-		// Ensure we are returning the new models.URLValidationError type
-		if modelsErr, ok := err.(*models.URLValidationError); ok {
-			return modelsErr // Return as is if it's already the correct type (e.g. from NormalizeURL if it's updated)
-		}
-		// If NormalizeURL returns a generic error, wrap it.
-		// However, NormalizeURL itself should ideally return models.URLValidationError for consistency.
-		// For now, let's assume NormalizeURL might return a generic error related to validation.
-		return &models.URLValidationError{URL: rawURL, Message: err.Error()}
-	}
-	return nil
+	// NormalizeURL should consistently return *models.URLValidationError or nil.
+	return err
 }
 
 // ValidateURLs validates multiple URLs and returns a map of invalid URLs and their errors
@@ -51,55 +42,51 @@ func ValidateURLs(urls []string) map[string]error {
 // Task 1.2: Implement scheme and hostname normalization.
 // Task 1.3: Implement URL fragment removal.
 func NormalizeURL(rawURL string) (string, error) {
-	trimmedURL := strings.TrimSpace(rawURL)
-	if trimmedURL == "" {
-		return "", &models.URLValidationError{URL: rawURL, Message: "input URL is empty"} // Return specific error type
-	}
-
-	// Preserve the original fragment before parsing, as url.Parse might handle it.
-	// We explicitly want to remove it based on PRD.
-	urlToParse := trimmedURL
-	if idx := strings.Index(urlToParse, "#"); idx != -1 {
-		// This step is a bit redundant if url.Parse correctly handles fragments,
-		// but the PRD explicitly states "Remove any URL fragment".
-		// We'll rely on parsedURL.Fragment = "" later for robustness.
+	tailoredURL := strings.TrimSpace(rawURL)
+	if tailoredURL == "" {
+		return "", &models.URLValidationError{URL: rawURL, Message: "input URL is empty"}
 	}
 
 	// Attempt to parse the URL.
-	parsedURL, err := url.Parse(urlToParse)
+	// Scheme and Host will be populated correctly by url.Parse if a scheme is present.
+	// If no scheme, url.Parse treats the whole thing as a path for non-authority-form URLs.
+	parsedURL, err := url.Parse(tailoredURL)
 	if err != nil {
-		return "", &models.URLValidationError{URL: rawURL, Message: fmt.Sprintf("parsing failed: %s", err.Error())}
-	}
-
-	// Task 1.2: Add default scheme if missing.
-	// PRD: "If no scheme (e.g., http://, https://) is present, prepend http:// by default."
-	if parsedURL.Scheme == "" {
-		// Re-parse with "http://" prepended if the original lacked a scheme.
-		// This is important because url.Parse("example.com/path") treats "example.com/path" as Path, not Host+Path.
-		// And url.Parse("example.com#fragment") also treats example.com as Path.
-		// Prepending a scheme ensures Host is correctly identified.
-		parsedURL, err = url.Parse("http://" + trimmedURL) // Use original trimmedURL for re-parsing
+		// If initial parsing fails, it might be because there's no scheme and it's an authority form like "example.com"
+		// or just a path. Try prepending a scheme to see if it becomes a valid absolute URL.
+		parsedWithScheme, errWithScheme := url.Parse("http://" + tailoredURL)
+		if errWithScheme != nil {
+			// If it still fails even with a default scheme, then it's likely fundamentally malformed.
+			return "", &models.URLValidationError{URL: rawURL, Message: fmt.Sprintf("parsing failed: %s (also with default http scheme: %s)", err.Error(), errWithScheme.Error())}
+		}
+		// If parsing with a scheme succeeded, use that result.
+		parsedURL = parsedWithScheme
+	} else if parsedURL.Scheme == "" {
+		// If initial parsing succeeded BUT no scheme was found (e.g. "example.com/path"),
+		// it means url.Parse treated "example.com/path" as the Path component.
+		// We need to re-parse it with a scheme to correctly identify Host and Path.
+		parsedURL, err = url.Parse("http://" + tailoredURL) // Use original tailoredURL for re-parsing
 		if err != nil {
 			return "", &models.URLValidationError{URL: rawURL, Message: fmt.Sprintf("parsing with default scheme failed: %s", err.Error())}
 		}
 	}
 
+	// Ensure Host is present after scheme handling, as scheme-only URLs are not valid for us.
+	if parsedURL.Host == "" {
+		return "", &models.URLValidationError{URL: rawURL, Message: "URL lacks a host component after scheme processing"}
+	}
+
 	// Task 1.2: Convert scheme and hostname to lowercase.
-	// PRD: "Convert the scheme and the hostname components of the URL to lowercase."
 	parsedURL.Scheme = strings.ToLower(parsedURL.Scheme)
-	parsedURL.Host = strings.ToLower(parsedURL.Host) // Host includes hostname and port if present. url.Hostname() gives just hostname.
+	parsedURL.Host = strings.ToLower(parsedURL.Host) // Host includes hostname and port if present.
 
 	// Task 1.3: Remove URL fragment.
-	// PRD: "Remove any URL fragment (the part of the URL after a # symbol)."
 	parsedURL.Fragment = ""
 
-	// For task 1.1, the primary goal is to ensure the URL is parsable and to set up the function.
-	// The url.Parse function itself might perform some minimal normalization (e.g., on escape sequences).
-	// The .String() method reassembles the URL from the parsed components.
-	// More specific normalization rules (like scheme defaulting, case normalization, fragment removal)
-	// will be implemented in subsequent tasks (1.2, 1.3).
 	finalURL := parsedURL.String()
-	if finalURL == "" || finalURL == "http://" || finalURL == "https://" { // Basic check for empty result post-normalization
+	// Check for effectively empty URLs post-normalization (e.g. if path was "/" and everything else was stripped)
+	// A URL like "http://" is not useful.
+	if finalURL == "" || finalURL == parsedURL.Scheme+"://" || (parsedURL.Scheme != "" && parsedURL.Host == "" && parsedURL.Path == "" && parsedURL.Fragment == "" && parsedURL.RawQuery == "") {
 		return "", &models.URLValidationError{URL: rawURL, Message: "normalization resulted in an empty or scheme-only URL"}
 	}
 

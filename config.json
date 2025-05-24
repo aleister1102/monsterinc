@@ -3,7 +3,7 @@
   "OutputDir": "results",
   "Threads": 10,
   "RateLimit": 100,
-  "Timeout": 10,
+  "Timeout": 5,
   "Retries": 2,
   "Proxy": "",
   "FollowRedirects": true,

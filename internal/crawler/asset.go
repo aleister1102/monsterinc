@@ -76,7 +76,6 @@ func ExtractAssetsFromHTML(htmlBody io.Reader, basePageURL *url.URL, crawlerInst
 				}
 
 				var absoluteURL string
-				var resolveErr error
 
 				if basePageURL != nil {
 					resolved, errRes := basePageURL.Parse(trimmedRawURL)
@@ -92,11 +91,6 @@ func ExtractAssetsFromHTML(htmlBody io.Reader, basePageURL *url.URL, crawlerInst
 						continue
 					}
 					absoluteURL = parsedRaw.String()
-				}
-
-				if resolveErr != nil { // This check is redundant as errors are handled and continued above.
-					// log.Printf("[DEBUG] AssetExtractor: Could not process URL '%s' (attr: %s): %v", trimmedRawURL, attribute, resolveErr)
-					// continue
 				}
 
 				asset := models.ExtractedAsset{
