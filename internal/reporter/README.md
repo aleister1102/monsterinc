@@ -1,61 +1,60 @@
-# Package `reporter`
+# Package reporter
 
-Package `reporter` chịu trách nhiệm tạo các báo cáo từ kết quả thăm dò (probe results). Hiện tại, nó tập trung vào việc tạo báo cáo HTML tương tác.
+This package is responsible for generating reports from scan results, currently focusing on HTML reports.
 
-## `HtmlReporter`
+## Components
 
-`HtmlReporter` là thành phần chính để tạo báo cáo HTML từ dữ liệu `models.ProbeResult`.
+### `HtmlReporter`
 
-### Chức năng chính
+- **`NewHtmlReporter(cfg *config.ReporterConfig, appLogger *log.Logger) (*HtmlReporter, error)`**: Constructor for `HtmlReporter`. It initializes the reporter with configuration (e.g., template paths, items per page) and a logger. It also parses the HTML template (either from an embedded source or a custom path).
+- **`GenerateReport(probeResults []models.ProbeResult, urlDiffs map[string]models.URLDiffResult, outputPath string) error`**: This is the main method for generating the HTML report.
+    1. It calls `prepareReportData` to transform `probeResults` and `urlDiffs` into a `models.ReportPageData` struct suitable for the template.
+    2. `prepareReportData` also populates statistics (total, success, failed results), unique filterable values (status codes, content types, technologies, root targets), and serializes probe results to JSON for client-side JavaScript interaction.
+    3. It embeds custom CSS and JavaScript assets into `ReportPageData` if `EmbedAssets` is configured.
+    4. It executes the parsed Go HTML template (`report.html.tmpl`) with `ReportPageData`.
+    5. The generated HTML content is written to the specified `outputPath`.
+    6. It handles a configuration `GenerateEmptyReport` to decide whether to create a report if no probe results are available.
 
-1.  **Khởi tạo**: `NewHtmlReporter(cfg *config.ReporterConfig, appLogger *log.Logger)`
-    -   Nhận vào `config.ReporterConfig` để lấy các thiết lập như đường dẫn template tùy chỉnh, tiêu đề báo cáo, số mục trên mỗi trang, v.v.
-    -   Load và parse template HTML. Mặc định, nó sử dụng template được nhúng từ `internal/reporter/templates/report.html.tmpl`. Nếu `cfg.TemplatePath` được chỉ định, nó sẽ load template từ đường dẫn đó.
-    -   Đăng ký các `templateFunctions` để sử dụng trong template.
+### `prepareReportData` (internal helper method)
 
-2.  **Tạo Báo cáo**: `GenerateReport(probeResults []models.ProbeResult, outputPath string)`
-    -   Đây là phương thức chính để tạo báo cáo.
-    -   Nếu `probeResults` rỗng và `GenerateEmptyReport` trong config là `false`, báo cáo sẽ không được tạo.
-    -   Gọi `prepareReportData` để chuyển đổi và chuẩn bị dữ liệu hiển thị.
-    -   Gọi `embedCustomAssets` để nhúng nội dung của các file CSS và JavaScript tùy chỉnh.
-    -   Gọi `executeAndWriteReport` để render template HTML với dữ liệu đã chuẩn bị và ghi ra `outputPath`.
+- Takes `probeResults []models.ProbeResult` and `urlDiffs map[string]models.URLDiffResult`.
+- Iterates through `probeResults`, converting each to `models.ProbeResultDisplay`.
+- If `urlDiffs` data is available for a probe result's `RootTargetURL`, it attempts to find the corresponding `URLStatus` from the diff results and assign it to `ProbeResultDisplay.URLStatus`.
+- Collects various statistics and unique values for filtering dropdowns in the report.
+- Marshals `ProbeResultDisplay` slice into JSON for JavaScript use (`ReportPageData.ProbeResultsJSON`).
+- Stores the raw `urlDiffs` map in `ReportPageData.URLDiffs` for potential direct use in the template (e.g., for the "Old/Missing URLs" section).
 
-3.  **Chuẩn bị Dữ liệu Báo cáo**: `prepareReportData(probeResults []models.ProbeResult) (models.ReportPageData, error)`
-    -   Chuyển đổi `[]models.ProbeResult` thành `[]models.ProbeResultDisplay` (struct trong `internal/models/report_data.go` được tối ưu cho việc hiển thị trong template).
-    -   Tính toán các thông tin tổng hợp như tổng số kết quả, số kết quả thành công/thất bại.
-    -   Trích xuất các giá trị duy nhất từ kết quả để điền vào các bộ lọc (ví dụ: status codes, content types, technologies, root target URLs).
-    -   Serialize `[]models.ProbeResultDisplay` thành một chuỗi JSON và gán vào `ReportPageData.ProbeResultsJSON`. Chuỗi JSON này sẽ được JavaScript phía client (`report.js`) sử dụng để render bảng và thực hiện các tương tác (tìm kiếm, lọc, sắp xếp, phân trang) mà không cần tải lại trang.
+## Templates and Assets
 
-4.  **Nhúng Assets**: `embedCustomAssets(pageData *models.ReportPageData)`
-    -   Đọc nội dung của các file CSS (`assets/css/styles.css`) và JavaScript (`assets/js/report.js`) được nhúng bằng `//go:embed`.
-    -   Gán nội dung CSS và JS này vào các trường tương ứng trong `ReportPageData` (`CustomCSS`, `ReportJs`) để chúng có thể được chèn trực tiếp vào template HTML, tạo ra một file báo cáo HTML hoàn toàn độc lập.
+- **`templates/report.html.tmpl`**: The Go HTML template used to render the report. It includes:
+    - Display of probe results in a sortable, filterable table.
+    - Filters for status code, content type, URL diff status, technologies, and global search.
+    - A section for listing "Old/Missing URLs" based on the `URLDiffs` data.
+    - Client-side JavaScript (`assets/js/report.js`) for interactivity (filtering, sorting, pagination, details modal).
+    - Custom CSS (`assets/css/styles.css`) for styling.
+- Assets (CSS, JS) can be embedded directly into the HTML report or linked if not embedded, based on configuration.
 
-5.  **Thực thi và Ghi Báo cáo**: `executeAndWriteReport(pageData models.ReportPageData, outputPath string)`
-    -   Render template HTML đã được parse với `pageData`.
-    -   Tạo thư mục output nếu chưa tồn tại.
-    -   Ghi nội dung HTML đã render ra file tại `outputPath`.
+## Data Models
 
-### Template và Assets
+- `models.ProbeResult`: Input data for scan results.
+- `models.URLDiffResult`: Input data for URL diff statuses.
+- `models.ReportPageData`: The main struct passed to the HTML template, containing all necessary data and configurations for rendering.
+- `models.ProbeResultDisplay`: A version of `ProbeResult` tailored for display, including the `URLStatus`.
 
--   **Template HTML**: `internal/reporter/templates/report.html.tmpl` là file template chính, sử dụng cú pháp của `html/template` trong Go.
--   **CSS Tùy chỉnh**: `internal/reporter/assets/css/styles.css` chứa các style tùy chỉnh cho báo cáo.
--   **JavaScript Tùy chỉnh**: `internal/reporter/assets/js/report.js` xử lý các tương tác phía client như tìm kiếm, lọc, sắp xếp, phân trang, và hiển thị chi tiết trong modal. Nó sử dụng dữ liệu JSON được nhúng trong `ReportPageData.ProbeResultsJSON`.
--   Các thư viện bên ngoài như Bootstrap và DataTables (tùy chọn) được load qua CDN trong template HTML.
+## Configuration
 
-### Các hàm tiện ích trong Template (`templateFunctions`)
+- Relies on `config.ReporterConfig` for settings like:
+    - `OutputDir`: Directory to save reports.
+    - `EmbedAssets`: Whether to embed CSS/JS in the HTML.
+    - `TemplatePath`: Optional custom path to the HTML template.
+    - `GenerateEmptyReport`: Whether to generate a report if there are no results.
+    - `ReportTitle`: Custom title for the report.
+    - `DefaultItemsPerPage`: For pagination.
+    - `EnableDataTables`: To include DataTables library for enhanced table features.
 
-Một số hàm tiện ích được cung cấp để sử dụng trong template, ví dụ:
--   `joinStrings`: Nối một slice các chuỗi.
--   `toLower`: Chuyển chuỗi sang chữ thường.
--   `formatTime`: Định dạng thời gian.
--   `safeHTML`: Đánh dấu một chuỗi là HTML an toàn.
+## Logging
 
-## Cách sử dụng
-
-1.  Tạo `config.ReporterConfig`.
-2.  Gọi `NewHtmlReporter()` với config đó.
-3.  Thu thập `[]models.ProbeResult` từ các module khác (ví dụ: `httpxrunner`).
-4.  Gọi `htmlReporter.GenerateReport(results, "path/to/report.html")`.
+- `HtmlReporter` uses a `log.Logger` for its operations, including initialization, report generation steps, and any errors encountered.
 
 ## Features
 
@@ -111,7 +110,7 @@ if reporterErr != nil {
         outputFile = "monsterinc_report.html" 
         log.Printf("[WARN] Main: ReporterConfig.DefaultOutputHTMLPath is not set. Using default: %s", outputFile)
     }
-    err := htmlReporter.GenerateReport(probeResults, outputFile)
+    err := htmlReporter.GenerateReport(probeResults, nil, outputFile)
     if err != nil {
         log.Printf("[ERROR] Main: Failed to generate HTML report: %v", err)
     } else {

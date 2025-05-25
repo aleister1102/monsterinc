@@ -370,4 +370,21 @@ td a:hover {
 /* Ensure other styles are not conflicting */
 main {
     flex: 1 0 auto; /* Allow main content to grow and shrink but not less than its content size */
+    padding-bottom: 60px; /* Height of the footer */
+}
+
+/* URL Diff Status Styles */
+.url-status-new {
+    background-color: #d4edda; /* Light green */
+    color: #155724; /* Dark green */
+}
+
+.url-status-old {
+    background-color: #f8d7da; /* Light red */
+    color: #721c24; /* Dark red */
+    text-decoration: line-through;
+}
+
+.url-status-existing {
+    /* No specific style, or a very subtle one if needed */
 } 

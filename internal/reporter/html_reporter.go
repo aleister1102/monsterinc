@@ -70,7 +70,7 @@ func NewHtmlReporter(cfg *config.ReporterConfig, appLogger *log.Logger) (*HtmlRe
 }
 
 // prepareReportData populates the ReportPageData struct based on probe results and reporter config.
-func (r *HtmlReporter) prepareReportData(probeResults []models.ProbeResult) (models.ReportPageData, error) {
+func (r *HtmlReporter) prepareReportData(probeResults []models.ProbeResult, urlDiffs map[string]models.URLDiffResult) (models.ReportPageData, error) {
 	pageData := models.GetDefaultReportPageData() // Get a base structure
 	pageData.ReportTitle = r.config.ReportTitle
 	if pageData.ReportTitle == "" {
@@ -93,6 +93,24 @@ func (r *HtmlReporter) prepareReportData(probeResults []models.ProbeResult) (mod
 
 	for _, pr := range probeResults {
 		displayPr := models.ToProbeResultDisplay(pr)
+		// The URLStatus is already set by ToProbeResultDisplay, which gets it from models.ProbeResult
+		// The models.ProbeResult.URLStatus is set by the UrlDiffer.
+		// Therefore, the following block is redundant and can lead to inconsistencies if URL matching logic differs.
+		/*
+			if diffResult, ok := urlDiffs[pr.RootTargetURL]; ok {
+				for _, diffedURL := range diffResult.Results {
+					// Compare with FinalURL or InputURL based on what UrlDiffer uses for NormalizedURL
+					normalizedProbeURL := pr.FinalURL
+					if normalizedProbeURL == "" {
+						normalizedProbeURL = pr.InputURL
+					}
+					if diffedURL.NormalizedURL == normalizedProbeURL {
+						displayPr.URLStatus = string(diffedURL.Status) // Assuming ProbeResultDisplay has URLStatus field
+						break
+					}
+				}
+			}
+		*/
 		displayResults = append(displayResults, displayPr)
 
 		if displayPr.IsSuccess {
@@ -123,6 +141,7 @@ func (r *HtmlReporter) prepareReportData(probeResults []models.ProbeResult) (mod
 		return pageData, fmt.Errorf("failed to marshal probe results to JSON: %w", err)
 	}
 	pageData.ProbeResultsJSON = template.JS(resultsJSON)
+	r.logger.Printf("[DEBUG] ProbeResultsJSON for template: %s", string(resultsJSON)) // Logging the JSON string
 
 	for code := range statusCodes {
 		pageData.UniqueStatusCodes = append(pageData.UniqueStatusCodes, code)
@@ -144,21 +163,24 @@ func (r *HtmlReporter) prepareReportData(probeResults []models.ProbeResult) (mod
 	}
 	sort.Strings(pageData.UniqueRootTargets)
 
+	pageData.URLDiffs = urlDiffs // Store the raw diff data as well if needed by template
+
 	// Asset embedding will be handled in GenerateReport before template execution.
 
 	return pageData, nil
 }
 
-// GenerateReport generates an HTML report from the given probe results.
-// probeResults should be models.ProbeResult from the main application flow.
-func (r *HtmlReporter) GenerateReport(probeResults []models.ProbeResult, outputPath string) error {
+// GenerateReport generates an HTML report from the probe results and diff results.
+// outputPath is the desired path for the generated HTML file.
+// urlDiffs is a map where the key is RootTargetURL and value is its corresponding URLDiffResult.
+func (r *HtmlReporter) GenerateReport(probeResults []models.ProbeResult, urlDiffs map[string]models.URLDiffResult, outputPath string) error {
 	if len(probeResults) == 0 && !r.config.GenerateEmptyReport {
 		r.logger.Println("No probe results to report, and GenerateEmptyReport is false. Skipping report generation.")
 		return nil // FR2: Do not generate report if no results and config says so.
 	}
 	r.logger.Printf("Generating HTML report for %d probe results to %s", len(probeResults), outputPath)
 
-	pageData, err := r.prepareReportData(probeResults)
+	pageData, err := r.prepareReportData(probeResults, urlDiffs)
 	if err != nil {
 		r.logger.Printf("Error preparing report data: %v", err)
 		return err // Return the error from prepareReportData

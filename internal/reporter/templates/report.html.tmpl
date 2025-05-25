@@ -35,8 +35,8 @@
 
     <div class="container-fluid">
         <div class="row">
-            <!-- Sidebar for Target Navigation -->
-            <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
+            <!-- Sidebar Removed -->
+            <!-- <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
                 <div class="position-sticky pt-3">
                     <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
                         <span>Targets</span>
@@ -56,13 +56,24 @@
                         {{end}}
                     </ul>
                 </div>
-            </nav>
+            </nav> -->
 
-            <!-- Main Content Area -->
-            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
-                <div class="row mb-3 pt-3">
+            <!-- Main Content Area - Adjusted to full width -->
+            <main class="col-md-12 px-md-4">
+                <div class="row mb-3 pt-3 align-items-center">
+                    <!-- Global Search Input (Commented out) -->
+                    <!--
                     <div class="col-md-3">
-                        <input type="text" id="globalSearchInput" class="form-control" placeholder="{{index .FilterPlaceholders "globalSearch"}}">
+                        <input type="text" id="globalSearchInput" class="form-control" placeholder="Search all fields...">
+                    </div>
+                    -->
+                    <div class="col-md-2">
+                        <select id="rootURLFilter" class="form-select">
+                            <option value="">Filter by Root URL...</option>
+                            {{range .UniqueRootTargets}}
+                            <option value="{{.}}">{{.}}</option>
+                            {{end}}
+                        </select>
                     </div>
                     <div class="col-md-2">
                         <select id="statusCodeFilter" class="form-select">
@@ -80,11 +91,19 @@
                             {{end}}
                         </select>
                     </div>
-                    <div class="col-md-3">
-                        <input type="text" id="techFilterInput" class="form-control" placeholder="{{index .FilterPlaceholders "techSearch"}}">
+                    <div class="col-md-2">
+                        <select id="urlStatusFilter" class="form-select">
+                            <option value="">Filter by Diff Status...</option>
+                            <option value="new">New</option>
+                            <option value="old">Old</option>
+                            <option value="existing">Existing</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <input type="text" id="techFilterInput" class="form-control" placeholder='{{index .FilterPlaceholders "techSearch"}}'>
                     </div>
                     <div class="col-md-2 d-flex align-items-center">
-                         <span id="resultsCountInfo" class="text-muted">Total: {{.TotalResults}} (Success: {{.SuccessResults}}, Failed: {{.FailedResults}})</span>
+                         <span id="resultsCountInfo" class="text-muted small">Total: {{.TotalResults}} (Success: {{.SuccessResults}}, Failed: {{.FailedResults}})</span>
                     </div>
                 </div>
 
@@ -99,6 +118,7 @@
                         <tr>
                             <th class="sortable" data-sort-key="InputURL">Input URL</th>
                             <th class="sortable" data-sort-key="FinalURL">Final URL</th>
+                            <th class="sortable" data-sort-key="URLStatus">Diff Status</th>
                             <th class="sortable" data-sort-key="StatusCode">Status</th>
                             <th class="sortable" data-sort-key="Title">Title</th>
                             <th>Technologies</th>
@@ -106,19 +126,15 @@
                             <th class="sortable" data-sort-key="ContentType">Content Type</th>
                             <th class="sortable" data-sort-key="ContentLength">Length</th>
                             <th>IPs</th>
-                            <th>CNAMEs</th>
-                            <th>ASN</th>
-                            <th>TLS Info</th>
-                            <th class="sortable" data-sort-key="duration">Duration (s)</th>
-                            <th>Error</th>
+                            <!-- Removed CNAMEs, ASN, TLS Info, Duration, Error -->
                             <th>Details</th>
                         </tr>
                     </thead>
                     <tbody>
                         {{if not .ProbeResults}}
                         <tr>
-                            {{/* Colspan should match the number of columns in the header */}}
-                            <td colspan="15" class="text-center">No results to display.</td>
+                            {{/* Colspan should match the new number of columns in the header (11) */}}
+                            <td colspan="11" class="text-center">No results to display.</td>
                         </tr>
                         {{end}}
                         {{range $idx, $pr := .ProbeResults}}
@@ -126,6 +142,7 @@
                         <tr class="{{if not .IsSuccess}}table-danger{{else if .StatusCode}}status-{{.StatusCode}}{{end}}" data-result-index="{{$idx}}">
                             <td class="truncate-url" title="{{.InputURL}}"><a href="{{.InputURL}}" target="_blank">{{.InputURL}}</a></td>
                             <td class="truncate-url" title="{{.FinalURL}}"><a href="{{.FinalURL}}" target="_blank">{{.FinalURL}}</a></td>
+                            <td class="url-status-{{.URLStatus}}">{{.URLStatus}}</td>
                             <td>{{if .StatusCode}}{{.StatusCode}}{{else if .Error}}ERR{{else}}-{{end}}</td>
                             <td class="truncate-title" title="{{.Title}}">{{if .Title}}{{.Title}}{{else}}-{{end}}</td>
                             <td class="truncate-techs" title="{{joinStrings .Technologies ", "}}">{{joinStrings .Technologies ", "}}</td>
@@ -133,26 +150,14 @@
                             <td>{{if .ContentType}}{{.ContentType}}{{else}}-{{end}}</td>
                             <td>{{if .ContentLength}}{{.ContentLength}}{{else}}-{{end}}</td>
                             <td>{{joinStrings .IPs ", "}}</td>
-                            <td>{{joinStrings .CNAMEs ", "}}</td>
-                            <td>{{if .ASN}}{{.ASN}}{{if .ASNOrg}} ({{.ASNOrg}}){{end}}{{else}}-{{end}}</td>
-                            <td class="truncate-tls" title="Version: {{.TLSVersion}}, Cipher: {{.TLSCipher}}, Issuer: {{.TLSCertIssuer}}, Expires: {{.TLSCertExpiry}}">
-                                {{if .TLSVersion}}
-                                    {{.TLSVersion}}
-                                    {{if .TLSCipher}}<br><small>{{.TLSCipher}}</small>{{end}}
-                                    {{if .TLSCertIssuer}}<br><small>Issuer: {{.TLSCertIssuer}}</small>{{end}}
-                                    {{if .TLSCertExpiry}}<br><small>Expires: {{.TLSCertExpiry}}</small>{{end}}
-                                {{else}}
-                                    -
-                                {{end}}
-                            </td>
-                            <td>{{printf "%.3f" .Duration}}</td>
-                            <td class="truncate-error" title="{{.Error}}">{{if .Error}}{{.Error}}{{else}}-{{end}}</td>
+                            <!-- Removed CNAMEs, ASN, TLS Info, Duration, Error -->
                             {{/* Ensure data-bs-target points to the modal ID */}}
                             <td><button class="btn btn-sm btn-outline-info view-details-btn" data-bs-toggle="modal" data-bs-target="#detailsModal">View</button></td>
                         </tr>
                         {{end}}
                     </tbody>
                 </table>
+
 
                 <div class="row mt-3">
                     <div class="col-md-6">
@@ -190,7 +195,7 @@
         </div>
     </div>
 
-    <footer class="footer mt-auto py-3 bg-light">
+    <footer class="footer mt-auto py-3 bg-dark">
         <div class="container text-center">
             <span class="text-muted">MonsterInc Scan Report &copy; {{ .GeneratedAt }}</span>
         </div>
@@ -206,6 +211,12 @@
     <script src="https://cdn.datatables.net/2.0.3/js/dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/2.0.3/js/dataTables.bootstrap5.min.js"></script>
     {{end}}
+
+    <script type="text/javascript">
+        window.reportSettings = window.reportSettings || {};
+        window.reportSettings.initialProbeResults = {{ .ProbeResultsJSON }};
+        // console.log("Data injected into window.reportSettings.initialProbeResults:", window.reportSettings.initialProbeResults);
+    </script>
 
     <script>
         // Embedded Custom Report JS

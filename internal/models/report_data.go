@@ -37,6 +37,7 @@ type ProbeResultDisplay struct {
 	HasCNAMEs       bool   // Helper
 	HasIPs          bool   // Helper
 	RootTargetURL   string // Added for multi-target navigation
+	URLStatus       string `json:"url_status,omitempty"` // Added for diff status (new, old, existing)
 }
 
 // ReportPageData holds all the data needed to render the HTML report page.
@@ -52,18 +53,19 @@ type ReportPageData struct {
 	UniqueStatusCodes  []int
 	UniqueContentTypes []string
 	UniqueTechnologies []string
-	UniqueRootTargets  []string          // Added for multi-target navigation
-	CustomCSS          template.CSS      // For embedded styles.css
-	ReportJs           template.JS       // Embedded custom report.js
-	Theme              string            // e.g., "dark" or "light"
-	FilterPlaceholders map[string]string // e.g. "Search Title..."
-	TableHeaders       []string          // For dynamic table generation if needed
-	ItemsPerPage       int               // From config
-	EnableDataTables   bool              // From config, determines if CDN links for DataTables are included
-	ShowTimelineView   bool              // Future feature?
-	ErrorMessage       string            // If report generation has a top-level error
-	FaviconBase64      string            // Base64 encoded favicon
-	ProbeResultsJSON   template.JS       // JSON cho JS client
+	UniqueRootTargets  []string                 // Added for multi-target navigation
+	CustomCSS          template.CSS             // For embedded styles.css
+	ReportJs           template.JS              // Embedded custom report.js
+	URLDiffs           map[string]URLDiffResult `json:"url_diffs,omitempty"` // Added to hold raw diff results
+	Theme              string                   // e.g., "dark" or "light"
+	FilterPlaceholders map[string]string        // e.g. "Search Title..."
+	TableHeaders       []string                 // For dynamic table generation if needed
+	ItemsPerPage       int                      // From config
+	EnableDataTables   bool                     // From config, determines if CDN links for DataTables are included
+	ShowTimelineView   bool                     // Future feature?
+	ErrorMessage       string                   // If report generation has a top-level error
+	FaviconBase64      string                   // Base64 encoded favicon
+	ProbeResultsJSON   template.JS              // JSON cho JS client
 }
 
 // ReporterConfigForTemplate is a subset of reporter configurations relevant for the template.
@@ -118,10 +120,11 @@ func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
 		IsSuccess:       isSuccess,
 		HasTechnologies: len(technologies) > 0,
 		HasTLS:          pr.TLSVersion != "",
-		HasASN:          pr.ASN != 0 || pr.ASNOrg != "",
+		HasASN:          pr.ASN != 0,
 		HasCNAMEs:       len(pr.CNAMEs) > 0,
 		HasIPs:          len(pr.IPs) > 0,
-		RootTargetURL:   pr.InputURL, // Assign InputURL to RootTargetURL for filtering
+		RootTargetURL:   pr.RootTargetURL, // Use the correct RootTargetURL from ProbeResult
+		URLStatus:       pr.URLStatus,     // Pass through URLStatus from ProbeResult
 	}
 }
 

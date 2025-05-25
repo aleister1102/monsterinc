@@ -8,31 +8,32 @@ $(document).ready(function () {
         allRowsData = window.reportSettings.initialProbeResults;
     }
 
-    const $globalSearchInput = $('#globalSearchInput'); // Updated ID from template
+    // const $globalSearchInput = $('#globalSearchInput'); // Global search disabled
+    const $rootURLFilter = $('#rootURLFilter'); // New filter input for root URL
     const $statusCodeFilter = $('#statusCodeFilter');
     const $contentTypeFilter = $('#contentTypeFilter');
-    const $techFilterInput = $('#techFilterInput'); // Updated ID from template
-    const $targetFilterInput = $('#targetFilterInput'); // New filter input for target
-    const $paginationControls = $('#paginationControls'); // Updated ID from template
-    const $itemsPerPageSelect = $('#itemsPerPageSelect'); // Updated ID from template
-    const $resultsCountInfo = $('#resultsCountInfo');     // Updated ID from template
-    // const $targetList = $('#targetList'); // Removed this line, will select more directly
-    // const $currentFilterSummaryEl = $('#currentFilterSummary'); // This element is not in the current template
+    const $techFilterInput = $('#techFilterInput');
+    // const $targetFilterInput = $('#targetFilterInput'); // This was likely a typo or old, RootURLFilter is used now
+    const $urlStatusFilter = $('#urlStatusFilter');
+    const $paginationControls = $('#paginationControls');
+    const $itemsPerPageSelect = $('#itemsPerPageSelect');
+    const $resultsCountInfo = $('#resultsCountInfo');
 
     let itemsPerPage = parseInt($itemsPerPageSelect.val()) || 10;
     let currentPage = 1;
     let currentSortColumn = null; 
     let currentSortDirection = 'asc';
     let currentFilters = {
-        globalSearch: '',
+        // globalSearch: '', // Global search disabled
+        rootURL: '', // Added for root URL filtering
         statusCode: '',
         contentType: '',
         tech: '',
-        target: '' // Added for target filtering
+        urlStatus: ''
     };
-    let filteredAndSortedData = [...allRowsData]; // Holds the currently filtered and sorted data
+    let filteredAndSortedData = [...allRowsData];
 
-    // --- Helper: Truncate text (remains vanilla JS as it's not DOM specific) ---
+    // --- Helper: Truncate text ---
     function truncateText(text, maxLength) {
         if (text && text.length > maxLength) {
             return text.substring(0, maxLength - 3) + "...";
@@ -44,56 +45,52 @@ $(document).ready(function () {
     function renderTableRows(dataToRender) {
         $tableBody.empty();
         if (!dataToRender || dataToRender.length === 0) {
-            const colCount = $resultsTable.find('thead th').length || 10; // Updated colspan to 10 (InputURL, FinalURL, Status, Title, Technologies, WebServer, ContentType, Length, IPs, Actions)
+            const colCount = $resultsTable.find('thead th').length || 11; // Adjusted colspan to 11 based on current headers
             $tableBody.append(`<tr><td colspan="${colCount}" class="text-center">No results match your filters.</td></tr>`);
             return;
         }
 
         $.each(dataToRender, function(index, pr) {
-            // Use data-result-index from Go template if it corresponds to original allRowsData index
-            // For client-side pagination, this index might be relative to the paginated set.
-            // The original `data-result-index` was added to `<tr>` in Go template.
-            // We need to ensure it's correctly used if details depend on original `allRowsData` index.
-            const originalIndex = allRowsData.indexOf(pr); // Find original index for detail view
-
+            const originalIndex = allRowsData.indexOf(pr);
             const $row = $('<tr></tr>')
                 .addClass(pr.IsSuccess ? (pr.StatusCode ? `status-${pr.StatusCode}` : '') : 'table-danger')
-                .attr('data-result-index', originalIndex); // Use original index here
+                .attr('data-result-index', originalIndex);
 
-            $row.append($('<td></td>').addClass('truncate-url').attr('title', pr.InputURL).html(`<a href="${pr.InputURL}" target="_blank">${truncateText(pr.InputURL, 50)}</a>`));
+            // IMPORTANT: Keep this order exactly matching the <thead> in report.html.tmpl
+            $row.append($('<td></td>').addClass('truncate-url').attr('title', pr.InputURL).html(pr.InputURL ? `<a href="${pr.InputURL}" target="_blank">${truncateText(pr.InputURL, 50)}</a>` : '-'));
             $row.append($('<td></td>').addClass('truncate-url').attr('title', pr.FinalURL).html(pr.FinalURL ? `<a href="${pr.FinalURL}" target="_blank">${truncateText(pr.FinalURL, 50)}</a>` : '-'));
+            $row.append($('<td></td>').addClass(pr.url_status ? `url-status-${pr.url_status.toLowerCase()}` : '').text(pr.url_status || '-'));
             $row.append($('<td></td>').text(pr.StatusCode || (pr.Error ? 'ERR' : '-')));
             $row.append($('<td></td>').addClass('truncate-title').attr('title', pr.Title).text(truncateText(pr.Title, 70) || '-'));
             
             const techString = Array.isArray(pr.Technologies) ? pr.Technologies.join(', ') : '';
-            $row.append($('<td></td>').addClass('truncate-techs').attr('title', techString).text(truncateText(techString, 40)));
+            $row.append($('<td></td>').addClass('truncate-techs').attr('title', techString).text(truncateText(techString, 40) || '-'));
             
             $row.append($('<td></td>').text(pr.WebServer || '-'));
             $row.append($('<td></td>').text(pr.ContentType || '-'));
-            $row.append($('<td></td>').text(pr.ContentLength !== undefined ? pr.ContentLength : '-'));
-            $row.append($('<td></td>').text(Array.isArray(pr.IPs) ? pr.IPs.join(', ') : '-'));
-            // Action button is now directly in the HTML template, no longer appended by JS.
+            $row.append($('<td></td>').text(pr.ContentLength !== undefined && pr.ContentLength !== null ? pr.ContentLength : '-'));
+            $row.append($('<td></td>').text(Array.isArray(pr.IPs) && pr.IPs.length > 0 ? pr.IPs.join(', ') : '-'));
+            
+            $row.append($('<td><button class="btn btn-sm btn-outline-info view-details-btn" data-bs-toggle="modal" data-bs-target="#detailsModal">View</button></td>'));
             
             $tableBody.append($row);
         });
     }
 
-    // --- Filtering Logic (core logic remains the same) ---
+    // --- Filtering Logic ---
     function filterData(data) {
-        const globalSearchTerm = currentFilters.globalSearch.toLowerCase();
+        // const globalSearchTerm = currentFilters.globalSearch.toLowerCase(); // Global search disabled
+        const rootURL = currentFilters.rootURL;
         const statusCode = currentFilters.statusCode;
         const contentType = currentFilters.contentType.toLowerCase();
         const techTerm = currentFilters.tech.toLowerCase();
-        const targetTerm = currentFilters.target.toLowerCase(); // Added for target filtering
+        const urlStatusTerm = currentFilters.urlStatus.toLowerCase();
 
         return data.filter(pr => {
-            // if (rootTarget !== 'all' && pr.RootTargetURL !== rootTarget) return false; // Filter by rootTarget - Old logic from top menu
-
-            // New Target Filter Logic
-            if (targetTerm && (!pr.RootTargetURL || !pr.RootTargetURL.toLowerCase().includes(targetTerm))) {
+            if (rootURL && (!pr.RootTargetURL || pr.RootTargetURL !== rootURL)) {
                 return false;
             }
-
+            /* Global search disabled
             let matchesGlobal = true;
             if (globalSearchTerm) {
                 matchesGlobal = (
@@ -110,9 +107,11 @@ $(document).ready(function () {
                 );
             }
             if (!matchesGlobal) return false;
+            */
 
             if (statusCode && (!pr.StatusCode || pr.StatusCode.toString() !== statusCode)) return false;
             if (contentType && (!pr.ContentType || !pr.ContentType.toLowerCase().startsWith(contentType))) return false;
+            if (urlStatusTerm && (!pr.url_status || pr.url_status.toLowerCase() !== urlStatusTerm)) return false;
 
             if (techTerm) {
                 const techString = Array.isArray(pr.Technologies) ? pr.Technologies.join(', ').toLowerCase() : "";
@@ -140,7 +139,7 @@ $(document).ready(function () {
             let numA = parseFloat(valA);
             let numB = parseFloat(valB);
 
-            if (propName === 'ContentLength' || propName === 'StatusCode' || propName === 'Duration' || propName === 'ASN') {
+            if (propName === 'ContentLength' || propName === 'StatusCode') {
                 valA = !isNaN(numA) ? numA : (direction === 'asc' ? Infinity : -Infinity); // Handle non-numeric gracefully for numeric sorts
                 valB = !isNaN(numB) ? numB : (direction === 'asc' ? Infinity : -Infinity);
             } else {
@@ -237,11 +236,13 @@ $(document).ready(function () {
     }
 
     // --- Event Listeners ---
-    $globalSearchInput.on('input', function() { currentFilters.globalSearch = $(this).val(); processAndDisplayData(); });
+    // $globalSearchInput.on('input', function() { currentFilters.globalSearch = $(this).val(); processAndDisplayData(); }); // Global search disabled
+    $rootURLFilter.on('change', function() { currentFilters.rootURL = $(this).val(); processAndDisplayData(); });
     $statusCodeFilter.on('change', function() { currentFilters.statusCode = $(this).val(); processAndDisplayData(); });
     $contentTypeFilter.on('change', function() { currentFilters.contentType = $(this).val(); processAndDisplayData(); });
     $techFilterInput.on('input', function() { currentFilters.tech = $(this).val(); processAndDisplayData(); });
-    $targetFilterInput.on('input', function() { currentFilters.target = $(this).val(); processAndDisplayData(); }); // Added event listener for target filter
+    // $targetFilterInput.on('input', function() { currentFilters.target = $(this).val(); processAndDisplayData(); }); // This was likely a typo or old, RootURLFilter is used now
+    $urlStatusFilter.on('change', function() { currentFilters.urlStatus = $(this).val(); processAndDisplayData(); });
     $itemsPerPageSelect.on('change', function() { 
         itemsPerPage = parseInt($(this).val()) || 10;
         processAndDisplayData(); 
@@ -249,9 +250,13 @@ $(document).ready(function () {
 
     $resultsTable.find('thead th.sortable').on('click', function() {
         const $th = $(this);
-        const sortKey = $th.data('sort-key'); // This should be the direct property name in ProbeResultDisplay
+        const sortKey = $th.data('sort-key'); 
         
         if (!sortKey) return;
+
+        // Removed 'duration' from sortable keys
+        const validSortKeys = ['InputURL', 'FinalURL', 'URLStatus', 'StatusCode', 'Title', 'WebServer', 'ContentType', 'ContentLength'];
+        if (!validSortKeys.includes(sortKey)) return;
 
         if (currentSortColumn === sortKey) {
             currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
@@ -263,7 +268,6 @@ $(document).ready(function () {
         $resultsTable.find('thead th.sortable').removeClass('sort-asc sort-desc');
         $th.addClass(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
         
-        // Re-sort the already filtered data and display the current page number
         filteredAndSortedData = sortData(filteredAndSortedData, currentSortColumn, currentSortDirection);
         displayPage(currentPage); 
     });
@@ -271,13 +275,13 @@ $(document).ready(function () {
     // Target List Navigation - REMOVED
     /*
     $('.top-menu').on('click', 'a.nav-link', function(e) { 
-        e.preventDefault();
-        const $this = $(this);
+            e.preventDefault();
+            const $this = $(this);
         currentFilters.rootTarget = $this.data('target'); // This was for the old top-menu
         $('.top-menu a.nav-link').removeClass('active'); 
-        $this.addClass('active'); 
-        processAndDisplayData();
-    });
+            $this.addClass('active');
+            processAndDisplayData();
+        });
     */
 
     // Details Modal Population
@@ -287,7 +291,7 @@ $(document).ready(function () {
     $tableBody.on('click', '.view-details-btn', function() {
         const $row = $(this).closest('tr');
         const originalDataIndex = parseInt($row.data('result-index'));
-        const resultData = allRowsData[originalDataIndex]; // Get full data from original array
+        const resultData = allRowsData[originalDataIndex];
 
         if (resultData) {
             let detailsText = "";
@@ -299,23 +303,13 @@ $(document).ready(function () {
             detailsText += `Web Server: ${resultData.WebServer || '-'}\n`;
             detailsText += `Content Type: ${resultData.ContentType || '-'}\n`;
             detailsText += `Content Length: ${resultData.ContentLength !== undefined ? resultData.ContentLength : '-'}\n`;
-            detailsText += `Duration: ${resultData.Duration !== undefined ? resultData.Duration.toFixed(3) + 's' : '-'}\n`;
             detailsText += `Timestamp: ${resultData.Timestamp || '-'}\n`;
-            detailsText += `Error: ${resultData.Error || '-'}\n\n`;
+            detailsText += `\n`;
 
             detailsText += `IPs: ${(resultData.IPs || []).join(', ')}\n`;
-            detailsText += `CNAMEs: ${(resultData.CNAMEs || []).join(', ')}\n\n`;
+            detailsText += `\n`;
             
-            detailsText += `ASN: ${resultData.ASN || '-'}`;
-            if (resultData.ASNOrg) detailsText += ` (${resultData.ASNOrg})`;
-            detailsText += `\n\n`;
-
-            detailsText += `TLS Version: ${resultData.TLSVersion || '-'}\n`;
-            detailsText += `TLS Cipher: ${resultData.TLSCipher || '-'}\n`;
-            detailsText += `TLS Issuer: ${resultData.TLSCertIssuer || '-'}\n`;
-            detailsText += `TLS Expires: ${resultData.TLSCertExpiry || '-'}\n\n`;
-
-            detailsText += `Technologies: ${(resultData.Technologies || []).join(', ')}\n\n`;
+            detailsText += `Technologies: ${(Array.isArray(resultData.Technologies) ? resultData.Technologies.join(', ') : '' ) || '-'}\n\n`;
 
             detailsText += "--- Headers ---\n";
             if (resultData.Headers && Object.keys(resultData.Headers).length > 0) {
@@ -342,7 +336,7 @@ $(document).ready(function () {
     // This JS assumes those dropdowns are pre-filled.
     
     // Initialize sorting (e.g., by Input URL asc)
-    const $initialSortHeader = $resultsTable.find('thead th[data-sort-key="inputurl"]');
+    const $initialSortHeader = $resultsTable.find('thead th[data-sort-key="InputURL"]');
     if ($initialSortHeader.length) {
         currentSortColumn = 'InputURL'; // property name from ProbeResultDisplay
         currentSortDirection = 'asc';
