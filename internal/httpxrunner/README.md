@@ -1,16 +1,48 @@
-# `httpxrunner` Package Documentation
+# Package `httpxrunner`
 
-## Overview
+Package `httpxrunner` là một trình bao (wrapper) quanh thư viện `github.com/projectdiscovery/httpx`, được thiết kế để thực hiện các thăm dò (probe) HTTP/HTTPS đến các mục tiêu và trích xuất thông tin chi tiết.
 
-The `httpxrunner` package serves as a MonsterInc-specific wrapper around the powerful `github.com/projectdiscovery/httpx/runner` library. It simplifies the integration of HTTP/S probing capabilities into the MonsterInc application by providing a tailored configuration layer and result handling mechanism.
+## Chức năng chính
 
-Key responsibilities include:
-- Translating MonsterInc's `httpxrunner.Config` into the underlying `httpx.Options`.
-- Managing the lifecycle of the `httpx.Runner` (initialization, execution, closure).
-- Processing results from `httpx` and mapping them to MonsterInc's `models.ProbeResult` struct.
-- Providing channels for asynchronous consumption of probe results and errors.
+-   **Khởi tạo Runner**: `NewRunner(config *Config)` tạo một instance mới của `Runner`.
+    -   Nó nhận một `Config` struct để tùy chỉnh hành vi của `httpx`.
+    -   Bên trong, `configureHttpxOptions` được gọi để ánh xạ `httpxrunner.Config` sang struct `runner.Options` của thư viện `httpx`.
+-   **Cấu hình (`Config` struct)**:
+    -   `Targets []string`: Danh sách các URL mục tiêu.
+    -   Các tùy chọn HTTP: `Method`, `RequestURIs`, `FollowRedirects`, `Timeout`, `Retries`, `Threads`, `RateLimit`.
+    -   Tùy chọn Output: `Verbose`.
+    -   Headers và Proxy: `CustomHeaders`, `Proxy`.
+    -   Cờ trích xuất dữ liệu: `TechDetect`, `ExtractTitle`, `ExtractStatusCode`, `ExtractLocation`, `ExtractContentLength`, `ExtractServerHeader`, `ExtractContentType`, `ExtractIPs`, `ExtractBody`, `ExtractHeaders`, `ExtractCNAMEs`, `ExtractASN`, `ExtractTLSData`.
+-   **Thực thi Probing**: Phương thức `Run()` khởi động quá trình probing.
+    -   Nó gọi `httpxRunner.RunEnumeration()` (từ thư viện `httpx`) trong một goroutine.
+    -   Kết quả từ `httpx` được thu thập thông qua một callback `OnResult` được đăng ký với `runner.Options`.
+-   **Xử lý Kết quả**: Callback `OnResult` gọi hàm `mapHttpxResultToProbeResult` để chuyển đổi đối tượng `runner.Result` (từ thư viện `httpx`) thành struct `models.ProbeResult` (được định nghĩa trong package `models` của ứng dụng này).
+    -   `mapHttpxResultToProbeResult` thực hiện ánh xạ chi tiết các trường như URL đầu vào, URL cuối cùng, mã trạng thái, header, body (nếu được yêu cầu), thông tin DNS (IP, CNAME, ASN), thông tin TLS, và các công nghệ được phát hiện.
+-   **Thu thập Kết quả**: Các `models.ProbeResult` sau khi được chuyển đổi sẽ được lưu trữ nội bộ trong `Runner`.
+-   **Lấy Kết quả**: Phương thức `GetResults() []models.ProbeResult` trả về một slice chứa tất cả các `models.ProbeResult` đã được thu thập sau khi quá trình `Run()` hoàn tất.
+-   **Đóng Runner**: Phương thức `Close()` thực hiện các thao tác dọn dẹp cần thiết, bao gồm cả việc đóng `httpxRunner` bên dưới.
 
-This wrapper allows MonsterInc to leverage `httpx`'s features such as technology detection, status code extraction, header/body inspection, and more, while abstracting away some of its direct complexities.
+## Các hàm tiện ích (`result.go`)
+
+Package này cũng cung cấp một số hàm tiện ích để làm việc với `models.ProbeResult`:
+
+-   `SetProbeError(r *models.ProbeResult, errMsg string)`: Đặt thông báo lỗi cho một `ProbeResult` và reset các trường dữ liệu khác có thể không còn đáng tin cậy.
+-   `IsProbeSuccess(r *models.ProbeResult) bool`: Kiểm tra xem một probe có được coi là thành công hay không (dựa trên việc trường `Error` có rỗng hay không).
+-   `ProbeHasTechnologies(r *models.ProbeResult) bool`: Kiểm tra xem `ProbeResult` có chứa thông tin về công nghệ đã phát hiện hay không.
+-   `ProbeHasTLS(r *models.ProbeResult) bool`: Kiểm tra xem `ProbeResult` có chứa thông tin TLS (như phiên bản TLS) hay không.
+
+## Cách sử dụng
+
+1.  Tạo một đối tượng `httpxrunner.Config` với các thiết lập mong muốn.
+2.  Gọi `httpxrunner.NewRunner()` với config đó để có được một instance `Runner`.
+3.  Gọi `runnerInstance.Run()` để bắt đầu quá trình probing. Đây là một lời gọi blocking cho đến khi tất cả các probe hoàn tất.
+4.  Gọi `runnerInstance.GetResults()` để lấy danh sách các `models.ProbeResult`.
+5.  Gọi `runnerInstance.Close()` khi không cần sử dụng runner nữa (thường được thực hiện qua `defer`).
+
+## Thư viện sử dụng
+
+-   `github.com/projectdiscovery/httpx`: Thư viện chính để thực hiện HTTP probing.
+-   `monsterinc/internal/models`: Để sử dụng struct `ProbeResult` và `Technology`.
 
 ## Core Components
 
