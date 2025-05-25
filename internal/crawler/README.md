@@ -1,4 +1,43 @@
-# `crawler` Package Documentation
+# Package crawler
+
+Package `crawler` chịu trách nhiệm thu thập các URL từ các trang web mục tiêu.
+
+## Chức năng chính
+
+-   **Khởi tạo Crawler**: `NewCrawler(cfg *config.CrawlerConfig)` tạo một instance của `Crawler` với các cấu hình được cung cấp. Cấu hình bao gồm seed URLs, user agent, timeout, số luồng, độ sâu tối đa, có tôn trọng `robots.txt` hay không, và các thiết lập phạm vi (scope).
+-   **Quản lý Scope**: Sử dụng `ScopeSettings` để kiểm soát các URL nào được phép crawl. `ScopeSettings` bao gồm:
+    -   `AllowedHostnames`: Danh sách các hostname được phép.
+    -   `AllowedSubdomains`: Danh sách các subdomain cụ thể được phép (chỉ có hiệu lực nếu `AllowedHostnames` được thiết lập).
+    -   `DisallowedHostnames`: Danh sách các hostname bị cấm.
+    -   `DisallowedSubdomains`: Danh sách các subdomain cụ thể bị cấm.
+    -   `AllowedPathPatterns`: Danh sách các biểu thức chính quy (regex) cho các path được phép.
+    -   `DisallowedPathPatterns`: Danh sách các biểu thức chính quy (regex) cho các path bị cấm.
+    -   Hàm `IsURLAllowed(urlString string)` kiểm tra một URL có nằm trong phạm vi đã định nghĩa hay không.
+-   **Phát hiện URL**: Phương thức `DiscoverURL(rawURL string, base *url.URL)` xử lý việc thêm URL mới vào hàng đợi. Trước khi thêm, nó thực hiện:
+    -   Chuẩn hóa và giải quyết URL.
+    -   Kiểm tra URL có nằm trong scope không bằng `ScopeSettings`.
+    -   Thực hiện một HEAD request để kiểm tra `Content-Length`. Nếu vượt quá `maxContentLength` (cấu hình trong `CrawlerConfig.MaxContentLengthMB`), URL sẽ không được crawl (nhưng vẫn được ghi nhận là đã phát hiện cho module httpx).
+    -   Thêm URL vào `Collector` của thư viện `colly` nếu tất cả các điều kiện được thỏa mãn và URL chưa được phát hiện trước đó.
+-   **Bắt đầu Crawl**: Phương thức `Start()` khởi động quá trình crawl từ các `seedURLs` đã cấu hình và đợi cho đến khi tất cả các goroutine của `colly` hoàn thành.
+-   **Lấy Kết quả**: Phương thức `GetDiscoveredURLs() []string` trả về một slice chứa tất cả các URL duy nhất đã được phát hiện và nằm trong scope (bao gồm cả những URL không được crawl do content length quá lớn nhưng vẫn được ghi nhận).
+-   **Trích xuất Assets**: Hàm `ExtractAssetsFromHTML(htmlBody io.Reader, basePageURL *url.URL, crawlerInstance *Crawler)` (trong `asset.go`) được gọi trong callback `OnResponse` để trích xuất các URL từ các thẻ HTML như `<a>`, `<img>`, `<script>`, `<link>`. Các URL này sau đó được đưa qua `DiscoverURL`.
+-   **Callbacks của Colly**:
+    -   `OnRequest`: Trước khi request, kiểm tra path có bị cấm bởi regex không.
+    -   `OnResponse`: Sau khi nhận response, nếu là HTML thì trích xuất assets.
+    -   `OnError`: Ghi log lỗi khi request.
+
+## Cách sử dụng
+
+1.  Tạo `config.CrawlerConfig`.
+2.  Gọi `NewCrawler()` với config đó để có được một instance `Crawler`.
+3.  Gọi `crawlerInstance.Start()` để bắt đầu.
+4.  Gọi `crawlerInstance.GetDiscoveredURLs()` để lấy danh sách URL.
+
+## Thư viện sử dụng
+
+-   `github.com/gocolly/colly/v2`: Thư viện chính cho việc crawling.
+-   `monsterinc/internal/config`: Để lấy cấu hình crawler.
+-   `monsterinc/internal/urlhandler`: Để chuẩn hóa và xử lý URL.
 
 ## Overview
 
