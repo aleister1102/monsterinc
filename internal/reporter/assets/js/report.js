@@ -1,142 +1,98 @@
-// Custom JavaScript for MonsterInc HTML Report
+// MonsterInc Report interactivity script using jQuery
 
-document.addEventListener('DOMContentLoaded', function () {
-    const resultsTable = document.getElementById('resultsTable');
-    const tableBody = resultsTable.querySelector('tbody');
-    // allRows will be populated from window.reportSettings.initialProbeResults
+$(document).ready(function () {
+    const $resultsTable = $('#resultsTable');
+    const $tableBody = $resultsTable.find('tbody');
     let allRowsData = []; 
     if (typeof window.reportSettings !== 'undefined' && window.reportSettings.initialProbeResults) {
         allRowsData = window.reportSettings.initialProbeResults;
     }
 
-    const globalSearchInput = document.getElementById('globalSearch');
-    const statusCodeFilter = document.getElementById('statusCodeFilter');
-    const contentTypeFilter = document.getElementById('contentTypeFilter');
-    const techFilterInput = document.getElementById('techFilter');
-    const paginationControls = document.getElementById('pagination-controls');
-    const targetList = document.getElementById('target-list');
-    const currentFilterSummaryEl = document.getElementById('currentFilterSummary');
+    const $globalSearchInput = $('#globalSearchInput'); // Updated ID from template
+    const $statusCodeFilter = $('#statusCodeFilter');
+    const $contentTypeFilter = $('#contentTypeFilter');
+    const $techFilterInput = $('#techFilterInput'); // Updated ID from template
+    const $targetFilterInput = $('#targetFilterInput'); // New filter input for target
+    const $paginationControls = $('#paginationControls'); // Updated ID from template
+    const $itemsPerPageSelect = $('#itemsPerPageSelect'); // Updated ID from template
+    const $resultsCountInfo = $('#resultsCountInfo');     // Updated ID from template
+    // const $targetList = $('#targetList'); // Removed this line, will select more directly
+    // const $currentFilterSummaryEl = $('#currentFilterSummary'); // This element is not in the current template
 
-    const itemsPerPage = (typeof window.reportSettings !== 'undefined' && window.reportSettings.itemsPerPage) ? window.reportSettings.itemsPerPage : 25;
+    let itemsPerPage = parseInt($itemsPerPageSelect.val()) || 10;
     let currentPage = 1;
     let currentSortColumn = null; 
     let currentSortDirection = 'asc';
     let currentFilters = {
-        global: '',
+        globalSearch: '',
         statusCode: '',
         contentType: '',
         tech: '',
-        rootTarget: 'all'
+        target: '' // Added for target filtering
     };
+    let filteredAndSortedData = [...allRowsData]; // Holds the currently filtered and sorted data
 
-    // --- Helper: Truncate text ---
+    // --- Helper: Truncate text (remains vanilla JS as it's not DOM specific) ---
     function truncateText(text, maxLength) {
         if (text && text.length > maxLength) {
             return text.substring(0, maxLength - 3) + "...";
         }
-        return text || ''; // Ensure not null/undefined
+        return text || '';
     }
 
     // --- Render Table Rows from Data ---
     function renderTableRows(dataToRender) {
-        tableBody.innerHTML = ''; // Clear existing rows
+        $tableBody.empty();
         if (!dataToRender || dataToRender.length === 0) {
-            const colCount = resultsTable.querySelector('thead th') ? resultsTable.querySelectorAll('thead th').length : 9;
-            tableBody.innerHTML = `<tr><td colspan="${colCount}" class="text-center">No results match your filters.</td></tr>`;
+            const colCount = $resultsTable.find('thead th').length || 10; // Updated colspan to 10 (InputURL, FinalURL, Status, Title, Technologies, WebServer, ContentType, Length, IPs, Actions)
+            $tableBody.append(`<tr><td colspan="${colCount}" class="text-center">No results match your filters.</td></tr>`);
             return;
         }
 
-        dataToRender.forEach(pr => {
-            const row = tableBody.insertRow();
-            row.dataset.rootTarget = pr.RootTargetURL || '';
+        $.each(dataToRender, function(index, pr) {
+            // Use data-result-index from Go template if it corresponds to original allRowsData index
+            // For client-side pagination, this index might be relative to the paginated set.
+            // The original `data-result-index` was added to `<tr>` in Go template.
+            // We need to ensure it's correctly used if details depend on original `allRowsData` index.
+            const originalIndex = allRowsData.indexOf(pr); // Find original index for detail view
 
-            // Corresponds to headers: "Input URL", "Final URL", "Status Code", "Content Length", "Content Type", "Title", "Web Server", "Technologies", "IPs"
-            let cell = row.insertCell(); cell.textContent = truncateText(pr.InputURL, 50); cell.title = pr.InputURL;
-            cell = row.insertCell(); 
-            if (pr.FinalURL) {
-                const finalLink = document.createElement('a');
-                finalLink.href = pr.FinalURL;
-                finalLink.textContent = truncateText(pr.FinalURL, 50);
-                finalLink.target = '_blank';
-                cell.appendChild(finalLink);
-                cell.title = pr.FinalURL;
-            } else {
-                cell.textContent = '-';
-            }
-            cell = row.insertCell(); cell.textContent = pr.StatusCode || '-'; cell.classList.add(`status-code-${pr.StatusCode}`);
-            cell = row.insertCell(); cell.textContent = pr.ContentLength !== undefined ? pr.ContentLength : '-';
-            cell = row.insertCell(); cell.textContent = truncateText(pr.ContentType, 30); cell.title = pr.ContentType;
-            cell = row.insertCell(); cell.textContent = truncateText(pr.Title, 70); cell.title = pr.Title;
-            cell = row.insertCell(); cell.textContent = truncateText(pr.WebServer, 30); cell.title = pr.WebServer;
-            cell = row.insertCell(); 
+            const $row = $('<tr></tr>')
+                .addClass(pr.IsSuccess ? (pr.StatusCode ? `status-${pr.StatusCode}` : '') : 'table-danger')
+                .attr('data-result-index', originalIndex); // Use original index here
+
+            $row.append($('<td></td>').addClass('truncate-url').attr('title', pr.InputURL).html(`<a href="${pr.InputURL}" target="_blank">${truncateText(pr.InputURL, 50)}</a>`));
+            $row.append($('<td></td>').addClass('truncate-url').attr('title', pr.FinalURL).html(pr.FinalURL ? `<a href="${pr.FinalURL}" target="_blank">${truncateText(pr.FinalURL, 50)}</a>` : '-'));
+            $row.append($('<td></td>').text(pr.StatusCode || (pr.Error ? 'ERR' : '-')));
+            $row.append($('<td></td>').addClass('truncate-title').attr('title', pr.Title).text(truncateText(pr.Title, 70) || '-'));
+            
             const techString = Array.isArray(pr.Technologies) ? pr.Technologies.join(', ') : '';
-            cell.textContent = truncateText(techString, 40); cell.title = techString;
-            cell = row.insertCell(); cell.textContent = Array.isArray(pr.IPs) ? pr.IPs.join(', ') : '-'; cell.title = Array.isArray(pr.IPs) ? pr.IPs.join(', ') : '-';
+            $row.append($('<td></td>').addClass('truncate-techs').attr('title', techString).text(truncateText(techString, 40)));
+            
+            $row.append($('<td></td>').text(pr.WebServer || '-'));
+            $row.append($('<td></td>').text(pr.ContentType || '-'));
+            $row.append($('<td></td>').text(pr.ContentLength !== undefined ? pr.ContentLength : '-'));
+            $row.append($('<td></td>').text(Array.isArray(pr.IPs) ? pr.IPs.join(', ') : '-'));
+            // Action button is now directly in the HTML template, no longer appended by JS.
+            
+            $tableBody.append($row);
         });
     }
 
-    // --- Populate Filters ---
-    function populateDropdownFilters() {
-        const statusCodes = new Set();
-        const contentTypes = new Set();
-        const rootTargetsFromData = new Set();
-
-        allRowsData.forEach(pr => {
-            if (pr.StatusCode) statusCodes.add(pr.StatusCode.toString());
-            if (pr.ContentType) contentTypes.add(pr.ContentType.split(';')[0].trim()); // Get primary content type
-            if (pr.RootTargetURL) rootTargetsFromData.add(pr.RootTargetURL);
-        });
-
-        // Populate Status Code Filter
-        Array.from(statusCodes).sort().forEach(code => {
-            const option = document.createElement('option');
-            option.value = code; option.textContent = code;
-            statusCodeFilter.appendChild(option);
-        });
-
-        // Populate Content Type Filter
-        Array.from(contentTypes).sort().forEach(type => {
-            if (type) { // Ensure type is not empty
-                const option = document.createElement('option');
-                option.value = type; option.textContent = type;
-                contentTypeFilter.appendChild(option);
-            }
-        });
-        
-        // Populate Target List (if not already done by Go template, or to add counts)
-        const targetListUl = document.getElementById('target-list');
-        targetListUl.innerHTML = '<li class="nav-item"><a class="nav-link active" href="#" data-target="all">All Targets (' + allRowsData.length + ')</a></li>'; // Reset with total
-        Array.from(rootTargetsFromData).sort().forEach(target => {
-            const count = allRowsData.filter(r => r.RootTargetURL === target).length;
-            const li = document.createElement('li');
-            li.classList.add('nav-item');
-            const a = document.createElement('a');
-            a.classList.add('nav-link');
-            a.href = `#${target}`;
-            a.dataset.target = target;
-            a.textContent = `${target} (${count})`;
-            targetListUl.appendChild(li);
-        });
-    }
-
-    // --- Filtering Logic ---
+    // --- Filtering Logic (core logic remains the same) ---
     function filterData(data) {
-        const globalSearchTerm = currentFilters.global.toLowerCase();
+        const globalSearchTerm = currentFilters.globalSearch.toLowerCase();
         const statusCode = currentFilters.statusCode;
         const contentType = currentFilters.contentType.toLowerCase();
         const techTerm = currentFilters.tech.toLowerCase();
-        const rootTarget = currentFilters.rootTarget;
-
-        let summaryParts = [];
-        if (rootTarget !== 'all') summaryParts.push(`Target: ${rootTarget}`);
-        if (globalSearchTerm) summaryParts.push(`Search: "${globalSearchTerm}"`);
-        if (statusCode) summaryParts.push(`Status: ${statusCode}`);
-        if (contentType) summaryParts.push(`Type: ${contentType}`);
-        if (techTerm) summaryParts.push(`Tech: "${techTerm}"`);
-        currentFilterSummaryEl.textContent = summaryParts.length > 0 ? `(${summaryParts.join(", ")})` : '';
+        const targetTerm = currentFilters.target.toLowerCase(); // Added for target filtering
 
         return data.filter(pr => {
-            if (rootTarget !== 'all' && pr.RootTargetURL !== rootTarget) return false;
+            // if (rootTarget !== 'all' && pr.RootTargetURL !== rootTarget) return false; // Filter by rootTarget - Old logic from top menu
+
+            // New Target Filter Logic
+            if (targetTerm && (!pr.RootTargetURL || !pr.RootTargetURL.toLowerCase().includes(targetTerm))) {
+                return false;
+            }
 
             let matchesGlobal = true;
             if (globalSearchTerm) {
@@ -145,14 +101,18 @@ document.addEventListener('DOMContentLoaded', function () {
                     (pr.FinalURL && pr.FinalURL.toLowerCase().includes(globalSearchTerm)) ||
                     (pr.Title && pr.Title.toLowerCase().includes(globalSearchTerm)) ||
                     (pr.WebServer && pr.WebServer.toLowerCase().includes(globalSearchTerm)) ||
+                    (pr.ContentType && pr.ContentType.toLowerCase().includes(globalSearchTerm)) ||
                     (Array.isArray(pr.Technologies) && pr.Technologies.join(', ').toLowerCase().includes(globalSearchTerm)) ||
-                    (Array.isArray(pr.IPs) && pr.IPs.join(', ').toLowerCase().includes(globalSearchTerm))
+                    (Array.isArray(pr.IPs) && pr.IPs.join(', ').toLowerCase().includes(globalSearchTerm)) ||
+                    (Array.isArray(pr.CNAMEs) && pr.CNAMEs.join(', ').toLowerCase().includes(globalSearchTerm)) ||
+                    (pr.ASNOrg && pr.ASNOrg.toLowerCase().includes(globalSearchTerm)) ||
+                    (pr.Error && pr.Error.toLowerCase().includes(globalSearchTerm))
                 );
             }
             if (!matchesGlobal) return false;
 
             if (statusCode && (!pr.StatusCode || pr.StatusCode.toString() !== statusCode)) return false;
-            if (contentType && (!pr.ContentType || !pr.ContentType.toLowerCase().includes(contentType))) return false;
+            if (contentType && (!pr.ContentType || !pr.ContentType.toLowerCase().startsWith(contentType))) return false;
 
             if (techTerm) {
                 const techString = Array.isArray(pr.Technologies) ? pr.Technologies.join(', ').toLowerCase() : "";
@@ -163,39 +123,29 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // --- Sorting Logic ---
+    // --- Sorting Logic (core logic remains the same) ---
     function sortData(data, sortColumn, direction) {
-        const sortPropMap = {
-            'input-url': 'InputURL',
-            'final-url': 'FinalURL',
-            'status-code': 'StatusCode',
-            'content-length': 'ContentLength',
-            'content-type': 'ContentType',
-            'title': 'Title',
-            'web-server': 'WebServer',
-            'technologies': 'Technologies',
-            'ips': 'IPs'
-        };
-        const propName = sortPropMap[sortColumn]; 
-        if (!propName) return data;
+        const propName = sortColumn; // sortColumn will be the actual property name from ProbeResultDisplay
 
         data.sort((a, b) => {
             let valA = a[propName];
             let valB = b[propName];
 
-            // Handle array types for sorting (e.g., Technologies, IPs - sort by first element or count)
             if (Array.isArray(valA)) valA = valA.join(', ');
             if (Array.isArray(valB)) valB = valB.join(', ');
 
-            valA = (valA === undefined || valA === null) ? '' : String(valA).toLowerCase();
-            valB = (valB === undefined || valB === null) ? '' : String(valB).toLowerCase();
+            valA = (valA === undefined || valA === null) ? '' : String(valA);
+            valB = (valB === undefined || valB === null) ? '' : String(valB);
+            
+            let numA = parseFloat(valA);
+            let numB = parseFloat(valB);
 
-            const numA = parseFloat(valA);
-            const numB = parseFloat(valB);
-            if (propName === 'ContentLength' || propName === 'StatusCode') {
-                 if (!isNaN(numA) && !isNaN(numB)) {
-                    valA = numA; valB = numB;
-                }
+            if (propName === 'ContentLength' || propName === 'StatusCode' || propName === 'Duration' || propName === 'ASN') {
+                valA = !isNaN(numA) ? numA : (direction === 'asc' ? Infinity : -Infinity); // Handle non-numeric gracefully for numeric sorts
+                valB = !isNaN(numB) ? numB : (direction === 'asc' ? Infinity : -Infinity);
+            } else {
+                valA = valA.toLowerCase();
+                valB = valB.toLowerCase();
             }
 
             let comparison = 0;
@@ -206,138 +156,202 @@ document.addEventListener('DOMContentLoaded', function () {
         return data;
     }
 
-    // --- Pagination Logic ---
-    function displayPage(processedData, page) {
+    // --- Pagination & Rendering ---
+    function displayPage(page) {
         currentPage = page;
         const start = (page - 1) * itemsPerPage;
         const end = start + itemsPerPage;
-        const paginatedItems = processedData.slice(start, end);
+        const paginatedItems = filteredAndSortedData.slice(start, end);
         
         renderTableRows(paginatedItems);
-        setupPaginationControls(processedData.length);
+        setupPaginationControls(filteredAndSortedData.length);
+        updateResultsCount(filteredAndSortedData.length, allRowsData.length);
     }
     
-    // (setupPaginationControls remains largely the same, ensure it is called with total filtered items)
     function setupPaginationControls(totalItems) {
-        paginationControls.innerHTML = '';
+        $paginationControls.empty();
         const pageCount = Math.ceil(totalItems / itemsPerPage);
         if (pageCount <= 1) return;
 
+        const $ul = $('<ul></ul>').addClass('pagination pagination-sm');
+
         const createPageLink = (pageNum, text, isActive, isDisabled) => {
-            const li = document.createElement('li');
-            li.classList.add('page-item');
-            if (isActive) li.classList.add('active');
-            if (isDisabled) li.classList.add('disabled');
-            const a = document.createElement('a');
-            a.classList.add('page-link');
-            a.href = '#';
-            a.textContent = text || pageNum;
+            const $li = $('<li></li>').addClass('page-item');
+            if (isActive) $li.addClass('active');
+            if (isDisabled) $li.addClass('disabled');
+            
+            const $a = $('<a></a>').addClass('page-link').attr('href', '#').text(text || pageNum);
             if (!isDisabled) {
-                a.addEventListener('click', (e) => { 
+                $a.on('click', (e) => { 
                     e.preventDefault(); 
-                    displayPage(filterAndSortCurrentData(), pageNum);
+                    displayPage(pageNum);
                 });
             }
-            li.appendChild(a);
-            return li;
+            $li.append($a);
+            return $li;
         };
 
-        paginationControls.appendChild(createPageLink(currentPage - 1, 'Previous', false, currentPage === 1));
+        $ul.append(createPageLink(currentPage - 1, 'Previous', false, currentPage === 1));
 
         let startPage = Math.max(1, currentPage - 2);
         let endPage = Math.min(pageCount, currentPage + 2);
         if (currentPage <= 3) endPage = Math.min(pageCount, 5);
         if (currentPage > pageCount - 3) startPage = Math.max(1, pageCount - 4);
 
-        if (startPage > 1) paginationControls.appendChild(createPageLink(1, '1'));
-        if (startPage > 2) paginationControls.appendChild(createPageLink(0, '...', false, true));
+        if (startPage > 1) $ul.append(createPageLink(1, '1'));
+        if (startPage > 2) $ul.append($('<li></li>').addClass('page-item disabled').html('<span class="page-link">...</span>'));
 
         for (let i = startPage; i <= endPage; i++) {
-            paginationControls.appendChild(createPageLink(i, i, i === currentPage));
+            $ul.append(createPageLink(i, i, i === currentPage));
         }
 
-        if (endPage < pageCount) paginationControls.appendChild(createPageLink(0, '...', false, true));
-        if (endPage < pageCount -1) paginationControls.appendChild(createPageLink(pageCount, pageCount));
+        if (endPage < pageCount -1 && endPage + 1 < pageCount) $ul.append($('<li></li>').addClass('page-item disabled').html('<span class="page-link">...</span>'));
+        if (endPage < pageCount) $ul.append(createPageLink(pageCount, pageCount));
         
-        paginationControls.appendChild(createPageLink(currentPage + 1, 'Next', false, currentPage === pageCount));
+        $ul.append(createPageLink(currentPage + 1, 'Next', false, currentPage === pageCount));
+        $paginationControls.append($ul);
     }
 
+    function updateResultsCount(filteredCount, totalInitialCount) {
+        const pageCount = Math.ceil(filteredCount / itemsPerPage);
+        let countText = `Showing ${filteredCount} results`;
+        if (filteredCount !== totalInitialCount) {
+            countText = `Filtered to ${filteredCount} (from ${totalInitialCount}) results`;
+        }
+        if (filteredCount > 0) {
+             countText += `, Page ${currentPage} of ${pageCount || 1}`;
+        }
+        if (filteredCount === 0 && totalInitialCount > 0) {
+            countText = 'No results match filters.';
+        }
+        $resultsCountInfo.text(countText);
+    }
 
     // --- Main Update Function ---
-    function filterAndSortCurrentData() {
-        let processedData = filterData([...allRowsData]); // Use a copy of allRowsData
+    function processAndDisplayData() {
+        filteredAndSortedData = filterData([...allRowsData]);
         if (currentSortColumn) {
-            processedData = sortData(processedData, currentSortColumn, currentSortDirection);
+            filteredAndSortedData = sortData(filteredAndSortedData, currentSortColumn, currentSortDirection);
         }
-        return processedData;
-    }
-    
-    function updateTable() {
-        const processedData = filterAndSortCurrentData();
-        displayPage(processedData, 1); 
+        displayPage(1); // Reset to page 1 after filter/sort change
     }
 
     // --- Event Listeners ---
-    globalSearchInput.addEventListener('input', () => { currentFilters.global = globalSearchInput.value; updateTable(); });
-    statusCodeFilter.addEventListener('change', () => { currentFilters.statusCode = statusCodeFilter.value; updateTable(); });
-    contentTypeFilter.addEventListener('change', () => { currentFilters.contentType = contentTypeFilter.value; updateTable(); });
-    techFilterInput.addEventListener('input', () => { currentFilters.tech = techFilterInput.value; updateTable(); });
-
-    resultsTable.querySelectorAll('thead th.sortable').forEach(th => {
-        th.addEventListener('click', () => {
-            const columnName = th.dataset.columnName;
-            if (currentSortColumn === columnName) {
-                currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
-            } else {
-                currentSortColumn = columnName;
-                currentSortDirection = 'asc';
-            }
-            resultsTable.querySelectorAll('thead th.sortable').forEach(header => {
-                header.classList.remove('sort-asc', 'sort-desc');
-                if (header.dataset.columnName === currentSortColumn) {
-                    header.classList.add(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
-                }
-            });
-            // Re-filter and sort, then display current page
-            const processedData = filterAndSortCurrentData();
-            displayPage(processedData, currentPage); // Stay on current page for sorting
-        });
+    $globalSearchInput.on('input', function() { currentFilters.globalSearch = $(this).val(); processAndDisplayData(); });
+    $statusCodeFilter.on('change', function() { currentFilters.statusCode = $(this).val(); processAndDisplayData(); });
+    $contentTypeFilter.on('change', function() { currentFilters.contentType = $(this).val(); processAndDisplayData(); });
+    $techFilterInput.on('input', function() { currentFilters.tech = $(this).val(); processAndDisplayData(); });
+    $targetFilterInput.on('input', function() { currentFilters.target = $(this).val(); processAndDisplayData(); }); // Added event listener for target filter
+    $itemsPerPageSelect.on('change', function() { 
+        itemsPerPage = parseInt($(this).val()) || 10;
+        processAndDisplayData(); 
     });
 
-    if (targetList) {
-        targetList.addEventListener('click', (event) => {
-            const anchor = event.target.closest('a.nav-link');
-            if (anchor) {
-                event.preventDefault();
-                currentFilters.rootTarget = anchor.dataset.target;
-                targetList.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
-                anchor.classList.add('active');
-                updateTable();
-            }
-        });
-    }
+    $resultsTable.find('thead th.sortable').on('click', function() {
+        const $th = $(this);
+        const sortKey = $th.data('sort-key'); // This should be the direct property name in ProbeResultDisplay
+        
+        if (!sortKey) return;
+
+        if (currentSortColumn === sortKey) {
+            currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSortColumn = sortKey;
+            currentSortDirection = 'asc';
+        }
+
+        $resultsTable.find('thead th.sortable').removeClass('sort-asc sort-desc');
+        $th.addClass(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+        
+        // Re-sort the already filtered data and display the current page number
+        filteredAndSortedData = sortData(filteredAndSortedData, currentSortColumn, currentSortDirection);
+        displayPage(currentPage); 
+    });
     
-    // Initialize Bootstrap Tooltips
-    if (typeof bootstrap !== 'undefined' && typeof bootstrap.Tooltip === 'function') {
-        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[title]'));
-        tooltipTriggerList.forEach(function (tooltipTriggerEl) {
-            if (tooltipTriggerEl.getAttribute('title')) { // Only init if title is not empty
-                 new bootstrap.Tooltip(tooltipTriggerEl, { trigger: 'hover' });
+    // Target List Navigation - REMOVED
+    /*
+    $('.top-menu').on('click', 'a.nav-link', function(e) { 
+        e.preventDefault();
+        const $this = $(this);
+        currentFilters.rootTarget = $this.data('target'); // This was for the old top-menu
+        $('.top-menu a.nav-link').removeClass('active'); 
+        $this.addClass('active'); 
+        processAndDisplayData();
+    });
+    */
+
+    // Details Modal Population
+    const $modalDetailsContent = $('#modalDetailsContent');
+    const $modalTitle = $('#detailsModal .modal-title');
+
+    $tableBody.on('click', '.view-details-btn', function() {
+        const $row = $(this).closest('tr');
+        const originalDataIndex = parseInt($row.data('result-index'));
+        const resultData = allRowsData[originalDataIndex]; // Get full data from original array
+
+        if (resultData) {
+            let detailsText = "";
+            detailsText += `Input URL: ${resultData.InputURL || '-'}\n`;
+            detailsText += `Final URL: ${resultData.FinalURL || '-'}\n`;
+            detailsText += `Method: ${resultData.Method || '-'}\n`;
+            detailsText += `Status Code: ${resultData.StatusCode || '-'}\n`;
+            detailsText += `Title: ${resultData.Title || '-'}\n`;
+            detailsText += `Web Server: ${resultData.WebServer || '-'}\n`;
+            detailsText += `Content Type: ${resultData.ContentType || '-'}\n`;
+            detailsText += `Content Length: ${resultData.ContentLength !== undefined ? resultData.ContentLength : '-'}\n`;
+            detailsText += `Duration: ${resultData.Duration !== undefined ? resultData.Duration.toFixed(3) + 's' : '-'}\n`;
+            detailsText += `Timestamp: ${resultData.Timestamp || '-'}\n`;
+            detailsText += `Error: ${resultData.Error || '-'}\n\n`;
+
+            detailsText += `IPs: ${(resultData.IPs || []).join(', ')}\n`;
+            detailsText += `CNAMEs: ${(resultData.CNAMEs || []).join(', ')}\n\n`;
+            
+            detailsText += `ASN: ${resultData.ASN || '-'}`;
+            if (resultData.ASNOrg) detailsText += ` (${resultData.ASNOrg})`;
+            detailsText += `\n\n`;
+
+            detailsText += `TLS Version: ${resultData.TLSVersion || '-'}\n`;
+            detailsText += `TLS Cipher: ${resultData.TLSCipher || '-'}\n`;
+            detailsText += `TLS Issuer: ${resultData.TLSCertIssuer || '-'}\n`;
+            detailsText += `TLS Expires: ${resultData.TLSCertExpiry || '-'}\n\n`;
+
+            detailsText += `Technologies: ${(resultData.Technologies || []).join(', ')}\n\n`;
+
+            detailsText += "--- Headers ---\n";
+            if (resultData.Headers && Object.keys(resultData.Headers).length > 0) {
+                for (const key in resultData.Headers) {
+                    detailsText += `${key}: ${resultData.Headers[key]}\n`;
+                }
+            } else {
+                detailsText += "(No headers captured)\n";
             }
-        });
-    }
+            detailsText += "\n--- Body Snippet (if available) ---\n";
+            detailsText += truncateText(resultData.Body, 500) || "(No body captured or body is empty)"; 
+
+            $modalTitle.text(`Details for: ${resultData.InputURL}`);
+            $modalDetailsContent.text(detailsText);
+        } else {
+            $modalTitle.text('Details not found');
+            $modalDetailsContent.text('Could not retrieve details for this result.');
+        }
+    });
 
     // --- Initial Load ---
-    populateDropdownFilters();
-    const firstSortableHeader = resultsTable.querySelector('thead th.sortable[data-column-name="input-url"]');
-    if (firstSortableHeader) {
-        currentSortColumn = firstSortableHeader.dataset.columnName;
+    // Initial data (allRowsData) is already populated from window.reportSettings
+    // Populate dropdowns from Go template data (UniqueStatusCodes, etc.) is done by Go template itself.
+    // This JS assumes those dropdowns are pre-filled.
+    
+    // Initialize sorting (e.g., by Input URL asc)
+    const $initialSortHeader = $resultsTable.find('thead th[data-sort-key="inputurl"]');
+    if ($initialSortHeader.length) {
+        currentSortColumn = 'InputURL'; // property name from ProbeResultDisplay
         currentSortDirection = 'asc';
-        firstSortableHeader.classList.add('sort-asc');
+        $initialSortHeader.addClass('sort-asc');
     }
-    updateTable(); 
 
-    console.log("MonsterInc Report JS Loaded. Total initial results:", allRowsData.length);
+    processAndDisplayData(); 
+
+    console.log("MonsterInc Report JS (jQuery) Loaded. Initial results: " + allRowsData.length);
 });
 
 // Dummy ReportData for environments where Go template doesn't inject it (e.g. static serving for dev)

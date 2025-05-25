@@ -1,43 +1,148 @@
 package models
 
-import "html/template"
+import (
+	"html/template"
+	"time"
+)
 
-// ProbeResultDisplay is a subset of ProbeResult tailored for display in the HTML report.
-// It should align with the fields available in models.ProbeResult and what the report needs.
+// ProbeResultDisplay is a struct tailored for displaying probe results in the HTML report.
+// It might omit or reformat fields from the main ProbeResult struct.
 type ProbeResultDisplay struct {
-	InputURL      string // Changed from OriginalURL
-	FinalURL      string
-	StatusCode    int
-	ContentLength int64
-	ContentType   string
-	Title         string
-	WebServer     string   // Changed from ServerHeader
-	Technologies  []string // This will be a list of tech names
-	IPs           []string // Changed from IPAddress (string) to []string
-	RootTargetURL string   // Make sure this is populated for JS filtering
-	// Add other fields as needed for display
+	InputURL        string
+	FinalURL        string
+	Method          string
+	StatusCode      int
+	ContentLength   int64
+	ContentType     string
+	Title           string
+	WebServer       string
+	Technologies    []string // Kept as a slice for easier template handling, join in template if needed
+	IPs             []string
+	CNAMEs          []string
+	ASN             int
+	ASNOrg          string
+	TLSVersion      string
+	TLSCipher       string
+	TLSCertIssuer   string
+	TLSCertExpiry   string // Formatted string for display
+	Duration        float64
+	Headers         map[string]string
+	Body            string // Or a snippet, or path to stored body
+	Error           string
+	Timestamp       string // Formatted string for display
+	IsSuccess       bool   // Helper for template logic
+	HasTechnologies bool   // Helper
+	HasTLS          bool   // Helper
+	HasASN          bool   // Helper for template to check if ASN info is present
+	HasCNAMEs       bool   // Helper
+	HasIPs          bool   // Helper
+	RootTargetURL   string // Added for multi-target navigation
 }
 
-// ReportPageData holds all the data needed to render the HTML report template.
+// ReportPageData holds all the data needed to render the HTML report page.
 type ReportPageData struct {
-	Title            string
-	Timestamp        string
-	ProbeResults     []ProbeResultDisplay // This will be used by Go template if JS is disabled or for initial render (though JS now handles it)
-	Headers          []string             // Table headers
-	RootTargets      []string             // Unique root targets for navigation
-	ItemsPerPage     int                  // For pagination
-	TotalResults     int
-	CurrentFilter    string       // For search persistence
-	StaticCSS        template.CSS // For custom styles.css
-	StaticJS         template.JS  // For custom report.js
-	DataTablesJS     template.JS  // For DataTables.js if kept local
-	CustomFontCSS    template.CSS // If a custom font is embedded
-	ProbeResultsJSON template.JS  // JSON string of ProbeResults for JS initialization
+	ReportTitle    string
+	GeneratedAt    string // Formatted timestamp
+	ProbeResults   []ProbeResultDisplay
+	TotalResults   int
+	SuccessResults int
+	FailedResults  int
+	Config         *ReporterConfigForTemplate // To pass some config like ItemsPerPage
+	// Additional metadata can be added here
+	UniqueStatusCodes  []int
+	UniqueContentTypes []string
+	UniqueTechnologies []string
+	UniqueRootTargets  []string          // Added for multi-target navigation
+	CustomCSS          template.CSS      // For embedded styles.css
+	ReportJs           template.JS       // Embedded custom report.js
+	Theme              string            // e.g., "dark" or "light"
+	FilterPlaceholders map[string]string // e.g. "Search Title..."
+	TableHeaders       []string          // For dynamic table generation if needed
+	ItemsPerPage       int               // From config
+	EnableDataTables   bool              // From config, determines if CDN links for DataTables are included
+	ShowTimelineView   bool              // Future feature?
+	ErrorMessage       string            // If report generation has a top-level error
+	FaviconBase64      string            // Base64 encoded favicon
+	ProbeResultsJSON   template.JS       // JSON cho JS client
 }
 
-// TableColumn represents a column in the HTML report table
-type TableColumn struct {
-	Name       string // Display name of the column
-	Identifier string // Identifier for sorting/filtering, matches ProbeResultDisplay field name (lowercase)
-	Sortable   bool   // Whether the column is sortable
+// ReporterConfigForTemplate is a subset of reporter configurations relevant for the template.
+type ReporterConfigForTemplate struct {
+	ItemsPerPage int
+}
+
+// formatTime formats a time.Time object into a string using the specified layout.
+// Returns "N/A" if the time is zero.
+func formatTime(t time.Time, layout string) string {
+	if t.IsZero() {
+		return "N/A"
+	}
+	return t.Format(layout)
+}
+
+// Helper function to transform ProbeResult to ProbeResultDisplay
+// This function should be in a package that can import both models and httpxrunner if ProbeResult is from there.
+// For now, assuming ProbeResult is models.ProbeResult.
+func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
+	// Determine if the probe was successful (e.g., status code 2xx and no major error)
+	isSuccess := pr.Error == "" && (pr.StatusCode >= 200 && pr.StatusCode < 400) // Consider 3xx as success for reachability
+
+	var technologies []string
+	for _, t := range pr.Technologies {
+		technologies = append(technologies, t.Name)
+	}
+
+	return ProbeResultDisplay{
+		InputURL:        pr.InputURL,
+		FinalURL:        pr.FinalURL,
+		Method:          pr.Method,
+		StatusCode:      pr.StatusCode,
+		ContentLength:   pr.ContentLength,
+		ContentType:     pr.ContentType,
+		Title:           pr.Title,
+		WebServer:       pr.WebServer,
+		Technologies:    technologies,
+		IPs:             pr.IPs,
+		CNAMEs:          pr.CNAMEs,
+		ASN:             pr.ASN,
+		ASNOrg:          pr.ASNOrg,
+		TLSVersion:      pr.TLSVersion,
+		TLSCipher:       pr.TLSCipher,
+		TLSCertIssuer:   pr.TLSCertIssuer,
+		TLSCertExpiry:   formatTime(pr.TLSCertExpiry, "2006-01-02"),
+		Duration:        pr.Duration,
+		Headers:         pr.Headers,
+		Body:            pr.Body, // Consider snippet or link
+		Error:           pr.Error,
+		Timestamp:       formatTime(pr.Timestamp, "2006-01-02 15:04:05 MST"),
+		IsSuccess:       isSuccess,
+		HasTechnologies: len(technologies) > 0,
+		HasTLS:          pr.TLSVersion != "",
+		HasASN:          pr.ASN != 0 || pr.ASNOrg != "",
+		HasCNAMEs:       len(pr.CNAMEs) > 0,
+		HasIPs:          len(pr.IPs) > 0,
+		RootTargetURL:   pr.InputURL, // Assign InputURL to RootTargetURL for filtering
+	}
+}
+
+// Add more helper functions or structs as needed for the report.
+// For example, a struct to hold filter options populated from the data.
+
+func GetDefaultReportPageData() ReportPageData {
+	return ReportPageData{
+		ReportTitle: "MonsterInc Scan Report",
+		GeneratedAt: time.Now().Format("2006-01-02 15:04:05 MST"),
+		Theme:       "light", // Default theme
+		FilterPlaceholders: map[string]string{
+			"globalSearch":   "Search all fields...",
+			"titleSearch":    "Filter by Title...",
+			"techSearch":     "Filter by Technology...",
+			"finalUrlSearch": "Filter by Final URL...",
+		},
+		TableHeaders: []string{ // Default headers, can be customized
+			"Input URL", "Final URL", "Status", "Title", "Technologies", "Web Server", "Content Type", "Length", "IPs",
+		},
+		ItemsPerPage:     10,   // Default, should come from config
+		EnableDataTables: true, // Default, should come from config
+	}
 }

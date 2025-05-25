@@ -3,40 +3,51 @@
 body {
     font-family: 'Nunito', sans-serif;
     font-size: 0.9rem;
-    background-color: #f8f9fa; /* Light grey background */
+    background-color: #f0f8ff; /* Light Alice Blue background */
+    color: #333; /* Darker text for better readability */
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh; /* Ensure body takes at least full viewport height */
 }
 
+.container-fluid {
+    flex: 1; /* Allow container to grow and push footer down */
+}
+
+/* Sử dụng Bootstrap cho navbar, table, menu, bỏ gradient */
 .navbar {
+    background-color: #111 !important;
+    color: #fff;
     box-shadow: 0 2px 4px rgba(0,0,0,.1);
 }
 
-#sidebarMenu {
-    box-shadow: 0 2px 4px rgba(0,0,0,.05);
+.table {
+    border-radius: .5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    width: 100%;
+    table-layout: auto;
+    word-break: break-word;
 }
 
-#sidebarMenu .nav-link {
-    color: #333;
-}
-
-#sidebarMenu .nav-link.active,
-#sidebarMenu .nav-link:hover {
-    color: #007bff;
-    background-color: #e9ecef;
-    border-radius: .25rem;
-}
-
-.table th,
-.table td {
+.table th, .table td {
     padding: 0.5rem;
     vertical-align: middle;
     border-top: 1px solid #dee2e6;
+    word-break: break-word;
+    white-space: normal;
+    max-width: 300px;
 }
 
 .table thead th {
     vertical-align: bottom;
-    border-bottom: 2px solid #dee2e6;
-    background-color: #e9ecef;
-    font-weight: 600; /* Nunito bold */
+    border-bottom: 2px solid #0056b3; /* Darker blue border */
+    background: #111 !important; /* Black background for table headers, !important to override other rules if necessary */
+    color: #fff !important; /* White text for table headers, !important */
+    font-weight: 700;
+    font-size: 1.05rem;
+    text-align: center;
+    white-space: nowrap;
+    background-image: none; /* Ensure no gradient is applied */
 }
 
 .table-hover tbody tr:hover {
@@ -44,10 +55,77 @@ body {
     background-color: rgba(0,0,0,.075);
 }
 
-.table {
-    border-radius: .3rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+/* Responsive: không cho scroll ngang, wrap text */
+.table-responsive {
+    overflow-x: auto;
 }
+
+/* Bỏ gradient top menu, dùng nav-pills Bootstrap */
+.top-menu {
+    display: flex;
+    gap: 1.5rem; /* Increased gap for better spacing */
+    justify-content: center;
+    align-items: center;
+    padding: 1rem 0;
+    background: #111; /* Changed to black background */
+    color: #fff;
+    font-weight: 600;
+    border-radius: 0 0 1rem 1rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15); /* Slightly more pronounced shadow */
+}
+.top-menu a {
+    color: #fff; /* White text for links */
+    text-decoration: none;
+    padding: 0.5rem 1.2rem;
+    border-radius: 2rem;
+    transition: background 0.2s, color 0.2s;
+}
+.top-menu a.active,
+.top-menu a:hover {
+    background: #007bff; /* Blue background on hover/active */
+    color: #fff;
+}
+
+/* Truncation classes: wrap text, không ellipsis */
+.truncate-url,
+.truncate-title,
+.truncate-techs,
+.truncate-tls,
+.truncate-error {
+    max-width: 300px; /* Or adjust as needed for URLs */
+    white-space: normal !important; /* Ensure wrapping */
+    word-break: break-all !important; /* Break long URLs aggressively if needed, or use break-word */
+    overflow: visible !important; /* Ensure content is not clipped */
+}
+
+/* Rounded buttons */
+.btn, .btn-sm, .btn-outline-info {
+    border-radius: 1.5rem !important;
+    background: #111;
+    color: #fff;
+    border: 1px solid #222;
+}
+.btn-outline-info:hover, .btn:hover {
+    background: #222;
+    color: #fff;
+}
+
+/* Responsive fix: bảng không bị scroll ngang */
+@media (max-width: 1200px) {
+    .table th, .table td {
+        max-width: 180px;
+    }
+}
+
+/* Giữ lại một số style cho modal, card */
+.card, .modal-content {
+    border-radius: .5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+
+/* Bỏ sidebar hoàn toàn */
+#sidebarMenu { display: none !important; }
 
 /* Truncation styling */
 td {
@@ -142,4 +220,154 @@ td a:hover {
 .truncate-tooltip:hover .tooltiptext {
     visibility: visible;
     opacity: 1;
+}
+
+/* Specific status code styling examples (can be generated or manual) */
+.status-200 {
+    /* Optional: specific styling for 200 OK, though often default is fine */
+}
+
+.status-301,
+.status-302 {
+    /* background-color: #e9ecef; /* Example: Light grey for redirects */
+}
+
+.status-404 {
+    /* color: #721c24; */
+    /* background-color: #f8d7da; */ /* Already handled by table-danger via .IsSuccess logic, but can be specific */
+}
+
+.status-403 {
+    /* color: #721c24; */
+    /* background-color: #f8d7da; */
+}
+
+.table-danger td {
+    /* To ensure text is readable on danger background */
+    /* color: #721c24 !important; */
+}
+
+#detailsModal .modal-body pre {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    padding: 10px;
+    border-radius: 0.25rem;
+    max-height: 60vh; /* Ensure modal body is scrollable if content is too long */
+    overflow-y: auto;
+}
+
+/* Dark theme (basic example, would need more comprehensive styling) */
+.dark-theme body {
+    background-color: #212529;
+    color: #f8f9fa;
+}
+
+.dark-theme .table {
+    color: #f8f9fa;
+    border-color: #495057;
+}
+
+.dark-theme .table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.dark-theme .table-hover tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.075);
+}
+
+.dark-theme .modal-content {
+    background-color: #343a40;
+    color: #f8f9fa;
+}
+
+.dark-theme .modal-header,
+.dark-theme .modal-footer {
+    border-color: #495057;
+}
+
+.dark-theme .form-control,
+.dark-theme .form-select {
+    background-color: #495057;
+    color: #f8f9fa;
+    border-color: #6c757d;
+}
+
+.dark-theme .form-control::placeholder {
+    color: #adb5bd;
+}
+
+.dark-theme .bg-light {
+    background-color: #343a40 !important; /* Override Bootstrap's light background */
+}
+
+.dark-theme .text-muted {
+    color: #adb5bd !important;
+}
+
+.dark-theme .navbar-dark.bg-dark {
+    background-color: #1a1d20 !important; /* Darker navbar for dark theme */
+}
+
+/* Wrap line for technologies and web server */
+.truncate-techs, .truncate-webserver {
+    white-space: normal !important;
+    word-break: break-word;
+    max-width: 300px;
+}
+
+/* Gradient header */
+.table thead th {
+    background: linear-gradient(90deg, #007bff 0%, #00c6ff 100%);
+    color: #fff;
+    border-bottom: 2px solid #dee2e6;
+    font-weight: 600;
+}
+
+/* Status code coloring: tô màu nền cho ô status */
+.status-2xx td:nth-child(3) { background: #28a745 !important; color: #fff !important; font-weight: bold; }
+.status-3xx td:nth-child(3) { background: #ffc107 !important; color: #111 !important; font-weight: bold; }
+.status-4xx td:nth-child(3) { background: #dc3545 !important; color: #fff !important; font-weight: bold; }
+.status-5xx td:nth-child(3) { background: #fd7e14 !important; color: #111 !important; font-weight: bold; }
+
+/* Table box shadow */
+.table {
+    box-shadow: 0 4px 24px rgba(0,0,0,0.10), 0 1.5px 4px rgba(0,0,0,0.08);
+}
+
+/* Box shadow for cards and modals */
+.card, .modal-content {
+    box-shadow: 0 4px 24px rgba(0,0,0,0.10), 0 1.5px 4px rgba(0,0,0,0.08);
+}
+
+/* General rounded corners */
+.table, .card, .modal-content, .btn {
+    border-radius: 1rem !important;
+}
+
+/* Sidebar to top menu (hide sidebar, style nav as top menu) */
+#sidebarMenu { display: none !important; }
+
+/* Footer styling */
+.footer {
+    background-color: #004080; /* Darker blue for footer */
+    color: #fff; /* White text on footer */
+    padding: 1rem 0;
+    width: 100%;
+    /* position: fixed; */ /* Removed fixed position, will use flexbox */
+    /* bottom: 0; */
+    box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+}
+
+.footer .text-muted {
+    color: #e9ecef !important; /* Lighter text for muted elements in footer */
+}
+
+/* Dark theme adjustments (if any are needed specifically for footer positioning) */
+.dark-theme .footer {
+    background-color: #1a1d20; /* Dark theme footer background */
+}
+
+/* Ensure other styles are not conflicting */
+main {
+    flex: 1 0 auto; /* Allow main content to grow and shrink but not less than its content size */
 } 
