@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // --- Default Values ---
@@ -63,7 +64,7 @@ type InputConfig struct {
 	InputURLs []string `json:"input_urls,omitempty" yaml:"input_urls,omitempty"`
 }
 
-type HTTPXRunnerConfig struct {
+type HttpxRunnerConfig struct {
 	Method               string            `json:"method,omitempty" yaml:"method,omitempty"`
 	RequestURIs          []string          `json:"request_uris,omitempty" yaml:"request_uris,omitempty"`
 	Threads              int               `json:"threads,omitempty" yaml:"threads,omitempty"`
@@ -87,8 +88,8 @@ type HTTPXRunnerConfig struct {
 	ExtractHeaders       bool              `json:"extract_headers" yaml:"extract_headers"`
 }
 
-func NewDefaultHTTPXRunnerConfig() HTTPXRunnerConfig {
-	return HTTPXRunnerConfig{
+func NewDefaultHTTPXRunnerConfig() HttpxRunnerConfig {
+	return HttpxRunnerConfig{
 		Method:               DefaultHTTPXMethod,
 		RequestURIs:          []string{},
 		Threads:              DefaultHTTPXThreads,
@@ -142,6 +143,7 @@ type CrawlerConfig struct {
 	RespectRobotsTxt      bool               `json:"respect_robots_txt" yaml:"respect_robots_txt"`
 	IncludeSubdomains     bool               `json:"include_subdomains" yaml:"include_subdomains"`
 	Scope                 CrawlerScopeConfig `json:"scope,omitempty" yaml:"scope,omitempty"`
+	MaxContentLengthMB    int                `json:"max_content_length_mb,omitempty" yaml:"max_content_length_mb,omitempty"`
 }
 
 func NewDefaultCrawlerConfig() CrawlerConfig {
@@ -154,20 +156,31 @@ func NewDefaultCrawlerConfig() CrawlerConfig {
 		RespectRobotsTxt:      DefaultCrawlerRespectRobotsTxt,
 		IncludeSubdomains:     DefaultCrawlerIncludeSubdomains,
 		Scope:                 NewDefaultCrawlerScopeConfig(),
+		MaxContentLengthMB:    2,
 	}
 }
 
 type ReporterConfig struct {
-	OutputDir    string `json:"output_dir,omitempty" yaml:"output_dir,omitempty"`
-	ItemsPerPage int    `json:"items_per_page,omitempty" yaml:"items_per_page,omitempty"`
-	EmbedAssets  bool   `json:"embed_assets" yaml:"embed_assets"`
+	OutputDir             string `json:"output_dir,omitempty" yaml:"output_dir,omitempty"`
+	EmbedAssets           bool   `json:"embed_assets" yaml:"embed_assets"`
+	TemplatePath          string `json:"template_path,omitempty" yaml:"template_path,omitempty"`
+	GenerateEmptyReport   bool   `json:"generate_empty_report" yaml:"generate_empty_report"`
+	ReportTitle           string `json:"report_title,omitempty" yaml:"report_title,omitempty"`
+	DefaultItemsPerPage   int    `json:"default_items_per_page,omitempty" yaml:"default_items_per_page,omitempty"`
+	EnableDataTables      bool   `json:"enable_data_tables" yaml:"enable_data_tables"`
+	DefaultOutputHTMLPath string `json:"default_output_html_path,omitempty" yaml:"default_output_html_path,omitempty"`
 }
 
 func NewDefaultReporterConfig() ReporterConfig {
 	return ReporterConfig{
-		OutputDir:    DefaultReporterOutputDir,
-		ItemsPerPage: DefaultReporterItemsPerPage,
-		EmbedAssets:  DefaultReporterEmbedAssets,
+		OutputDir:             DefaultReporterOutputDir,
+		EmbedAssets:           DefaultReporterEmbedAssets,
+		TemplatePath:          "",
+		GenerateEmptyReport:   false,
+		ReportTitle:           "MonsterInc Scan Report",
+		DefaultItemsPerPage:   DefaultReporterItemsPerPage,
+		EnableDataTables:      true,
+		DefaultOutputHTMLPath: filepath.Join(DefaultReporterOutputDir, "monsterinc_report.html"),
 	}
 }
 
@@ -237,25 +250,27 @@ func NewDefaultNormalizerConfig() NormalizerConfig {
 
 type GlobalConfig struct {
 	InputConfig        InputConfig        `json:"input_config,omitempty" yaml:"input_config,omitempty"`
-	HTTPXRunnerConfig  HTTPXRunnerConfig  `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
+	HttpxRunnerConfig  HttpxRunnerConfig  `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
 	CrawlerConfig      CrawlerConfig      `json:"crawler_config,omitempty" yaml:"crawler_config,omitempty"`
 	ReporterConfig     ReporterConfig     `json:"reporter_config,omitempty" yaml:"reporter_config,omitempty"`
 	StorageConfig      StorageConfig      `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
 	NotificationConfig NotificationConfig `json:"notification_config,omitempty" yaml:"notification_config,omitempty"`
 	LogConfig          LogConfig          `json:"log_config,omitempty" yaml:"log_config,omitempty"`
 	NormalizerConfig   NormalizerConfig   `json:"normalizer_config,omitempty" yaml:"normalizer_config,omitempty"`
+	Mode               string             `json:"mode,omitempty" yaml:"mode,omitempty"`
 }
 
 func NewDefaultGlobalConfig() *GlobalConfig {
 	return &GlobalConfig{
 		InputConfig:        InputConfig{InputURLs: []string{}},
-		HTTPXRunnerConfig:  NewDefaultHTTPXRunnerConfig(),
+		HttpxRunnerConfig:  NewDefaultHTTPXRunnerConfig(),
 		CrawlerConfig:      NewDefaultCrawlerConfig(),
 		ReporterConfig:     NewDefaultReporterConfig(),
 		StorageConfig:      NewDefaultStorageConfig(),
 		NotificationConfig: NewDefaultNotificationConfig(),
 		LogConfig:          NewDefaultLogConfig(),
 		NormalizerConfig:   NewDefaultNormalizerConfig(),
+		Mode:               "onetime",
 	}
 }
 
