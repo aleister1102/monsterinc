@@ -23,7 +23,7 @@
 - [x] 3.0 Implement Configuration Management
   - [x] 3.1 Define normalizer settings in configuration structure in `internal/config/normalizer_config.go`.
   - [x] 3.2 Implement configuration loading for normalizer settings in `internal/config/normalizer_config.go`.
-- [ ] 4.0 Implement Error Handling and Logging
+- [x] 4.0 Implement Error Handling and Logging
   - [x] 4.1 Implement error handling for URL normalization in `internal/normalizer/normalizer.go`.
   - [x] 4.2 Implement error handling for file input in `internal/normalizer/file.go`.
   - [x] 4.3 Implement logging for normalization operations in all relevant files. 
