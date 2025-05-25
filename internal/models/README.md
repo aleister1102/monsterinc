@@ -1,59 +1,55 @@
-# Package `models`
+# Package models
 
-Package `models` định nghĩa các cấu trúc dữ liệu (structs) cốt lõi được sử dụng trong toàn bộ ứng dụng MonsterInc. Các model này đại diện cho các thực thể như kết quả thăm dò, cấu hình báo cáo, schema dữ liệu Parquet, v.v.
+This package defines various data structures used throughout the MonsterInc application, particularly for representing scan results, configuration, and reporting data.
 
-## Các Models Chính
+## Core Data Structures
 
-1.  **`ProbeResult` (`probe_result.go`)**
-    -   Đây là struct trung tâm lưu trữ kết quả chi tiết của một lần thăm dò (probe) HTTP/HTTPS tới một URL.
-    -   Bao gồm các thông tin cơ bản (URL đầu vào, phương thức, timestamp, thời gian phản hồi, lỗi nếu có, URL gốc của mục tiêu).
-    -   Thông tin phản hồi HTTP (mã trạng thái, content length, content type, headers, body, title, web server).
-    -   Thông tin chuyển hướng (URL cuối cùng).
-    -   Thông tin DNS (IPs, CNAMEs, ASN, ASN Organization).
-    -   Thông tin phát hiện công nghệ (`[]Technology`).
-    -   Thông tin TLS (phiên bản, cipher, nhà cung cấp chứng chỉ, ngày hết hạn chứng chỉ).
-    -   Có một hàm helper `HasTechnologies()`.
+### `ProbeResult` (`probe_result.go`)
+Represents the detailed findings for a single probed URL. It includes:
+- Basic info: `InputURL`, `Method`, `Timestamp`, `Duration`, `Error`, `RootTargetURL`.
+- HTTP response: `StatusCode`, `ContentLength`, `ContentType`, `Headers`, `Body` (snippet), `Title`, `WebServer`.
+- Redirect info: `FinalURL`.
+- DNS info: `IPs`, `CNAMEs`, `ASN`, `ASNOrg`.
+- Technology detection: `Technologies` (slice of `Technology` struct).
+- TLS info: `TLSVersion`, `TLSCipher`, `TLSCertIssuer`, `TLSCertExpiry`.
 
-2.  **`Technology` (`probe_result.go`)**
-    -   Một struct con của `ProbeResult`, lưu trữ thông tin về một công nghệ được phát hiện (tên, phiên bản, danh mục).
+### `ParquetProbeResult` (`parquet_schema.go`)
+Defines the schema for data stored in Parquet files. Fields are mostly optional pointers (`*string`, `*int32`, etc.) to handle missing data gracefully in Parquet. It includes fields like `OriginalURL`, `FinalURL`, `StatusCode`, `ScanTimestamp`, `RootTargetURL`, etc. Arrays are marked for list representation in Parquet.
 
-3.  **`ParquetProbeResult` (`parquet_schema.go`)**
-    -   Định nghĩa schema để lưu trữ `ProbeResult` vào file Parquet, sử dụng thư viện `parquet-go/parquet-go`.
-    -   Các trường được đánh dấu bằng struct tags của `parquet-go` (ví dụ: `parquet:"column_name,optional"`).
-    -   Các trường tùy chọn (optional) thường là kiểu con trỏ (ví dụ: `*string`, `*int64`) để thể hiện giá trị `nil` trong Parquet.
-    -   Slice được dùng cho kiểu `LIST`, và map (ví dụ: headers) được marshal thành chuỗi JSON trước khi lưu.
+### `ReportPageData` (`report_data.go`)
+This struct holds all data necessary for rendering the HTML report. Key fields include:
+- `ReportTitle`, `GeneratedAt`.
+- `ProbeResults`: A slice of `ProbeResultDisplay` for the main results table.
+- `TotalResults`, `SuccessResults`, `FailedResults`.
+- `UniqueStatusCodes`, `UniqueContentTypes`, `UniqueTechnologies`, `UniqueRootTargets`: For populating filter dropdowns.
+- `CustomCSS`, `ReportJs`: For embedded assets.
+- `ProbeResultsJSON`: Probe results marshaled to JSON for client-side JavaScript.
+- `URLDiffs`: A map of `string` (RootTargetURL) to `URLDiffResult`, holding the diff data to be displayed in the report (e.g., for the "Old/Missing URLs" section).
+- Configuration for display: `ItemsPerPage`, `EnableDataTables`.
 
-4.  **`ReportPageData` (`report_data.go`)**
-    -   Struct chính chứa tất cả dữ liệu cần thiết để render một trang báo cáo HTML.
-    -   Bao gồm tiêu đề báo cáo, thời gian tạo, danh sách các `ProbeResultDisplay`, các thông số thống kê (tổng số, thành công, thất bại), cấu hình reporter, danh sách các giá trị duy nhất cho bộ lọc (status codes, content types, technologies, root targets).
-    -   Chứa CSS và JS tùy chỉnh đã nhúng (`CustomCSS`, `ReportJs`).
-    -   Chứa `ProbeResultsJSON` là một chuỗi JSON của `[]ProbeResultDisplay` để JavaScript phía client sử dụng.
+### `ProbeResultDisplay` (`report_data.go`)
+A struct tailored for displaying probe results in the HTML report. It often reformats or adds helper fields based on `ProbeResult`. Includes `URLStatus` (string) to show diff status (new, old, existing).
 
-5.  **`ProbeResultDisplay` (`report_data.go`)**
-    -   Một phiên bản của `ProbeResult` được điều chỉnh cho việc hiển thị trong báo cáo HTML.
-    -   Có thể bỏ bớt hoặc định dạng lại một số trường từ `ProbeResult` (ví dụ: `TLSCertExpiry` và `Timestamp` được định dạng thành chuỗi).
-    -   Bao gồm các cờ boolean tiện ích cho template (ví dụ: `IsSuccess`, `HasTechnologies`, `HasTLS`).
-    -   Hàm `ToProbeResultDisplay(pr ProbeResult)` được sử dụng để chuyển đổi từ `ProbeResult` sang `ProbeResultDisplay`.
+### `URLDiffResult`, `DiffedURL`, `URLStatus` (`url_diff.go`)
+These structures are central to the URL diffing feature:
+- **`URLStatus`**: An enum-like string (`new`, `old`, `existing`).
+- **`DiffedURL`**: Contains a `NormalizedURL`, its `Status` (`URLStatus`), and `LastSeenData` (a `ProbeResult` struct, primarily for providing context to old/existing URLs).
+- **`URLDiffResult`**: Holds the `RootTargetURL` for the diff and a slice of `DiffedURL` results.
 
-6.  **`ReporterConfigForTemplate` (`report_data.go`)**
-    -   Một tập hợp con các cấu hình từ `config.ReporterConfig` liên quan trực tiếp đến việc render template (ví dụ: `ItemsPerPage`).
+### `Target` (`target.go`)
+Represents a target URL, including its original and normalized forms.
 
-7.  **`Target` (`target.go`)**
-    -   Đại diện cho một mục tiêu đầu vào, bao gồm `OriginalURL` và `NormalizedURL` sau khi qua xử lý.
+### `ExtractedAsset` (`asset.go`)
+Represents an asset (like a JS file, CSS file, image) extracted from a crawled page, including its `AbsoluteURL` and source tag/attribute.
 
-8.  **`ExtractedAsset` (`asset.go`)**
-    -   Lưu trữ thông tin về một asset (ví dụ: link, script, image) được trích xuất từ một trang HTML.
-    -   Bao gồm `AbsoluteURL`, `SourceTag` (ví dụ: `a`, `img`), `SourceAttr` (ví dụ: `href`, `src`).
+### `URLValidationError` (`error.go`)
+A custom error type for URL validation issues.
 
-9.  **`URLSource` (`asset.go`)**
-    - Struct đơn giản chứa thông tin Tag và Attribute của một URL được trích xuất.
+## Helper Functions
 
-10. **`URLValidationError` (`error.go`)**
-    -   Kiểu lỗi tùy chỉnh được sử dụng bởi package `urlhandler` khi có vấn đề trong việc xác thực hoặc chuẩn hóa URL.
-    -   Chứa `URL` gốc và `Message` lỗi.
+- `ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay`: Converts a `ProbeResult` to a `ProbeResultDisplay` for easier rendering in templates.
+- `GetDefaultReportPageData() ReportPageData`: Returns a `ReportPageData` struct with some default values initialized.
 
-## Các hàm tiện ích khác
+## Purpose
 
--   `report_data.go` cũng chứa các hàm helper như `formatTime()` và `GetDefaultReportPageData()`.
-
-Package `models` không chứa logic nghiệp vụ phức tạp mà chủ yếu tập trung vào việc định nghĩa cấu trúc dữ liệu và các tiện ích nhỏ liên quan đến các cấu trúc đó. 
+Consolidating these models in one package promotes consistency and reusability across different modules of the application (crawler, httpxrunner, datastore, differ, reporter). 

@@ -40,6 +40,10 @@ type ProbeResult struct {
 	TLSCertExpiry time.Time `json:"tls_cert_expiry,omitempty"`
 	// Placeholder for more detailed TLSData if needed, like the one previously in models.TLSData
 	// For now, keeping fields flat as in httpxrunner.ProbeResult for simplicity
+
+	// Diffing information (to be populated before writing to Parquet)
+	URLStatus           string    `json:"url_status,omitempty"`            // "new", "old", "existing"
+	OldestScanTimestamp time.Time `json:"oldest_scan_timestamp,omitempty"` // Timestamp of the very first scan, or historical record
 }
 
 // HasTechnologies returns true if any technologies were detected in the probe result.

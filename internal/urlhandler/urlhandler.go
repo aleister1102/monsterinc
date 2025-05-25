@@ -2,10 +2,20 @@ package urlhandler
 
 import (
 	"fmt"
+	"monsterinc/internal/models"
 	"net/url"
+	"regexp"
 	"strings"
+)
 
-	"monsterinc/internal/models" // Import the models package
+var (
+	// Regex to detect if a string is likely a file path or a scheme-less domain
+	filePathLikeRegex = regexp.MustCompile(`^(\.\.[/\\]|/|[a-zA-Z]:[/\\])`)
+	// Regex to find common schemes
+	schemeRegex = regexp.MustCompile(`(?i)^(http|https|ftp|file)://`)
+	// Non-alphanumeric characters except _, ., -
+	safeFilenameCharRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]+`)
+	protocolsRegex        = regexp.MustCompile(`(?i)^https?://`)
 )
 
 // URLValidationError is now defined in internal/models/error.go
@@ -152,4 +162,32 @@ func ResolveURL(href string, base *url.URL) (string, error) {
 		return "", fmt.Errorf("error parsing href '%s' against base '%s': %w", href, base.String(), err)
 	}
 	return resolved.String(), nil
+}
+
+// SanitizeFilename creates a safe filename string from a URL or any input string.
+// It removes the protocol, replaces unsafe characters with underscores, and cleans up underscores.
+func SanitizeFilename(input string) string {
+	// Remove http(s):// protocol
+	name := protocolsRegex.ReplaceAllString(input, "")
+
+	// Replace forward slashes (common in paths) with a specific separator (e.g., double underscore)
+	// to distinguish from other replaced characters, or just underscore if simple flattening is fine.
+	// For simplicity here, all non-safe chars become underscores.
+	// name = strings.ReplaceAll(name, "/", "__") // Example for specific path separator
+
+	// Replace any character that is not a letter, number, underscore, dot, or hyphen with an underscore.
+	name = safeFilenameCharRegex.ReplaceAllString(name, "_")
+
+	// Replace multiple consecutive underscores with a single underscore.
+	name = regexp.MustCompile(`_+`).ReplaceAllString(name, "_")
+
+	// Remove leading or trailing underscores that might result from replacements at the start/end.
+	name = strings.Trim(name, "_")
+
+	// If the name becomes empty after sanitization (e.g., input was just "http://"), provide a default.
+	if name == "" {
+		return "sanitized_empty_input"
+	}
+
+	return name
 }
