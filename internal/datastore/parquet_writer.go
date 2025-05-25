@@ -6,223 +6,212 @@ import (
 	"log"
 	"monsterinc/internal/config"
 	"monsterinc/internal/models"
+	"monsterinc/internal/urlhandler"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/compress/brotli"
+	"github.com/parquet-go/parquet-go/compress/gzip"
+	"github.com/parquet-go/parquet-go/compress/lz4"
+	"github.com/parquet-go/parquet-go/compress/snappy"
+	"github.com/parquet-go/parquet-go/compress/uncompressed"
+	"github.com/parquet-go/parquet-go/compress/zstd"
 )
 
-// ParquetWriter is responsible for writing probe results to Parquet files
-// using the parquet-go/parquet-go library.
+// ParquetWriter handles writing probe results to Parquet files.
 type ParquetWriter struct {
 	config *config.StorageConfig
 	logger *log.Logger
 }
 
-// NewParquetWriter creates a new ParquetWriter for parquet-go/parquet-go.
+// NewParquetWriter creates a new ParquetWriter.
 func NewParquetWriter(cfg *config.StorageConfig, appLogger *log.Logger) (*ParquetWriter, error) {
 	if cfg == nil {
-		cfg = &config.StorageConfig{ParquetBasePath: "./parquet_data", CompressionCodec: "ZSTD"}
-		log.Println("[WARN] ParquetWriter (parquet-go/parquet-go): StorageConfig is nil, using default values.")
+		return nil, fmt.Errorf("storage config cannot be nil")
 	}
 	if appLogger == nil {
-		appLogger = log.New(os.Stdout, "[ParquetWriterGo] ", log.LstdFlags)
+		appLogger = log.New(os.Stderr, "[ParquetWriter] ", log.LstdFlags)
+		appLogger.Println("Warning: No logger provided, using default stderr logger.")
 	}
-
 	pw := &ParquetWriter{
 		config: cfg,
 		logger: appLogger,
 	}
-
-	if pw.config.ParquetBasePath == "" {
-		pw.config.ParquetBasePath = "./parquet_data" // Default path
-		appLogger.Printf("ParquetBasePath not set, using default: %s", pw.config.ParquetBasePath)
-	}
-
 	err := os.MkdirAll(pw.config.ParquetBasePath, 0755)
 	if err != nil {
-		appLogger.Printf("Error creating base Parquet directory '%s': %v", pw.config.ParquetBasePath, err)
-		return nil, err
+		return nil, fmt.Errorf("failed to create parquet base directory %s: %w", pw.config.ParquetBasePath, err)
 	}
-
-	appLogger.Printf("ParquetWriter (parquet-go/parquet-go) initialized. Base path: %s, Compression: %s",
-		pw.config.ParquetBasePath, pw.config.CompressionCodec)
-
 	return pw, nil
 }
 
-// transformToParquetResult converts models.ProbeResult to models.ParquetProbeResult.
-func (pw *ParquetWriter) transformToParquetResult(pr models.ProbeResult, scanTime int64, rootTarget string) models.ParquetProbeResult {
+// transformToParquetResult converts a models.ProbeResult to a models.ParquetProbeResult.
+// scanTime is the timestamp of the current scan session.
+func (pw *ParquetWriter) transformToParquetResult(pr models.ProbeResult, scanTime time.Time) models.ParquetProbeResult {
 	var headersJSON *string
 	if len(pr.Headers) > 0 {
 		jsonData, err := json.Marshal(pr.Headers)
 		if err == nil {
-			s := string(jsonData)
-			headersJSON = &s
+			strData := string(jsonData)
+			headersJSON = &strData
 		} else {
-			pw.logger.Printf("[WARN] Failed to marshal headers to JSON for URL %s: %v", pr.InputURL, err)
+			pw.logger.Printf("Warning: Failed to marshal headers for URL %s: %v", pr.InputURL, err)
 		}
 	}
 
-	pString := func(s string) *string {
-		if s == "" {
-			return nil
-		}
-		return &s
-	}
-	pInt32 := func(i int) *int32 {
-		val := int32(i)
-		if i == 0 && pr.Error != "" {
-			return nil
-		}
-		return &val
-	}
-	pInt64 := func(i int64) *int64 {
-		if i == 0 && pr.StatusCode == 0 && pr.Error != "" {
-			return nil
-		}
-		return &i
-	}
-	pFloat64 := func(f float64) *float64 {
-		if f == 0.0 && pr.StatusCode == 0 && pr.Error != "" {
-			return nil
-		}
-		return &f
-	}
-	pTimeInt64 := func(t time.Time) *int64 {
-		if t.IsZero() {
-			return nil
-		}
-		val := t.UnixMilli()
-		return &val
+	// Convert []models.Technology to []string for Parquet
+	var techNames []string
+	for _, tech := range pr.Technologies {
+		techNames = append(techNames, tech.Name)
 	}
 
-	parquetPr := models.ParquetProbeResult{
+	return models.ParquetProbeResult{
 		OriginalURL:   pr.InputURL,
-		FinalURL:      pString(pr.FinalURL),
-		StatusCode:    pInt32(pr.StatusCode),
-		ContentLength: pInt64(pr.ContentLength),
-		ContentType:   pString(pr.ContentType),
-		Title:         pString(pr.Title),
-		WebServer:     pString(pr.WebServer),
-		ScanTimestamp: scanTime,
-		RootTargetURL: pString(rootTarget),
-		ProbeError:    pString(pr.Error),
-		Method:        pString(pr.Method),
-		Duration:      pFloat64(pr.Duration),
+		FinalURL:      strPtrOrNil(pr.FinalURL),
+		StatusCode:    int32PtrOrNilZero(int32(pr.StatusCode)),
+		ContentLength: int64PtrOrNilZero(pr.ContentLength),
+		ContentType:   strPtrOrNil(pr.ContentType),
+		Title:         strPtrOrNil(pr.Title),
+		WebServer:     strPtrOrNil(pr.WebServer),
+		Technologies:  techNames,
+		IPAddress:     pr.IPs,
+		RootTargetURL: strPtrOrNil(pr.RootTargetURL),
+		ProbeError:    strPtrOrNil(pr.Error),
+		Method:        strPtrOrNil(pr.Method),
 		HeadersJSON:   headersJSON,
-		ASN:           pInt32(pr.ASN),
-		ASNOrg:        pString(pr.ASNOrg),
-		TLSVersion:    pString(pr.TLSVersion),
-		TLSCipher:     pString(pr.TLSCipher),
-		TLSCertIssuer: pString(pr.TLSCertIssuer),
-		TLSCertExpiry: pTimeInt64(pr.TLSCertExpiry),
-	}
 
-	if len(pr.Technologies) > 0 {
-		parquetPr.Technologies = make([]string, len(pr.Technologies))
-		for i, tech := range pr.Technologies {
-			parquetPr.Technologies[i] = tech.Name
-		}
-	} else {
-		parquetPr.Technologies = []string{}
-	}
+		// New/Updated fields
+		DiffStatus:         strPtrOrNil(pr.URLStatus),
+		ScanTimestamp:      scanTime.UnixMilli(),                                      // Current scan session time
+		FirstSeenTimestamp: models.TimePtrToUnixMilliOptional(pr.OldestScanTimestamp), // When this URL was first ever recorded
+		LastSeenTimestamp:  models.TimePtrToUnixMilliOptional(pr.Timestamp),           // Could be same as ScanTimestamp, or older if it's an 'old' record being re-saved for some reason (though usually 'old' are not re-written)
 
-	parquetPr.IPAddress = pr.IPs
-	if parquetPr.IPAddress == nil {
-		parquetPr.IPAddress = []string{}
+		// Fields that were removed from ParquetProbeResult are no longer mapped here:
+		// Duration, CNAMEs, ASN, ASNOrg, TLSVersion, TLSCipher, TLSCertIssuer, TLSCertExpiry
 	}
-
-	parquetPr.CNAMEs = pr.CNAMEs
-	if parquetPr.CNAMEs == nil {
-		parquetPr.CNAMEs = []string{}
-	}
-	return parquetPr
 }
 
+// Write takes a slice of ProbeResult, a scanSessionID (can be a timestamp or unique ID),
+// and the rootTarget string, then writes them to a Parquet file specific to that rootTarget.
+// The URL diffing and population of URLStatus and OldestScanTimestamp in ProbeResult
+// is expected to have been done *before* calling this Write method.
 func (pw *ParquetWriter) Write(probeResults []models.ProbeResult, scanSessionID string, rootTarget string) error {
 	if len(probeResults) == 0 {
-		pw.logger.Println("No probe results to write. Skipping Parquet file generation (parquet-go/parquet-go).")
+		pw.logger.Printf("No probe results to write for target: %s, session: %s", rootTarget, scanSessionID)
 		return nil
 	}
 
-	dateStr := time.Now().Format("20060102")
-	datedPath := filepath.Join(pw.config.ParquetBasePath, dateStr)
-	if err := os.MkdirAll(datedPath, 0755); err != nil {
-		pw.logger.Printf("Error creating dated Parquet directory '%s': %v", datedPath, err)
-		return err
-	}
-
-	fileNameBase := scanSessionID
-	if fileNameBase == "" {
-		fileNameBase = time.Now().Format("150405")
-	}
-	safeRootTarget := strings.ReplaceAll(strings.ReplaceAll(rootTarget, "https://", ""), "http://", "")
-	safeRootTarget = strings.ReplaceAll(safeRootTarget, ":", "_")
-	safeRootTarget = strings.ReplaceAll(safeRootTarget, "/", "_")
-	if safeRootTarget == "" {
-		safeRootTarget = "unknown_target"
-	}
-	fileName := fmt.Sprintf("scan_results_%s.parquet", fileNameBase)
-	filePath := filepath.Join(datedPath, fileName)
-
-	pw.logger.Printf("Preparing to write %d results to Parquet file (parquet-go/parquet-go): %s", len(probeResults), filePath)
-
-	outputFile, err := os.Create(filePath)
+	normalizedRootTarget, err := urlhandler.NormalizeURL(rootTarget)
 	if err != nil {
-		pw.logger.Printf("Failed to create Parquet file '%s': %v", filePath, err)
-		return err
+		pw.logger.Printf("Error normalizing root target URL %s: %v. Using raw root target for filename.", rootTarget, err)
+		normalizedRootTarget = rootTarget // Fallback to raw if normalization fails
 	}
-	defer outputFile.Close()
+
+	filename := urlhandler.SanitizeFilename(normalizedRootTarget) + ".parquet"
+	filePath := filepath.Join(pw.config.ParquetBasePath, filename)
+	pw.logger.Printf("Preparing to write %d probe results for target '%s' (session: %s) to Parquet file: %s", len(probeResults), rootTarget, scanSessionID, filePath)
+
+	// We will overwrite the file if it exists, as Parquet is better for full dataset writes than appends generally.
+	// If append is needed, a different strategy (e.g., multiple files per scan, or reading existing then rewriting) would be required.
+	file, err := os.Create(filePath) // Overwrites or creates new
+	if err != nil {
+		return fmt.Errorf("failed to create/truncate parquet file %s: %w", filePath, err)
+	}
+	defer file.Close()
+
+	parquetRows := make([]models.ParquetProbeResult, 0, len(probeResults))
+	scanTime := time.Now() // Use a consistent scan time for all records in this batch
+	for _, pr := range probeResults {
+		// Important: pr.URLStatus and pr.OldestScanTimestamp should be populated by the diffing logic *before* this point.
+		parquetRows = append(parquetRows, pw.transformToParquetResult(pr, scanTime))
+	}
+
+	pw.logger.Printf("Writing %d transformed Parquet rows to %s", len(parquetRows), filePath)
 
 	var writerOptions []parquet.WriterOption
-	configCompression := strings.ToUpper(pw.config.CompressionCodec)
-	pw.logger.Printf("Attempting to use %s compression for Parquet file (parquet-go/parquet-go).", configCompression)
 
-	switch configCompression {
-	case "ZSTD":
-		writerOptions = append(writerOptions, parquet.Compression(&parquet.Zstd))
-	case "SNAPPY":
-		writerOptions = append(writerOptions, parquet.Compression(&parquet.Snappy))
-	case "GZIP":
-		writerOptions = append(writerOptions, parquet.Compression(&parquet.Gzip))
-	case "UNCOMPRESSED":
-		writerOptions = append(writerOptions, parquet.Compression(&parquet.Uncompressed))
+	// Determine the compression codec
+	codecName := pw.config.CompressionCodec
+	switch codecName {
+	case "snappy":
+		writerOptions = append(writerOptions, parquet.Compression(&snappy.Codec{}))
+		pw.logger.Printf("Using Parquet compression: snappy")
+	case "gzip":
+		writerOptions = append(writerOptions, parquet.Compression(&gzip.Codec{}))
+		pw.logger.Printf("Using Parquet compression: gzip")
+	case "brotli":
+		writerOptions = append(writerOptions, parquet.Compression(&brotli.Codec{}))
+		pw.logger.Printf("Using Parquet compression: brotli")
+	case "zstd":
+		writerOptions = append(writerOptions, parquet.Compression(&zstd.Codec{}))
+		pw.logger.Printf("Using Parquet compression: zstd")
+	case "lz4raw":
+		writerOptions = append(writerOptions, parquet.Compression(&lz4.Codec{}))
+		pw.logger.Printf("Using Parquet compression: lz4raw")
+	case "none", "uncompressed", "": // Treat empty string as uncompressed/default
+		writerOptions = append(writerOptions, parquet.Compression(&uncompressed.Codec{}))
+		if codecName == "" {
+			pw.logger.Printf("No Parquet compression codec specified, using uncompressed.")
+		} else {
+			pw.logger.Printf("Using Parquet compression: %s", codecName)
+		}
 	default:
-		pw.logger.Printf("Unsupported compression codec '%s' for parquet-go/parquet-go, defaulting to UNCOMPRESSED.", configCompression)
-		writerOptions = append(writerOptions, parquet.Compression(&parquet.Uncompressed))
+		pw.logger.Printf("Warning: Unsupported compression codec '%s'. Defaulting to ZSTD.", codecName)
+		writerOptions = append(writerOptions, parquet.Compression(&zstd.Codec{}))
 	}
 
-	// Schema is inferred from models.ParquetProbeResult by NewGenericWriter
-	parquetFileWriter := parquet.NewGenericWriter[models.ParquetProbeResult](outputFile, writerOptions...)
+	writer := parquet.NewGenericWriter[models.ParquetProbeResult](file, writerOptions...)
 
-	scanTime := time.Now().UnixMilli()
-	dataToWrite := make([]models.ParquetProbeResult, len(probeResults))
-	for i, pr := range probeResults {
-		dataToWrite[i] = pw.transformToParquetResult(pr, scanTime, rootTarget)
-	}
-
-	_, err = parquetFileWriter.Write(dataToWrite)
+	numWritten, err := writer.Write(parquetRows)
 	if err != nil {
-		pw.logger.Printf("Error writing records to Parquet file '%s': %v", filePath, err)
-		// It's good practice to attempt to close the writer even on error to release resources,
-		// though some errors might prevent successful closing.
-		_ = parquetFileWriter.Close() // Best effort close
-		return err
+		// Attempt to close the writer to flush any pending data, though it might also fail.
+		_ = writer.Close() // Best effort close
+		return fmt.Errorf("error writing parquet rows to %s (wrote %d before error): %w", filePath, numWritten, err)
 	}
 
-	if err := parquetFileWriter.Close(); err != nil {
-		pw.logger.Printf("Error closing Parquet writer (finalizing file) '%s': %v", filePath, err)
-		return err
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("error closing parquet writer for %s (after writing %d rows): %w", filePath, numWritten, err)
 	}
 
-	pw.logger.Printf("Successfully wrote %d records to Parquet file: %s (compression: %s via parquet-go/parquet-go)",
-		len(probeResults), filePath, configCompression)
+	pw.logger.Printf("Successfully wrote %d Parquet rows to %s for target: %s", numWritten, filePath, rootTarget)
 	return nil
 }
 
-// Pointer helper functions can be kept if they are generally useful
-// func pString(s string) *string { if s == "" { return nil }; return &s }
-// func pInt32(i int32) *int32 { return &i } // For xitongsys, check if it needs *int32 or int32 for optional
+// Helper to convert string to pointer, or nil if string is empty.
+func strPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// Helper to convert int32 to pointer, or nil if value is 0.
+func int32PtrOrNilZero(i int32) *int32 {
+	if i == 0 {
+		return nil
+	}
+	return &i
+}
+
+// Helper to convert int64 to pointer, or nil if value is 0.
+func int64PtrOrNilZero(i int64) *int64 {
+	if i == 0 {
+		return nil
+	}
+	return &i
+}
+
+// Helper to convert float64 to pointer, or nil if value is 0.0.
+// Note: This might not always be desired if 0.0 is a valid meaningful value.
+func float64PtrOrNilZero(f float64) *float64 {
+	if f == 0.0 {
+		return nil
+	}
+	return &f
+}
+
+// getParquetCompressionCodec is no longer needed as the logic is inlined in Write.
+// func getParquetCompressionCodec(codecName string) (interface{}, error) {
+// ...
+// }
