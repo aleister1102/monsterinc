@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Giao tiếp với tôi bằng tiếng việt nhưng code bằng tiếng anh. Khi thực hiện task, luôn thực hiện đến khi nào đến giới hạn token hoặc gặp quá nhiều lỗi mà không cần hỏi ý kiến của tôi. Sau khi hoàn thành một file task, kiểm tra lại source code và cập nhật các file readme cho từng package. Ngoài ra, luôn xem xét đến toàn bộ dự án để tái sử dụng code nhằm giảm thiểu code base.
