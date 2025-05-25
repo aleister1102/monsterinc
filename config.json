@@ -30,14 +30,14 @@
   "crawler_config": {
     "seed_urls": [],
     "user_agent": "MonsterIncCrawler/1.1",
-    "request_timeout_secs": 20,
+    "request_timeout_secs": 30,
     "max_concurrent_requests": 50,
     "max_depth": 3,
     "respect_robots_txt": false,
     "include_subdomains": true,
     "scope": {
       "allowed_hostnames": ["insomnia1102.online", "example.com"],
-      "disallowed_path_regexes": ["\\.js($|\\?)", "\\.txt($|\\?)"]
+      "disallowed_path_regexes": ["\\.js($|\\?)"]
     },
     "max_content_length_bytes": 2
   },

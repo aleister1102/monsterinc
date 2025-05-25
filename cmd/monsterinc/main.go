@@ -8,14 +8,39 @@ import (
 	"monsterinc/internal/config"
 	"monsterinc/internal/crawler"
 	"monsterinc/internal/datastore"
+	"monsterinc/internal/differ"
 	"monsterinc/internal/httpxrunner"
 	"monsterinc/internal/models"
 	"monsterinc/internal/reporter"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	// Required for CrawlerConfig RequestTimeout
 )
+
+// Helper function to find the root target for a given discovered URL
+// For simplicity, this assumes a discovered URL belongs to the seed URL with the same hostname.
+// A more robust solution might involve tracking the crawl path or using scope rules.
+func getRootTargetForURL(discoveredURL string, seedURLs []string) string {
+	discoveredHost := ""
+	parsedDiscoveredURL, err := url.Parse(discoveredURL)
+	if err == nil {
+		discoveredHost = parsedDiscoveredURL.Hostname()
+	}
+
+	for _, seed := range seedURLs {
+		parsedSeed, err := url.Parse(seed)
+		if err == nil && parsedSeed.Hostname() == discoveredHost {
+			return seed // Return the original seed URL as the root target
+		}
+	}
+	if len(seedURLs) > 0 {
+		return seedURLs[0] // Fallback to the first seed if no direct match (less ideal)
+	}
+	return discoveredURL // Fallback if absolutely no seeds
+}
 
 func main() {
 	fmt.Println("MonsterInc Crawler starting...")
@@ -50,17 +75,21 @@ func main() {
 		gCfg.Mode = *modeFlag
 	}
 
-	// --- Initialize ParquetWriter --- //
-	storageCfg := &gCfg.StorageConfig
-	parquetWriter, parquetErr := datastore.NewParquetWriter(storageCfg, log.Default()) // Using standard logger
-	if parquetErr != nil {
-		log.Printf("[ERROR] Main: Failed to initialize ParquetWriter: %v. Parquet writing will be disabled.", parquetErr)
-		parquetWriter = nil // Ensure it's nil so we can check later
-	}
-
 	// --- Initialize Logger (Example - you might have a dedicated logger package) ---
 	// Based on gCfg.LogConfig, set up your logger. For now, using standard log.
-	// e.g., logger.Init(gCfg.LogConfig)
+	appLogger := log.Default() // Using standard logger for all components for now
+
+	// --- Initialize ParquetReader --- //
+	// ParquetReader is needed by UrlDiffer, so initialize it early.
+	parquetReader := datastore.NewParquetReader(&gCfg.StorageConfig, appLogger)
+
+	// --- Initialize ParquetWriter --- //
+	storageCfg := &gCfg.StorageConfig
+	parquetWriter, parquetErr := datastore.NewParquetWriter(storageCfg, appLogger)
+	if parquetErr != nil {
+		appLogger.Printf("[ERROR] Main: Failed to initialize ParquetWriter: %v. Parquet writing will be disabled.", parquetErr)
+		parquetWriter = nil // Ensure it's nil so we can check later
+	}
 
 	// --- Crawler Module --- //
 	// Use crawler configuration directly from global config
@@ -68,10 +97,10 @@ func main() {
 
 	// Override or set seed URLs from the urlfile if provided
 	if *urlListFile != "" {
-		log.Printf("[INFO] Main: Reading seed URLs from %s", *urlListFile)
+		appLogger.Printf("[INFO] Main: Reading seed URLs from %s", *urlListFile)
 		file, errFile := os.Open(*urlListFile)
 		if errFile != nil {
-			log.Fatalf("[FATAL] Main: Could not open URL list file '%s': %v", *urlListFile, errFile)
+			appLogger.Fatalf("[FATAL] Main: Could not open URL list file '%s': %v", *urlListFile, errFile)
 		}
 
 		var urls []string
@@ -84,59 +113,64 @@ func main() {
 		}
 		file.Close()
 		if scanner.Err() != nil {
-			log.Fatalf("[FATAL] Main: Error reading URL list file '%s': %v", *urlListFile, scanner.Err())
+			appLogger.Fatalf("[FATAL] Main: Error reading URL list file '%s': %v", *urlListFile, scanner.Err())
 		}
 		if len(urls) > 0 {
 			crawlerCfg.SeedURLs = urls
 		} else {
-			log.Printf("[WARN] Main: No valid URLs found in '%s'. Using seeds from config if available.", *urlListFile)
+			appLogger.Printf("[WARN] Main: No valid URLs found in '%s'. Using seeds from config if available.", *urlListFile)
 		}
 	} else if len(gCfg.InputConfig.InputURLs) > 0 {
 		// If no urlListFile is given, but InputURLs are in config, use them for the crawler.
-		log.Printf("[INFO] Main: Using %d seed URLs from global input_config.input_urls", len(gCfg.InputConfig.InputURLs))
+		appLogger.Printf("[INFO] Main: Using %d seed URLs from global input_config.input_urls", len(gCfg.InputConfig.InputURLs))
 		crawlerCfg.SeedURLs = gCfg.InputConfig.InputURLs
+	}
+
+	// Determine the primary root target for this scan session.
+	// This will be used for naming Parquet files and for diffing.
+	var primaryRootTargetURL string
+	if len(crawlerCfg.SeedURLs) > 0 {
+		primaryRootTargetURL = crawlerCfg.SeedURLs[0] // Assuming the first seed is the primary target
+		// TODO: Consider normalization of this URL if not already done
+	} else {
+		// If no seeds, we might not be able to meaningfully diff or store per-target Parquet.
+		// For now, let it be empty; subsequent logic will handle it (e.g., skip diffing/Parquet for this root).
+		appLogger.Println("[WARN] Main: No seed URLs provided. Diffing and Parquet storage might be affected or use a generic target.")
+		primaryRootTargetURL = "unknown_target_" + time.Now().Format("20060102") // Fallback if no seeds
 	}
 
 	var discoveredURLs []string
 	if len(crawlerCfg.SeedURLs) == 0 {
-		log.Println("[INFO] Main: No seed URLs provided for crawler. Skipping crawler module.")
+		appLogger.Println("[INFO] Main: No seed URLs provided for crawler. Skipping crawler module.")
 	} else {
-		log.Printf("[INFO] Main: Initializing crawler with %d seed URLs.", len(crawlerCfg.SeedURLs))
-
-		// Convert RequestTimeoutSecs from int to time.Duration for the crawler package
-		// Assuming the crawler package expects time.Duration. If it expects int seconds, this conversion is not needed.
-		// For this example, let's assume crawler.NewCrawler was updated or always expected a struct that now has int.
-		// If crawler.NewCrawler expects config.CrawlerConfig directly, and CrawlerConfig.RequestTimeoutSecs is int, no conversion here.
-		// Let's assume the crawler initialization will handle the int seconds directly or has been updated.
-
-		crawlerInstance, crawlerErr := crawler.NewCrawler(crawlerCfg) // Pass the sub-config
+		appLogger.Printf("[INFO] Main: Initializing crawler with %d seed URLs. Primary target for this session: %s", len(crawlerCfg.SeedURLs), primaryRootTargetURL)
+		crawlerInstance, crawlerErr := crawler.NewCrawler(crawlerCfg)
 		if crawlerErr != nil {
-			log.Fatalf("[FATAL] Main: Failed to initialize crawler: %v", crawlerErr)
+			appLogger.Fatalf("[FATAL] Main: Failed to initialize crawler: %v", crawlerErr)
 		}
-		log.Println("[INFO] Main: Starting crawl...")
+		appLogger.Println("[INFO] Main: Starting crawl...")
 		crawlerInstance.Start()
-		log.Println("[INFO] Main: Crawl finished.")
+		appLogger.Println("[INFO] Main: Crawl finished.")
 		discoveredURLs = crawlerInstance.GetDiscoveredURLs()
-		log.Printf("[INFO] Main: Total URLs discovered: %d", len(discoveredURLs))
+		appLogger.Printf("[INFO] Main: Total URLs discovered: %d", len(discoveredURLs))
 	}
 
 	// --- HTTPX Probing Module --- //
-	log.Println("-----")
-	log.Println("[INFO] Main: Starting HTTPX Probing Module...")
+	appLogger.Println("-----")
+	appLogger.Println("[INFO] Main: Starting HTTPX Probing Module...")
+
+	var allProbeResults []models.ProbeResult // Combined list of all results for the main report table
 
 	if len(discoveredURLs) == 0 {
-		log.Println("[INFO] Main: No URLs discovered by crawler (or crawler skipped). Skipping HTTPX probing module.")
+		appLogger.Println("[INFO] Main: No URLs discovered by crawler (or crawler skipped). Skipping HTTPX probing module.")
 	} else {
-		log.Printf("[INFO] Main: Preparing to run HTTPX probes for %d URLs.", len(discoveredURLs))
-
-		// Create httpxrunner.Config directly from gCfg.HTTPXRunnerConfig
-		// The fields in httpxrunner.Config should now match gCfg.HTTPXRunnerConfig
+		appLogger.Printf("[INFO] Main: Preparing to run HTTPX probes for %d URLs.", len(discoveredURLs))
 		runnerCfg := &httpxrunner.Config{
 			Targets:              discoveredURLs,
 			Method:               gCfg.HttpxRunnerConfig.Method,
 			RequestURIs:          gCfg.HttpxRunnerConfig.RequestURIs,
 			FollowRedirects:      gCfg.HttpxRunnerConfig.FollowRedirects,
-			Timeout:              gCfg.HttpxRunnerConfig.TimeoutSecs, // Ensure this matches field name in httpxrunner.Config
+			Timeout:              gCfg.HttpxRunnerConfig.TimeoutSecs,
 			Retries:              gCfg.HttpxRunnerConfig.Retries,
 			Threads:              gCfg.HttpxRunnerConfig.Threads,
 			CustomHeaders:        gCfg.HttpxRunnerConfig.CustomHeaders,
@@ -152,106 +186,130 @@ func main() {
 			ExtractIPs:           gCfg.HttpxRunnerConfig.ExtractIPs,
 			ExtractBody:          gCfg.HttpxRunnerConfig.ExtractBody,
 			ExtractHeaders:       gCfg.HttpxRunnerConfig.ExtractHeaders,
-			// RateLimit is part of gCfg.HTTPXRunnerConfig but might be used differently by the runner wrapper or httpx library itself.
-			// Assuming httpxrunner.Config has a RateLimit field if it's directly used.
-			// RateLimit: gCfg.HTTPXRunnerConfig.RateLimit,
+			// RateLimit: gCfg.HttpxRunnerConfig.RateLimit,
 		}
 
-		probeRunner, newRunnerErr := httpxrunner.NewRunner(runnerCfg)
+		probeRunner, newRunnerErr := httpxrunner.NewRunner(runnerCfg, primaryRootTargetURL)
 		if newRunnerErr != nil {
-			log.Fatalf("[FATAL] Main: Failed to create HTTPX runner: %v", newRunnerErr)
+			appLogger.Fatalf("[FATAL] Main: Failed to create HTTPX runner: %v", newRunnerErr)
 		}
 
 		runErr := probeRunner.Run()
 		if runErr != nil {
-			log.Printf("[ERROR] Main: HTTPX probing encountered an error: %v", runErr)
+			appLogger.Printf("[ERROR] Main: HTTPX probing encountered an error: %v", runErr)
 		}
-		log.Println("[INFO] Main: HTTPX Probing finished.")
+		appLogger.Println("[INFO] Main: HTTPX Probing finished.")
 
-		// --- HTML Report Generation --- //
-		probeResults := probeRunner.GetResults() // Assuming this method exists
-
-		// Bổ sung các URL không có kết quả probe
+		probeResultsFromRunner := probeRunner.GetResults()
 		resultMap := make(map[string]models.ProbeResult)
-		for _, r := range probeResults {
+		for _, r := range probeResultsFromRunner {
 			resultMap[r.InputURL] = r
 		}
-		var finalResults []models.ProbeResult
-		for _, url := range discoveredURLs {
-			if r, ok := resultMap[url]; ok {
-				finalResults = append(finalResults, r)
+
+		for _, urlString := range discoveredURLs {
+			rootTargetForThisURL := getRootTargetForURL(urlString, crawlerCfg.SeedURLs)
+			if r, ok := resultMap[urlString]; ok {
+				// Assign the determined root target
+				actualResult := r // make a copy
+				actualResult.RootTargetURL = rootTargetForThisURL
+				allProbeResults = append(allProbeResults, actualResult)
 			} else {
-				finalResults = append(finalResults, models.ProbeResult{
-					InputURL: url,
-					Error:    "No response from httpx",
+				allProbeResults = append(allProbeResults, models.ProbeResult{
+					InputURL:      urlString,
+					Error:         "No response or error during httpx probe",
+					Timestamp:     time.Now(),
+					RootTargetURL: rootTargetForThisURL,
 				})
 			}
 		}
+	}
 
-		if len(finalResults) > 0 {
-			log.Printf("[INFO] Main: Preparing to generate HTML report for %d results.", len(finalResults))
-			// Use ReporterConfig from global config
-			reporterCfg := &gCfg.ReporterConfig
-			htmlReporter, reporterErr := reporter.NewHtmlReporter(reporterCfg, log.Default()) // Using standard logger for now
-			if reporterErr != nil {
-				log.Printf("[ERROR] Main: Failed to initialize HTML reporter: %v", reporterErr)
-			} else {
-				outputFile := reporterCfg.DefaultOutputHTMLPath
-				if gCfg.Mode == "onetime" {
-					t := finalResults[0].Timestamp
-					if t.IsZero() {
-						t = time.Now()
-					}
-					outputFile = fmt.Sprintf("reports/%s.html", t.Format("2006-01-02-15-04-05"))
-				} else if gCfg.Mode == "automated" {
-					t := finalResults[0].Timestamp
-					if t.IsZero() {
-						t = time.Now()
-					}
-					outputFile = fmt.Sprintf("reports/%s.html", t.Format("2006-01-02"))
-				}
-				if outputFile == "" {
-					outputFile = "monsterinc_report.html" // Default filename if not in config
-					log.Printf("[WARN] Main: ReporterConfig.DefaultOutputHTMLPath is not set. Using default: %s", outputFile)
-				}
-				err := htmlReporter.GenerateReport(finalResults, outputFile)
-				if err != nil {
-					log.Printf("[ERROR] Main: Failed to generate HTML report: %v", err)
-				} else {
-					log.Printf("[INFO] Main: HTML report generated successfully: %s", outputFile)
-				}
-			}
+	appLogger.Printf("[INFO] Main: Total probe results processed (including fallbacks): %d", len(allProbeResults))
 
-			// --- Parquet Writing --- //
-			if parquetWriter != nil && len(finalResults) > 0 {
-				log.Printf("[INFO] Main: Preparing to write %d results to Parquet.", len(finalResults))
-				scanSessionID := time.Now().Format("20060102-150405") // Generate a session ID
+	// --- Group results by RootTargetURL ---
+	resultsByRootTarget := make(map[string][]models.ProbeResult)
+	for _, pr := range allProbeResults {
+		resultsByRootTarget[pr.RootTargetURL] = append(resultsByRootTarget[pr.RootTargetURL], pr)
+	}
 
-				var rootTargetForParquet string
-				if len(crawlerCfg.SeedURLs) > 0 {
-					rootTargetForParquet = crawlerCfg.SeedURLs[0]
-				} else if len(discoveredURLs) > 0 {
-					rootTargetForParquet = discoveredURLs[0] // Fallback to first discovered if no seeds
-				} else {
-					rootTargetForParquet = "unknown_scan_root" // Default if no other info
-				}
+	updatedProbeResults := make([]models.ProbeResult, 0, len(allProbeResults)) // Initialize with capacity
 
-				err := parquetWriter.Write(finalResults, scanSessionID, rootTargetForParquet)
-				if err != nil {
-					log.Printf("[ERROR] Main: Failed to write Parquet file: %v", err)
-				} else {
-					log.Printf("[INFO] Main: Parquet file generated successfully for session %s.", scanSessionID)
-				}
-			} else if parquetWriter == nil {
-				log.Println("[WARN] Main: ParquetWriter not initialized, skipping Parquet writing.")
-			} else {
-				log.Println("[INFO] Main: No probe results from HTTPX to write to Parquet. Skipping Parquet writing.")
-			}
+	// --- URL Diffing, Parquet Storage (per root target) --- //
+	appLogger.Println("-----")
+	appLogger.Println("[INFO] Main: Starting URL Diffing and Parquet Storage...")
+	urlDiffer := differ.NewUrlDiffer(parquetReader, appLogger)
+	allURLDiffResults := make(map[string]models.URLDiffResult)
 
+	scanSessionID := time.Now().Format("20060102-150405") // Unique ID for this scan session
+
+	for rootTgt, resultsForRoot := range resultsByRootTarget {
+		if rootTgt == "" || len(resultsForRoot) == 0 {
+			appLogger.Printf("[WARN] Main: Skipping diffing/storage for empty root target or no results for a root target: '%s'", rootTgt)
+			continue
+		}
+		appLogger.Printf("[INFO] Main: Processing diff and storage for root target: %s (%d results)", rootTgt, len(resultsForRoot))
+
+		diffResult, diffErr := urlDiffer.Compare(resultsForRoot, rootTgt)
+		if diffErr != nil {
+			appLogger.Printf("[ERROR] Main: Failed to compare URLs for root target %s: %v", rootTgt, diffErr)
+			// Continue to next root target, but don't store this diff result
+		} else if diffResult != nil {
+			allURLDiffResults[rootTgt] = *diffResult
+			appLogger.Printf("[INFO] Main: URL Diffing complete for %s. New: %d, Old: %d, Existing: %d",
+				rootTgt, countStatuses(diffResult, models.StatusNew), countStatuses(diffResult, models.StatusOld), countStatuses(diffResult, models.StatusExisting))
+
+			// Add the updated results from this root target to the overall list
+			updatedProbeResults = append(updatedProbeResults, resultsForRoot...)
 		} else {
-			log.Println("[INFO] Main: No probe results from HTTPX to report or write. Skipping HTML report and Parquet generation.")
+			appLogger.Printf("[WARN] Main: DiffResult was nil for %s, though no explicit error.", rootTgt)
+			// Even if diff is nil, resultsForRoot might still be useful for parquet, but they won't have URLStatus from diffing.
+			// Consider if these should be added to updatedProbeResults or if they should have a default status.
+			// For now, only adding if diffResult is not nil to ensure URLStatus is populated.
+		}
+
+		// Parquet Storage for this root target's results
+		if parquetWriter != nil {
+			if err := parquetWriter.Write(resultsForRoot, scanSessionID, rootTgt); err != nil {
+				appLogger.Printf("[ERROR] Main: Failed to write Parquet data for root target %s: %v", rootTgt, err)
+			}
+		} else {
+			appLogger.Println("[INFO] Main: ParquetWriter is not initialized. Skipping Parquet storage.")
 		}
 	}
 
-	log.Println("MonsterInc finished.")
+	// --- HTML Report Generation --- //
+	appLogger.Println("-----")
+	appLogger.Println("[INFO] Main: Generating HTML report...")
+	htmlReporter, err := reporter.NewHtmlReporter(&gCfg.ReporterConfig, appLogger)
+	if err != nil {
+		appLogger.Fatalf("[FATAL] Main: Failed to initialize HTML reporter: %v", err)
+	}
+
+	reportFilename := fmt.Sprintf("%s_%s_report.html", scanSessionID, gCfg.Mode)
+	reportPath := filepath.Join(gCfg.ReporterConfig.OutputDir, reportFilename)
+
+	if err := os.MkdirAll(gCfg.ReporterConfig.OutputDir, 0755); err != nil {
+		appLogger.Fatalf("[FATAL] Main: Could not create report output directory '%s': %v", gCfg.ReporterConfig.OutputDir, err)
+	}
+
+	if err := htmlReporter.GenerateReport(updatedProbeResults, allURLDiffResults, reportPath); err != nil {
+		appLogger.Fatalf("[FATAL] Main: Failed to generate HTML report: %v", err)
+	}
+	appLogger.Printf("[INFO] Main: HTML report generated successfully: %s", reportPath)
+
+	appLogger.Println("-----")
+	appLogger.Println("[INFO] Main: MonsterInc Crawler finished.")
+}
+
+func countStatuses(diffResult *models.URLDiffResult, status models.URLStatus) int {
+	if diffResult == nil {
+		return 0
+	}
+	count := 0
+	for _, r := range diffResult.Results {
+		if r.Status == status {
+			count++
+		}
+	}
+	return count
 }

@@ -20,6 +20,7 @@ type Runner struct {
 	httpxRunner      *runner.Runner
 	options          *runner.Options
 	config           *Config // Store the passed config
+	rootTargetURL    string  // Store the root target URL for this runner instance
 	results          chan *models.ProbeResult
 	collectedResults []*models.ProbeResult // Added to store all results
 	resultsMutex     sync.Mutex            // Added to protect collectedResults
@@ -157,7 +158,7 @@ func configureHttpxOptions(config *Config) *runner.Options {
 }
 
 // mapHttpxResultToProbeResult converts an httpx runner.Result to a models.ProbeResult.
-func mapHttpxResultToProbeResult(res runner.Result) *models.ProbeResult {
+func mapHttpxResultToProbeResult(res runner.Result, rootURL string) *models.ProbeResult {
 	probeResult := &models.ProbeResult{
 		InputURL:      res.Input,
 		Method:        res.Method,
@@ -170,6 +171,7 @@ func mapHttpxResultToProbeResult(res runner.Result) *models.ProbeResult {
 		Title:         res.Title,
 		WebServer:     res.WebServer,
 		Body:          res.ResponseBody, // Assuming OmitBody=false allows this
+		RootTargetURL: rootURL,          // Assign the root target URL
 	}
 
 	if res.ResponseTime != "" {
@@ -251,12 +253,14 @@ func mapHttpxResultToProbeResult(res runner.Result) *models.ProbeResult {
 }
 
 // NewRunner creates a new instance of the httpx runner wrapper
-func NewRunner(config *Config) (*Runner, error) {
+// rootTargetForThisInstance is the primary target URL this runner instance is responsible for.
+func NewRunner(config *Config, rootTargetForThisInstance string) (*Runner, error) {
 	resultsChan := make(chan *models.ProbeResult, 100)
 	errorChan := make(chan error, 10)
 
 	r := &Runner{
 		config:           config,
+		rootTargetURL:    rootTargetForThisInstance, // Store the root target
 		results:          resultsChan,
 		errors:           errorChan,
 		collectedResults: make([]*models.ProbeResult, 0),
@@ -268,7 +272,8 @@ func NewRunner(config *Config) (*Runner, error) {
 
 	// OnResult Callback: Maps httpx.Result to our ProbeResult
 	options.OnResult = func(res runner.Result) {
-		probeResult := mapHttpxResultToProbeResult(res)
+		// Pass the stored rootTargetURL to the mapping function
+		probeResult := mapHttpxResultToProbeResult(res, r.rootTargetURL)
 
 		// Send to results channel for live processing if needed
 		// r.results <- probeResult // If external live consumption is still needed
@@ -336,7 +341,7 @@ func (r *Runner) Run() error {
 		return nil
 	}
 
-	log.Printf("[INFO] HTTPXRunner: Starting HTTPX probing run for %d targets...", len(r.options.InputTargetHost))
+	log.Printf("[INFO] HTTPXRunner: Starting HTTPX probing run for %d targets... (Root Target: %s)", len(r.options.InputTargetHost), r.rootTargetURL)
 
 	var runErr error // To capture error from RunEnumeration if it's ever changed to return one
 
