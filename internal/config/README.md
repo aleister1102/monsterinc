@@ -24,9 +24,10 @@ Struct `GlobalConfig` là điểm truy cập trung tâm cho tất cả các thi�
 
 1.  **`InputConfig`**
     -   `InputURLs []string`: Danh sách các URL đầu vào được cung cấp trực tiếp trong config.
+    -   `InputFile string`: Đường dẫn đến file chứa danh sách URL đầu vào (mỗi URL một dòng).
 
 2.  **`HttpxRunnerConfig`**
-    -   Quản lý các thiết lập cho việc chạy httpx, bao gồm phương thức HTTP, số luồng, timeout, retries, proxy, các cờ trích xuất dữ liệu (title, status code, headers, v.v.).
+    -   Quản lý các thiết lập cho việc chạy httpx, bao gồm phương thức HTTP, số luồng, timeout, retries, proxy, các cờ trích xuất dữ liệu (title, status code, headers, v.v.), `Resolvers`, `Ports` (cho phép chỉ định cổng cụ thể thay vì dùng mặc định của httpx), `HttpxFlags` (để truyền các cờ tùy chỉnh khác cho httpx), `SkipDefaultPorts` (bỏ qua các cổng mặc định của httpx), và `DenyInternalIPs` (ngăn chặn quét các IP nội bộ).
 
 3.  **`CrawlerConfig`**
     -   `SeedURLs []string`: Các URL gốc để bắt đầu crawl.

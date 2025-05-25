@@ -17,8 +17,8 @@
 
 - [ ] 1.0 Define Core Configuration Structures (in `internal/config/config.go`)
   - [ ] 1.1 Define `GlobalConfig` struct to hold all other configuration sections.
-  - [ ] 1.2 Define `InputConfig` struct (e.g., `InputFile`, `InputURLs []string`).
-  - [ ] 1.3 Define `HTTPXRunnerConfig` (previously probing config, e.g., `Threads`, `RateLimit`, `Timeout`, `Retries`, `Proxy`, `FollowRedirects`, `MaxRedirects`, `CustomHeaders`, `Resolvers`, `Ports`, `HttpxFlags`, `SkipDefaultPorts`, `DenyInternalIPs`).
+  - [x] 1.2 Define `InputConfig` struct (e.g., `InputFile`, `InputURLs []string`).
+  - [x] 1.3 Define `HTTPXRunnerConfig` (previously probing config, e.g., `Threads`, `RateLimit`, `Timeout`, `Retries`, `Proxy`, `FollowRedirects`, `MaxRedirects`, `CustomHeaders`, `Resolvers`, `Ports`, `HttpxFlags`, `SkipDefaultPorts`, `DenyInternalIPs`).
   - [ ] 1.4 Define `CrawlerConfig` (e.g., `MaxDepth`, `IncludeSubdomains`, `MaxConcurrentRequests`, `AllowedHostRegex`, `ExcludedHostRegex`).
   - [ ] 1.5 Define `ReporterConfig` for HTML reports (e.g., `OutputDir`, `ItemsPerPage`, `EmbedAssets`).
   - [ ] 1.6 Define `StorageConfig` for Parquet (e.g., `ParquetBasePath`, `CompressionCodec`).

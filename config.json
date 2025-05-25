@@ -1,6 +1,7 @@
 {
   "input_config": {
-    "input_urls": []
+    "input_urls": [],
+    "input_file": ""
   },
   "httpx_runner_config": {
     "method": "GET",
@@ -25,7 +26,12 @@
     "extract_content_type": true,
     "extract_ips": true,
     "extract_body": false,
-    "extract_headers": true
+    "extract_headers": true,
+    "resolvers": [],
+    "ports": [],
+    "httpx_flags": [],
+    "skip_default_ports": false,
+    "deny_internal_ips": false
   },
   "crawler_config": {
     "seed_urls": [],

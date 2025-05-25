@@ -33,6 +33,8 @@ const (
 	DefaultHTTPXExtractBody          = false
 	DefaultHTTPXExtractHeaders       = true
 	DefaultHTTPXRateLimit            = 0
+	DefaultHTTPXSkipDefaultPorts     = false
+	DefaultHTTPXDenyInternalIPs      = false
 
 	// Crawler Defaults
 	DefaultCrawlerUserAgent             = "MonsterIncCrawler/1.0"
@@ -62,6 +64,7 @@ const (
 
 type InputConfig struct {
 	InputURLs []string `json:"input_urls,omitempty" yaml:"input_urls,omitempty"`
+	InputFile string   `json:"input_file,omitempty" yaml:"input_file,omitempty"`
 }
 
 type HttpxRunnerConfig struct {
@@ -86,6 +89,11 @@ type HttpxRunnerConfig struct {
 	ExtractIPs           bool              `json:"extract_ips" yaml:"extract_ips"`
 	ExtractBody          bool              `json:"extract_body" yaml:"extract_body"`
 	ExtractHeaders       bool              `json:"extract_headers" yaml:"extract_headers"`
+	Resolvers            []string          `json:"resolvers,omitempty" yaml:"resolvers,omitempty"`
+	Ports                []string          `json:"ports,omitempty" yaml:"ports,omitempty"`
+	HttpxFlags           []string          `json:"httpx_flags,omitempty" yaml:"httpx_flags,omitempty"`
+	SkipDefaultPorts     bool              `json:"skip_default_ports" yaml:"skip_default_ports"`
+	DenyInternalIPs      bool              `json:"deny_internal_ips" yaml:"deny_internal_ips"`
 }
 
 func NewDefaultHTTPXRunnerConfig() HttpxRunnerConfig {
@@ -111,6 +119,11 @@ func NewDefaultHTTPXRunnerConfig() HttpxRunnerConfig {
 		ExtractIPs:           DefaultHTTPXExtractIPs,
 		ExtractBody:          DefaultHTTPXExtractBody,
 		ExtractHeaders:       DefaultHTTPXExtractHeaders,
+		Resolvers:            []string{},
+		Ports:                []string{},
+		HttpxFlags:           []string{},
+		SkipDefaultPorts:     DefaultHTTPXSkipDefaultPorts,
+		DenyInternalIPs:      DefaultHTTPXDenyInternalIPs,
 	}
 }
 
@@ -262,7 +275,7 @@ type GlobalConfig struct {
 
 func NewDefaultGlobalConfig() *GlobalConfig {
 	return &GlobalConfig{
-		InputConfig:        InputConfig{InputURLs: []string{}},
+		InputConfig:        InputConfig{InputURLs: []string{}, InputFile: ""},
 		HttpxRunnerConfig:  NewDefaultHTTPXRunnerConfig(),
 		CrawlerConfig:      NewDefaultCrawlerConfig(),
 		ReporterConfig:     NewDefaultReporterConfig(),
