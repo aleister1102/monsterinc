@@ -3,8 +3,11 @@ package crawler
 import (
 	"errors" // Added for resolveURL
 	// Added for more detailed logging
-	"log"     // Placeholder for proper logging integration later
+	"fmt"
+	"log" // Placeholder for proper logging integration later
+	"net/http"
 	"net/url" // For URL parsing and manipulation
+	"strconv"
 	"strings"
 	"sync" // For thread-safe access to discoveredURLs
 	"time"
@@ -30,6 +33,81 @@ type Crawler struct {
 	crawlStartTime   time.Time
 	Scope            *ScopeSettings // Task 2.1: Add scope settings
 	RespectRobotsTxt bool           // Task 2.3: Store robots.txt preference
+	maxContentLength int64
+	headTimeout      time.Duration
+}
+
+// configureCollyCollector sets up and configures a new colly.Collector instance based on CrawlerConfig.
+func configureCollyCollector(cfg *config.CrawlerConfig, crawlerTimeoutDuration time.Duration, userAgent string) (*colly.Collector, error) {
+	collectorOptions := []colly.CollectorOption{
+		colly.Async(true),
+		colly.UserAgent(userAgent),
+		colly.MaxDepth(cfg.MaxDepth), // MaxDepth is now directly from cfg
+	}
+
+	if !cfg.RespectRobotsTxt {
+		collectorOptions = append(collectorOptions, colly.IgnoreRobotsTxt())
+	}
+
+	c := colly.NewCollector(collectorOptions...)
+	c.SetRequestTimeout(crawlerTimeoutDuration)
+
+	threads := cfg.MaxConcurrentRequests
+	if threads <= 0 {
+		threads = config.DefaultCrawlerMaxConcurrentRequests
+	}
+
+	err := c.Limit(&colly.LimitRule{
+		DomainGlob:  "*",
+		Parallelism: threads,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error setting up colly limit rule: %w", err)
+	}
+	return c, nil
+}
+
+// handleError is a Colly callback executed when an error occurs during a request.
+func (cr *Crawler) handleError(r *colly.Response, e error) {
+	cr.mutex.Lock()
+	cr.totalErrors++
+	cr.mutex.Unlock()
+	log.Printf("[ERROR] Crawler: Request to %s failed. Status: %d. Error: %v", r.Request.URL, r.StatusCode, e)
+}
+
+// handleRequest is a Colly callback executed before a request is made.
+// It checks if the request URL path is disallowed by regex patterns.
+func (cr *Crawler) handleRequest(r *colly.Request) {
+	if cr.Scope != nil && len(cr.Scope.DisallowedPathPatterns) > 0 {
+		path := r.URL.Path
+		for _, re := range cr.Scope.DisallowedPathPatterns {
+			if re.MatchString(path) {
+				log.Printf("[INFO] Crawler: Abort request to %s (path matches disallowed regex: %s)", r.URL.String(), re.String())
+				r.Abort()
+				return
+			}
+		}
+	}
+}
+
+// handleResponse is a Colly callback executed when a response is received.
+// It increments the visited count and extracts assets if the content is HTML.
+func (cr *Crawler) handleResponse(r *colly.Response) {
+	cr.mutex.Lock()
+	cr.totalVisited++
+	cr.mutex.Unlock()
+	if r.Headers.Get("Content-Type") != "" && strings.Contains(strings.ToLower(r.Headers.Get("Content-Type")), "text/html") {
+		assets, err := ExtractAssetsFromHTML(strings.NewReader(string(r.Body)), r.Request.URL, cr)
+		if err != nil {
+			log.Printf("[WARN] Crawler: Error extracting assets from %s: %v", r.Request.URL.String(), err)
+		} else {
+			// Log an info message, but avoid overly verbose logging for every page if many assets are typically found.
+			// Consider logging only if a significant number of assets are found, or if specific types of assets are found.
+			if len(assets) > 0 {
+				log.Printf("[INFO] Crawler: Extracted %d assets from %s", len(assets), r.Request.URL.String())
+			}
+		}
+	}
 }
 
 // NewCrawler initializes a new Crawler based on the provided configuration.
@@ -61,14 +139,24 @@ func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
 	}
 	crawlerTimeoutDuration := time.Duration(requestTimeoutSecs) * time.Second
 
-	threads := cfg.MaxConcurrentRequests
-	if threads <= 0 {
-		threads = config.DefaultCrawlerMaxConcurrentRequests // Use constant from config package
-	}
+	// MaxDepth handling (ensure it uses default if cfg.MaxDepth is not valid)
 	maxDepth := cfg.MaxDepth
 	if maxDepth <= 0 {
-		maxDepth = config.DefaultCrawlerMaxDepth // Use constant from config package
+		maxDepth = config.DefaultCrawlerMaxDepth
+		cfg.MaxDepth = maxDepth // Update cfg to reflect the used default
 	}
+
+	// Determine threads, consistent with collector config and for Crawler struct
+	crawlerThreads := cfg.MaxConcurrentRequests
+	if crawlerThreads <= 0 {
+		crawlerThreads = config.DefaultCrawlerMaxConcurrentRequests
+	}
+
+	maxContentLengthMB := cfg.MaxContentLengthMB
+	if maxContentLengthMB <= 0 {
+		maxContentLengthMB = 2 // fallback nếu config lỗi
+	}
+	maxContentLength := int64(maxContentLengthMB) * 1024 * 1024
 
 	// Create ScopeSettings internally using scope parameters from CrawlerConfig
 	currentScopeSettings := NewScopeSettings(
@@ -77,65 +165,30 @@ func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
 		cfg.Scope.AllowedPathRegexes, cfg.Scope.DisallowedPathRegexes,
 	)
 
-	collectorOptions := []colly.CollectorOption{
-		colly.Async(true),
-		colly.UserAgent(userAgent),
-		colly.MaxDepth(maxDepth),
-	}
-
-	if !cfg.RespectRobotsTxt {
-		collectorOptions = append(collectorOptions, colly.IgnoreRobotsTxt())
-	}
-
-	c := colly.NewCollector(collectorOptions...)
-	c.SetRequestTimeout(crawlerTimeoutDuration) // Use the converted time.Duration
-
-	err := c.Limit(&colly.LimitRule{
-		DomainGlob:  "*",
-		Parallelism: threads,
-	})
+	collector, err := configureCollyCollector(cfg, crawlerTimeoutDuration, userAgent)
 	if err != nil {
-		log.Printf("[ERROR] Crawler: Error setting up limit rule: %v", err)
+		log.Printf("[ERROR] Crawler: Failed to configure Colly collector: %v", err)
 		return nil, err
 	}
 
 	cr := &Crawler{
-		Collector:        c,
+		Collector:        collector,
 		discoveredURLs:   make(map[string]bool),
 		UserAgent:        userAgent,
 		RequestTimeout:   crawlerTimeoutDuration, // Assign the converted time.Duration
-		Threads:          threads,
-		MaxDepth:         maxDepth,
+		Threads:          crawlerThreads,         // Initialize cr.Threads
+		MaxDepth:         maxDepth,               // Initialize cr.MaxDepth
 		seedURLs:         append([]string(nil), cfg.SeedURLs...),
 		Scope:            currentScopeSettings,
 		RespectRobotsTxt: cfg.RespectRobotsTxt, // Store the actual setting used
+		maxContentLength: maxContentLength,
+		headTimeout:      crawlerTimeoutDuration,
 	}
 
-	// Setup Colly Callbacks
-	cr.Collector.OnError(func(r *colly.Response, e error) {
-		cr.mutex.Lock()
-		cr.totalErrors++
-		cr.mutex.Unlock()
-		log.Printf("[ERROR] Crawler: Request to %s failed. Status: %d. Error: %v", r.Request.URL, r.StatusCode, e)
-	})
-
-	cr.Collector.OnRequest(func(r *colly.Request) {
-		log.Printf("[INFO] Crawler: Visiting %s", r.URL.String())
-	})
-
-	cr.Collector.OnResponse(func(r *colly.Response) {
-		cr.mutex.Lock()
-		cr.totalVisited++
-		cr.mutex.Unlock()
-		if r.Headers.Get("Content-Type") != "" && strings.Contains(strings.ToLower(r.Headers.Get("Content-Type")), "text/html") {
-			assets, err := ExtractAssetsFromHTML(strings.NewReader(string(r.Body)), r.Request.URL, cr)
-			if err != nil {
-				log.Printf("[WARN] Crawler: Error extracting assets from %s: %v", r.Request.URL.String(), err)
-			} else {
-				log.Printf("[INFO] Crawler: Extracted %d assets from %s", len(assets), r.Request.URL.String())
-			}
-		}
-	})
+	// Setup Colly Callbacks using the new methods
+	cr.Collector.OnError(cr.handleError)
+	cr.Collector.OnRequest(cr.handleRequest)
+	cr.Collector.OnResponse(cr.handleResponse)
 
 	log.Printf("[INFO] Crawler: Initialized with config. Seeds: %v, UserAgent: '%s', Timeout: %s, Threads: %d, MaxDepth: %d, RespectRobotsTxt: %t. Scope: %+v",
 		cr.seedURLs, cr.UserAgent, cr.RequestTimeout, cr.Threads, cr.MaxDepth, cr.RespectRobotsTxt, cr.Scope)
@@ -148,6 +201,10 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 	absURL, err := urlhandler.ResolveURL(rawURL, base)
 	if err != nil {
 		log.Printf("[WARN] Crawler: Could not resolve URL '%s' relative to '%s': %v", rawURL, base, err)
+		// Vẫn ghi nhận URL để httpx probe thử
+		cr.mutex.Lock()
+		cr.discoveredURLs[rawURL] = true
+		cr.mutex.Unlock()
 		return
 	}
 	normalizedAbsURL := strings.TrimSpace(absURL) // Basic normalization
@@ -159,10 +216,6 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 	if cr.Scope != nil {
 		isAllowed, scopeErr := cr.Scope.IsURLAllowed(normalizedAbsURL)
 		if scopeErr != nil {
-			// Log error from scope check (e.g., malformed URL for scope purposes)
-			// but don't necessarily stop crawling other URLs unless it's critical.
-			// Here, IsURLAllowed returns error for non-absolute or unparsable URLs.
-			// We might have already logged in resolveURL or earlier if it was unresolvable.
 			log.Printf("[WARN] Crawler: Scope check for URL '%s' encountered an issue: %v. URL will not be visited.", normalizedAbsURL, scopeErr)
 			return
 		}
@@ -177,23 +230,36 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 	cr.mutex.RUnlock()
 
 	if !exists {
+		// HEAD check before queueing
+		headReq, err := http.NewRequest("HEAD", normalizedAbsURL, nil)
+		if err == nil {
+			client := &http.Client{Timeout: cr.RequestTimeout}
+			resp, err := client.Do(headReq)
+			if err != nil {
+				log.Printf("[WARN] Crawler: HEAD request failed for %s: %v. Still adding to discoveredURLs for httpx.", normalizedAbsURL, err)
+				cr.mutex.Lock()
+				cr.discoveredURLs[normalizedAbsURL] = true
+				cr.mutex.Unlock()
+				return
+			}
+			resp.Body.Close()
+			if cl := resp.Header.Get("Content-Length"); cl != "" {
+				if size, err := strconv.ParseInt(cl, 10, 64); err == nil && size > cr.maxContentLength {
+					log.Printf("[INFO] Crawler: Skip queue %s (Content-Length %d > %d bytes)", normalizedAbsURL, size, cr.maxContentLength)
+					// Vẫn ghi nhận URL vào discoveredURLs để httpx runner xử lý
+					cr.mutex.Lock()
+					cr.discoveredURLs[normalizedAbsURL] = true
+					cr.mutex.Unlock()
+					return
+				}
+			}
+		}
 		cr.mutex.Lock()
 		// Double-check after acquiring write lock
 		if !cr.discoveredURLs[normalizedAbsURL] {
 			cr.discoveredURLs[normalizedAbsURL] = true
-			// This log indicates we are adding it to our *discovered* set for the first time.
-			log.Printf("[DEBUG] Crawler: New unique URL for processing (in scope): %s (discovered from: %s, raw: %s)", normalizedAbsURL, base, rawURL)
 			cr.mutex.Unlock()
-
-			// TODO: Check scope here before Collector.Visit (Task 2.x)
-			// if !cr.isInScope(normalizedAbsURL) {
-			// log.Printf("[DEBUG] Crawler: URL %s is out of scope, not visiting.", normalizedAbsURL)
-			// return
-			// }
-
-			// Queue for gocolly to visit. gocolly handles its own visited set.
 			visitErr := cr.Collector.Visit(normalizedAbsURL)
-			// Correctly check for specific colly errors
 			if visitErr != nil && !strings.Contains(visitErr.Error(), "already visited") && !errors.Is(visitErr, colly.ErrRobotsTxtBlocked) {
 				log.Printf("[WARN] Crawler: Error queueing visit for %s: %v", normalizedAbsURL, visitErr)
 			}
