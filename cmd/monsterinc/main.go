@@ -48,8 +48,8 @@ func main() {
 	// Flags
 	urlListFile := flag.String("urlfile", "", "Path to a text file containing seed URLs (one URL per line)")
 	urlListFileAlias := flag.String("u", "", "Alias for -urlfile")
-	globalConfigFile := flag.String("globalconfig", "config.json", "Path to the global JSON configuration file.")
-	modeFlag := flag.String("mode", "", "Mode to run the tool: onetime or automated (required)")
+	globalConfigFile := flag.String("globalconfig", "config.yaml", "Path to the global YAML/JSON configuration file.")
+	modeFlag := flag.String("mode", "", "Mode to run the tool: onetime or automated (overrides config file if set)")
 	flag.Parse()
 
 	// Check required --mode
@@ -70,9 +70,21 @@ func main() {
 		log.Fatalf("[FATAL] Main: Could not load global config from '%s': %v", *globalConfigFile, err)
 	}
 
-	// Override mode if --mode is set
+	// Override mode if --mode flag is set (takes precedence over config file)
 	if *modeFlag != "" {
 		gCfg.Mode = *modeFlag
+	}
+
+	// Ensure the reporter output directory exists before validation (if validator checks for existence)
+	if gCfg.ReporterConfig.OutputDir != "" {
+		if err := os.MkdirAll(gCfg.ReporterConfig.OutputDir, 0755); err != nil {
+			log.Fatalf("[FATAL] Main: Could not create report output directory '%s' before validation: %v", gCfg.ReporterConfig.OutputDir, err)
+		}
+	}
+
+	// Validate the loaded configuration
+	if err := config.ValidateConfig(gCfg); err != nil {
+		log.Fatalf("[FATAL] Main: Configuration validation failed: %v", err)
 	}
 
 	// --- Initialize Logger (Example - you might have a dedicated logger package) ---
@@ -282,18 +294,14 @@ func main() {
 	appLogger.Println("[INFO] Main: Generating HTML report...")
 	htmlReporter, err := reporter.NewHtmlReporter(&gCfg.ReporterConfig, appLogger)
 	if err != nil {
-		appLogger.Fatalf("[FATAL] Main: Failed to initialize HTML reporter: %v", err)
+		log.Fatalf("[FATAL] Main: Failed to initialize HTML reporter: %v", err)
 	}
 
 	reportFilename := fmt.Sprintf("%s_%s_report.html", scanSessionID, gCfg.Mode)
 	reportPath := filepath.Join(gCfg.ReporterConfig.OutputDir, reportFilename)
 
-	if err := os.MkdirAll(gCfg.ReporterConfig.OutputDir, 0755); err != nil {
-		appLogger.Fatalf("[FATAL] Main: Could not create report output directory '%s': %v", gCfg.ReporterConfig.OutputDir, err)
-	}
-
 	if err := htmlReporter.GenerateReport(updatedProbeResults, allURLDiffResults, reportPath); err != nil {
-		appLogger.Fatalf("[FATAL] Main: Failed to generate HTML report: %v", err)
+		log.Fatalf("[FATAL] Main: Failed to generate HTML report: %v", err)
 	}
 	appLogger.Printf("[INFO] Main: HTML report generated successfully: %s", reportPath)
 

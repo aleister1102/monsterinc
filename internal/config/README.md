@@ -1,90 +1,39 @@
-# Package config
+# Package: internal/config
 
-Package `config` quản lý tất cả các cấu hình cho ứng dụng MonsterInc. Nó định nghĩa các struct cho từng module cấu hình, cung cấp các giá trị mặc định, và cho phép load cấu hình từ file JSON.
+This package is responsible for managing application configuration for MonsterInc.
 
-## Tổng quan
+## Overview
 
-Cấu hình chính được quản lý bởi struct `GlobalConfig`, bao gồm các cấu hình con cho từng module của ứng dụng.
+The `config` package defines the structure of the application's configuration, provides default values, loads configuration from files (YAML or JSON) and environment variables, and validates the loaded configuration.
 
-### `GlobalConfig`
+## Key Components
 
-Struct `GlobalConfig` là điểm truy cập trung tâm cho tất cả các thiết lập cấu hình. Nó bao gồm:
+-   `config.go`: Defines all configuration structs (`GlobalConfig`, `InputConfig`, `HttpxRunnerConfig`, `CrawlerConfig`, `ReporterConfig`, `StorageConfig`, `NotificationConfig`, `LogConfig`, `DiffConfig`, `MonitorConfig`, `NormalizerConfig`), their default values, and functions to create new configurations with these defaults (e.g., `NewDefaultGlobalConfig()`).
+-   `loader.go` (conceptually, logic is within `config.go`'s `LoadGlobalConfig` function): Handles loading the configuration. 
+    -   It starts by initializing a `GlobalConfig` with default values.
+    -   If a configuration file path is provided (defaulting to `config.yaml` in `main.go`), it attempts to read and unmarshal the file. YAML is preferred if the file extension is `.yaml` or `.yml`; otherwise, JSON is assumed.
+    -   **Note on YAML**: To enable YAML parsing, the import `gopkg.in/yaml.v3` must be added to `config.go` and the YAML unmarshalling section within `LoadGlobalConfig` must be uncommented.
+    -   After loading from file (if any), it attempts to override values with environment variables.
+    -   **Note on Environment Variables**: To enable environment variable overrides, the import `github.com/kelseyhightower/envconfig` must be added to `config.go` and the `envconfig.Process` section within `LoadGlobalConfig` must be uncommented. Environment variables should be prefixed (e.g., `MONSTERINC_HTTPXRUNNERCONFIG_THREADS=50`).
+-   `validator.go`: Implements `ValidateConfig(*GlobalConfig) error` which uses the `go-playground/validator/v10` library to validate the fields of the loaded `GlobalConfig` based on struct tags (e.g., `required`, `min`, `max`, `url`, `fileexists`, custom validators like `loglevel`, `logformat`, `mode`).
+    -   **Note on Validator**: The import `github.com/go-playground/validator/v10` is required. Ensure it is in your `go.mod` and run `go mod tidy`.
 
--   `InputConfig`: Cấu hình cho việc nhập URL ban đầu.
--   `HttpxRunnerConfig`: Cấu hình cho module httpx probing.
--   `CrawlerConfig`: Cấu hình cho module crawling web.
--   `ReporterConfig`: Cấu hình cho module tạo báo cáo HTML.
--   `StorageConfig`: Cấu hình cho việc lưu trữ dữ liệu (ví dụ: Parquet).
--   `NotificationConfig`: Cấu hình cho việc gửi thông báo (ví dụ: Discord).
--   `LogConfig`: Cấu hình cho logging.
--   `NormalizerConfig`: Cấu hình cho việc chuẩn hóa URL (hiện tại chưa có nhiều thiết lập).
--   `Mode`: Chế độ hoạt động của ứng dụng (ví dụ: "onetime", "automated").
+## Configuration File
 
-### Các Struct Cấu hình Chi tiết
+-   An example configuration file `config.example.yaml` is provided in the project root, showcasing all available options, their default values, and comments explaining each field.
+-   The application expects the configuration file to be named `config.yaml` by default (or `config.json` if preferred and YAML is not set up), located in the working directory or specified via the `-globalconfig` command-line flag.
 
-1.  **`InputConfig`**
-    -   `InputURLs []string`: Danh sách các URL đầu vào được cung cấp trực tiếp trong config.
-    -   `InputFile string`: Đường dẫn đến file chứa danh sách URL đầu vào (mỗi URL một dòng).
+## Usage in `main.go`
 
-2.  **`HttpxRunnerConfig`**
-    -   Quản lý các thiết lập cho việc chạy httpx, bao gồm phương thức HTTP, số luồng, timeout, retries, proxy, các cờ trích xuất dữ liệu (title, status code, headers, v.v.), `Resolvers`, `Ports` (cho phép chỉ định cổng cụ thể thay vì dùng mặc định của httpx), `HttpxFlags` (để truyền các cờ tùy chỉnh khác cho httpx), `SkipDefaultPorts` (bỏ qua các cổng mặc định của httpx), và `DenyInternalIPs` (ngăn chặn quét các IP nội bộ).
+1.  A command-line flag `-globalconfig` (defaulting to `config.yaml`) is defined to specify the configuration file path.
+2.  `config.LoadGlobalConfig()` is called to load the configuration settings.
+3.  `config.ValidateConfig()` is called to ensure the loaded configuration is valid before proceeding.
+4.  The validated `GlobalConfig` object (or its sub-structs) is then passed to various application modules (crawler, reporter, etc.) as needed.
 
-3.  **`CrawlerConfig`**
-    -   `SeedURLs []string`: Các URL gốc để bắt đầu crawl.
-    -   `UserAgent string`: User agent sử dụng khi crawl.
-    -   `RequestTimeoutSecs int`: Thời gian chờ cho mỗi request.
-    -   `MaxConcurrentRequests int`: Số request đồng thời tối đa.
-    -   `MaxDepth int`: Độ sâu tối đa khi crawl.
-    -   `RespectRobotsTxt bool`: Có tôn trọng file robots.txt hay không.
-    -   `IncludeSubdomains bool`: Có bao gồm các subdomain không.
-    -   `Scope CrawlerScopeConfig`: Cấu hình phạm vi crawl.
-        -   **`CrawlerScopeConfig`**: Bao gồm `AllowedHostnames`, `DisallowedHostnames`, `AllowedPathRegexes`, `DisallowedPathRegexes` để kiểm soát những gì được crawl.
-    -   `MaxContentLengthMB int`: Kích thước nội dung tối đa cho phép tải về.
+## Important Notes for Developers
 
-4.  **`ReporterConfig`**
-    -   `OutputDir string`: Thư mục lưu trữ báo cáo.
-    -   `EmbedAssets bool`: Có nhúng assets (CSS, JS) vào file HTML không.
-    -   `DefaultItemsPerPage int`: Số mục hiển thị trên mỗi trang của báo cáo.
-    -   `DefaultOutputHTMLPath string`: Đường dẫn file HTML output mặc định.
-
-5.  **`StorageConfig`**
-    -   `ParquetBasePath string`: Đường dẫn thư mục gốc để lưu trữ file Parquet.
-    -   `CompressionCodec string`: Codec nén sử dụng cho file Parquet (ví dụ: "zstd", "snappy", "gzip").
-
-6.  **`NotificationConfig`**
-    -   Cấu hình cho việc gửi thông báo, ví dụ qua Discord webhook, bao gồm URL webhook và các tùy chọn thông báo cho các sự kiện khác nhau (thành công, thất bại, bắt đầu scan).
-
-7.  **`LogConfig`**
-    -   Cấu hình cho logger, bao gồm `LogLevel`, `LogFormat`, `LogFile`, và các tùy chọn quản lý file log (kích thước tối đa, số backup, nén log cũ).
-
-8.  **`NormalizerConfig`**
-    -   Hiện tại chưa có nhiều thiết lập, có thể mở rộng trong tương lai (ví dụ: `DefaultScheme`).
-
-## Sử dụng
-
-### Load Cấu hình từ File
-
-Sử dụng hàm `LoadGlobalConfig(filePath string)` để load cấu hình từ một file JSON.
-
-```go
-gCfg, err := config.LoadGlobalConfig("config.json")
-if err != nil {
-    log.Fatalf("Failed to load config: %v", err)
-}
-// Sử dụng gCfg...
-```
-
-### Cấu hình Mặc định
-
-Package `config` cung cấp các hàm `NewDefault...()` cho mỗi struct cấu hình để lấy các giá trị mặc định. Ví dụ:
-
--   `NewDefaultGlobalConfig() *GlobalConfig`
--   `NewDefaultHTTPXRunnerConfig() HttpxRunnerConfig`
--   `NewDefaultCrawlerConfig() CrawlerConfig`
--   v.v.
-
-Các giá trị mặc định này cũng được sử dụng bởi `LoadGlobalConfig` nếu một file config rỗng được cung cấp hoặc các trường bị thiếu.
-
-## File `config.json`
-
-Một file `config.json` mẫu được cung cấp ở thư mục gốc của dự án, chứa tất cả các tùy chọn cấu hình có thể có. Người dùng nên sao chép và chỉnh sửa file này cho phù hợp với nhu cầu của mình. 
+-   **Dependencies**: This package relies on external libraries for YAML parsing, environment variable processing, and validation. Ensure these are correctly managed in your `go.mod` file:
+    -   `gopkg.in/yaml.v3` (for YAML)
+    -   `github.com/kelseyhightower/envconfig` (for environment variables)
+    -   `github.com/go-playground/validator/v10` (for validation)
+-   Remember to uncomment the relevant code sections in `config.go` and add the imports if you wish to use YAML parsing or environment variable overrides fully. 
