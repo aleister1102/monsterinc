@@ -2,10 +2,11 @@ package differ
 
 import (
 	"fmt"
-	"log"
 	"monsterinc/internal/datastore"
 	"monsterinc/internal/models"
-	"os"
+
+	"github.com/rs/zerolog"
+	// For default logger if needed
 	// "time" // Removed: No longer needed
 	// "strings" // Add if normalization is re-introduced
 	// Import "net/url" and "strings" if a normalization function like normalizeURLKey is introduced.
@@ -15,14 +16,11 @@ import (
 // UrlDiffer is responsible for comparing URL lists from current and previous scans.
 type UrlDiffer struct {
 	parquetReader *datastore.ParquetReader
-	logger        *log.Logger
+	logger        zerolog.Logger
 }
 
 // NewUrlDiffer creates a new UrlDiffer instance.
-func NewUrlDiffer(pr *datastore.ParquetReader, logger *log.Logger) *UrlDiffer {
-	if logger == nil {
-		logger = log.New(os.Stdout, "URL_DIFFER: ", log.LstdFlags|log.Lshortfile)
-	}
+func NewUrlDiffer(pr *datastore.ParquetReader, logger zerolog.Logger) *UrlDiffer {
 	return &UrlDiffer{
 		parquetReader: pr,
 		logger:        logger,
@@ -34,14 +32,14 @@ func NewUrlDiffer(pr *datastore.ParquetReader, logger *log.Logger) *UrlDiffer {
 // for 'new', 'existing', and 'changed' statuses.
 // It uses historicalProbes to identify 'old' URLs and constructs DiffedURL entries for them.
 func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget string) (*models.URLDiffResult, error) {
-	ud.logger.Printf("[INFO] Differ: Starting URL diff for root target: %s. Current probes: %d", rootTarget, len(currentScanProbes))
+	ud.logger.Info().Msgf("[INFO] Differ: Starting URL diff for root target: %s. Current probes: %d", rootTarget, len(currentScanProbes))
 
 	historicalProbes, err := ud.parquetReader.FindHistoricalDataForTarget(rootTarget)
 	if err != nil {
-		ud.logger.Printf("[ERROR] Differ: Failed to get historical data for target %s: %v", rootTarget, err)
+		ud.logger.Error().Msgf("[ERROR] Differ: Failed to get historical data for target %s: %v", rootTarget, err)
 		return nil, fmt.Errorf("failed to get historical data for %s: %w", rootTarget, err)
 	}
-	ud.logger.Printf("[INFO] Differ: Retrieved %d historical probes for target %s", len(historicalProbes), rootTarget)
+	ud.logger.Info().Msgf("[INFO] Differ: Retrieved %d historical probes for target %s", len(historicalProbes), rootTarget)
 
 	result := &models.URLDiffResult{
 		RootTargetURL: rootTarget,                  // Corrected field name
@@ -55,7 +53,7 @@ func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget
 	currentProbesMap := make(map[string]*models.ProbeResult)
 	for _, p := range currentScanProbes {
 		if p.InputURL == "" {
-			ud.logger.Printf("[WARN] Differ: Skipping current probe with empty InputURL.")
+			ud.logger.Warn().Msgf("[WARN] Differ: Skipping current probe with empty InputURL.")
 			continue
 		}
 		currentProbesMap[p.InputURL] = p
@@ -64,7 +62,7 @@ func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget
 	historicalProbesMap := make(map[string]models.ProbeResult)
 	for _, hp := range historicalProbes {
 		if hp.InputURL == "" {
-			ud.logger.Printf("[WARN] Differ: Skipping historical probe with empty InputURL: %+v", hp)
+			ud.logger.Warn().Msgf("[WARN] Differ: Skipping historical probe with empty InputURL: %+v", hp)
 			continue
 		}
 		historicalProbesMap[hp.InputURL] = hp
@@ -108,7 +106,7 @@ func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget
 		result.Old++
 	}
 
-	ud.logger.Printf("[INFO] Differ: Diff complete for %s. New: %d, Existing: %d, Old: %d. Total diff entries: %d",
+	ud.logger.Info().Msgf("[INFO] Differ: Diff complete for %s. New: %d, Existing: %d, Old: %d. Total diff entries: %d",
 		rootTarget, result.New, result.Existing, result.Old, len(result.Results))
 
 	return result, nil

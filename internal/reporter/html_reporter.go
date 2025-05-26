@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +14,8 @@ import (
 
 	"monsterinc/internal/config"
 	"monsterinc/internal/models"
+
+	"github.com/rs/zerolog"
 )
 
 //go:embed templates/report.html.tmpl
@@ -32,37 +33,37 @@ var reportJS embed.FS
 // It uses Go's html/template package.
 type HtmlReporter struct {
 	config       *config.ReporterConfig // Configuration for the reporter
-	logger       *log.Logger            // For logging reporter activities
+	logger       zerolog.Logger         // For logging reporter activities
 	template     *template.Template     // Parsed HTML template
 	templatePath string                 // Path to the HTML template file (optional, if not using embed)
 }
 
 // NewHtmlReporter creates a new HtmlReporter.
-func NewHtmlReporter(cfg *config.ReporterConfig, appLogger *log.Logger) (*HtmlReporter, error) {
+func NewHtmlReporter(cfg *config.ReporterConfig, appLogger zerolog.Logger) (*HtmlReporter, error) {
 	if cfg == nil {
 		cfg = &config.ReporterConfig{} // Use default config if nil
-	}
-	if appLogger == nil {
-		appLogger = log.New(os.Stdout, "[Reporter] ", log.LstdFlags)
 	}
 
 	hr := &HtmlReporter{
 		config: cfg,
-		logger: appLogger,
+		logger: appLogger, // Assume appLogger is always provided and initialized
 	}
 
 	// Load and parse the template
 	templateName := "report.html.tmpl"
 	var err error
 	if hr.config.TemplatePath != "" {
-		hr.logger.Printf("Loading template from custom path: %s", hr.config.TemplatePath)
+		hr.logger.Info().Str("path", hr.config.TemplatePath).Msg("Loading template from custom path")
 		hr.template, err = template.New(filepath.Base(hr.config.TemplatePath)).Funcs(templateFunctions).ParseFiles(hr.config.TemplatePath)
 	} else {
-		hr.logger.Printf("Loading embedded template: %s", templateName)
+		hr.logger.Info().Str("template", templateName).Msg("Loading embedded template")
 		hr.template, err = template.New(templateName).Funcs(templateFunctions).ParseFS(defaultTemplate, "templates/"+templateName)
 	}
 
 	if err != nil {
+		// Use the reporter's logger once it's potentially initialized (or a temp one if init fails early)
+		// For simplicity, if template loading fails, this log might use the passed appLogger or a default if hr.logger isn't set yet.
+		hr.logger.Error().Err(err).Msg("Failed to parse HTML template")
 		return nil, fmt.Errorf("failed to parse HTML template: %w", err)
 	}
 
@@ -199,10 +200,11 @@ func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, url
 	// Serialize ProbeResults to JSON for JS
 	resultsJSON, err := json.Marshal(pageData.ProbeResults)
 	if err != nil {
+		r.logger.Error().Err(err).Msg("Failed to marshal probe results to JSON for report page data")
 		return pageData, fmt.Errorf("failed to marshal probe results to JSON: %w", err)
 	}
 	pageData.ProbeResultsJSON = template.JS(resultsJSON)
-	// r.logger.Printf("[DEBUG] ProbeResultsJSON for template: %s", string(resultsJSON)) // Logging the JSON string
+	// r.logger.Debug().Str("json", string(resultsJSON)).Msg("ProbeResultsJSON for template")
 
 	return pageData, nil
 }
@@ -213,14 +215,14 @@ func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, url
 // It now accepts a slice of pointers to ProbeResult.
 func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, urlDiffs map[string]models.URLDiffResult, outputPath string) error {
 	if len(probeResults) == 0 && !r.config.GenerateEmptyReport {
-		r.logger.Println("No probe results to report, and GenerateEmptyReport is false. Skipping report generation.")
+		r.logger.Info().Msg("No probe results to report, and GenerateEmptyReport is false. Skipping report generation.")
 		return nil // FR2: Do not generate report if no results and config says so.
 	}
-	r.logger.Printf("Generating HTML report for %d probe results to %s", len(probeResults), outputPath)
+	r.logger.Info().Msgf("Generating HTML report for %d probe results to %s", len(probeResults), outputPath)
 
 	pageData, err := r.prepareReportData(probeResults, urlDiffs)
 	if err != nil {
-		r.logger.Printf("Error preparing report data: %v", err)
+		r.logger.Error().Err(err).Msg("Error preparing report data")
 		return err // Return the error from prepareReportData
 	}
 
@@ -228,7 +230,7 @@ func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, urlDif
 	assetErrors := r.embedCustomAssets(&pageData)
 	if len(assetErrors) > 0 {
 		for _, assetErr := range assetErrors {
-			r.logger.Printf("[WARN] Failed to embed asset: %v", assetErr)
+			r.logger.Warn().Err(assetErr).Msg("Failed to embed asset")
 		}
 		// Decide if asset embedding errors should be fatal or just warnings
 	}
@@ -239,7 +241,7 @@ func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, urlDif
 		return err
 	}
 
-	r.logger.Printf("HTML report successfully generated: %s", outputPath)
+	r.logger.Info().Msgf("HTML report successfully generated: %s", outputPath)
 	return nil
 }
 
@@ -247,17 +249,17 @@ func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, urlDif
 func (r *HtmlReporter) executeAndWriteReport(pageData models.ReportPageData, outputPath string) error {
 	var buf bytes.Buffer
 	if err := r.template.Execute(&buf, pageData); err != nil {
-		r.logger.Printf("Error executing template: %v", err)
+		r.logger.Error().Err(err).Msg("Error executing HTML template")
 		return fmt.Errorf("failed to execute HTML template: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
-		r.logger.Printf("Error creating directory for report: %v", err)
+		r.logger.Error().Err(err).Str("path", filepath.Dir(outputPath)).Msg("Error creating directory for report")
 		return fmt.Errorf("failed to create output directory %s: %w", filepath.Dir(outputPath), err)
 	}
 
 	if err := os.WriteFile(outputPath, buf.Bytes(), 0644); err != nil {
-		r.logger.Printf("Error writing HTML report to file: %v", err)
+		r.logger.Error().Err(err).Str("path", outputPath).Msg("Error writing HTML report to file")
 		return fmt.Errorf("failed to write HTML report to %s: %w", outputPath, err)
 	}
 	return nil
@@ -292,7 +294,10 @@ var templateFunctions = template.FuncMap{
 	"jsonMarshal": func(v interface{}) template.JS {
 		a, err := json.Marshal(v)
 		if err != nil {
-			log.Printf("[ERROR] Template: jsonMarshal error: %v", err)
+			// This function is called from within a template, direct logging might be tricky
+			// Consider returning an error string or using a global logger if absolutely necessary
+			// For now, print to stderr as a fallback.
+			fmt.Fprintf(os.Stderr, "[ERROR] Template: jsonMarshal error: %v\n", err)
 			return ""
 		}
 		return template.JS(a)
@@ -314,5 +319,3 @@ var templateFunctions = template.FuncMap{
 		return i + 1
 	},
 }
-
-// TODO: Add unit tests for HtmlReporter in html_reporter_test.go

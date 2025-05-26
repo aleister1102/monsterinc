@@ -13,5 +13,3 @@ type URLValidationError struct {
 func (e *URLValidationError) Error() string {
 	return fmt.Sprintf("invalid URL %s: %s", e.URL, e.Message)
 }
-
-// TODO: Add other common error structs here as they are identified.

@@ -1,8 +1,8 @@
 package orchestrator
 
 import (
+	"context"
 	"fmt"
-	"log"
 	"monsterinc/internal/config"
 	"monsterinc/internal/crawler"
 	"monsterinc/internal/datastore"
@@ -11,12 +11,14 @@ import (
 	"monsterinc/internal/models"
 	"monsterinc/internal/urlhandler"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 // ScanOrchestrator handles the core logic of a scan workflow.
 type ScanOrchestrator struct {
 	globalConfig  *config.GlobalConfig
-	logger        *log.Logger
+	logger        zerolog.Logger
 	parquetReader *datastore.ParquetReader
 	parquetWriter *datastore.ParquetWriter
 	// latestProbeResults map[string][]models.ProbeResult // Potentially for caching latest results per target
@@ -25,7 +27,7 @@ type ScanOrchestrator struct {
 // NewScanOrchestrator creates a new ScanOrchestrator.
 func NewScanOrchestrator(
 	cfg *config.GlobalConfig,
-	logger *log.Logger,
+	logger zerolog.Logger,
 	pqReader *datastore.ParquetReader,
 	pqWriter *datastore.ParquetWriter,
 ) *ScanOrchestrator {
@@ -41,7 +43,8 @@ func NewScanOrchestrator(
 // ExecuteScanWorkflow runs the full crawl -> probe -> diff -> store workflow.
 // seedURLs are the initial URLs to start crawling from.
 // scanSessionID is a unique identifier for this specific scan run, used for Parquet naming.
-func (so *ScanOrchestrator) ExecuteScanWorkflow(seedURLs []string, scanSessionID string) ([]models.ProbeResult, map[string]models.URLDiffResult, error) {
+// ctx is used for cancellation of long-running operations.
+func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []string, scanSessionID string) ([]models.ProbeResult, map[string]models.URLDiffResult, error) {
 	// Configure crawler
 	crawlerCfg := &so.globalConfig.CrawlerConfig
 	// Important: Make a copy or ensure SeedURLs is set fresh for each call
@@ -62,7 +65,15 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(seedURLs []string, scanSessionID
 
 	// Run crawler if seed URLs provided
 	if len(currentCrawlerCfg.SeedURLs) > 0 {
-		so.logger.Printf("[INFO] Orchestrator: Starting crawler with %d seed URLs for session %s. Primary target: %s", len(currentCrawlerCfg.SeedURLs), scanSessionID, primaryRootTargetURL)
+		// Check for context cancellation before starting crawler
+		select {
+		case <-ctx.Done():
+			so.logger.Info().Msgf("[INFO] Orchestrator: Context cancelled before crawler start for session %s.", scanSessionID)
+			return nil, nil, ctx.Err()
+		default:
+		}
+
+		so.logger.Info().Msgf("[INFO] Orchestrator: Starting crawler with %d seed URLs for session %s. Primary target: %s", len(currentCrawlerCfg.SeedURLs), scanSessionID, primaryRootTargetURL)
 		crawlerInstance, err := crawler.NewCrawler(&currentCrawlerCfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("orchestrator: failed to initialize crawler: %w", err)
@@ -70,16 +81,24 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(seedURLs []string, scanSessionID
 
 		crawlerInstance.Start()
 		discoveredURLs = crawlerInstance.GetDiscoveredURLs()
-		so.logger.Printf("[INFO] Orchestrator: Crawler discovered %d URLs for session %s", len(discoveredURLs), scanSessionID)
+		so.logger.Info().Msgf("[INFO] Orchestrator: Crawler discovered %d URLs for session %s", len(discoveredURLs), scanSessionID)
 	} else {
-		so.logger.Printf("[INFO] Orchestrator: No seed URLs provided for crawler in session %s. Skipping crawler module.", scanSessionID)
+		so.logger.Info().Msgf("[INFO] Orchestrator: No seed URLs provided for crawler in session %s. Skipping crawler module.", scanSessionID)
 	}
 
 	// Run HTTPX probing
 	var allProbeResultsForCurrentScan []models.ProbeResult // Renamed for clarity from allProbeResults
 
 	if len(discoveredURLs) > 0 {
-		so.logger.Printf("[INFO] Orchestrator: Starting HTTPX probing for %d URLs for session %s...", len(discoveredURLs), scanSessionID)
+		// Check for context cancellation before starting HTTPX
+		select {
+		case <-ctx.Done():
+			so.logger.Info().Msgf("[INFO] Orchestrator: Context cancelled before HTTPX probing for session %s.", scanSessionID)
+			return nil, nil, ctx.Err()
+		default:
+		}
+
+		so.logger.Info().Msgf("[INFO] Orchestrator: Starting HTTPX probing for %d URLs for session %s...", len(discoveredURLs), scanSessionID)
 
 		runnerCfg := &httpxrunner.Config{
 			Targets:              discoveredURLs,
@@ -111,9 +130,21 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(seedURLs []string, scanSessionID
 			return nil, nil, fmt.Errorf("orchestrator: failed to create HTTPX runner for session %s: %w", scanSessionID, err)
 		}
 
-		if err := probeRunner.Run(); err != nil {
-			so.logger.Printf("[WARN] Orchestrator: HTTPX probing encountered errors for session %s: %v", scanSessionID, err)
-			// Continue processing with any results obtained
+		if err := probeRunner.Run(ctx); err != nil { // Pass context to Run
+			so.logger.Warn().Msgf("[WARN] Orchestrator: HTTPX probing encountered errors for session %s: %v", scanSessionID, err)
+			// Continue processing with any results obtained, unless context was cancelled
+			if ctx.Err() == context.Canceled {
+				so.logger.Info().Msgf("[INFO] Orchestrator: HTTPX probing cancelled for session %s.", scanSessionID)
+				return allProbeResultsForCurrentScan, nil, ctx.Err() // Return partial results if any, and context error
+			}
+		}
+
+		// Check for context cancellation after HTTPX Run
+		select {
+		case <-ctx.Done():
+			so.logger.Info().Msgf("[INFO] Orchestrator: Context cancelled after HTTPX probing for session %s.", scanSessionID)
+			return allProbeResultsForCurrentScan, nil, ctx.Err() // Return partial results and context error
+		default:
 		}
 
 		probeResultsFromRunner := probeRunner.GetResults()
@@ -139,9 +170,9 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(seedURLs []string, scanSessionID
 			}
 		}
 	} else {
-		so.logger.Printf("[INFO] Orchestrator: No URLs discovered by crawler (or crawler skipped) for session %s. Skipping HTTPX probing.", scanSessionID)
+		so.logger.Info().Msgf("[INFO] Orchestrator: No URLs discovered by crawler (or crawler skipped) for session %s. Skipping HTTPX probing.", scanSessionID)
 	}
-	so.logger.Printf("[INFO] Orchestrator: Processed %d probe results from current scan for session %s", len(allProbeResultsForCurrentScan), scanSessionID)
+	so.logger.Info().Msgf("[INFO] Orchestrator: Processed %d probe results from current scan for session %s", len(allProbeResultsForCurrentScan), scanSessionID)
 
 	// Group results by root target
 	resultsByRootTarget := make(map[string][]models.ProbeResult)
@@ -154,7 +185,7 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(seedURLs []string, scanSessionID
 			} else if rtURL == "" {
 				rtURL = pr.InputURL // Absolute fallback
 			}
-			so.logger.Printf("[DEBUG] Orchestrator: Empty RootTargetURL for %s, falling back to %s", pr.InputURL, rtURL)
+			so.logger.Debug().Msgf("[DEBUG] Orchestrator: Empty RootTargetURL for %s, falling back to %s", pr.InputURL, rtURL)
 		}
 		resultsByRootTarget[rtURL] = append(resultsByRootTarget[rtURL], pr)
 	}
@@ -165,13 +196,22 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(seedURLs []string, scanSessionID
 
 	for rootTgt, resultsForRoot := range resultsByRootTarget {
 		if rootTgt == "" {
-			so.logger.Printf("[WARN] Orchestrator: Skipping diffing/storage for empty root target. Session: %s", scanSessionID)
+			so.logger.Warn().Msgf("[WARN] Orchestrator: Skipping diffing/storage for empty root target. Session: %s", scanSessionID)
 			continue
+		}
+
+		// Check for context cancellation during diffing/storing loop
+		select {
+		case <-ctx.Done():
+			so.logger.Info().Msgf("[INFO] Orchestrator: Context cancelled during diff/store for target %s, session %s.", rootTgt, scanSessionID)
+			// Return what has been processed so far along with the cancellation error
+			return allProbeResultsForCurrentScan, allURLDiffResults, ctx.Err()
+		default:
 		}
 
 		// Even if resultsForRoot is empty, we might have historical data, so we still need to run the differ
 		// to identify 'old' URLs for this rootTgt.
-		so.logger.Printf("[INFO] Orchestrator: Processing diff for root target: %s (current results: %d) for session %s", rootTgt, len(resultsForRoot), scanSessionID)
+		so.logger.Info().Msgf("[INFO] Orchestrator: Processing diff for root target: %s (current results: %d) for session %s", rootTgt, len(resultsForRoot), scanSessionID)
 
 		// Create a slice of pointers to models.ProbeResult for UrlDiffer to modify status and timestamps
 		currentScanProbesPtr := make([]*models.ProbeResult, len(resultsForRoot))
@@ -181,17 +221,17 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(seedURLs []string, scanSessionID
 
 		diffResult, err := urlDiffer.Compare(currentScanProbesPtr, rootTgt)
 		if err != nil {
-			so.logger.Printf("[ERROR] Orchestrator: Failed to compare URLs for %s in session %s: %v. Skipping storage and diff summary for this target.", rootTgt, scanSessionID, err)
+			so.logger.Error().Msgf("[ERROR] Orchestrator: Failed to compare URLs for %s in session %s: %v. Skipping storage and diff summary for this target.", rootTgt, scanSessionID, err)
 			continue
 		}
 
 		if diffResult == nil {
-			so.logger.Printf("[WARN] Orchestrator: DiffResult was nil for %s in session %s, though no explicit error. Skipping further processing for this target.", rootTgt, scanSessionID)
+			so.logger.Warn().Msgf("[WARN] Orchestrator: DiffResult was nil for %s in session %s, though no explicit error. Skipping further processing for this target.", rootTgt, scanSessionID)
 			continue
 		}
 
 		allURLDiffResults[rootTgt] = *diffResult
-		so.logger.Printf("[INFO] Orchestrator: URL Diffing complete for %s in session %s. New: %d, Old: %d, Existing: %d. Total unique URLs in diff: %d",
+		so.logger.Info().Msgf("[INFO] Orchestrator: URL Diffing complete for %s in session %s. New: %d, Old: %d, Existing: %d. Total unique URLs in diff: %d",
 			rootTgt, scanSessionID, diffResult.New, diffResult.Old, diffResult.Existing, len(diffResult.Results))
 
 		probesToStoreThisTarget := make([]models.ProbeResult, 0, len(diffResult.Results))
@@ -203,15 +243,15 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(seedURLs []string, scanSessionID
 		// Write to Parquet for the current rootTgt
 		if so.parquetWriter != nil {
 			if len(probesToStoreThisTarget) > 0 {
-				so.logger.Printf("[INFO] Orchestrator: Writing %d probe results for target '%s' (session '%s') to Parquet...", len(probesToStoreThisTarget), rootTgt, scanSessionID)
+				so.logger.Info().Msgf("[INFO] Orchestrator: Writing %d probe results for target '%s' (session '%s') to Parquet...", len(probesToStoreThisTarget), rootTgt, scanSessionID)
 				if err := so.parquetWriter.Write(probesToStoreThisTarget, scanSessionID, rootTgt); err != nil {
-					so.logger.Printf("[ERROR] Orchestrator: Failed to write Parquet data for root target '%s' in session '%s': %v", rootTgt, scanSessionID, err)
+					so.logger.Error().Msgf("[ERROR] Orchestrator: Failed to write Parquet data for root target '%s' in session '%s': %v", rootTgt, scanSessionID, err)
 				}
 			} else {
-				so.logger.Printf("[INFO] Orchestrator: No probe results to store to Parquet for target '%s' in session '%s'.", rootTgt, scanSessionID)
+				so.logger.Info().Msgf("[INFO] Orchestrator: No probe results to store to Parquet for target '%s' in session '%s'.", rootTgt, scanSessionID)
 			}
 		} else {
-			so.logger.Printf("[INFO] Orchestrator: ParquetWriter is not initialized. Skipping Parquet storage for target '%s' in session '%s'.", rootTgt, scanSessionID)
+			so.logger.Info().Msgf("[INFO] Orchestrator: ParquetWriter is not initialized. Skipping Parquet storage for target '%s' in session '%s'.", rootTgt, scanSessionID)
 		}
 	} // End loop over resultsByRootTarget
 

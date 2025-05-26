@@ -1,6 +1,7 @@
 package httpxrunner
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"monsterinc/internal/models"
@@ -315,25 +316,20 @@ func (r *Runner) Close() {
 	log.Println("[INFO] HTTPXRunner: Results and Errors channels closed.")
 }
 
-// Run executes the httpx probing with the configured targets
-func (r *Runner) Run() error {
-	if r.config == nil || r.httpxRunner == nil { // Check if runner was properly initialized by NewRunner
+// Run executes the httpx probing with the configured targets, now accepting a context.
+func (r *Runner) Run(ctx context.Context) error {
+	if r.config == nil || r.httpxRunner == nil {
 		log.Println("[ERROR] HTTPXRunner: Runner not properly initialized (config or httpxRunner is nil). Cannot run.")
 		// Ensure channels are closed if they were somehow created
 		if r.results != nil {
 			close(r.results)
 		}
-		// r.errors might be closed by NewRunner on error, or needs closing here.
-		// To be safe, attempt to close only if not nil, but ideal state is NewRunner handles this on its error path.
 		if r.errors != nil {
-			// Check if channel is already closed to prevent panic (more complex) or rely on NewRunner to close on failure
-			// For now, assuming NewRunner closes them if it returns an error.
-			// If NewRunner succeeded, Close() called by this Run() method will handle them.
+			close(r.errors)
 		}
 		return fmt.Errorf("runner not properly initialized")
 	}
 
-	// No targets to probe based on options set during NewRunner
 	if len(r.options.InputTargetHost) == 0 {
 		log.Println("[INFO] HTTPXRunner: No targets configured to probe. Skipping run enumeration.")
 		close(r.results)
@@ -343,37 +339,43 @@ func (r *Runner) Run() error {
 
 	log.Printf("[INFO] HTTPXRunner: Starting HTTPX probing run for %d targets... (Root Target: %s)", len(r.options.InputTargetHost), r.rootTargetURL)
 
-	var runErr error // To capture error from RunEnumeration if it's ever changed to return one
+	var runErr error
+	r.wg.Add(1)
 
-	// r.wg.Add(2) // Adjusted for RunEnumeration and errors processing goroutines
-	r.wg.Add(1) // Only for the RunEnumeration goroutine
-
-	// Goroutine to execute httpx's RunEnumeration
 	go func() {
 		defer r.wg.Done()
-		// defer r.Close() // Close will be called after wg.Wait()
+		// Listen for context cancellation
+		go func() {
+			<-ctx.Done()
+			log.Println("[INFO] HTTPXRunner: Context cancelled, attempting to close httpxRunner.")
+			if r.httpxRunner != nil {
+				// httpx runner.Close() is designed to stop the enumeration.
+				// It closes internal channels which should cause RunEnumeration to return.
+				r.httpxRunner.Close()
+				log.Println("[INFO] HTTPXRunner: httpxRunner.Close() called due to context cancellation.")
+			}
+		}()
+
 		if r.httpxRunner == nil {
-			log.Printf("[ERROR] HTTPXRunner: Goroutine: httpxRunner is nil before RunEnumeration!") // DEBUG
+			log.Printf("[ERROR] HTTPXRunner: Goroutine: httpxRunner is nil before RunEnumeration!")
 			return
 		}
+		// RunEnumeration is blocking. If ctx is cancelled, the goroutine above will call r.httpxRunner.Close(),
+		// which should cause RunEnumeration to stop and return.
 		r.httpxRunner.RunEnumeration()
-		log.Println("[INFO] HTTPXRunner: RunEnumeration completed.")
+		log.Println("[INFO] HTTPXRunner: RunEnumeration completed or was stopped.")
 	}()
 
-	// Goroutine to process errors - REMOVED as it caused a deadlock
-	// go func() {
-	// 	defer r.wg.Done()
-	// 	for err := range r.Errors() { // Will unblock when r.errors is closed
-	// 		log.Printf("[ERROR] HTTPXRunner global error: %v", err)
-	// 	}
-	// 	log.Println("[INFO] HTTPXRunner: Errors processing goroutine finished.")
-	// }()
+	r.wg.Wait()
+	// Check context error after wait, as RunEnumeration might have returned due to cancellation
+	if ctx.Err() != nil {
+		log.Printf("[INFO] HTTPXRunner: Probing run finished due to context cancellation: %v", ctx.Err())
+		runErr = ctx.Err()
+	}
+	r.Close() // Close our exposed channels
 
-	r.wg.Wait() // Wait for RunEnumeration goroutine to complete
-	r.Close()   // Close channels after all goroutines using them have finished
-
-	log.Printf("[INFO] HTTPXRunner: HTTPX Probing finished. Collected %d results (via OnResult callback).", len(r.collectedResults))
-	return runErr // Currently runErr will always be nil
+	log.Printf("[INFO] HTTPXRunner: HTTPX Probing finished. Collected %d results. Error: %v", len(r.collectedResults), runErr)
+	return runErr
 }
 
 // Results returns a channel that receives probe results
