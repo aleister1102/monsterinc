@@ -70,79 +70,112 @@ func NewHtmlReporter(cfg *config.ReporterConfig, appLogger *log.Logger) (*HtmlRe
 }
 
 // prepareReportData populates the ReportPageData struct based on probe results and reporter config.
-func (r *HtmlReporter) prepareReportData(probeResults []models.ProbeResult, urlDiffs map[string]models.URLDiffResult) (models.ReportPageData, error) {
+// It now accepts a slice of pointers to ProbeResult.
+func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, urlDiffs map[string]models.URLDiffResult) (models.ReportPageData, error) {
 	pageData := models.GetDefaultReportPageData() // Get a base structure
 	pageData.ReportTitle = r.config.ReportTitle
 	if pageData.ReportTitle == "" {
 		pageData.ReportTitle = "MonsterInc Scan Report"
 	}
 	pageData.GeneratedAt = time.Now().Format("2006-01-02 15:04:05 MST")
-	pageData.TotalResults = len(probeResults)
+	// pageData.TotalResults will be len(pageData.ProbeResults) after processing
 	pageData.ItemsPerPage = r.config.DefaultItemsPerPage
 	if pageData.ItemsPerPage <= 0 {
-		pageData.ItemsPerPage = 10 // Default fallback
+		pageData.ItemsPerPage = 100 // Default fallback
 	}
-	pageData.EnableDataTables = r.config.EnableDataTables // Pass DataTables config
+	pageData.EnableDataTables = r.config.EnableDataTables
+	pageData.DiffSummaryData = make(map[string]models.DiffSummaryEntry)
 
-	// Prepare display results and gather stats/filters
-	displayResults := make([]models.ProbeResultDisplay, 0, len(probeResults))
+	displayResults := make([]models.ProbeResultDisplay, 0)
 	statusCodes := make(map[int]struct{})
 	contentTypes := make(map[string]struct{})
 	techs := make(map[string]struct{})
-	rootTargets := make(map[string]struct{}) // For multi-target navigation
+	rootTargetsEncountered := make(map[string]struct{}) // For UniqueRootTargets
 
-	for _, pr := range probeResults {
-		displayPr := models.ToProbeResultDisplay(pr)
-		// The URLStatus is already set by ToProbeResultDisplay, which gets it from models.ProbeResult
-		// The models.ProbeResult.URLStatus is set by the UrlDiffer.
-		// Therefore, the following block is redundant and can lead to inconsistencies if URL matching logic differs.
-		/*
-			if diffResult, ok := urlDiffs[pr.RootTargetURL]; ok {
-				for _, diffedURL := range diffResult.Results {
-					// Compare with FinalURL or InputURL based on what UrlDiffer uses for NormalizedURL
-					normalizedProbeURL := pr.FinalURL
-					if normalizedProbeURL == "" {
-						normalizedProbeURL = pr.InputURL
-					}
-					if diffedURL.NormalizedURL == normalizedProbeURL {
-						displayPr.URLStatus = string(diffedURL.Status) // Assuming ProbeResultDisplay has URLStatus field
-						break
-					}
+	totalProcessedForSummary := 0
+	// Iterate through urlDiffs to populate displayResults and DiffSummaryData
+	for rootTgt, diffResult := range urlDiffs {
+		rootTargetsEncountered[rootTgt] = struct{}{}
+		currentRootNew := 0
+		currentRootOld := 0
+		currentRootExisting := 0
+		// currentRootChanged := 0 // For future use
+
+		for _, diffedURL := range diffResult.Results { // Corrected: Iterate over Results (slice)
+			pr := diffedURL.ProbeResult // This is the full ProbeResult
+
+			// Ensure RootTargetURL is consistent if not already set by orchestrator/differ
+			if pr.RootTargetURL == "" {
+				pr.RootTargetURL = rootTgt
+			}
+
+			displayPr := models.ToProbeResultDisplay(pr) // Use the existing helper
+			displayPr.URLStatus = string(pr.URLStatus)   // Set DiffStatus from ProbeResult.URLStatus
+			displayResults = append(displayResults, displayPr)
+			totalProcessedForSummary++
+
+			switch models.URLStatus(pr.URLStatus) { // Corrected: Cast pr.URLStatus to models.URLStatus
+			case models.StatusNew:
+				currentRootNew++
+				pageData.SuccessResults++ // Assuming new is a success for this counter
+			case models.StatusOld:
+				currentRootOld++
+				// Old URLs are not typically counted in active success/failure for the *current* scan
+			case models.StatusExisting:
+				currentRootExisting++
+				pageData.SuccessResults++ // Assuming existing is a success
+			// case models.StatusChanged:
+			// currentRootChanged++
+			// pageData.SuccessResults++ // Or handle as per business logic
+			default:
+				// For URLs from current scan that might have failed probing (e.g. no status code)
+				// This part needs clarification: probeResults input vs diffResult data
+				// For now, only New/Existing contribute to SuccessResults. FailedResults could be other conditions.
+				if displayPr.StatusCode == 0 || displayPr.StatusCode >= 400 {
+					pageData.FailedResults++
+				} else {
+					// if it's not new/existing but has a success code and not caught by other statuses
+					// this logic path might need review depending on how pr.URLStatus is set for failed probes
 				}
 			}
-		*/
-		displayResults = append(displayResults, displayPr)
 
-		if displayPr.IsSuccess {
-			pageData.SuccessResults++
-		} else {
-			pageData.FailedResults++
-		}
-		if displayPr.StatusCode > 0 {
-			statusCodes[displayPr.StatusCode] = struct{}{}
-		}
-		if displayPr.ContentType != "" {
-			contentTypes[strings.ToLower(strings.Split(displayPr.ContentType, ";")[0])] = struct{}{}
-		}
-		for _, techName := range displayPr.Technologies {
-			if techName != "" {
-				techs[techName] = struct{}{}
+			// Collect filter data from displayPr
+			if displayPr.StatusCode > 0 {
+				statusCodes[displayPr.StatusCode] = struct{}{}
 			}
+			if displayPr.ContentType != "" {
+				contentTypes[strings.ToLower(strings.Split(displayPr.ContentType, ";")[0])] = struct{}{}
+			}
+			for _, techName := range displayPr.Technologies {
+				if techName != "" {
+					techs[techName] = struct{}{}
+				}
+			}
+		} // End iterating diffedURL in a rootTgt
+
+		pageData.DiffSummaryData[rootTgt] = models.DiffSummaryEntry{
+			NewCount:      currentRootNew,
+			OldCount:      currentRootOld,
+			ExistingCount: currentRootExisting,
+			// ChangedCount:  currentRootChanged,
 		}
-		if displayPr.RootTargetURL != "" { // Collect root targets
-			rootTargets[displayPr.RootTargetURL] = struct{}{}
-		}
-	}
+	} // End iterating urlDiffs
+
+	// If probeResults parameter is not empty, it represents the *current* scan's raw probes.
+	// This might be redundant if urlDiffs already contains all new/existing from current scan.
+	// However, if some probes failed very early and didn't make it to diffing, they might be here.
+	// For now, the primary source of truth for the report list is diffResult.DiffedURLs.
+	// The stats like Success/Failed might need to reconcile if probeResults has items not in any diffResult.
+
 	pageData.ProbeResults = displayResults
+	pageData.TotalResults = len(displayResults) // Total items in the report table
 
-	// Serialize ProbeResults to JSON for JS
-	resultsJSON, err := json.Marshal(displayResults)
-	if err != nil {
-		return pageData, fmt.Errorf("failed to marshal probe results to JSON: %w", err)
-	}
-	pageData.ProbeResultsJSON = template.JS(resultsJSON)
-	r.logger.Printf("[DEBUG] ProbeResultsJSON for template: %s", string(resultsJSON)) // Logging the JSON string
+	// If SuccessResults + FailedResults don't sum to TotalResults, it means some logic for counting is off
+	// or not all displayResults are categorized. This is a sanity check point.
+	// For now, we assume StatusNew and StatusExisting contribute to SuccessResults.
+	// StatusOld items are in displayResults but might not count towards current scan's success/failure.
 
+	// Populate unique filters
 	for code := range statusCodes {
 		pageData.UniqueStatusCodes = append(pageData.UniqueStatusCodes, code)
 	}
@@ -158,14 +191,18 @@ func (r *HtmlReporter) prepareReportData(probeResults []models.ProbeResult, urlD
 	}
 	sort.Strings(pageData.UniqueTechnologies)
 
-	for target := range rootTargets { // Populate unique root targets
+	for target := range rootTargetsEncountered { // Use the map built from urlDiffs keys
 		pageData.UniqueRootTargets = append(pageData.UniqueRootTargets, target)
 	}
 	sort.Strings(pageData.UniqueRootTargets)
 
-	pageData.URLDiffs = urlDiffs // Store the raw diff data as well if needed by template
-
-	// Asset embedding will be handled in GenerateReport before template execution.
+	// Serialize ProbeResults to JSON for JS
+	resultsJSON, err := json.Marshal(pageData.ProbeResults)
+	if err != nil {
+		return pageData, fmt.Errorf("failed to marshal probe results to JSON: %w", err)
+	}
+	pageData.ProbeResultsJSON = template.JS(resultsJSON)
+	// r.logger.Printf("[DEBUG] ProbeResultsJSON for template: %s", string(resultsJSON)) // Logging the JSON string
 
 	return pageData, nil
 }
@@ -173,7 +210,8 @@ func (r *HtmlReporter) prepareReportData(probeResults []models.ProbeResult, urlD
 // GenerateReport generates an HTML report from the probe results and diff results.
 // outputPath is the desired path for the generated HTML file.
 // urlDiffs is a map where the key is RootTargetURL and value is its corresponding URLDiffResult.
-func (r *HtmlReporter) GenerateReport(probeResults []models.ProbeResult, urlDiffs map[string]models.URLDiffResult, outputPath string) error {
+// It now accepts a slice of pointers to ProbeResult.
+func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, urlDiffs map[string]models.URLDiffResult, outputPath string) error {
 	if len(probeResults) == 0 && !r.config.GenerateEmptyReport {
 		r.logger.Println("No probe results to report, and GenerateEmptyReport is false. Skipping report generation.")
 		return nil // FR2: Do not generate report if no results and config says so.
@@ -251,10 +289,18 @@ func (r *HtmlReporter) embedCustomAssets(pageData *models.ReportPageData) []erro
 
 // templateFunctions provides helper functions accessible within the HTML template.
 var templateFunctions = template.FuncMap{
+	"jsonMarshal": func(v interface{}) template.JS {
+		a, err := json.Marshal(v)
+		if err != nil {
+			log.Printf("[ERROR] Template: jsonMarshal error: %v", err)
+			return ""
+		}
+		return template.JS(a)
+	},
+	"ToLower": strings.ToLower,
 	"joinStrings": func(s []string, sep string) string {
 		return strings.Join(s, sep)
 	},
-	"toLower": strings.ToLower,
 	"formatTime": func(t time.Time, layout string) string {
 		if t.IsZero() {
 			return "N/A"

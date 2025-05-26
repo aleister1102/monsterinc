@@ -59,7 +59,7 @@ $(document).ready(function () {
             // IMPORTANT: Keep this order exactly matching the <thead> in report.html.tmpl
             $row.append($('<td></td>').addClass('truncate-url').attr('title', pr.InputURL).html(pr.InputURL ? `<a href="${pr.InputURL}" target="_blank">${truncateText(pr.InputURL, 50)}</a>` : '-'));
             $row.append($('<td></td>').addClass('truncate-url').attr('title', pr.FinalURL).html(pr.FinalURL ? `<a href="${pr.FinalURL}" target="_blank">${truncateText(pr.FinalURL, 50)}</a>` : '-'));
-            $row.append($('<td></td>').addClass(pr.url_status ? `url-status-${pr.url_status.toLowerCase()}` : '').text(pr.url_status || '-'));
+            $row.append($('<td></td>').addClass(pr.diff_status ? `diff-status-${pr.diff_status.toLowerCase()}` : '').text(pr.diff_status || '-'));
             $row.append($('<td></td>').text(pr.StatusCode || (pr.Error ? 'ERR' : '-')));
             $row.append($('<td></td>').addClass('truncate-title').attr('title', pr.Title).text(truncateText(pr.Title, 70) || '-'));
             
@@ -111,7 +111,7 @@ $(document).ready(function () {
 
             if (statusCode && (!pr.StatusCode || pr.StatusCode.toString() !== statusCode)) return false;
             if (contentType && (!pr.ContentType || !pr.ContentType.toLowerCase().startsWith(contentType))) return false;
-            if (urlStatusTerm && (!pr.url_status || pr.url_status.toLowerCase() !== urlStatusTerm)) return false;
+            if (urlStatusTerm && (!pr.diff_status || pr.diff_status.toLowerCase() !== urlStatusTerm)) return false;
 
             if (techTerm) {
                 const techString = Array.isArray(pr.Technologies) ? pr.Technologies.join(', ').toLowerCase() : "";
@@ -255,7 +255,7 @@ $(document).ready(function () {
         if (!sortKey) return;
 
         // Removed 'duration' from sortable keys
-        const validSortKeys = ['InputURL', 'FinalURL', 'URLStatus', 'StatusCode', 'Title', 'WebServer', 'ContentType', 'ContentLength'];
+        const validSortKeys = ['InputURL', 'FinalURL', 'DiffStatus', 'StatusCode', 'Title', 'WebServer', 'ContentType', 'ContentLength'];
         if (!validSortKeys.includes(sortKey)) return;
 
         if (currentSortColumn === sortKey) {
@@ -297,6 +297,7 @@ $(document).ready(function () {
             let detailsText = "";
             detailsText += `Input URL: ${resultData.InputURL || '-'}\n`;
             detailsText += `Final URL: ${resultData.FinalURL || '-'}\n`;
+            detailsText += `Diff Status: ${resultData.diff_status || '-'}\n`;
             detailsText += `Method: ${resultData.Method || '-'}\n`;
             detailsText += `Status Code: ${resultData.StatusCode || '-'}\n`;
             detailsText += `Title: ${resultData.Title || '-'}\n`;

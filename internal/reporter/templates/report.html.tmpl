@@ -118,7 +118,7 @@
                         <tr>
                             <th class="sortable" data-sort-key="InputURL">Input URL</th>
                             <th class="sortable" data-sort-key="FinalURL">Final URL</th>
-                            <th class="sortable" data-sort-key="URLStatus">Diff Status</th>
+                            <th class="sortable" data-sort-key="DiffStatus">Diff Status</th>
                             <th class="sortable" data-sort-key="StatusCode">Status</th>
                             <th class="sortable" data-sort-key="Title">Title</th>
                             <th>Technologies</th>
@@ -142,7 +142,7 @@
                         <tr class="{{if not .IsSuccess}}table-danger{{else if .StatusCode}}status-{{.StatusCode}}{{end}}" data-result-index="{{$idx}}">
                             <td class="truncate-url" title="{{.InputURL}}"><a href="{{.InputURL}}" target="_blank">{{.InputURL}}</a></td>
                             <td class="truncate-url" title="{{.FinalURL}}"><a href="{{.FinalURL}}" target="_blank">{{.FinalURL}}</a></td>
-                            <td class="url-status-{{.URLStatus}}">{{.URLStatus}}</td>
+                            <td class="diff-status-{{.URLStatus | ToLower}}">{{if .URLStatus}}{{.URLStatus}}{{else}}-{{end}}</td>
                             <td>{{if .StatusCode}}{{.StatusCode}}{{else if .Error}}ERR{{else}}-{{end}}</td>
                             <td class="truncate-title" title="{{.Title}}">{{if .Title}}{{.Title}}{{else}}-{{end}}</td>
                             <td class="truncate-techs" title="{{joinStrings .Technologies ", "}}">{{joinStrings .Technologies ", "}}</td>
