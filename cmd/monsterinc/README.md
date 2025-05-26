@@ -4,76 +4,68 @@ The `monsterinc` command is the main entry point for the MonsterInc application.
 
 ## Overview
 
-It orchestrates the various modules of the application, including:
-- Configuration loading
-- Target input (from file or config)
-- Web crawling (via `internal/crawler`)
-- HTTP/HTTPS probing (via `internal/httpxrunner`)
-- Data storage to Parquet files (via `internal/datastore`)
-- URL diffing against historical data (via `internal/differ`)
-- HTML report generation (via `internal/reporter`)
+`main.go` orchestrates the application's workflow based on the specified mode (`onetime` or `automated`). Key responsibilities include:
 
-## Execution Flow
+-   **Configuration Management**: Parses command-line flags, loads global configuration (from `config.yaml` or `config.json` via `internal/config`), and validates it.
+-   **Logging Initialization**: Sets up the `zerolog` logger based on `LogConfig` (via `internal/logger`).
+-   **Notification Setup**: Initializes the `DiscordNotifier` and `NotificationHelper` (via `internal/notifier`) for sending alerts.
+-   **Signal Handling**: Listens for SIGINT and SIGTERM to enable graceful shutdown, sending an interruption notification if a scan is active.
+-   **Mode Dispatching**:
+    -   **Onetime Mode**: Executes `runOnetimeScan`.
+    -   **Automated Mode**: Initializes and starts the `Scheduler` (from `internal/scheduler`).
+
+## `runOnetimeScan` Workflow (for `--mode onetime`)
 
 1.  **Initialization**:
-    -   Prints a startup message.
-    -   Parses command-line flags (`-urlfile`, `-globalconfig`, `-mode`).
-    -   Loads the global configuration (`config.json` by default) into `config.GlobalConfig`.
-    -   Initializes a logger (currently standard Go `log.Default()`).
-    -   Initializes `datastore.ParquetReader` (for `UrlDiffer`).
-    -   Initializes `datastore.ParquetWriter` (for storing scan results).
+    -   Initializes `datastore.ParquetReader`.
+    -   Initializes `datastore.ParquetWriter`, providing it with the `ParquetReader` instance (this is crucial for the new merge logic where the writer needs to read existing data).
+    -   Initializes `orchestrator.ScanOrchestrator` with the reader and writer.
+2.  **Target Acquisition**:
+    -   Determines seed URLs: Prioritizes `-urlfile`, then `input_config.input_urls` from config.
+    -   Identifies `onetimeTargetSource` (e.g., filename or "config_input_urls").
+    -   Sends a "Scan Start" notification via `NotificationHelper`, including `TargetSource`.
+3.  **Scan Execution**:
+    -   Generates a `scanSessionID` (timestamp, e.g., `YYYYMMDD-HHMMSS`).
+    -   Calls `ScanOrchestrator.ExecuteScanWorkflow` with the seed URLs and `scanSessionID`.
+    -   This orchestrator call internally manages: Crawling -> HTTPX Probing -> Diffing (against historical Parquet data read via `ParquetReader` and `FindAllProbeResultsForTarget`) -> Storing new/updated probe results by merging with historical data and overwriting the single `data.parquet` file for the target (via `ParquetWriter`).
+4.  **Result Processing & Reporting**:
+    -   Populates `models.ScanSummaryData` with results (probe stats, diff stats), `ScanSessionID`, and `TargetSource`.
+    -   If an error occurred in the workflow, sends a "Scan Failed" notification and exits.
+    -   Initializes `reporter.HtmlReporter`.
+    -   Generates an HTML report (e.g., `reports/YYYYMMDD-HHMMSS_onetime_report.html`).
+    -   If report generation fails, updates summary and sends a "Scan Failed" (or partial) notification.
+5.  **Completion Notification**: Sends a "Scan Completed" notification via `NotificationHelper` with the final `ScanSummaryData` (including report path if successful).
 
-2.  **Target Acquisition & Crawler Module**:
-    -   Determines seed URLs: Prioritizes URLs from the file specified by `-urlfile`. If not provided, uses `InputConfig.InputURLs` from the global config.
-    -   Determines a `primaryRootTargetURL` for the scan session, typically the first seed URL. This is used for naming Parquet files and as the key for diffing.
-    -   If seed URLs are available, initializes and starts the `crawler.Crawler`.
-    -   Collects `discoveredURLs` from the crawler.
+## `automated` Mode Workflow
 
-3.  **HTTPX Probing Module**:
-    -   If `discoveredURLs` are available, initializes `httpxrunner.Runner` with these URLs and settings from `gCfg.HttpxRunnerConfig`.
-    -   Runs the probes.
-    -   Collects `models.ProbeResult` from the runner.
-    -   Ensures all `discoveredURLs` have a corresponding `ProbeResult` in `finalResults`, creating fallback entries with errors for URLs that didn't yield a result from `httpxrunner`. The `RootTargetURL` field in each `ProbeResult` is set to the `primaryRootTargetURL`.
-
-4.  **URL Diffing Module**:
-    -   If `finalResults` are available and `primaryRootTargetURL` is valid, initializes `differ.UrlDiffer`.
-    -   Calls `differ.Compare(finalResults, primaryRootTargetURL)` to get `models.URLDiffResult`.
-    -   Stores the diff result in a map `urlDiffResults` keyed by `primaryRootTargetURL` (currently supports one primary target per run for diffing).
-
-5.  **HTML Report Generation Module**:
-    -   If `finalResults` are available, initializes `reporter.HtmlReporter`.
-    -   Determines the output HTML file path based on `gCfg.Mode` (onetime/automated) and timestamp, or uses `ReporterConfig.DefaultOutputHTMLPath`.
-    -   Calls `htmlReporter.GenerateReport(finalResults, urlDiffResults, outputPath)` to generate the report, passing both probe results and the diff results.
-
-6.  **Parquet Storage Module**:
-    -   If `parquetWriter` is initialized, `finalResults` are available, and `primaryRootTargetURL` is valid, calls `parquetWriter.Write(finalResults, scanSessionID, primaryRootTargetURL)` to store results.
-
-7.  **Completion**:
-    -   Logs a completion message.
+1.  Initializes `scheduler.Scheduler` with global config, logger, notification helper. The `Scheduler` itself initializes its own `ParquetReader` and `ParquetWriter` (passing the reader to the writer) for use by its internal `ScanOrchestrator`.
+2.  Calls `scheduler.Start(ctx)`, which blocks until the scheduler is stopped (e.g., by OS signal).
+3.  The `Scheduler` internally manages:
+    -   Calculating next scan times based on `SchedulerConfig.CycleMinutes` and scan history from an SQLite DB.
+    -   Loading/refreshing targets for each cycle via `TargetManager`.
+    -   Calling `ScanOrchestrator.ExecuteScanWorkflow` for each scan cycle, which follows the same data handling logic as in "onetime" mode (reading historical, merging, overwriting single Parquet file per target).
+    -   Managing scan history (start, end, status, diffs, report path) in SQLite.
+    -   Handling retries for failed scan cycles (`SchedulerConfig.RetryAttempts`).
+    -   Sending "Scan Start" and "Scan Completion" (success/failure) notifications for each cycle via `NotificationHelper`.
 
 ## Command-Line Flags
 
--   **`-urlfile <path>` (alias `-u <path>`)**: Path to a text file containing seed URLs (one URL per line). Overrides seed URLs from the global config.
--   **`-globalconfig <path>`**: Path to the global JSON configuration file (default: `config.json`).
--   **`-mode <mode>`**: (Required) Mode to run the tool. Common values might be `onetime` or `automated`. This affects output file naming and potentially other behaviors.
+-   **`--mode <onetime|automated>`**: (Required) Execution mode.
+-   **`-u <path/to/urls.txt>` or `--urlfile <path/to/urls.txt>`**: (Optional) Path to a text file with seed URLs. Used by `onetime` mode and as the initial/configurable source for `automated` mode.
+-   **`--globalconfig <path/to/config.yaml>`**: (Optional) Path to configuration. Defaults to `config.yaml`, then `config.json` etc. (see `internal/config/loader.go`).
 
 ## Configuration
 
-Relies heavily on `config.json` for detailed configuration of all modules (crawler, httpxrunner, reporter, storage, etc.). See `internal/config/config.go` for all available options.
+Relies on `config.yaml` (preferred) or `config.json`. See `internal/config/README.md` and `config.example.yaml`.
 
-## Logging
+## Logging & Notifications
 
-The application utilizes the `zerolog` library for logging. The logger is initialized centrally in `main.go` based on the `log_config` section in the global configuration file (`config.yaml` or `config.json`).
+-   Uses `zerolog` for structured logging (see `internal/logger/README.md`).
+-   Uses `internal/notifier` package for Discord notifications for scan lifecycle events and critical errors. `ScanSummaryData` (with `ScanSessionID` and `TargetSource`) is central to formatting these notifications.
 
-Key features:
--   **Structured Logging**: Logs are structured, primarily in JSON format when directed to a file or if `log_format: "json"` is set.
--   **Configurable Log Levels**: Supports "debug", "info", "warn", "error", "fatal", and "panic" levels.
--   **Output Formats**: 
-    -   `console`: Human-readable, colorized output for terminals.
-    -   `json`: Machine-readable JSON.
-    -   `text`: Plain text without color.
--   **File Logging**: Can output logs to a specified file.
--   **Log Rotation**: Includes built-in log rotation (size, backups, compression) for file logs via `lumberjack`.
--   **Module-Specific Context**: Modules derive a logger from the main application logger and add their own context (e.g., `logger.With().Str("module", "ModuleName").Logger()`) for better traceability.
+## Key Data Structures for Notifications
 
-Refer to `config.example.yaml` for detailed `log_config` options and `internal/logger/README.md` for more information on the logger package and its usage. 
+-   `models.ScanSummaryData`:
+    -   `ScanSessionID`: Timestamped ID of the specific scan run (e.g., `20230101-123000`).
+    -   `TargetSource`: Origin of targets (e.g., `urls.txt`, `config_input_urls`).
+    -   Other fields: `Targets`, `TotalTargets`, `ProbeStats`, `DiffStats`, `ScanDuration`, `ReportPath`, `Status`, `ErrorMessages`. 

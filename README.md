@@ -60,6 +60,11 @@ Run the application from the command line:
 -   `--mode <onetime|automated>`: (Required) Execution mode.
     -   `onetime`: Runs a single scan and then exits. The report filename will include a detailed timestamp (e.g., `reports/YYYYMMDD-HHMMSS_onetime_report.html`).
     -   `automated`: Runs in a continuous loop, performing scans at scheduled intervals. The report filename will include the date and mode (e.g., `reports/YYYYMMDD-HHMMSS_automated_report.html`). This mode uses settings from the `scheduler_config` section in the configuration file.
+        -   **Scheduling**: The interval between scan cycles is defined by `scheduler_config.cycle_minutes`.
+        -   **Target Reloading**: At the start of each cycle, targets are reloaded based on the `-u / --urlfile` flag (if provided at startup and its path is not overridden by `input_config.input_file`) or `input_config` settings in the configuration file.
+        -   **SQLite Database**: Scan history (start/end times, status, target source, report path, diff summary) is stored in an SQLite database. The path is specified by `scheduler_config.sqlite_db_path` (default: `database/scheduler_history.db`). This database is used to determine the next scan time.
+        -   **Retries**: If a scan cycle fails, it will be retried up to `scheduler_config.retry_attempts` times, with a fixed delay between attempts.
+        -   **Notifications**: Scan start and completion (success or final failure) events trigger notifications if configured in `notification_config`.
 -   `-u <path/to/urls.txt>` or `--urlfile <path/to/urls.txt>`: (Optional) Path to a text file containing a list of seed URLs to crawl, one URL per line. If not provided, `input_config.input_urls` from the configuration file will be used. This flag is also used by the `automated` mode to specify the initial target list for the first scan, and can be reloaded if the file path is configured in `input_config.input_file`.
 -   `--globalconfig <path/to/config.yaml>`: (Optional) Path to the configuration file. Defaults to `config.yaml` in the same directory as the executable.
 
@@ -98,11 +103,12 @@ monsterinc/
 │   ├── logger/             # Logging module (logger.go, README.md)
 │   ├── models/             # Data structure definitions (probe_result.go, parquet_schema.go, report_data.go, etc., README.md)
 │   ├── notification/       # Notification module (notification_helper.go, README.md)
+│   ├── notifier/           # Corrected from notification/
 │   ├── reporter/           # HTML report generation module
 │   │   ├── assets/         # CSS, JS for HTML reports
 │   │   ├── templates/      # HTML Template (report.html.tmpl)
 │   │   └── html_reporter.go, README.md
-│   ├── scheduler/          # Automated scan scheduling module (scheduler.go, db.go, target_loader.go, README.md)
+│   ├── scheduler/          # Automated scan scheduling module (scheduler.go, db.go, target_manager.go, README.md)
 │   ├── urlhandler/         # URL handling and normalization (urlhandler.go, file.go, README.md)
 │   └── utils/              # (Not yet used) Common utilities
 ├── reports/                  # Default directory for generated HTML reports (.gitignore-d)

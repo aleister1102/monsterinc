@@ -37,20 +37,20 @@
   - [x] 2.8 Implement `GetLastScanTime() (*time.Time, error)` in `db.go` to retrieve the `scan_end_time` of the most recent successfully completed scan or last attempt.
   - [ ] 2.9 Implement basic unit tests for database operations in `internal/scheduler/db_test.go` (e.g., init, insert, update, get last scan time).
 - [ ] 3.0 Develop Core Scheduling Logic and Main Loop
-  - [ ] 3.1 Create `internal/scheduler/scheduler.go`.
-  - [ ] 3.2 Define `Scheduler` struct in `scheduler.go` holding `config *config.SchedulerConfig`, `db *DB` (custom DB handler from `db.go`), `logger *log.Logger`, and any other necessary components (e.g., instances of crawler, httpxrunner etc. or functions to create them).
-  - [ ] 3.3 Implement `NewScheduler(cfg *config.GlobalConfig, logger *log.Logger)` function in `scheduler.go` to initialize and return a `*Scheduler`.
+  - [x] 3.1 Create `internal/scheduler/scheduler.go`.
+  - [x] 3.2 Define `Scheduler` struct in `scheduler.go` holding `config *config.SchedulerConfig`, `db *DB` (custom DB handler from `db.go`), `logger *log.Logger`, and any other necessary components (e.g., instances of crawler, httpxrunner etc. or functions to create them).
+  - [x] 3.3 Implement `NewScheduler(cfg *config.GlobalConfig, logger *log.Logger)` function in `scheduler.go` to initialize and return a `*Scheduler`.
         - This function will initialize the DB connection using `db.NewDB` and `db.InitSchema`.
-  - [ ] 3.4 Implement `Start()` method for the `Scheduler` struct.
+  - [x] 3.4 Implement `Start()` method for the `Scheduler` struct.
         - This method will contain the main loop for `automated` mode.
         - On first call, it should trigger a scan immediately (as per FR 2.1.2).
         - Loop: calculate `nextScanTime` using `db.GetLastScanTime()` and `cfg.ScanIntervalDays`.
         - Sleep until `nextScanTime` using `time.Sleep()` or `time.After()`.
         - Call `runScanCycle()` (to be implemented in 4.0).
-- [ ] 4.0 Implement Scan Cycle Execution (Target Reloading, Orchestration)
-  - [ ] 4.1 Create `internal/scheduler/target_loader.go` (or add to `scheduler.go`).
-  - [ ] 4.2 Implement `loadTargets(inputFileOption string, inputConfigUrls []string, cfgInputFile string, logger *log.Logger) ([]string, string, error)` function in `target_loader.go` to reload target URLs from `input_config.input_file` or the `-urlfile` command-line argument (similar to current `main.go` logic but callable by scheduler). It should return the list of URLs and the source string (filepath or "config_input_urls").
-  - [ ] 4.3 Implement `runScanCycle(targetFileOverride string)` method in `scheduler.go`.
+- [x] 4.0 Implement Scan Cycle Execution (Target Reloading, Orchestration)
+  - [x] 4.1 Create `internal/scheduler/target_loader.go` (or add to `scheduler.go`).
+  - [x] 4.2 Implement `loadTargets(inputFileOption string, inputConfigUrls []string, cfgInputFile string, logger *log.Logger) ([]string, string, error)` function in `target_loader.go` to reload target URLs from `input_config.input_file` or the `-urlfile` command-line argument (similar to current `main.go` logic but callable by scheduler). It should return the list of URLs and the source string (filepath or "config_input_urls").
+  - [x] 4.3 Implement `runScanCycle(targetFileOverride string)` method in `scheduler.go`.
         - Record scan start in DB using `db.RecordScanStart()`, get scan ID.
         - Load targets using `loadTargets()`.
         - If target loading fails, update DB record with failure, log, and handle retries (see 5.0).
@@ -59,23 +59,23 @@
           - Consider passing the global config (`gCfg`) or relevant parts to these modules.
         - Generate report filename based on `YYYYMMDD-HHMMSS_automated_report.html` format.
         - Update DB record with completion status, end time, report path, and summary using `db.UpdateScanCompletion()`.
-- [ ] 5.0 Integrate Error Handling, Retries, and Notifications
-  - [ ] 5.1 Modify `runScanCycle()` in `scheduler.go` to include a retry loop (up to `cfg.RetryAttempts`).
-  - [ ] 5.2 Implement a fixed delay (e.g., 5-10 minutes) between retries using `time.Sleep()`.
-  - [ ] 5.3 If a scan cycle (including all retries) fails, log the final failure and ensure the DB reflects this final attempt's status.
-  - [ ] 5.4 If a scan cycle succeeds (possibly after some retries), log success.
-  - [ ] 5.5 Integrate notification calls within `runScanCycle()` or `Start()` loop after a cycle completes (success or final failure), using `NotificationConfig`.
+- [x] 5.0 Integrate Error Handling, Retries, and Notifications
+  - [x] 5.1 Modify `runScanCycle()` in `scheduler.go` to include a retry loop (up to `cfg.RetryAttempts`).
+  - [x] 5.2 Implement a fixed delay (e.g., 5-10 minutes) between retries using `time.Sleep()`.
+  - [x] 5.3 If a scan cycle (including all retries) fails, log the final failure and ensure the DB reflects this final attempt's status.
+  - [x] 5.4 If a scan cycle succeeds (possibly after some retries), log success.
+  - [x] 5.5 Integrate notification calls within `runScanCycle()` or `Start()` loop after a cycle completes (success or final failure), using `NotificationConfig`.
         - This might involve creating a small notification helper or service if not already present.
-- [ ] 6.0 Integrate Scheduler into Main Application Flow (`automated` mode)
-  - [ ] 6.1 In `cmd/monsterinc/main.go`, if `gCfg.Mode == "automated"`:
+- [x] 6.0 Integrate Scheduler into Main Application Flow (`automated` mode)
+  - [x] 6.1 In `cmd/monsterinc/main.go`, if `gCfg.Mode == "automated"`:
         - Initialize the `Scheduler` using `scheduler.NewScheduler()`.
         - Call `scheduler.Start()`.
         - Ensure `main.go` does not exit after `scheduler.Start()` is called in automated mode (e.g., `scheduler.Start()` could be a blocking call or use a channel to keep main alive).
-  - [ ] 6.2 Adapt `scanSessionID` generation in `main.go` or `scheduler.go` to match `YYYYMMDD-HHMMSS` for automated reports.
-  - [ ] 6.3 Ensure graceful shutdown for `automated` mode (e.g., listen for SIGINT/SIGTERM, tell scheduler to stop, allow current cycle to finish if configured, or save state).
+  - [x] 6.2 Adapt `scanSessionID` generation in `main.go` or `scheduler.go` to match `YYYYMMDD-HHMMSS` for automated reports.
+  - [x] 6.3 Ensure graceful shutdown for `automated` mode (e.g., listen for SIGINT/SIGTERM, tell scheduler to stop, allow current cycle to finish if configured, or save state).
 - [ ] 7.0 Documentation and Testing
-  - [ ] 7.1 Update `monsterinc/internal/scheduler/README.md` with details of implemented components and their usage.
-  - [ ] 7.2 Update main `README.md` to reflect the new automated mode capabilities, SQLite usage, and new configurations.
-  - [ ] 7.3 Write unit tests for the `Scheduler` logic in `internal/scheduler/scheduler_test.go` (e.g., scheduling calculation, loop control, retry logic - may require mocks for DB and scan functions).
-  - [ ] 7.4 Write unit tests for `target_loader.go` in `internal/scheduler/target_loader_test.go`.
-  - [ ] 7.5 Perform end-to-end testing of the `automated` mode with various configurations (different intervals, retries, valid/invalid target files). 
+  - [x] 7.1 Update `monsterinc/internal/scheduler/README.md` with details of implemented components and their usage.
+  - [x] 7.2 Update main `README.md` to reflect the new automated mode capabilities, SQLite usage, and new configurations.
+  - [ ] ~~7.3 Write unit tests for the `Scheduler` logic in `internal/scheduler/scheduler_test.go` (e.g., scheduling calculation, loop control, retry logic - may require mocks for DB and scan functions).~~ (SKIPPED)
+  - [ ] ~~7.4 Write unit tests for `target_loader.go` (now `target_manager.go`) in `internal/scheduler/target_manager_test.go`.~~ (SKIPPED)
+  - [ ] ~~7.5 Perform end-to-end testing of the `automated` mode with various configurations (different intervals, retries, valid/invalid target files).~~ (SKIPPED)

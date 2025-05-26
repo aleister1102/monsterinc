@@ -1,46 +1,65 @@
 ## Relevant Files
 
 - `internal/datastore/parquet_writer.go` - Core logic for writing probe results to Parquet files.
-- `internal/datastore/parquet_writer_test.go` - Unit tests for `parquet_writer.go`.
-- `internal/models/parquet_schema.go` - Defines the Go struct matching the Parquet schema for probe results (e.g., `ParquetProbeResult`).
-- `internal/config/storage_config.go` - Configuration related to data storage, including Parquet base path and compression settings.
-- `cmd/monsterinc/main.go` - To integrate the call to the Parquet writer after `httpx` probing.
-- `go.mod` - To add the chosen Parquet library (e.g., `github.com/xitongsys/parquet-go`).
+- `internal/datastore/parquet_reader.go` - Core logic for reading probe results from Parquet files.
+- `internal/models/parquet_schema.go` - Defines the `ParquetProbeResult` struct which dictates the Parquet schema.
+- `internal/models/probe_result.go` - Defines the `ProbeResult` struct (source data).
+- `internal/orchestrator/orchestrator.go` - Uses `ParquetWriter` to store results and `ParquetReader` (via `UrlDiffer`) to get historical data.
+- `internal/config/config.go` - Contains `StorageConfig`.
+- `cmd/monsterinc/main.go` - Initializes `ParquetWriter` and `ParquetReader`.
+- `internal/scheduler/scheduler.go` - Initializes `ParquetWriter` and `ParquetReader` for automated mode.
 
 ### Notes
 
-- The chosen Parquet library (e.g., `github.com/xitongsys/parquet-go` or `github.com/segmentio/parquet-go`) will need to be added to `go.mod` via `go get`.
-- Ensure the Parquet schema is well-defined, handles nullable fields correctly, and maps Go types appropriately (e.g., `[]string` to `LIST` of `UTF8`).
-- Unit tests should cover schema correctness, data type mapping, file output, directory creation, and compression.
-- Use `go test ./...` to run tests.
+- The primary goal is to move from one Parquet file per scan ID per target to **one consolidated Parquet file per target**, which is updated/overwritten with each new scan.
+- This single file (e.g., `database/example.com/data.parquet`) will contain all known probe results for that target, with timestamps indicating first seen, last seen, and last scan.
 
 ## Tasks
 
-- [X] 1.0 Setup Parquet Writing Core
-  - [X] 1.1 Choose and add a Go Parquet library to `go.mod` (e.g., `github.com/parquet-go/parquet-go`).
-  - [X] 1.2 Define the `ParquetProbeResult` struct in `internal/models/parquet_schema.go` based on FR3.
-  - [X] 1.3 Create `ParquetWriter` struct in `internal/datastore/parquet_writer.go`.
-  - [X] 1.4 Implement `NewParquetWriter(cfg *config.StorageConfig)` in `parquet_writer.go`.
-  - [X] 1.5 Implement `Write(probeResults []models.ProbeResult, scanSessionID string, rootTarget string)` method in `ParquetWriter` (signature adjusted).
-  - [X] 1.6 Handle the case where `probeResults` is empty (log and do not generate file - FR2).
+- [x] 1.0. Parquet Writer (`internal/datastore/parquet_writer.go`)
+  - [x] 1.1. Modify `NewParquetWriter` to accept a `*datastore.ParquetReader` argument. (REVERTED - No longer needs ParquetReader for internal merge)
+  - [x] 1.2. Change file path logic in `Write` method:
+        *   [x] Path should point to a single `data.parquet` file under a directory named after the sanitized `rootTarget` (e.g., `database/example.com/data.parquet`).
+        *   [x] Remove `scanSessionID` from the directory path components.
+  - [-] 1.3. Implement `mergeProbeResults(currentProbes []models.ProbeResult, historicalProbes []models.ProbeResult, currentScanTime time.Time) []models.ProbeResult` function: (REMOVED/COMMENTED - Writer no longer merges internally)
+        *   [-] Takes current scan probes and historical probes (read from the existing `data.parquet`).
+        *   [-] Returns a single, merged slice of `models.ProbeResult`.
+        *   [-] **Update existing records**: If a URL from `currentProbes` matches one in `historicalProbes` (by `InputURL`):
+            *   [-] Preserve `OldestScanTimestamp` (FirstSeen) from the historical record.
+            *   [-] Update `Timestamp` (LastSeen/ScanTimestamp) to `currentScanTime`.
+            *   [-] Update all other probe data fields (StatusCode, Title, Technologies, etc.) from the `currentProbes` entry.
+        *   [-] **Add new records**: If a URL from `currentProbes` is not in `historicalProbes`:
+            *   [-] Set both `OldestScanTimestamp` and `Timestamp` to `currentScanTime`.
+        *   [-] **Handle old records**: URLs in `historicalProbes` but not in `currentProbes` should be included in the merged result to preserve their history (their `URLStatus` will be marked "old" by the differ later).
+  - [x] 1.4. Modify `transformToParquetResult`:
+        *   [x] Ensure `ParquetProbeResult.FirstSeenTimestamp` is populated from `ProbeResult.OldestScanTimestamp` (which should be set by merge logic or to current scan time if new).
+        *   [x] Ensure `ParquetProbeResult.LastSeenTimestamp` is populated from the current scan's time (`ProbeResult.Timestamp`).
+        *   [x] `ParquetProbeResult.ScanTimestamp` should also be the current scan's time.
+  - [x] 1.5. Update `Write` method logic:
+        *   [-] Call `pw.parquetReader.FindAllProbeResultsForTarget(rootTarget)` to get historical data. (REMOVED - Writer no longer reads internally)
+        *   [-] Call `pw.mergeProbeResults` with current and historical data. (REMOVED - Writer no longer merges internally)
+        *   [x] Write the resulting merged data (or just current data if not merging) to the single Parquet file for the target, **overwriting** it.
+- [x] 2.0. Parquet Reader (`internal/datastore/parquet_reader.go`)
+  - [x] 2.1. Rename `FindHistoricalDataForTarget` to `FindAllProbeResultsForTarget(rootTargetURL string) ([]models.ProbeResult, time.Time, error)`.
+  - [x] 2.2. Modify `FindAllProbeResultsForTarget` logic:
+        *   [x] It should now read the single consolidated `data.parquet` file for the given `rootTargetURL` (e.g., `database/example.com/data.parquet`).
+        *   [x] Return all `models.ProbeResult` records from this file and the file's last modification time.
+        *   [x] If the file doesn't exist, return `nil` for results and `time.Time{}` for modTime, and no error (this is not an error condition, just means no history).
+  - [x] 2.3. Remove `FindMostRecentScanURLs` method as it's no longer applicable.
+  - [x] 2.4. Keep `readProbeResultsFromSpecificFile` as is, it's a useful helper.
+- [x] 3.0. Update Calling Code
+  - [x] 3.1. `internal/differ/url_differ.go`:
+        *   [x] Update `Compare` method to call `parquetReader.FindAllProbeResultsForTarget(rootTarget)` to get historical data.
+        *   [x] Adjust logic to correctly diff against the full historical dataset returned.
+  - [x] 3.2. `cmd/monsterinc/main.go` (for `runOnetimeScan`):
+        *   [x] Update `NewParquetWriter` call if its signature changed (e.g., to include `ParquetReader` - REVERTED, no longer needs it).
+  - [x] 3.3. `internal/scheduler/scheduler.go` (for `NewScheduler`):
+        *   [x] Update `NewParquetWriter` call if its signature changed (e.g., to include `ParquetReader` - REVERTED, no longer needs it).
+- [x] 4.0. Documentation
+  - [x] 4.1. Update `internal/datastore/README.md` to reflect the new single-file-per-target storage logic, the merge process in the writer, and the updated reader methods.
+  - [x] 4.2. Update `internal/differ/README.md` if `Compare` logic or data fetching changes significantly.
+  - [x] 4.3. Update `internal/orchestrator/README.md` to detail how it uses the modified datastore components for historical data and writing new data.
 
-- [X] 2.0 Implement Data Transformation and Schema Mapping
-  - [X] 2.1 In `Write` method, transform `[]models.ProbeResult` to `[]models.ParquetProbeResult` (input type is `models.ProbeResult`).
-  - [X] 2.2 Ensure correct mapping of all fields, including handling of slices and potential null/empty values.
-  - [X] 2.3 Define the Parquet schema via struct tags in `models.ParquetProbeResult` (no separate definition in writer needed for `parquet-go/parquet-go`).
-  - [X] 2.4 Add `ScanTimestamp` and `RootTargetURL` to each `ParquetProbeResult`.
-
-- [X] 3.0 File Naming, Directory Structure, and Compression
-  - [X] 3.1 Implement logic in `ParquetWriter.Write` to create the base directory (via `NewParquetWriter`).
-  - [X] 3.2 Implement logic to create dated subdirectories (`YYYYMMDD`).
-  - [X] 3.3 Generate unique Parquet filenames, e.g., `scan_results_<scanSessionID_or_timestamp>.parquet` (FR5.4).
-  - [X] 3.4 Implement Zstandard (and other configurable) compression when writing the Parquet file (FR6).
-
-- [X] 4.0 Integration and Error Handling
-  - [X] 4.1 Update `internal/config/config.go` to include `ParquetBasePath`.
-  - [X] 4.2 Update `GlobalConfig` to include `StorageConfig`.
-  - [X] 4.3 Update `cmd/monsterinc/main.go` to initialize `ParquetWriter` with the config.
-  - [X] 4.4 In `main.go`, after `httpx` probing finishes and results are available, call `ParquetWriter.Write()`.
-  - [X] 4.5 Implement robust error handling in `ParquetWriter.Write`.
-  - [X] 4.6 Add detailed logging for successful writes and any errors encountered in `ParquetWriter`.
-  - [X] 4.7 Write unit tests for `ParquetWriter`. 
+- [ ] 5.0. Testing (SKIPPED)
+  - [ ] 5.1. Write/update unit tests for `ParquetWriter` focusing on the merge logic and file overwriting.
+  - [ ] 5.2. Write/update unit tests for `ParquetReader` focusing on reading the consolidated file. 

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -14,11 +14,11 @@ import (
 	"monsterinc/internal/orchestrator"
 	"monsterinc/internal/reporter"
 	"monsterinc/internal/scheduler"
+	"monsterinc/internal/urlhandler"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -90,6 +90,11 @@ func main() {
 
 	discordNotifier, err := notifier.NewDiscordNotifier(gCfg.NotificationConfig, zLogger, &http.Client{Timeout: 20 * time.Second})
 	if err != nil {
+		criticalErrSummary := models.GetDefaultScanSummaryData()
+		criticalErrSummary.Component = "DiscordNotifierInitialization"
+		criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize DiscordNotifier: %v", err)}
+		// Cannot use notificationHelper here as it's not initialized yet.
+		// Log fatally as this is a critical setup step.
 		zLogger.Fatal().Err(err).Msg("Failed to initialize DiscordNotifier")
 	}
 	notificationHelper := notifier.NewNotificationHelper(discordNotifier, gCfg.NotificationConfig, zLogger)
@@ -104,57 +109,58 @@ func main() {
 	go func() {
 		sig := <-sigChan
 		zLogger.Info().Str("signal", sig.String()).Msg("Received interrupt signal, initiating graceful shutdown...")
-		// Send interruption notification if helper is available, regardless of mode
 		if notificationHelper != nil {
 			interruptionSummary := models.GetDefaultScanSummaryData()
-			interruptionSummary.ScanID = fmt.Sprintf("%s_mode_interrupted_by_signal", gCfg.Mode)
-			interruptionSummary.Status = string(models.ScanStatusFailed) // Or a new status like ScanStatusInterrupted
+			interruptionSummary.ScanSessionID = fmt.Sprintf("%s_mode_interrupted_by_signal", gCfg.Mode)
+			interruptionSummary.TargetSource = "Signal Interrupt"
+			interruptionSummary.Status = string(models.ScanStatusInterrupted) // Use new status
 			interruptionSummary.ErrorMessages = []string{fmt.Sprintf("Application (%s mode) interrupted by signal: %s", gCfg.Mode, sig.String())}
-			// Use a new context for this notification as the main one might be cancelling
 			notificationCtx, notificationCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer notificationCancel()
 			notificationHelper.SendScanCompletionNotification(notificationCtx, interruptionSummary)
 			zLogger.Info().Msg("Interruption notification sent.")
 		}
-		cancel() // Cancel the main context to signal all operations to stop
+		cancel()
 	}()
 
 	if gCfg.Mode == "automated" {
 		zLogger.Info().Msg("Running in automated mode...")
 		schedulerInstance, err := scheduler.NewScheduler(gCfg, *urlListFile, zLogger, notificationHelper)
 		if err != nil {
-			errorMessages := []string{fmt.Sprintf("Failed to initialize scheduler: %v", err)}
-			notificationHelper.SendCriticalErrorNotification(context.Background(), "SchedulerInitialization", errorMessages) // Use original context for this
+			criticalErrSummary := models.GetDefaultScanSummaryData()
+			criticalErrSummary.Component = "SchedulerInitialization"
+			criticalErrSummary.TargetSource = *urlListFile // Best guess for target source
+			criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize scheduler: %v", err)}
+			notificationHelper.SendCriticalErrorNotification(context.Background(), "SchedulerInitialization", criticalErrSummary)
 			zLogger.Fatal().Err(err).Msg("Failed to initialize scheduler")
 		}
 
-		if err := schedulerInstance.Start(ctx); err != nil { // Pass context to Start
-			if ctx.Err() == context.Canceled {
+		if err := schedulerInstance.Start(ctx); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				zLogger.Info().Msg("Scheduler stopped due to context cancellation (interrupt).")
 			} else {
-				errorMessages := []string{fmt.Sprintf("Scheduler error: %v", err)}
-				notificationHelper.SendCriticalErrorNotification(context.Background(), "SchedulerRuntime", errorMessages)
-				zLogger.Error().Err(err).Msg("Scheduler error") // Changed to Error to avoid immediate exit if interruption notification is pending
+				criticalErrSummary := models.GetDefaultScanSummaryData()
+				criticalErrSummary.Component = "SchedulerRuntime"
+				criticalErrSummary.TargetSource = *urlListFile // Best guess
+				criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Scheduler error: %v", err)}
+				notificationHelper.SendCriticalErrorNotification(context.Background(), "SchedulerRuntime", criticalErrSummary)
+				zLogger.Error().Err(err).Msg("Scheduler error")
 			}
 		}
 		zLogger.Info().Msg("Automated mode completed or interrupted.")
 	} else {
 		zLogger.Info().Msg("Running in onetime mode...")
-		runOnetimeScan(ctx, gCfg, *urlListFile, zLogger, notificationHelper) // Pass context
+		runOnetimeScan(ctx, gCfg, *urlListFile, zLogger, notificationHelper)
 	}
 
-	// Check if the context was cancelled (e.g. by signal)
 	if ctx.Err() == context.Canceled {
 		zLogger.Info().Msg("Application shutting down due to context cancellation.")
-		// Potentially wait for a moment for async operations like notifications to complete if needed
-		// time.Sleep(1 * time.Second) // Example: wait for notification to go out
 	} else {
 		zLogger.Info().Msg("Application finished.")
 	}
 }
 
 func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFile string, appLogger zerolog.Logger, notificationHelper *notifier.NotificationHelper) {
-	// --- Initialize ParquetReader & Writer (needed for orchestrator) --- //
 	parquetReader := datastore.NewParquetReader(&gCfg.StorageConfig, appLogger)
 	parquetWriter, parquetErr := datastore.NewParquetWriter(&gCfg.StorageConfig, appLogger)
 	if parquetErr != nil {
@@ -162,85 +168,72 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFile 
 		parquetWriter = nil
 	}
 
-	// --- Initialize ScanOrchestrator --- //
 	scanOrchestrator := orchestrator.NewScanOrchestrator(gCfg, appLogger, parquetReader, parquetWriter)
 
-	// --- Determine Seed URLs --- //
 	var seedURLs []string
+	var onetimeTargetSource string
 	if urlListFile != "" {
-		appLogger.Info().Str("file", urlListFile).Msg("Reading seed URLs")
-		file, errFile := os.Open(urlListFile)
+		appLogger.Info().Str("file", urlListFile).Msg("Attempting to read seed URLs from file.")
+		loadedURLs, errFile := urlhandler.ReadURLsFromFile(urlListFile, appLogger)
 		if errFile != nil {
-			errorMessages := []string{fmt.Sprintf("Could not open URL list file '%s': %v", urlListFile, errFile)}
-			notificationHelper.SendCriticalErrorNotification(context.Background(), "OnetimeScanURLFileOpen", errorMessages) // Use a non-cancelled context for critical notifications
-			appLogger.Error().Err(errFile).Str("file", urlListFile).Msg("Could not open URL list file")
-			// Instead of Fatal, let the function return or handle the error to allow cleanup/interruption notification
-			return // Or set an error and proceed to cleanup/notification logic at the end
+			appLogger.Error().Err(errFile).Str("file", urlListFile).Msg("Failed to load URLs from file. See previous logs for details.")
+			criticalErrSummary := models.GetDefaultScanSummaryData()
+			criticalErrSummary.TargetSource = urlListFile
+			criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to load URLs from file '%s': %v. Check application logs.", urlListFile, errFile)}
+			notificationHelper.SendCriticalErrorNotification(context.Background(), "OnetimeScanURLFileLoad", criticalErrSummary)
 		}
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			urlStr := strings.TrimSpace(scanner.Text())
-			if urlStr != "" && (strings.HasPrefix(urlStr, "http://") || strings.HasPrefix(urlStr, "https://")) {
-				seedURLs = append(seedURLs, urlStr)
-			}
-		}
-		file.Close()
-		if scanner.Err() != nil {
-			errorMessages := []string{fmt.Sprintf("Error reading URL list file '%s': %v", urlListFile, scanner.Err())}
-			notificationHelper.SendCriticalErrorNotification(context.Background(), "OnetimeScanURLFileRead", errorMessages)
-			appLogger.Error().Err(scanner.Err()).Str("file", urlListFile).Msg("Error reading URL list file")
-			return
-		}
+		seedURLs = loadedURLs
+		onetimeTargetSource = filepath.Base(urlListFile)
 		if len(seedURLs) == 0 {
-			appLogger.Warn().Str("file", urlListFile).Msg("No valid URLs found in file. Using seeds from config if available.")
+			appLogger.Warn().Str("file", urlListFile).Msg("No valid URLs found in file, or file processing failed. Will attempt to use seeds from config if available.")
 		}
 	}
 
-	if len(seedURLs) == 0 { // If file was empty or not provided, try config
+	if len(seedURLs) == 0 {
 		if len(gCfg.InputConfig.InputURLs) > 0 {
 			appLogger.Info().Int("count", len(gCfg.InputConfig.InputURLs)).Msg("Using seed URLs from global input_config.input_urls")
 			seedURLs = gCfg.InputConfig.InputURLs
+			onetimeTargetSource = "config_input_urls"
 		} else {
-			noSeedsMsg := "No seed URLs provided. Please specify via -urlfile or in input_config.input_urls in the config file."
-			errorMessages := []string{noSeedsMsg}
-			notificationHelper.SendCriticalErrorNotification(context.Background(), "OnetimeScanNoSeeds", errorMessages)
-			appLogger.Error().Msg(noSeedsMsg) // Changed from Fatal
+			noSeedsMsg := "No seed URLs provided or loaded. Please specify via -urlfile or in input_config.input_urls in the config file."
+			criticalErrSummary := models.GetDefaultScanSummaryData()
+			if onetimeTargetSource == "" {
+				criticalErrSummary.TargetSource = "Unknown/NotProvided"
+			} else {
+				criticalErrSummary.TargetSource = onetimeTargetSource
+			}
+			criticalErrSummary.ErrorMessages = []string{noSeedsMsg}
+			notificationHelper.SendCriticalErrorNotification(context.Background(), "OnetimeScanNoSeeds", criticalErrSummary)
+			appLogger.Error().Msg(noSeedsMsg)
 			return
 		}
 	}
 
-	appLogger.Info().Int("count", len(seedURLs)).Msg("Starting onetime scan with seed URLs.")
+	appLogger.Info().Int("count", len(seedURLs)).Str("source", onetimeTargetSource).Msg("Starting onetime scan with seed URLs.")
 
-	scanIdentifier := "onetime_scan"
-	if urlListFile != "" {
-		scanIdentifier = filepath.Base(urlListFile)
-	} else if len(seedURLs) > 0 {
-		scanIdentifier = seedURLs[0]
-		if len(seedURLs) > 1 {
-			scanIdentifier += fmt.Sprintf("_and_%d_more", len(seedURLs)-1)
-		}
-	}
-	notificationHelper.SendScanStartNotification(ctx, scanIdentifier, seedURLs, len(seedURLs))
+	startSummary := models.GetDefaultScanSummaryData()
+	startSummary.TargetSource = onetimeTargetSource
+	startSummary.Targets = seedURLs
+	startSummary.TotalTargets = len(seedURLs)
+	notificationHelper.SendScanStartNotification(ctx, startSummary)
 
 	scanSessionID := time.Now().Format("20060102-150405")
+	startSummary.ScanSessionID = scanSessionID // Also add session ID to start summary if needed by formatter, though not strictly for this task
 
 	appLogger.Info().Msg("Executing scan workflow via orchestrator...")
 	startTime := time.Now()
-	// ExecuteScanWorkflow should ideally accept and respect the context
 	probeResults, urlDiffResults, workflowErr := scanOrchestrator.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
 	scanDuration := time.Since(startTime)
 
-	// Check if context was cancelled during workflow execution
 	if ctx.Err() == context.Canceled {
 		appLogger.Info().Msg("Onetime scan workflow interrupted.")
-		// The main signal handler in main() should have sent an interruption notification.
-		// We might not need to send another one here unless we want more specific details.
-		return // Exit early as the scan was incomplete
+		return
 	}
 
 	summaryData := models.GetDefaultScanSummaryData()
-	summaryData.ScanID = scanIdentifier
-	summaryData.Targets = seedURLs // This should be string URLs, ensure seedURLs is appropriate here or transform
+	summaryData.ScanSessionID = scanSessionID
+	summaryData.TargetSource = onetimeTargetSource
+	summaryData.Targets = seedURLs
 	summaryData.TotalTargets = len(seedURLs)
 	summaryData.ScanDuration = scanDuration
 
@@ -255,21 +248,19 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFile 
 		}
 	}
 
-	// Populate DiffStats from urlDiffResults
 	if urlDiffResults != nil {
-		for _, diffResult := range urlDiffResults { // urlDiffResults is a map[string]models.URLDiffResult
+		for _, diffResult := range urlDiffResults {
 			summaryData.DiffStats.New += diffResult.New
 			summaryData.DiffStats.Old += diffResult.Old
 			summaryData.DiffStats.Existing += diffResult.Existing
-			// Note: diffResult.Changed is not currently populated by the differ, so not adding it here yet.
 		}
 	}
 
 	if workflowErr != nil {
 		summaryData.Status = string(models.ScanStatusFailed)
 		summaryData.ErrorMessages = []string{fmt.Sprintf("Scan workflow execution failed: %v", workflowErr)}
-		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData) // Use non-cancelled context
-		appLogger.Error().Err(workflowErr).Msg("Scan workflow execution failed")             // Changed from Fatal
+		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData)
+		appLogger.Error().Err(workflowErr).Msg("Scan workflow execution failed")
 		return
 	}
 	appLogger.Info().Msg("Scan workflow completed via orchestrator.")
@@ -280,7 +271,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFile 
 		summaryData.Status = string(models.ScanStatusFailed)
 		summaryData.ErrorMessages = append(summaryData.ErrorMessages, fmt.Sprintf("Failed to initialize HTML reporter: %v", err))
 		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData)
-		appLogger.Error().Err(err).Msg("Failed to initialize HTML reporter") // Changed from Fatal
+		appLogger.Error().Err(err).Msg("Failed to initialize HTML reporter")
 		return
 	}
 
@@ -293,17 +284,17 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFile 
 	}
 
 	if err := htmlReporter.GenerateReport(probeResultsPtr, urlDiffResults, reportPath); err != nil {
-		summaryData.Status = string(models.ScanStatusFailed)
+		summaryData.Status = string(models.ScanStatusFailed) // Or models.ScanStatusPartialComplete
 		summaryData.ErrorMessages = append(summaryData.ErrorMessages, fmt.Sprintf("Failed to generate HTML report: %v", err))
 		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData)
-		appLogger.Error().Err(err).Msg("Failed to generate HTML report") // Changed from Fatal
+		appLogger.Error().Err(err).Msg("Failed to generate HTML report")
 		return
 	}
 	appLogger.Info().Str("path", reportPath).Msg("HTML report generated successfully")
 	summaryData.ReportPath = reportPath
 	summaryData.Status = string(models.ScanStatusCompleted)
 
-	notificationHelper.SendScanCompletionNotification(ctx, summaryData) // Use passed context
+	notificationHelper.SendScanCompletionNotification(ctx, summaryData)
 
 	appLogger.Info().Msg("MonsterInc Crawler finished (onetime mode).")
 }
