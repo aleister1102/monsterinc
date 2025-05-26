@@ -21,6 +21,12 @@ MonsterInc is a command-line interface (CLI) tool written in Go, used for gather
     -   Supports compression codecs: ZSTD (default), SNAPPY, GZIP, UNCOMPRESSED.
     -   Saves files in the directory structure `ParquetBasePath/YYYYMMDD/scan_results_*.parquet`.
 -   **Flexible Configuration**: Manages configuration via a YAML file (`config.yaml` preferred) or JSON (`config.json`) and command-line parameters.
+-   **Periodic Scanning (Automated Mode)**:
+    -   Allows scheduling of recurring scans (e.g., daily).
+    -   Reloads target lists at the beginning of each scan cycle.
+    -   Maintains a history of scans in an SQLite database.
+    -   Sends notifications (e.g., via Discord) on scan start, success, and failure.
+    -   Includes retry logic for failed scans.
 
 ## Installation and Build
 
@@ -52,9 +58,9 @@ Run the application from the command line:
 ### Main Command-Line Parameters
 
 -   `--mode <onetime|automated>`: (Required) Execution mode.
-    -   `onetime`: Runs once. The report filename will include a detailed timestamp (e.g., `reports/YYYYMMDD-HHMMSS_onetime_report.html`).
-    -   `automated`: Runs automatically (e.g., scheduled). The report filename will include the date and mode (e.g., `reports/YYYYMMDD-HHMMSS_automated_report.html`).
--   `-u <path/to/urls.txt>` or `--urlfile <path/to/urls.txt>`: (Optional) Path to a text file containing a list of seed URLs to crawl, one URL per line. If not provided, `input_config.input_urls` from the configuration file will be used.
+    -   `onetime`: Runs a single scan and then exits. The report filename will include a detailed timestamp (e.g., `reports/YYYYMMDD-HHMMSS_onetime_report.html`).
+    -   `automated`: Runs in a continuous loop, performing scans at scheduled intervals. The report filename will include the date and mode (e.g., `reports/YYYYMMDD-HHMMSS_automated_report.html`). This mode uses settings from the `scheduler_config` section in the configuration file.
+-   `-u <path/to/urls.txt>` or `--urlfile <path/to/urls.txt>`: (Optional) Path to a text file containing a list of seed URLs to crawl, one URL per line. If not provided, `input_config.input_urls` from the configuration file will be used. This flag is also used by the `automated` mode to specify the initial target list for the first scan, and can be reloaded if the file path is configured in `input_config.input_file`.
 -   `--globalconfig <path/to/config.yaml>`: (Optional) Path to the configuration file. Defaults to `config.yaml` in the same directory as the executable.
 
 ### Examples
@@ -84,22 +90,23 @@ monsterinc/
 │   └── README.md
 ├── internal/                 # Internal application logic code
 │   ├── config/             # Configuration management (config.go, validator.go, README.md)
-│   ├── core/               # Core business logic (target_manager.go, README.md)
+│   ├── core/               # Core business logic (target_manager.go, README.md) - TO BE RENAMED/REMOVED if scheduler replaces its role
 │   ├── crawler/            # Web crawling module (crawler.go, scope.go, asset.go, README.md)
 │   ├── datastore/          # Data storage module (parquet_writer.go, parquet_reader.go, README.md)
 │   ├── differ/             # Module for comparing differences (url_differ.go, README.md)
 │   ├── httpxrunner/        # Wrapper for the httpx library (runner.go, result.go, README.md)
 │   ├── logger/             # Logging module (logger.go, README.md)
 │   ├── models/             # Data structure definitions (probe_result.go, parquet_schema.go, report_data.go, etc., README.md)
-│   ├── notifier/           # (Not yet used) Notification module
+│   ├── notification/       # Notification module (notification_helper.go, README.md)
 │   ├── reporter/           # HTML report generation module
 │   │   ├── assets/         # CSS, JS for HTML reports
 │   │   ├── templates/      # HTML Template (report.html.tmpl)
 │   │   └── html_reporter.go, README.md
+│   ├── scheduler/          # Automated scan scheduling module (scheduler.go, db.go, target_loader.go, README.md)
 │   ├── urlhandler/         # URL handling and normalization (urlhandler.go, file.go, README.md)
 │   └── utils/              # (Not yet used) Common utilities
 ├── reports/                  # Default directory for generated HTML reports (.gitignore-d)
-├── database/                 # Default directory for Parquet files (per config, .gitignore-d)
+├── database/                 # Default directory for SQLite database and Parquet files (per config, .gitignore-d)
 ├── tasks/                    # Contains PRD files and task lists (e.g., *.md)
 ├── .gitignore                # Files and directories ignored by Git
 ├── config.yaml               # Main application configuration file (should be created from config.example.yaml)
@@ -123,7 +130,9 @@ monsterinc/
 -   **`datastore`**: Stores results into Parquet files.
 -   **`reporter`**: Generates HTML reports from results.
 -   **`logger`**: Provides an interface and basic implementation for logging.
--   **`core`**: (Under development) Contains main orchestration logic.
+-   **`core`**: (Under development) Contains main orchestration logic. - TO BE RENAMED/REMOVED if scheduler replaces its role
+-   **`scheduler`**: Manages automated periodic scans, including scheduling, database interaction for scan history, target loading, and notifications.
+-   **`notification`**: Handles sending notifications for scan events.
 
 ## Contributing
 

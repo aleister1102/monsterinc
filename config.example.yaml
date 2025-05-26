@@ -282,4 +282,16 @@ monitor_config:
 normalizer_config: {}
   # Default scheme to assume if a URL is provided without one (e.g., "example.com" -> "http://example.com").
   # Default: "http" (This was an example, ensure it aligns with actual NormalizerConfig struct if present)
-  # default_scheme: "http" 
+  # default_scheme: "http"
+
+# Scheduler configuration: Settings for automated periodic scans (when mode is "automated").
+scheduler_config:
+  # Scan cycle interval in minutes. The time between the end of one scan and the start of the next.
+  # Default: 10080 (equivalent to 7 days)
+  cycle_minutes: 10080
+  # Number of retry attempts if a scheduled scan fails.
+  # Default: 2
+  retry_attempts: 2
+  # Path to the SQLite database file used for storing scan history.
+  # Default: "database/scheduler_history.db"
+  sqlite_db_path: "database/scheduler_history.db"
