@@ -280,7 +280,7 @@ func (s *Scheduler) runScanCycle() (string, error) {
 		// For now, using a simple name related to the scanID
 		ts := time.Now().Format("20060102-150405")
 		// safeTargetSource := SanitizeFilename(targetSource) // Assuming SanitizeFilename exists or will be added
-		reportFilename := fmt.Sprintf("%s_automated.html", ts)
+		reportFilename := fmt.Sprintf("%s_automated_report.html", ts)
 
 		// Ensure reports directory exists (using global config)
 		reportsDir := s.globalConfig.ReporterConfig.OutputDir // Corrected to OutputDir
