@@ -5,7 +5,7 @@ import (
 	"io"
 	"monsterinc/internal/config"
 	"monsterinc/internal/models"
-	"monsterinc/internal/urlhandler" // Added urlhandler
+	"monsterinc/internal/urlhandler"
 	"os"
 	"path/filepath"
 	"time"
@@ -26,6 +26,7 @@ type ParquetReader struct {
 func NewParquetReader(cfg *config.StorageConfig, logger zerolog.Logger) *ParquetReader {
 	if cfg == nil || cfg.ParquetBasePath == "" {
 		logger.Warn().Msg("ParquetReader: StorageConfig or ParquetBasePath is not properly configured.")
+		// Return a functional reader, but operations might fail if path is needed and empty.
 	}
 	return &ParquetReader{
 		storageConfig: cfg,
@@ -33,49 +34,51 @@ func NewParquetReader(cfg *config.StorageConfig, logger zerolog.Logger) *Parquet
 	}
 }
 
-// FindHistoricalDataForTarget finds the historical scan data for a given rootTargetURL
-// and returns it as a slice of models.ProbeResult.
-func (pr *ParquetReader) FindHistoricalDataForTarget(rootTargetURL string) ([]models.ProbeResult, error) {
-	pr.logger.Debug().Str("root_target_url", rootTargetURL).Msg("Attempting to find historical data")
+// FindAllProbeResultsForTarget reads all probe results for a given rootTargetURL
+// from its consolidated Parquet file (e.g., database/example.com/data.parquet).
+// Returns the results and the last modification time of the file.
+func (pr *ParquetReader) FindAllProbeResultsForTarget(rootTargetURL string) ([]models.ProbeResult, time.Time, error) {
+	pr.logger.Debug().Str("root_target_url", rootTargetURL).Msg("Attempting to find all probe results for target")
+
+	if pr.storageConfig == nil || pr.storageConfig.ParquetBasePath == "" {
+		msg := "ParquetBasePath is not configured. Cannot read Parquet file."
+		pr.logger.Error().Msg(msg)
+		return nil, time.Time{}, fmt.Errorf(msg)
+	}
+
 	sanitizedTargetName := urlhandler.SanitizeFilename(rootTargetURL)
-	baseDir := filepath.Join(pr.storageConfig.ParquetBasePath, sanitizedTargetName)
-
-	var allResults []models.ProbeResult
-
-	// Check if the base directory for the target exists
-	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
-		pr.logger.Info().Str("root_target_url", rootTargetURL).Str("directory", baseDir).Msg("No historical data directory found for target.")
-		return nil, nil // No directory means no historical data, not an error in this context
+	if sanitizedTargetName == "" {
+		msg := fmt.Sprintf("Root target sanitized to empty string, cannot determine path for Parquet file: %s", rootTargetURL)
+		pr.logger.Error().Str("original_target", rootTargetURL).Msg(msg)
+		return nil, time.Time{}, fmt.Errorf(msg)
 	}
 
-	// Read all session directories for the target
-	sessionDirs, err := os.ReadDir(baseDir)
-	if err != nil {
-		pr.logger.Error().Err(err).Str("directory", baseDir).Msg("Failed to read session directories")
-		return nil, fmt.Errorf("failed to read session directories in %s: %w", baseDir, err)
+	// Path is now <base_path>/<sanitized_rootTarget>.parquet
+	fileName := fmt.Sprintf("%s.parquet", sanitizedTargetName)
+	parquetFilePath := filepath.Join(pr.storageConfig.ParquetBasePath, fileName)
+
+	fileInfo, err := os.Stat(parquetFilePath)
+	if os.IsNotExist(err) {
+		pr.logger.Info().Str("root_target_url", rootTargetURL).Str("file", parquetFilePath).Msg("No consolidated Parquet file found for target.")
+		return nil, time.Time{}, nil // No file means no historical data, not an error in this context
+	} else if err != nil {
+		pr.logger.Error().Err(err).Str("file", parquetFilePath).Msg("Failed to stat Parquet file")
+		return nil, time.Time{}, fmt.Errorf("failed to stat parquet file %s: %w", parquetFilePath, err)
 	}
 
-	for _, sessionDir := range sessionDirs {
-		if sessionDir.IsDir() {
-			parquetFilePath := filepath.Join(baseDir, sessionDir.Name(), "data.parquet")
-			if _, err := os.Stat(parquetFilePath); !os.IsNotExist(err) {
-				pr.logger.Debug().Str("file", parquetFilePath).Msg("Reading historical data from file")
-				results, err := pr.readProbeResultsFromSpecificFile(parquetFilePath, rootTargetURL)
-				if err != nil {
-					pr.logger.Warn().Err(err).Str("file", parquetFilePath).Msg("Failed to read or parse historical Parquet file, skipping this file")
-					continue // Skip this file and try others
-				}
-				allResults = append(allResults, results...)
-			} else {
-				pr.logger.Debug().Str("file", parquetFilePath).Msg("Parquet file not found in session directory, skipping")
-			}
-		}
+	pr.logger.Debug().Str("file", parquetFilePath).Msg("Reading all probe results from consolidated Parquet file")
+	results, readErr := pr.readProbeResultsFromSpecificFile(parquetFilePath, rootTargetURL)
+	if readErr != nil {
+		// Error already logged by readProbeResultsFromSpecificFile
+		return nil, time.Time{}, fmt.Errorf("failed to read consolidated parquet file %s: %w", parquetFilePath, readErr)
 	}
-	pr.logger.Info().Int("record_count", len(allResults)).Str("root_target_url", rootTargetURL).Msg("Finished reading historical data")
-	return allResults, nil
+
+	pr.logger.Info().Int("record_count", len(results)).Str("root_target_url", rootTargetURL).Msg("Finished reading all probe results for target")
+	return results, fileInfo.ModTime(), nil
 }
 
 // readProbeResultsFromSpecificFile reads full ProbeResult records from a given Parquet file.
+// contextualRootTargetURL is used if a record in the Parquet file doesn't have RootTargetURL set.
 func (pr *ParquetReader) readProbeResultsFromSpecificFile(filePathToRead string, contextualRootTargetURL string) ([]models.ProbeResult, error) {
 	file, err := os.Open(filePathToRead)
 	if err != nil {
@@ -84,32 +87,33 @@ func (pr *ParquetReader) readProbeResultsFromSpecificFile(filePathToRead string,
 	}
 	defer file.Close()
 
-	// File info is not directly used by NewReader, but good to have for potential future use or debugging
-	_, err = file.Stat() // Call Stat to check for errors, but don't need info for NewReader
-	if err != nil {
-		pr.logger.Error().Err(err).Str("file", filePathToRead).Msg("Failed to get file info for parquet file")
-		return nil, fmt.Errorf("failed to stat parquet file %s: %w", filePathToRead, err)
-	}
+	readerOptions := []parquet.ReaderOption{}
+	// Example: if you knew the file size, you could pass it for optimization:
+	// fileInfo, err := file.Stat()
+	// if err == nil {
+	// readerOptions = append(readerOptions, parquet.ReadBufferSize(int(fileInfo.Size())))
+	// }
 
-	reader := parquet.NewReader(file) // Corrected: NewReader expects io.ReadSeeker and optional ReaderOption(s)
-	defer reader.Close()              // Ensure the reader is closed
+	reader := parquet.NewReader(file, readerOptions...)
+	defer reader.Close()
 
 	var results []models.ProbeResult
-	row := models.ParquetProbeResult{}
+	row := models.ParquetProbeResult{} // Reusable buffer for each row
 
 	for {
 		if err := reader.Read(&row); err != nil {
 			if err == io.EOF {
-				break
+				break // End of file
 			}
 			pr.logger.Error().Err(err).Str("file", filePathToRead).Msg("Failed to read row from parquet file")
 			return nil, fmt.Errorf("failed to read row from %s: %w", filePathToRead, err)
 		}
 
-		// Convert ParquetProbeResult to ProbeResult
-		probeResult := row.ToProbeResult()
-		// Ensure RootTargetURL is set from the context of this read operation if not present in file
-		if probeResult.RootTargetURL == "" {
+		probeResult := row.ToProbeResult() // Convert Parquet specific struct to general model
+
+		// Ensure RootTargetURL is set, using the context if the record itself lacks it.
+		// This is important if the Parquet files were generated without this field or it's sometimes optional.
+		if probeResult.RootTargetURL == "" && contextualRootTargetURL != "" {
 			probeResult.RootTargetURL = contextualRootTargetURL
 		}
 		results = append(results, probeResult)
@@ -119,61 +123,6 @@ func (pr *ParquetReader) readProbeResultsFromSpecificFile(filePathToRead string,
 	return results, nil
 }
 
-// FindMostRecentScanURLs finds the most recent scan's Parquet file for a target and returns all URLs from it.
-func (pr *ParquetReader) FindMostRecentScanURLs(rootTargetURL string) ([]string, error) {
-	pr.logger.Debug().Str("root_target_url", rootTargetURL).Msg("Finding most recent scan URLs")
-	sanitizedTargetName := urlhandler.SanitizeFilename(rootTargetURL)
-	baseDir := filepath.Join(pr.storageConfig.ParquetBasePath, sanitizedTargetName)
-
-	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
-		pr.logger.Info().Str("directory", baseDir).Msg("No data directory found for target, cannot find most recent scan.")
-		return nil, nil // No directory means no data
-	}
-
-	sessionDirs, err := os.ReadDir(baseDir)
-	if err != nil {
-		pr.logger.Error().Err(err).Str("directory", baseDir).Msg("Failed to read session directories for finding most recent scan")
-		return nil, fmt.Errorf("failed to read session directories in %s: %w", baseDir, err)
-	}
-
-	var mostRecentSessionTime time.Time
-	var mostRecentParquetFile string
-
-	for _, sessionDir := range sessionDirs {
-		if sessionDir.IsDir() {
-			// Assuming session directory name is a timestamp like "20230101-150405"
-			sessionTime, err := time.Parse("20060102-150405", sessionDir.Name())
-			if err != nil {
-				pr.logger.Warn().Err(err).Str("session_dir", sessionDir.Name()).Msg("Could not parse session directory name as timestamp, skipping")
-				continue
-			}
-
-			parquetFilePath := filepath.Join(baseDir, sessionDir.Name(), "data.parquet")
-			if _, statErr := os.Stat(parquetFilePath); !os.IsNotExist(statErr) {
-				if sessionTime.After(mostRecentSessionTime) {
-					mostRecentSessionTime = sessionTime
-					mostRecentParquetFile = parquetFilePath
-				}
-			}
-		}
-	}
-
-	if mostRecentParquetFile == "" {
-		pr.logger.Info().Str("root_target_url", rootTargetURL).Msg("No valid Parquet files found in any session for target.")
-		return nil, nil // No valid parquet file found
-	}
-
-	pr.logger.Info().Str("file", mostRecentParquetFile).Msg("Identified most recent Parquet file for URL extraction.")
-	probeResults, err := pr.readProbeResultsFromSpecificFile(mostRecentParquetFile, rootTargetURL)
-	if err != nil {
-		pr.logger.Error().Err(err).Str("file", mostRecentParquetFile).Msg("Failed to read probe results from most recent Parquet file")
-		return nil, fmt.Errorf("failed to read most recent parquet file %s: %w", mostRecentParquetFile, err)
-	}
-
-	urls := make([]string, 0, len(probeResults))
-	for _, pr := range probeResults {
-		urls = append(urls, pr.InputURL) // Or pr.FinalURL depending on which is needed
-	}
-	pr.logger.Info().Int("url_count", len(urls)).Str("root_target_url", rootTargetURL).Msg("Extracted URLs from most recent scan.")
-	return urls, nil
-}
+// Note: FindMostRecentScanURLs has been removed as the concept of "most recent scan file"
+// is replaced by a single, consolidated Parquet file per target. The `LastSeenTimestamp`
+// within the records of this consolidated file indicates recency for each specific URL.

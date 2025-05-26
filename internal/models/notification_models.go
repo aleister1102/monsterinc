@@ -65,22 +65,23 @@ type DiscordEmbedField struct {
 	Inline bool   `json:"inline,omitempty"` // Whether or not this field should display inline
 }
 
-// ScanSummaryData holds summary information about a scan, used for notifications.
+// ScanSummaryData holds all relevant information about a scan to be used in notifications.
 type ScanSummaryData struct {
-	ScanID           string        // Unique identifier for the scan (e.g., session ID or database ID)
+	ScanSessionID    string        // Unique identifier for the scan session (e.g., YYYYMMDD-HHMMSS timestamp)
+	TargetSource     string        // The source of the targets (e.g., file path, "config_input_urls")
 	Targets          []string      // List of original target URLs/identifiers
 	TotalTargets     int           // Total number of targets processed or attempted
 	ProbeStats       ProbeStats    // Statistics from the probing phase
 	DiffStats        DiffStats     // Statistics from the diffing phase (New, Old, Existing)
 	ScanDuration     time.Duration // Total duration of the scan
 	ReportPath       string        // Filesystem path to the generated report (used by notifier to attach)
-	Status           string        // Overall status: "COMPLETED", "FAILED", "STARTED"
+	Status           string        // Overall status: "COMPLETED", "FAILED", "STARTED", "INTERRUPTED", "PARTIAL_COMPLETE"
 	ErrorMessages    []string      // Any critical errors encountered during the scan
 	Component        string        // Component where an error might have occurred (for critical errors)
 	RetriesAttempted int           // Number of retries, if applicable
 }
 
-// ProbeStats holds statistics related to the probing phase.
+// ProbeStats holds statistics related to the probing phase of a scan.
 type ProbeStats struct {
 	TotalProbed       int // Total URLs sent to the prober
 	SuccessfulProbes  int // Number of probes that returned a successful response (e.g., 2xx)
@@ -88,7 +89,7 @@ type ProbeStats struct {
 	DiscoverableItems int // e.g. number of items from httpx
 }
 
-// DiffStats holds statistics from the URL diffing process.
+// DiffStats holds statistics related to the diffing phase of a scan.
 type DiffStats struct {
 	New      int
 	Old      int
@@ -96,7 +97,7 @@ type DiffStats struct {
 	Changed  int // (If StatusChanged is implemented)
 }
 
-// ScanStatus defines the status of a scan.
+// ScanStatus defines the possible states of a scan.
 type ScanStatus string
 
 const (
@@ -105,12 +106,16 @@ const (
 	ScanStatusFailed          ScanStatus = "FAILED"
 	ScanStatusCriticalError   ScanStatus = "CRITICAL_ERROR"   // For application-level critical errors
 	ScanStatusPartialComplete ScanStatus = "PARTIAL_COMPLETE" // If some targets succeed and others fail
+	ScanStatusInterrupted     ScanStatus = "INTERRUPTED"      // Added for scans interrupted by signal or context cancellation
+	ScanStatusUnknown         ScanStatus = "UNKNOWN"          // Default to unknown status
 )
 
-// GetDefaultScanSummaryData initializes ScanSummaryData with default values.
+// GetDefaultScanSummaryData initializes a ScanSummaryData with default/empty values.
 func GetDefaultScanSummaryData() ScanSummaryData {
 	return ScanSummaryData{
-		Targets:       make([]string, 0),
-		ErrorMessages: make([]string, 0),
+		ProbeStats: ProbeStats{},
+		DiffStats:  DiffStats{},
+		Status:     string(ScanStatusUnknown), // Default to unknown status
+		// ScanSessionID and TargetSource will be set explicitly
 	}
 }

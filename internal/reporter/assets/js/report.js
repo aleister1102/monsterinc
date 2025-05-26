@@ -18,6 +18,7 @@ $(document).ready(function () {
     const $paginationControls = $('#paginationControls');
     const $itemsPerPageSelect = $('#itemsPerPageSelect');
     const $resultsCountInfo = $('#resultsCountInfo');
+    const $clearAllFiltersBtn = $('#clearAllFiltersBtn'); // Added Clear All Filters button
 
     let itemsPerPage = parseInt($itemsPerPageSelect.val()) || 10;
     let currentPage = 1;
@@ -246,6 +247,25 @@ $(document).ready(function () {
     $itemsPerPageSelect.on('change', function() { 
         itemsPerPage = parseInt($(this).val()) || 10;
         processAndDisplayData(); 
+    });
+
+    $clearAllFiltersBtn.on('click', function() {
+        currentFilters = {
+            rootURL: '',
+            statusCode: '',
+            contentType: '',
+            tech: '',
+            urlStatus: ''
+        };
+        // Reset input field values
+        $rootURLFilter.val('');
+        $statusCodeFilter.val('');
+        $contentTypeFilter.val('');
+        $techFilterInput.val('');
+        $urlStatusFilter.val('');
+        // $globalSearchInput.val(''); // If global search were enabled
+        
+        processAndDisplayData();
     });
 
     $resultsTable.find('thead th.sortable').on('click', function() {

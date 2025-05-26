@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 )
 
@@ -81,7 +82,7 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 			return nil, nil, fmt.Errorf("orchestrator: failed to initialize crawler: %w", err)
 		}
 
-		crawlerInstance.Start()
+		crawlerInstance.Start(ctx)
 		discoveredURLs = crawlerInstance.GetDiscoveredURLs()
 		so.logger.Info().Int("discovered_count", len(discoveredURLs)).Str("session_id", scanSessionID).Msg("Crawler finished")
 	} else {
@@ -245,8 +246,13 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 		if so.parquetWriter != nil {
 			if len(probesToStoreThisTarget) > 0 {
 				so.logger.Info().Int("count", len(probesToStoreThisTarget)).Str("root_target", rootTgt).Str("session_id", scanSessionID).Msg("Writing probe results to Parquet...")
-				if err := so.parquetWriter.Write(probesToStoreThisTarget, scanSessionID, rootTgt); err != nil {
+				if err := so.parquetWriter.Write(ctx, probesToStoreThisTarget, scanSessionID, rootTgt); err != nil {
 					so.logger.Error().Err(err).Str("root_target", rootTgt).Str("session_id", scanSessionID).Msg("Failed to write Parquet data")
+					// Decide if this error should cause the entire workflow to fail or just log and continue for this target
+					// If context was cancelled, the error will be ctx.Err() and should be propagated.
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						return allProbeResultsForCurrentScan, allURLDiffResults, err // Propagate context error
+					}
 				}
 			} else {
 				so.logger.Info().Str("root_target", rootTgt).Str("session_id", scanSessionID).Msg("No probe results to store to Parquet for target.")

@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"monsterinc/internal/config"
@@ -61,7 +62,8 @@ func NewScheduler(cfg *config.GlobalConfig, urlFileOverride string, logger zerol
 	// Initialize ParquetReader & Writer (needed for orchestrator)
 	// These should use the main application logger or a sub-logger for datastore, not scheduler's logger directly unless specifically for scheduler's own parquet ops.
 	// For now, using the passed 'logger' which is the main app logger instance.
-	parquetReader := datastore.NewParquetReader(&cfg.StorageConfig, logger)             // Use main logger
+	parquetReader := datastore.NewParquetReader(&cfg.StorageConfig, logger) // Use main logger
+	// Initialize ParquetWriter without the ParquetReader argument
 	parquetWriter, parquetErr := datastore.NewParquetWriter(&cfg.StorageConfig, logger) // Use main logger
 	if parquetErr != nil {
 		// This error will be logged by NewParquetWriter if it's critical, or handled by orchestrator if writer is nil.
@@ -145,54 +147,94 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		}
 	}()
 
-	s.logger.Info().Msg("Scheduler main loop started.")
+	s.logger.Info().Msg("Scheduler main loop goroutine started.")
+
+	// Block here until the scheduler's main goroutine finishes.
+	s.wg.Wait() // This will wait for s.wg.Done() to be called in the goroutine.
+
+	s.logger.Info().Msg("Scheduler Start method is returning as the main loop has finished.")
+	// Check context to understand why it stopped, if needed for return value
+	if ctx.Err() != nil {
+		return ctx.Err() // Return context error if that caused the stop
+	}
 	return nil
 }
 
 // Stop gracefully stops the scheduler
 func (s *Scheduler) Stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if !s.isRunning {
+		s.mu.Unlock()
 		s.logger.Info().Msg("Scheduler is not running, no action needed for Stop().")
 		return
 	}
 
-	s.logger.Info().Msg("Scheduler Stop() called, attempting to stop...")
+	s.logger.Info().Msg("Scheduler Stop() called, attempting to stop gracefully...")
+	// It's important that isRunning is true here.
+	// Signal the main loop to stop.
+	// We check if stopChan is nil or already closed to prevent panic.
 	if s.stopChan != nil {
-		close(s.stopChan) // Signal the main loop to stop
+		select {
+		case _, ok := <-s.stopChan:
+			if !ok {
+				s.logger.Info().Msg("stopChan was already closed.")
+			}
+		default:
+			// Channel is open and not closed, so close it.
+			close(s.stopChan)
+			s.logger.Info().Msg("stopChan successfully closed.")
+		}
 	}
-	// isRunning will be set to false by the main loop goroutine upon exiting.
+	s.mu.Unlock() // Unlock before s.wg.Wait() to avoid deadlock. The goroutine needs to acquire the lock to set isRunning to false.
 
-	// Optional: Wait for the scheduler's main goroutine to finish
-	// This might be useful if you need to ensure cleanup or that no more scans are initiated.
-	// However, this could block if the goroutine is stuck. Consider a timeout if using this.
-	// s.wg.Wait() // This might block if runScanCycleWithRetries is long-running and doesn't respect stopChan quickly.
-	s.logger.Info().Msg("Scheduler: Stopping scheduler...")
-	close(s.stopChan)
-	s.wg.Wait()
+	s.logger.Info().Msg("Waiting for scheduler's main goroutine to complete...")
+	s.wg.Wait() // Wait for the main loop goroutine to finish.
+
+	s.mu.Lock() // Re-acquire lock for final cleanup.
+	// s.isRunning should have been set to false by the deferred function in the goroutine.
+	// We can assert this or just ensure it here.
 	s.isRunning = false
+	s.logger.Info().Msg("Scheduler main goroutine confirmed finished.")
 
 	// Close database connection
 	if s.db != nil {
-		s.db.Close()
+		s.logger.Info().Msg("Closing scheduler database connection...")
+		if err := s.db.Close(); err != nil {
+			s.logger.Error().Err(err).Msg("Error closing scheduler database")
+		} else {
+			s.logger.Info().Msg("Scheduler database closed successfully.")
+		}
+		s.db = nil // Prevent further use
 	}
+	s.mu.Unlock()
 
-	s.logger.Info().Msg("Scheduler: Scheduler stopped.")
+	s.logger.Info().Msg("Scheduler has been stopped and resources cleaned up.")
 }
 
 // calculateNextScanTime determines when the next scan should run
 func (s *Scheduler) calculateNextScanTime() (time.Time, error) {
 	lastScanTime, err := s.db.GetLastScanTime()
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// No previous completed scan, schedule for now
+			s.logger.Info().Msg("No previous completed scan found in history. Scheduling next scan immediately.")
+			return time.Now(), nil
+		}
+		// For other errors, propagate them
 		return time.Time{}, err
 	}
 
-	// If no previous scan, schedule for now
-	if lastScanTime == nil {
-		return time.Now(), nil
-	}
+	// If lastScanTime is nil but no error (e.g. GetLastScanTime returned nil, nil for a valid scenario like an interrupted scan being the latest)
+	// This case should ideally be handled by GetLastScanTime returning sql.ErrNoRows or a specific error.
+	// Given the current GetLastScanTime logic, it returns sql.ErrNoRows if the time is NULL or no completed scan is found.
+	// So the errors.Is(err, sql.ErrNoRows) above should cover this.
+	// If, for some reason, lastScanTime could be nil without an error, that would be handled here:
+	/*
+		if lastScanTime == nil {
+			s.logger.Info().Msg("Last scan time is nil (e.g., last scan was interrupted). Scheduling next scan immediately.")
+			return time.Now(), nil
+		}
+	*/
 
 	// Calculate next scan time based on interval
 	intervalDuration := time.Duration(s.globalConfig.SchedulerConfig.CycleMinutes) * time.Minute
@@ -214,21 +256,38 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 	var lastErr error
 	var scanSummary models.ScanSummaryData // To store summary for notification
 	var reportGeneratedPath string
-	scanID := time.Now().Format("20060102-150405")
+	currentScanSessionID := time.Now().Format("20060102-150405") // Use a consistent session ID for all retries of this cycle
+
+	// Determine TargetSource once for this cycle based on current config/override
+	// This assumes target source doesn't change between retries of the same cycle.
+	_, initialTargetSource, initialTargetsErr := s.targetManager.LoadAndSelectTargets(
+		s.urlFileOverride,
+		s.globalConfig.InputConfig.InputURLs,
+		s.globalConfig.InputConfig.InputFile,
+	)
+	if initialTargetsErr != nil {
+		s.logger.Error().Err(initialTargetsErr).Msg("Scheduler: Failed to determine initial target source for scan cycle. Notifications might be affected.")
+		// If target source cannot be determined, use a placeholder or log and continue, notifications will be impacted.
+		initialTargetSource = "ErrorDeterminingSource"
+	}
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Initialize summary for this attempt
+		scanSummary = models.GetDefaultScanSummaryData() // Reset for each attempt, but keep some fields if needed
+		scanSummary.ScanSessionID = currentScanSessionID
+		scanSummary.TargetSource = initialTargetSource // Use consistently determined target source
+		scanSummary.RetriesAttempted = attempt
+
 		// Check for context cancellation at the beginning of each attempt
 		select {
 		case <-ctx.Done():
-			s.logger.Info().Str("scan_id", scanID).Msg("Scheduler: Context cancelled before retry attempt. Stopping retry loop.")
-			// If there was a previous error, ensure a failure notification for that attempt is sent.
+			s.logger.Info().Str("scan_session_id", currentScanSessionID).Msg("Scheduler: Context cancelled before retry attempt. Stopping retry loop.")
 			if lastErr != nil && attempt > 0 { // Only if this isn't the very first try and there was an error
-				// Use the summary from the last failed attempt
-				scanSummary.Status = string(models.ScanStatusFailed)
+				scanSummary.Status = string(models.ScanStatusInterrupted)
 				if !containsCancellationError(scanSummary.ErrorMessages) {
 					scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("Scan cycle aborted during retries due to context cancellation. Last error: %v", lastErr))
 				}
-				s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary) // Use a new context for this final notification
+				s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary)
 			}
 			return
 		default:
@@ -236,15 +295,12 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 
 		if attempt > 0 {
 			s.logger.Info().Int("attempt", attempt).Int("max_retries", maxRetries).Dur("delay", retryDelay).Msg("Scheduler: Retrying scan cycle after delay...")
-			// Make the delay interruptible by context cancellation
 			select {
 			case <-time.After(retryDelay):
-				// Delay completed
 			case <-ctx.Done():
-				s.logger.Info().Str("scan_id", scanID).Msg("Scheduler: Context cancelled during retry delay. Stopping retry loop.")
-				// Similar notification logic as above if an error had occurred
+				s.logger.Info().Str("scan_session_id", currentScanSessionID).Msg("Scheduler: Context cancelled during retry delay. Stopping retry loop.")
 				if lastErr != nil {
-					scanSummary.Status = string(models.ScanStatusFailed)
+					scanSummary.Status = string(models.ScanStatusInterrupted)
 					if !containsCancellationError(scanSummary.ErrorMessages) {
 						scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("Scan cycle aborted during retry delay due to context cancellation. Last error: %v", lastErr))
 					}
@@ -254,38 +310,44 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 			}
 		}
 
-		scanSummary, reportGeneratedPath, lastErr = s.runScanCycle(ctx, scanID)
-		scanSummary.RetriesAttempted = attempt
+		// Pass currentScanSessionID and consistent initialTargetSource to runScanCycle
+		var currentAttemptSummary models.ScanSummaryData
+		currentAttemptSummary, reportGeneratedPath, lastErr = s.runScanCycle(ctx, currentScanSessionID, initialTargetSource)
+
+		// Merge results from runScanCycle into the main scanSummary for this retry loop iteration
+		scanSummary.Targets = currentAttemptSummary.Targets
+		scanSummary.TotalTargets = currentAttemptSummary.TotalTargets
+		scanSummary.ProbeStats = currentAttemptSummary.ProbeStats
+		scanSummary.DiffStats = currentAttemptSummary.DiffStats
+		scanSummary.ScanDuration = currentAttemptSummary.ScanDuration
+		scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, currentAttemptSummary.ErrorMessages...) // Append new errors
+		scanSummary.ReportPath = reportGeneratedPath                                                          // This might change if report is generated on later attempt
 
 		if lastErr == nil {
-			s.logger.Info().Str("scan_id", scanID).Msg("Scheduler: Scan cycle completed successfully.")
+			s.logger.Info().Str("scan_session_id", currentScanSessionID).Msg("Scheduler: Scan cycle completed successfully.")
 			scanSummary.Status = string(models.ScanStatusCompleted)
-			scanSummary.ReportPath = reportGeneratedPath
 			s.notificationHelper.SendScanCompletionNotification(ctx, scanSummary)
 			return
 		}
 
-		// If the error is due to context cancellation, stop retrying immediately.
 		if errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded) {
-			s.logger.Info().Str("scan_id", scanID).Err(lastErr).Msg("Scheduler: Scan cycle interrupted by context cancellation. No further retries.")
-			scanSummary.Status = string(models.ScanStatusFailed) // Or a specific "Interrupted" status
+			s.logger.Info().Str("scan_session_id", currentScanSessionID).Err(lastErr).Msg("Scheduler: Scan cycle interrupted by context cancellation. No further retries.")
+			scanSummary.Status = string(models.ScanStatusInterrupted)
 			if !containsCancellationError(scanSummary.ErrorMessages) {
 				scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("Scan cycle interrupted: %v", lastErr))
 			}
-			scanSummary.ReportPath = reportGeneratedPath                                           // Report might have been partially generated
-			s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary) // Use new context for this notification
+			s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary)
 			return
 		}
 
-		s.logger.Error().Err(lastErr).Str("scan_id", scanID).Int("attempt", attempt+1).Int("total_attempts", maxRetries+1).Msg("Scheduler: Scan cycle failed")
+		s.logger.Error().Err(lastErr).Str("scan_session_id", currentScanSessionID).Int("attempt", attempt+1).Int("total_attempts", maxRetries+1).Msg("Scheduler: Scan cycle failed")
 
 		if attempt == maxRetries {
-			s.logger.Error().Str("scan_id", scanID).Msg("Scheduler: All retry attempts exhausted. Scan cycle failed permanently.")
+			s.logger.Error().Str("scan_session_id", currentScanSessionID).Msg("Scheduler: All retry attempts exhausted. Scan cycle failed permanently.")
 			scanSummary.Status = string(models.ScanStatusFailed)
 			if !containsCancellationError(scanSummary.ErrorMessages) {
 				scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("All %d retry attempts failed. Last error: %v", maxRetries+1, lastErr))
 			}
-			scanSummary.ReportPath = reportGeneratedPath
 			s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary)
 		}
 	}
@@ -302,72 +364,72 @@ func containsCancellationError(messages []string) bool {
 }
 
 // runScanCycle executes a complete scan cycle
-func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string) (models.ScanSummaryData, string, error) { // Added context, scanSessionID, return summary, report path and error
+func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, predeterminedTargetSource string) (models.ScanSummaryData, string, error) {
 	startTime := time.Now()
 	summary := models.GetDefaultScanSummaryData()
-	summary.ScanID = scanSessionID
+	summary.ScanSessionID = scanSessionID
+	summary.TargetSource = predeterminedTargetSource // Use the source determined at the start of the retry cycle
 
-	// Load targets using TargetManager
-	// In scheduler mode, target source is usually determined by config or persisted state, not direct file override each time.
-	// For now, let's assume LoadAndSelectTargets correctly handles this based on initial config and potential future state management.
-	targets, targetSource, err := s.targetManager.LoadAndSelectTargets(
-		s.urlFileOverride, // This might be empty if not provided at startup
+	// Load targets using TargetManager. We use predeterminedTargetSource for consistency in reporting,
+	// but LoadAndSelectTargets will re-evaluate based on current files/config for the actual scan.
+	targets, actualTargetSource, err := s.targetManager.LoadAndSelectTargets(
+		s.urlFileOverride,
 		s.globalConfig.InputConfig.InputURLs,
 		s.globalConfig.InputConfig.InputFile,
 	)
 	if err != nil {
 		summary.Status = string(models.ScanStatusFailed)
 		summary.ErrorMessages = []string{fmt.Sprintf("Failed to load targets: %v", err)}
-		return summary, "", fmt.Errorf("failed to load targets: %w", err) // Return error and empty summary
+		return summary, "", fmt.Errorf("failed to load targets: %w", err)
+	}
+	// If LoadAndSelectTargets returns a different source than predetermined, log it, but stick with predetermined for summary consistency in this cycle.
+	if actualTargetSource != predeterminedTargetSource {
+		s.logger.Warn().Str("predetermined_source", predeterminedTargetSource).Str("actual_source", actualTargetSource).Msg("Target source re-evaluation yielded a different source name, but using predetermined for this cycle's summary.")
 	}
 
-	// Get target strings for summary
-	targetStringsForSummary, err := s.targetManager.GetTargetStrings(
-		s.urlFileOverride, // This might be empty if not provided at startup
+	// Get target strings for summary (these are just for display in notification)
+	targetStringsForSummary, _ := s.targetManager.GetTargetStrings(
+		s.urlFileOverride,
 		s.globalConfig.InputConfig.InputURLs,
 		s.globalConfig.InputConfig.InputFile,
 	)
-	if err != nil {
-		// Log the error, but proceed with an empty list for summary if critical targets themselves loaded fine.
-		// The main `targets` variable from LoadAndSelectTargets is used for actual scanning logic.
-		s.logger.Error().Err(err).Msg("Scheduler: Failed to get target strings for summary, summary.Targets will be empty.")
-		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Could not retrieve target strings for summary: %v", err))
-		targetStringsForSummary = []string{}
-	}
 	summary.Targets = targetStringsForSummary
-	summary.TotalTargets = len(targets) // TotalTargets should be based on the successfully loaded `targets` for scanning
+	summary.TotalTargets = len(targets)
 
-	// Extract original URLs for crawler and other parts that expect []string
 	var seedURLs []string
 	for _, target := range targets {
 		seedURLs = append(seedURLs, target.OriginalURL)
 	}
 
 	if len(seedURLs) == 0 {
-		msg := fmt.Sprintf("No valid seed URLs to scan from source: %s", targetSource)
-		s.logger.Warn().Str("target_source", targetSource).Msg(msg)
+		msg := fmt.Sprintf("No valid seed URLs to scan from source: %s", summary.TargetSource)
+		s.logger.Warn().Str("target_source", summary.TargetSource).Msg(msg)
 		summary.Status = string(models.ScanStatusFailed)
 		summary.ErrorMessages = []string{msg}
 		return summary, "", fmt.Errorf(msg)
 	}
 
-	// Send scan start notification
-	s.notificationHelper.SendScanStartNotification(ctx, scanSessionID, summary.Targets, summary.TotalTargets)
+	// Send scan start notification with the consistent summary data
+	// Create a temporary summary for start notification with status STARTED
+	startNotificationSummary := summary // Copy current summary details
+	startNotificationSummary.Status = string(models.ScanStatusStarted)
+	s.notificationHelper.SendScanStartNotification(ctx, startNotificationSummary)
 
-	// Record scan start in DB
-	scanDBID, err := s.db.RecordScanStart(scanSessionID, targetSource, len(seedURLs), startTime)
+	scanDBID, err := s.db.RecordScanStart(summary.ScanSessionID, summary.TargetSource, len(seedURLs), startTime)
 	if err != nil {
 		msg := fmt.Sprintf("failed to record scan start in DB: %v", err)
-		s.logger.Error().Err(err).Str("scan_id", scanSessionID).Msg("Failed to record scan start in DB")
-		// Continue scan, but this is a notable issue
+		s.logger.Error().Err(err).Str("scan_session_id", summary.ScanSessionID).Msg("Failed to record scan start in DB")
 		summary.ErrorMessages = append(summary.ErrorMessages, msg)
 	}
-	summary.ScanID = fmt.Sprintf("%s (DB ID: %d)", scanSessionID, scanDBID) // Update ScanID with DB ID for clarity
+	// For logging, we might want to use a more detailed scan ID if db id is available
+	logScanID := summary.ScanSessionID
+	if scanDBID > 0 {
+		logScanID = fmt.Sprintf("%s (DB ID: %d)", summary.ScanSessionID, scanDBID)
+	}
 
-	s.logger.Info().Str("scan_id", scanSessionID).Int("num_targets", len(seedURLs)).Str("target_source", targetSource).Msg("Scheduler: Starting scan cycle execution.")
+	s.logger.Info().Str("scan_id_log", logScanID).Int("num_targets", len(seedURLs)).Str("target_source", summary.TargetSource).Msg("Scheduler: Starting scan cycle execution.")
 
-	// Execute Scan Workflow via Orchestrator
-	probeResults, urlDiffResults, workflowErr := s.scanOrchestrator.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
+	probeResults, urlDiffResults, workflowErr := s.scanOrchestrator.ExecuteScanWorkflow(ctx, seedURLs, summary.ScanSessionID)
 	scanDuration := time.Since(startTime)
 	summary.ScanDuration = scanDuration
 
@@ -397,19 +459,18 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string) (mod
 
 	var reportPath string
 	if workflowErr != nil {
-		s.logger.Error().Err(workflowErr).Str("scan_id", scanSessionID).Msg("Scheduler: Scan workflow execution failed.")
+		s.logger.Error().Err(workflowErr).Str("scan_id_log", logScanID).Msg("Scheduler: Scan workflow execution failed.")
 		if scanDBID > 0 {
 			s.db.UpdateScanCompletion(scanDBID, time.Now(), "FAILED", workflowErr.Error(), 0, 0, 0, "")
 		}
 		summary.Status = string(models.ScanStatusFailed)
 		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Scan workflow failed: %v", workflowErr))
-		return summary, "", workflowErr // Return error and current summary
+		return summary, "", workflowErr
 	}
 
-	s.logger.Info().Str("scan_id", scanSessionID).Msg("Scheduler: Scan workflow completed successfully.")
+	s.logger.Info().Str("scan_id_log", logScanID).Msg("Scheduler: Scan workflow completed successfully.")
 
-	// Generate HTML report
-	reportFilename := fmt.Sprintf("%s_automated_report.html", scanSessionID)
+	reportFilename := fmt.Sprintf("%s_automated_report.html", summary.ScanSessionID)
 	reportPath = filepath.Join(s.globalConfig.ReporterConfig.OutputDir, reportFilename)
 
 	// Convert probeResults to []*models.ProbeResult for reporter
@@ -420,17 +481,15 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string) (mod
 
 	err = s.generateReport(probeResultsPtr, urlDiffResults, reportPath)
 	if err != nil {
-		s.logger.Error().Err(err).Str("scan_id", scanSessionID).Msg("Scheduler: Failed to generate HTML report.")
+		s.logger.Error().Err(err).Str("scan_id_log", logScanID).Msg("Scheduler: Failed to generate HTML report.")
 		if scanDBID > 0 {
 			s.db.UpdateScanCompletion(scanDBID, time.Now(), "PARTIAL_COMPLETE", fmt.Sprintf("Workflow OK, but report generation failed: %v", err), summary.DiffStats.New, summary.DiffStats.Old, summary.DiffStats.Existing, "")
 		}
-		summary.Status = string(models.ScanStatusPartialComplete) // Or Failed, depending on severity
+		summary.Status = string(models.ScanStatusPartialComplete)
 		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Report generation failed: %v", err))
-		// Even if report fails, the scan itself might have been a success in terms of data gathering
-		// Return the error, but the caller (runScanCycleWithRetries) will decide if this is a full failure for retry purposes.
-		return summary, "", err // Return with report error
+		return summary, "", err
 	}
-	s.logger.Info().Str("scan_id", scanSessionID).Str("report_path", reportPath).Msg("Scheduler: HTML report generated successfully.")
+	s.logger.Info().Str("scan_id_log", logScanID).Str("report_path", reportPath).Msg("Scheduler: HTML report generated successfully.")
 	summary.ReportPath = reportPath
 
 	// Record scan completion in DB

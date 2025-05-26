@@ -2,7 +2,6 @@ package notifier
 
 import (
 	"context"
-	"fmt"
 	"monsterinc/internal/config"
 	"monsterinc/internal/models"
 	"time"
@@ -27,89 +26,86 @@ func NewNotificationHelper(dn *DiscordNotifier, cfg config.NotificationConfig, l
 }
 
 // SendScanStartNotification sends a notification when a scan starts.
-func (nh *NotificationHelper) SendScanStartNotification(ctx context.Context, scanID string, targets []string, totalTargets int) {
-	if nh.discordNotifier == nil || !nh.cfg.NotifyOnScanStart {
-		nh.logger.Debug().Msg("DiscordNotifier not configured or NotifyOnScanStart is false, skipping start notification.")
+// It now accepts ScanSummaryData for a more structured approach.
+func (nh *NotificationHelper) SendScanStartNotification(ctx context.Context, summary models.ScanSummaryData) {
+	if !nh.cfg.NotifyOnScanStart || nh.discordNotifier == nil || nh.discordNotifier.disabled {
+		nh.logger.Debug().Msg("Scan start notification disabled or notifier not configured.")
 		return
 	}
 
-	nh.logger.Info().Str("scan_id", scanID).Int("total_targets", totalTargets).Msg("Preparing to send scan start notification.")
-	summary := models.ScanSummaryData{
-		ScanID:       scanID,
-		Targets:      targets,
-		TotalTargets: totalTargets,
-		Status:       string(models.ScanStatusStarted),
-	}
+	nh.logger.Info().Str("scan_session_id", summary.ScanSessionID).Str("target_source", summary.TargetSource).Int("total_targets", summary.TotalTargets).Msg("Preparing to send scan start notification.")
 
 	payload := FormatScanStartMessage(summary, nh.cfg)
-	go func() {
-		if err := nh.discordNotifier.SendNotification(context.Background(), payload, ""); err != nil {
-			nh.logger.Error().Err(err).Str("scan_id", scanID).Msg("Failed to send scan start notification to Discord.")
-		} else {
-			nh.logger.Info().Str("scan_id", scanID).Msg("Scan start notification sent successfully.")
-		}
-	}()
-}
-
-// SendScanCompletionNotification sends a notification when a scan completes (successfully or with failures).
-func (nh *NotificationHelper) SendScanCompletionNotification(ctx context.Context, summary models.ScanSummaryData) {
-	if nh.discordNotifier == nil {
-		nh.logger.Debug().Msg("DiscordNotifier is nil, cannot send completion notification.")
-		return
-	}
-
-	shouldNotify := false
-	currentStatus := models.ScanStatus(summary.Status)
-	switch currentStatus {
-	case models.ScanStatusCompleted:
-		shouldNotify = nh.cfg.NotifyOnSuccess
-	case models.ScanStatusFailed, models.ScanStatusPartialComplete:
-		shouldNotify = nh.cfg.NotifyOnFailure
-	default:
-		nh.logger.Warn().Str("scan_id", summary.ScanID).Str("status", summary.Status).Msg("Unknown or unhandled scan status for completion notification logic. Will not send notification.")
-		return
-	}
-
-	if !shouldNotify {
-		nh.logger.Info().Str("scan_id", summary.ScanID).Str("status", summary.Status).Msg("Notification for scan completion is disabled by config for this status.")
-		return
-	}
-
-	nh.logger.Info().Str("scan_id", summary.ScanID).Str("status", summary.Status).Msg("Preparing to send scan completion notification.")
-	payload := FormatScanCompleteMessage(summary, nh.cfg)
-	reportPath := summary.ReportPath
-
-	if err := nh.discordNotifier.SendNotification(ctx, payload, reportPath); err != nil {
-		nh.logger.Error().Err(err).Str("scan_id", summary.ScanID).Msg("Failed to send scan completion notification to Discord.")
+	err := nh.discordNotifier.SendNotification(ctx, payload, "") // No report file for start notification
+	if err != nil {
+		nh.logger.Error().Err(err).Msg("Failed to send scan start notification")
 	} else {
-		nh.logger.Info().Str("scan_id", summary.ScanID).Msg("Scan completion notification sent successfully.")
+		nh.logger.Info().Str("scan_session_id", summary.ScanSessionID).Msg("Scan start notification sent successfully.")
 	}
 }
 
-// SendCriticalErrorNotification sends a notification for a critical application error.
-func (nh *NotificationHelper) SendCriticalErrorNotification(ctx context.Context, componentName string, errorMessages []string) {
-	if nh.discordNotifier == nil || !nh.cfg.NotifyOnCriticalError {
-		nh.logger.Debug().Msg("DiscordNotifier not configured or NotifyOnCriticalError is false, skipping critical error notification.")
+// SendScanCompletionNotification sends a notification when a scan completes (successfully or with failure).
+func (nh *NotificationHelper) SendScanCompletionNotification(ctx context.Context, summary models.ScanSummaryData) {
+	if nh.discordNotifier == nil || nh.discordNotifier.disabled {
+		nh.logger.Debug().Msg("DiscordNotifier not configured or completion notifications disabled, skipping.")
 		return
 	}
 
-	nh.logger.Info().Str("component", componentName).Interface("errors", errorMessages).Msg("Preparing to send critical error notification.")
-	summary := models.ScanSummaryData{
-		Status:        string(models.ScanStatusCriticalError),
-		Component:     componentName,
-		ErrorMessages: errorMessages,
-		ScanID:        fmt.Sprintf("CriticalError-%s-%d", componentName, time.Now().Unix()), // Add timestamp for uniqueness
-		ScanDuration:  0,
+	notify := false
+	switch models.ScanStatus(summary.Status) {
+	case models.ScanStatusCompleted, models.ScanStatusPartialComplete:
+		if nh.cfg.NotifyOnSuccess {
+			notify = true
+		}
+	case models.ScanStatusFailed, models.ScanStatusInterrupted:
+		if nh.cfg.NotifyOnFailure {
+			notify = true
+		}
+	default:
+		nh.logger.Warn().Str("status", summary.Status).Msg("Unknown scan status for notification, skipping.")
+		return
 	}
 
-	payload := FormatCriticalErrorMessage(summary, nh.cfg)
-	// Use a cancellableCtx with a timeout to ensure this notification attempts to send even if main ctx is ending.
-	cancellableCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if !notify {
+		nh.logger.Debug().Str("status", summary.Status).Msg("Notification for this scan status is disabled, skipping.")
+		return
+	}
+
+	nh.logger.Info().Str("scan_session_id", summary.ScanSessionID).Str("target_source", summary.TargetSource).Str("status", summary.Status).Msg("Preparing to send scan completion notification.")
+
+	payload := FormatScanCompleteMessage(summary, nh.cfg)
+	// Use a new context for sending completion notification to avoid issues if the original context is already cancelled.
+	notificationCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := nh.discordNotifier.SendNotification(cancellableCtx, payload, ""); err != nil {
-		nh.logger.Error().Err(err).Str("component", componentName).Msg("Failed to send critical error notification to Discord.")
+	err := nh.discordNotifier.SendNotification(notificationCtx, payload, summary.ReportPath)
+	if err != nil {
+		nh.logger.Error().Err(err).Str("scan_session_id", summary.ScanSessionID).Msg("Failed to send scan completion notification")
 	} else {
-		nh.logger.Info().Str("component", componentName).Msg("Critical error notification sent successfully.")
+		nh.logger.Info().Str("scan_session_id", summary.ScanSessionID).Msg("Scan completion notification sent successfully.")
+	}
+}
+
+// SendCriticalErrorNotification sends a notification for critical application errors.
+// componentName helps identify where the error occurred (e.g., "SchedulerInitialization", "ConfigLoad").
+// summaryData contains error messages and other relevant info.
+func (nh *NotificationHelper) SendCriticalErrorNotification(ctx context.Context, componentName string, summaryData models.ScanSummaryData) {
+	if !nh.cfg.NotifyOnCriticalError || nh.discordNotifier == nil || nh.discordNotifier.disabled {
+		nh.logger.Debug().Msg("Critical error notification disabled or notifier not configured.")
+		return
+	}
+	// Ensure component name is set in summary if not already
+	if summaryData.Component == "" {
+		summaryData.Component = componentName
+	}
+
+	nh.logger.Info().Str("component", summaryData.Component).Strs("errors", summaryData.ErrorMessages).Msg("Preparing to send critical error notification.")
+
+	payload := FormatCriticalErrorMessage(summaryData, nh.cfg)
+	err := nh.discordNotifier.SendNotification(ctx, payload, "") // No report file for critical errors
+	if err != nil {
+		nh.logger.Error().Err(err).Str("component", summaryData.Component).Msg("Failed to send critical error notification")
+	} else {
+		nh.logger.Info().Str("component", summaryData.Component).Msg("Critical error notification sent successfully.")
 	}
 }

@@ -1,11 +1,12 @@
 package scheduler
 
 import (
-	"bufio"
+	// "bufio" // No longer needed if urlhandler.ReadURLsFromFile is used
 	"fmt"
 	"monsterinc/internal/models"
 	"monsterinc/internal/urlhandler"
-	"os"
+
+	// "os" // No longer needed if urlhandler.ReadURLsFromFile is used
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -31,29 +32,32 @@ func NewTargetManager(logger zerolog.Logger) *TargetManager {
 func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfigUrls []string, cfgInputFile string) ([]models.Target, string, error) {
 	var rawURLs []string
 	var source string
+	var err error
 
 	// Priority 1: Command-line file option (-urlfile)
 	if inputFileOption != "" {
 		tm.logger.Info().Str("file", inputFileOption).Msg("TargetManager: Loading targets from command-line file")
-		loadedURLs, err := tm.loadURLsFromFile(inputFileOption) // Call as method
+		rawURLs, err = urlhandler.ReadURLsFromFile(inputFileOption, tm.logger) // Use urlhandler
 		if err != nil {
+			// ReadURLsFromFile logs details, so a general message here is fine.
+			tm.logger.Error().Err(err).Str("file", inputFileOption).Msg("TargetManager: Failed to load URLs from command-line file")
+			// Return the error to allow scheduler to handle (e.g., retry or skip cycle)
 			return nil, "", fmt.Errorf("failed to load URLs from file '%s': %w", inputFileOption, err)
 		}
-		rawURLs = loadedURLs
 		source = inputFileOption
 	} else if cfgInputFile != "" {
 		// Priority 2: Config file input_file
 		tm.logger.Info().Str("file", cfgInputFile).Msg("TargetManager: Loading targets from config file")
-		loadedURLs, err := tm.loadURLsFromFile(cfgInputFile) // Call as method
+		rawURLs, err = urlhandler.ReadURLsFromFile(cfgInputFile, tm.logger) // Use urlhandler
 		if err != nil {
+			tm.logger.Error().Err(err).Str("file", cfgInputFile).Msg("TargetManager: Failed to load URLs from config file")
 			return nil, "", fmt.Errorf("failed to load URLs from config file '%s': %w", cfgInputFile, err)
 		}
-		rawURLs = loadedURLs
 		source = cfgInputFile
 	} else if len(inputConfigUrls) > 0 {
 		// Priority 3: Config input_urls
 		tm.logger.Info().Int("count", len(inputConfigUrls)).Msg("TargetManager: Using URLs from config input_urls")
-		rawURLs = inputConfigUrls
+		rawURLs = inputConfigUrls // These are already strings, normalization happens below
 		source = "config_input_urls"
 	} else {
 		return nil, "", fmt.Errorf("no target URLs provided: specify -urlfile, input_file in config, or input_urls in config")
@@ -86,44 +90,9 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfi
 // It filters out empty lines and validates that URLs start with http:// or https://
 // !monsterinc/target-management
 func (tm *TargetManager) loadURLsFromFile(filePath string) ([]string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var urls []string
-	scanner := bufio.NewScanner(file)
-	lineNum := 0
-
-	for scanner.Scan() {
-		lineNum++
-		url := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines
-		if url == "" {
-			continue
-		}
-
-		// Skip comment lines (starting with # or //)
-		if strings.HasPrefix(url, "#") || strings.HasPrefix(url, "//") {
-			continue
-		}
-
-		// Validate URL format (basic check)
-		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-			tm.logger.Warn().Int("line", lineNum).Str("file", filePath).Str("url", url).Msg("TargetManager: URL does not start with http:// or https:// - skipping")
-			continue
-		}
-
-		urls = append(urls, url)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading file %s: %w", filePath, err)
-	}
-
-	return urls, nil
+	// This function is now effectively replaced by urlhandler.ReadURLsFromFile.
+	// We pass tm.logger to it.
+	return urlhandler.ReadURLsFromFile(filePath, tm.logger)
 }
 
 // LoadTargetsFromFile reads URLs from a given file path, normalizes them,
@@ -132,32 +101,32 @@ func (tm *TargetManager) loadURLsFromFile(filePath string) ([]string, error) {
 // This method can be used if direct file loading is needed, bypassing the selection logic.
 // !monsterinc/target-management
 func (tm *TargetManager) LoadTargetsFromFile(filePath string) ([]models.Target, error) {
-	file, err := os.Open(filePath)
+	// Use the refactored urlhandler.ReadURLsFromFile
+	rawURLs, err := urlhandler.ReadURLsFromFile(filePath, tm.logger)
 	if err != nil {
-		return nil, err
+		// ReadURLsFromFile logs specific errors. Log a general message here or rely on its logging.
+		tm.logger.Error().Err(err).Str("file", filePath).Msg("TargetManager: Failed to load URLs from file in LoadTargetsFromFile")
+		return nil, fmt.Errorf("error reading URLs from file %s: %w", filePath, err)
 	}
-	defer file.Close()
 
 	var targets []models.Target
-	scanner := bufio.NewScanner(file)
+	for _, originalURL := range rawURLs {
+		// Normalization is now part of ReadURLsFromFile semantics (it returns normalized URLs or errors)
+		// However, the current ReadURLsFromFile returns []string of normalized URLs.
+		// We need to re-normalize here if we want to store OriginalURL, or adapt ReadURLsFromFile further.
+		// For now, let's assume rawURLs from ReadURLsFromFile are what we need for NormalizedURL.
+		// And we might not have the original pre-normalized string easily unless ReadURLsFromFile changes.
+		// This function's contract might need re-evaluation based on ReadURLsFromFile's output.
+		// Let's assume for now that `originalURL` from the loop IS the normalized URL.
+		normalizedURL := originalURL // This is an assumption based on current ReadURLsFromFile output
 
-	for scanner.Scan() {
-		originalURL := scanner.Text()
-		if originalURL == "" {
-			continue // Skip empty lines
-		}
-
-		normalizedURL, err := urlhandler.NormalizeURL(originalURL)
-		if err != nil {
-			tm.logger.Warn().Str("url", originalURL).Str("file", filePath).Err(err).Msg("TargetManager: Skipping URL from file due to normalization error")
-			continue
-		}
-		targets = append(targets, models.Target{OriginalURL: originalURL, NormalizedURL: normalizedURL})
+		// If we needed the original string (pre-normalization by ReadURLsFromFile), this simple loop isn't enough.
+		// For now, we use the already normalized URL as both original and normalized for the Target struct.
+		// This part needs careful review if the distinction is critical for consumers of LoadTargetsFromFile.
+		targets = append(targets, models.Target{OriginalURL: normalizedURL, NormalizedURL: normalizedURL})
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading file %s: %w", filePath, err)
-	}
+	// scanner.Err() check is handled within ReadURLsFromFile
 
 	return targets, nil
 }

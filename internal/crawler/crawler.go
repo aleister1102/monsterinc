@@ -1,7 +1,9 @@
 package crawler
 
 import (
+	"context"
 	"errors" // Added for resolveURL
+
 	// Added for more detailed logging
 	"fmt" // Placeholder for proper logging integration later
 	"net/http"
@@ -39,6 +41,7 @@ type Crawler struct {
 	headTimeout      time.Duration
 	logger           zerolog.Logger
 	config           *config.CrawlerConfig
+	ctx              context.Context // Added context
 }
 
 // configureCollyCollector sets up and configures a new colly.Collector instance based on CrawlerConfig.
@@ -76,12 +79,32 @@ func (cr *Crawler) handleError(r *colly.Response, e error) {
 	cr.mutex.Lock()
 	cr.totalErrors++
 	cr.mutex.Unlock()
+	// Check if context was cancelled, which might cause some errors
+	if cr.ctx != nil {
+		select {
+		case <-cr.ctx.Done():
+			cr.logger.Warn().Str("url", r.Request.URL.String()).Err(e).Msg("Request failed after context cancellation")
+			return
+		default:
+		}
+	}
 	cr.logger.Error().Str("url", r.Request.URL.String()).Int("status", r.StatusCode).Err(e).Msg("Request failed")
 }
 
 // handleRequest is a Colly callback executed before a request is made.
 // It checks if the request URL path is disallowed by regex patterns.
 func (cr *Crawler) handleRequest(r *colly.Request) {
+	// Check context cancellation first
+	if cr.ctx != nil {
+		select {
+		case <-cr.ctx.Done():
+			cr.logger.Info().Str("url", r.URL.String()).Msg("Context cancelled, aborting request")
+			r.Abort()
+			return
+		default:
+		}
+	}
+
 	if cr.Scope != nil && len(cr.Scope.DisallowedPathPatterns) > 0 {
 		path := r.URL.Path
 		for _, re := range cr.Scope.DisallowedPathPatterns {
@@ -131,7 +154,9 @@ func NewCrawler(cfg *config.CrawlerConfig, httpClient *http.Client, appLogger ze
 
 	// Validate essential configurations
 	if len(cfg.SeedURLs) == 0 {
-		return nil, errors.New("crawler initialization requires at least one seed URL in the configuration")
+		// Allow crawler to be initialized without seed URLs, as Orchestrator might not have them
+		// if the input source is empty. Crawler.Start will handle empty seeds.
+		moduleLogger.Warn().Msg("Crawler initialized with no seed URLs in config. Orchestrator will provide seeds at Start, or crawler will do nothing.")
 	}
 
 	// Use defaults from CrawlerConfig if specific values are not set or are zero-values
@@ -210,6 +235,16 @@ func NewCrawler(cfg *config.CrawlerConfig, httpClient *http.Client, appLogger ze
 
 // DiscoverURL attempts to add a new URL to the crawl queue if it hasn't been discovered and processed by us yet.
 func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
+	// Check context cancellation
+	if cr.ctx != nil {
+		select {
+		case <-cr.ctx.Done():
+			cr.logger.Debug().Str("raw_url", rawURL).Msg("Context cancelled, skipping URL discovery")
+			return
+		default:
+		}
+	}
+
 	absURL, err := urlhandler.ResolveURL(rawURL, base)
 	if err != nil {
 		cr.logger.Warn().Str("raw_url", rawURL).Str("base", base.String()).Err(err).Msg("Could not resolve URL")
@@ -294,7 +329,8 @@ func (cr *Crawler) GetDiscoveredURLs() []string {
 }
 
 // Start initiates the crawling process with the configured seed URLs.
-func (cr *Crawler) Start() {
+func (cr *Crawler) Start(ctx context.Context) {
+	cr.ctx = ctx // Store context
 	cr.crawlStartTime = time.Now()
 	// Reset counters for multiple Start calls on the same crawler instance, if that's a use case.
 	// cr.totalVisited = 0
@@ -304,6 +340,13 @@ func (cr *Crawler) Start() {
 	cr.logger.Info().Int("seed_count", len(cr.seedURLs)).Strs("seeds", cr.seedURLs).Msg("Starting crawl")
 
 	for _, seed := range cr.seedURLs {
+		// Check context before processing each seed
+		select {
+		case <-cr.ctx.Done():
+			cr.logger.Info().Msg("Context cancelled during seed processing, stopping crawler start.")
+			return
+		default:
+		}
 		// Resolve the seed URL against nil base to ensure it's absolute and valid
 		// DiscoverURL will then handle adding it to the collector
 		parsedSeed, err := urlhandler.ResolveURL(seed, nil) // base is nil for seed
@@ -319,6 +362,13 @@ func (cr *Crawler) Start() {
 	// Wait for crawling to complete
 	cr.logger.Info().Int("active_threads", cr.Threads).Msg("Waiting for threads to complete")
 	cr.Collector.Wait()
+
+	// Check context after Wait as well, in case it was cancelled while waiting.
+	select {
+	case <-cr.ctx.Done():
+		cr.logger.Info().Msg("Context cancelled while waiting for collector to finish.")
+	default:
+	}
 
 	cr.logSummary()
 }

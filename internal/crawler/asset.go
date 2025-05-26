@@ -94,7 +94,7 @@ func ExtractAssetsFromHTML(htmlContent []byte, basePageURL *url.URL, crawlerInst
 
 			asset := models.Asset{
 				AbsoluteURL:    absoluteURL,
-				SourceTag:      s.Nodes[i].Data,
+				SourceTag:      s.Nodes[0].Data,
 				SourceAttr:     attributeName,
 				Type:           assetType,
 				DiscoveredAt:   time.Now(),

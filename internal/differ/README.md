@@ -1,34 +1,57 @@
-# Package differ
+# Differ Package (`internal/differ`)
 
-This package is responsible for comparing current scan results with historical data to identify changes (new, old, existing URLs).
+This package is responsible for comparing current scan results against historical data to identify new, existing, and old URLs.
 
-## Components
+## Core Component
 
-### `UrlDiffer`
+-   **`url_differ.go`**: Defines the `UrlDiffer` struct and its methods.
+    -   `NewUrlDiffer(pr *datastore.ParquetReader, logger zerolog.Logger) *UrlDiffer`: Constructor that takes a `datastore.ParquetReader` (to access historical data) and a logger.
+    -   `Compare(currentScanProbes []*models.ProbeResult, rootTarget string) (*models.URLDiffResult, error)`: This is the main method for performing the comparison.
+        1.  It calls `ud.parquetReader.FindAllProbeResultsForTarget(rootTarget)` to fetch all historical `models.ProbeResult` records from the single `data.parquet` file associated with the `rootTarget`.
+        2.  It compares the `currentScanProbes` with the `historicalProbes` based on `InputURL`.
+        3.  It populates a `models.URLDiffResult` struct with:
+            *   `RootTargetURL`: The target being diffed.
+            *   `Results`: A slice of `models.DiffedURL` objects. Each `DiffedURL` contains a `ProbeResult` which includes a `URLStatus` field set to `models.StatusNew`, `models.StatusExisting`, or `models.StatusOld`.
+            *   Counts for `New`, `Old`, and `Existing` URLs.
+            *   An `Error` field if any issues occurred during the diffing process (e.g., failure to read historical data).
+        4.  The `ProbeResult` within `DiffedURL` for "old" URLs will be the data from the historical scan. For "new" and "existing" URLs, it will be the data from the `currentScanProbes` (with `URLStatus` and potentially `OldestScanTimestamp` updated).
 
-- **`NewUrlDiffer(pr *datastore.ParquetReader, logger *log.Logger) *UrlDiffer`**: Constructor for `UrlDiffer`. It takes a `datastore.ParquetReader` to fetch historical data and a `log.Logger`.
-- **`Compare(currentScanResults []models.ProbeResult, rootTargetURL string) (*models.URLDiffResult, error)`**: This is the main method that performs the comparison.
-    1. It calls `parquetReader.FindMostRecentScanURLs(rootTargetURL)` to get a list of URLs from the most recent previous scan for the given `rootTargetURL`.
-    2. If `FindMostRecentScanURLs` returns an error or an empty list (no historical data), it logs this and treats the current scan as a "first scan" (all current URLs will likely be marked as new or existing based on context, typically new).
-    3. It uses maps for efficient comparison of current URLs (from `currentScanResults`, normalized using `FinalURL` or `InputURL` as fallback) against the historical URLs.
-    4. It populates a `models.URLDiffResult` struct with:
-        - `RootTargetURL`: The target URL for which the diff was performed.
-        - `Results`: A slice of `models.DiffedURL` structs, where each struct contains:
-            - `NormalizedURL`: The URL being reported.
-            - `Status`: `models.StatusNew`, `models.StatusOld`, or `models.StatusExisting`.
-            - `LastSeenData`: For `StatusNew` and `StatusExisting` URLs, this is the `models.ProbeResult` from the `currentScanResults`. For `StatusOld` URLs, this field might be minimally populated or require further enhancement if detailed historical data is needed for old URLs in the report.
-    5. Logs a summary of the diff operation (counts of new, old, existing URLs).
+## Logic Overview
 
-## Data Models
-
-- Uses `models.ProbeResult` to represent current scan data.
-- Produces `models.URLDiffResult` which contains `models.DiffedURL` items, each with a `models.URLStatus`.
+1.  **Fetch Historical Data**: The `UrlDiffer` uses the `ParquetReader` to load all probe results from the specific target's `data.parquet` file. This file contains the consolidated history for that target.
+2.  **Map Creation**: For efficient lookup, both current and historical probe results are temporarily placed into maps keyed by their `InputURL`.
+3.  **Comparison & Status Assignment**:
+    *   **Existing URLs**: If a URL from the current scan is found in the historical data map, its status is marked as `models.StatusExisting`.
+    *   **New URLs**: If a URL from the current scan is *not* found in the historical data map, its status is marked as `models.StatusNew`.
+    *   **Old URLs**: If a URL from the historical data is *not* found in the current scan map, its status is marked as `models.StatusOld`. The historical data for this URL is preserved in the diff result.
+4.  **Result Aggregation**: The `URLDiffResult` structure is populated with all diffed URLs and summary counts.
 
 ## Dependencies
 
-- `internal/datastore`: To read historical scan data via `ParquetReader`.
-- `internal/models`: For data structures like `ProbeResult`, `URLDiffResult`, `DiffedURL`, and `URLStatus`.
+-   `internal/datastore`: Specifically, `ParquetReader` to fetch historical scan data.
+-   `internal/models`: For data structures like `ProbeResult`, `URLDiffResult`, `DiffedURL`, and status constants (`StatusNew`, `StatusOld`, `StatusExisting`).
+-   `github.com/rs/zerolog`: For logging.
 
-## Logging
+## Usage Example (Conceptual)
 
-- `UrlDiffer` uses a `log.Logger` for its operations, including the start and completion of diffing, errors encountered while fetching historical data, and counts of different URL statuses. 
+```go
+// Assuming pqReader is an initialized *datastore.ParquetReader
+// and logger is an initialized zerolog.Logger
+differ := differ.NewUrlDiffer(pqReader, logger)
+
+// currentScanResults would come from the orchestrator after a scan
+currentScanResults := []*models.ProbeResult{
+    // ... populated probe results ...
+}
+rootTarget := "example.com"
+
+diffReport, err := differ.Compare(currentScanResults, rootTarget)
+if err != nil {
+    // Handle error
+    logger.Error().Err(err).Msg("Failed to compare URL results")
+    return
+}
+
+logger.Info().Int("new_urls", diffReport.New).Int("old_urls", diffReport.Old).Msg("Diff complete")
+// Process diffReport.Results which contains all DiffedURL entries
+``` 
