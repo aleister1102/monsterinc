@@ -150,8 +150,8 @@ crawler_config:
     # List of hostnames the crawler is allowed to visit.
     # Default: [] (meaning all hostnames are allowed if not disallowed)
     allowed_hostnames:
-      # - "www.example.com"
-      # - "api.example.com"
+      - "insomnia1102.online"
+      - "example.com"
     # List of subdomains the crawler is allowed to visit (relative to seed domains or allowed_hostnames).
     # Default: []
     allowed_subdomains:
@@ -172,8 +172,8 @@ crawler_config:
     # Default: []
     disallowed_path_regexes:
       # - "/admin/.*"
-      - "\.js$"
-      - "\.txt$"
+      - "\\.js$"
+      - "\\.txt$"
   # Maximum content length in MB to download for a page.
   # Default: 2
   max_content_length_mb: 2
@@ -223,13 +223,13 @@ notification_config:
     # - "123456789012345678" # Example Role ID
   # Send a notification when a scan completes successfully.
   # Default: false
-  notify_on_success: false
+  notify_on_success: true
   # Send a notification when a scan fails.
   # Default: true
   notify_on_failure: true
   # Send a notification when a scan starts.
   # Default: false
-  notify_on_scan_start: false
+  notify_on_scan_start: true
   # Send a notification on critical errors during the application run.
   # Default: true
   notify_on_critical_error: true
@@ -267,15 +267,15 @@ monitor_config:
   # Comma-separated list of JavaScript file extensions to monitor.
   # Default: [".js", ".jsx", ".ts", ".tsx"] (derived from ".js,.jsx,.ts,.tsx")
   js_file_extensions:
-    - ".js"
-    - ".jsx"
-    - ".ts"
-    - ".tsx"
+    - "\\.js"
+    - "\\.jsx"
+    - "\\.ts"
+    - "\\.tsx"
   # Comma-separated list of HTML file extensions to monitor.
   # Default: [".html", ".htm"] (derived from ".html,.htm")
   html_file_extensions:
-    - ".html"
-    - ".htm"
+    - "\\.html"
+    - "\\.htm"
 
 # NormalizerConfig: Configuration related to URL normalization (currently minimal).
 # This section might be expanded in the future if more complex normalization rules are needed.
@@ -288,7 +288,7 @@ normalizer_config: {}
 scheduler_config:
   # Scan cycle interval in minutes. The time between the end of one scan and the start of the next.
   # Default: 10080 (equivalent to 7 days)
-  cycle_minutes: 10080
+  cycle_minutes: 3
   # Number of retry attempts if a scheduled scan fails.
   # Default: 2
   retry_attempts: 2
