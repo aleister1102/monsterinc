@@ -12,16 +12,35 @@ const (
 	StatusExisting URLStatus = "existing"
 )
 
-// DiffedURL represents a URL along with its diff status and potentially its last known data.
+// DiffedURL represents a URL that has been compared and its status determined.
+// It now directly embeds/references ProbeResult which holds all necessary data including its status.
 type DiffedURL struct {
-	NormalizedURL string      `json:"normalized_url"`
-	Status        URLStatus   `json:"status"`
-	LastSeenData  ProbeResult `json:"last_seen_data,omitempty"` // Used for StatusOld URLs
+	ProbeResult ProbeResult // Embeds or references ProbeResult, which includes URLStatus and other details
+	// Status URLStatus // Removed: Status is now part of ProbeResult
+	// OldestScanTimestamp *time.Time // Removed: This information, if needed, should be part of ProbeResult (e.g., LastSeen)
 }
 
 // URLDiffResult represents the result of a URL diff operation for a specific root target.
 type URLDiffResult struct {
 	RootTargetURL string      `json:"root_target_url"`
-	Results       []DiffedURL `json:"results"`
+	Results       []DiffedURL `json:"results,omitempty"` // Keep omitempty if results can be nil/empty
+	New           int         `json:"new"`
+	Old           int         `json:"old"`
+	Existing      int         `json:"existing"`
+	Error         string      `json:"error,omitempty"`
 }
- 
+
+// CountStatuses counts the number of DiffedURL entries in Results that match the given status.
+func (udr *URLDiffResult) CountStatuses(statusToMatch URLStatus) int {
+	if udr == nil || udr.Results == nil {
+		return 0
+	}
+	count := 0
+	for _, r := range udr.Results {
+		// URLStatus in ProbeResult is string, so cast statusToMatch to string for comparison
+		if r.ProbeResult.URLStatus == string(statusToMatch) {
+			count++
+		}
+	}
+	return count
+}

@@ -35,9 +35,9 @@ func NewParquetReader(cfg *config.StorageConfig, logger *log.Logger) *ParquetRea
 	}
 }
 
-// FindHistoricalURLsForTarget finds the historical scan data for a given rootTargetURL
-// by looking for a specific Parquet file named after the target, directly in ParquetBasePath.
-func (pr *ParquetReader) FindHistoricalURLsForTarget(rootTargetURL string) ([]string, error) {
+// FindHistoricalDataForTarget finds the historical scan data for a given rootTargetURL
+// and returns it as a slice of models.ProbeResult.
+func (pr *ParquetReader) FindHistoricalDataForTarget(rootTargetURL string) ([]models.ProbeResult, error) {
 	if pr.storageConfig == nil || pr.storageConfig.ParquetBasePath == "" {
 		pr.logger.Println("[ERROR] ParquetReader: ParquetBasePath is not configured.")
 		return nil, fmt.Errorf("ParquetBasePath not configured")
@@ -45,26 +45,26 @@ func (pr *ParquetReader) FindHistoricalURLsForTarget(rootTargetURL string) ([]st
 
 	sanitizedTargetName := urlhandler.SanitizeFilename(rootTargetURL)
 	if sanitizedTargetName == "sanitized_empty_input" || sanitizedTargetName == "" {
-		pr.logger.Printf("[WARN] FindHistoricalURLsForTarget: Root target '%s' sanitized to empty or default empty. Cannot find file.", rootTargetURL)
-		return []string{}, nil
+		pr.logger.Printf("[WARN] FindHistoricalDataForTarget: Root target '%s' sanitized to empty. Cannot find file.", rootTargetURL)
+		return []models.ProbeResult{}, nil
 	}
 
 	fileName := fmt.Sprintf("%s.parquet", sanitizedTargetName)
 	filePathToRead := filepath.Join(pr.storageConfig.ParquetBasePath, fileName)
 
-	pr.logger.Printf("Attempting to read historical data for target %s from: %s", rootTargetURL, filePathToRead)
-	return pr.readURLsFromSpecificFile(filePathToRead, rootTargetURL)
+	pr.logger.Printf("Attempting to read historical ProbeResult data for target %s from: %s", rootTargetURL, filePathToRead)
+	return pr.readProbeResultsFromSpecificFile(filePathToRead, rootTargetURL)
 }
 
-// readURLsFromSpecificFile is a helper to read URLs from a given Parquet file path.
-func (pr *ParquetReader) readURLsFromSpecificFile(filePathToRead string, contextualRootTargetURL string) ([]string, error) {
-	pr.logger.Printf("Reading historical data for context target '%s' from specific file: %s", contextualRootTargetURL, filePathToRead)
+// readProbeResultsFromSpecificFile reads full ProbeResult records from a given Parquet file.
+func (pr *ParquetReader) readProbeResultsFromSpecificFile(filePathToRead string, contextualRootTargetURL string) ([]models.ProbeResult, error) {
+	pr.logger.Printf("Reading historical ProbeResult data for context target '%s' from specific file: %s", contextualRootTargetURL, filePathToRead)
 
 	file, err := os.Open(filePathToRead)
 	if err != nil {
 		if os.IsNotExist(err) {
 			pr.logger.Printf("Parquet file does not exist at %s (context: %s). No historical data.", filePathToRead, contextualRootTargetURL)
-			return []string{}, nil // No error, just no data
+			return []models.ProbeResult{}, nil
 		}
 		pr.logger.Printf("Error opening parquet file %s: %v.", filePathToRead, err)
 		return nil, fmt.Errorf("error opening parquet file %s: %w", filePathToRead, err)
@@ -80,8 +80,8 @@ func (pr *ParquetReader) readURLsFromSpecificFile(filePathToRead string, context
 	}
 
 	reader := parquet.NewGenericReader[models.ParquetProbeResult](file)
-	var urlsInFile []string
-	rowsBuffer := make([]models.ParquetProbeResult, 100) // Read in batches of 100
+	var results []models.ProbeResult
+	rowsBuffer := make([]models.ParquetProbeResult, 100)
 	totalRowsRead := 0
 
 	// Log schema if possible - parquet-go might not expose this easily for GenericReader
@@ -95,9 +95,9 @@ func (pr *ParquetReader) readURLsFromSpecificFile(filePathToRead string, context
 		}
 
 		if n > 0 {
-			pr.logger.Printf("Read %d rows in current batch from %s. First row OriginalURL (if available): '%s'", n, filePathToRead, rowsBuffer[0].OriginalURL)
+			pr.logger.Printf("Read %d ParquetProbeResult rows in current batch from %s.", n, filePathToRead)
 			for i := 0; i < n; i++ {
-				urlsInFile = append(urlsInFile, rowsBuffer[i].OriginalURL)
+				results = append(results, rowsBuffer[i].ToProbeResult())
 			}
 			totalRowsRead += n
 		}
@@ -118,14 +118,23 @@ func (pr *ParquetReader) readURLsFromSpecificFile(filePathToRead string, context
 		// Not returning error on close if we already got data, but logging it.
 	}
 
-	pr.logger.Printf("Successfully read %d total URLs from Parquet file: %s (context: %s)", len(urlsInFile), filePathToRead, contextualRootTargetURL)
-	return urlsInFile, nil
+	pr.logger.Printf("Successfully read and converted %d total ProbeResults from Parquet file: %s (context: %s)", len(results), filePathToRead, contextualRootTargetURL)
+	return results, nil
 }
 
-// FindMostRecentScanURLs is DEPRECATED. Callers should migrate to FindHistoricalURLsForTarget.
-// This deprecated version now directly calls FindHistoricalURLsForTarget as the logic should be identical
-// (finding a single file for the target, not iterating date directories).
+// FindMostRecentScanURLs is DEPRECATED and callers should be updated.
+// If needed for backward compatibility, it would call FindHistoricalDataForTarget and extract URLs.
 func (pr *ParquetReader) FindMostRecentScanURLs(rootTargetURL string) ([]string, error) {
-	pr.logger.Printf("[WARN] FindMostRecentScanURLs is deprecated. Calling FindHistoricalURLsForTarget instead for target: %s", rootTargetURL)
-	return pr.FindHistoricalURLsForTarget(rootTargetURL)
+	pr.logger.Printf("[WARN] FindMostRecentScanURLs is deprecated and will be removed. Update callers to use FindHistoricalDataForTarget or alternative. For target: %s", rootTargetURL)
+	historicalData, err := pr.FindHistoricalDataForTarget(rootTargetURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get historical data via FindHistoricalDataForTarget: %w", err)
+	}
+	urls := make([]string, len(historicalData))
+	for i, data := range historicalData {
+		// Determine which URL to return based on previous logic (e.g., InputURL or FinalURL)
+		// Assuming InputURL was the key previously.
+		urls[i] = data.InputURL
+	}
+	return urls, nil
 }

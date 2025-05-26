@@ -37,7 +37,7 @@ type ProbeResultDisplay struct {
 	HasCNAMEs       bool   // Helper
 	HasIPs          bool   // Helper
 	RootTargetURL   string // Added for multi-target navigation
-	URLStatus       string `json:"url_status,omitempty"` // Added for diff status (new, old, existing)
+	URLStatus       string `json:"diff_status,omitempty"` // Changed from URLStatus
 }
 
 // ReportPageData holds all the data needed to render the HTML report page.
@@ -65,21 +65,15 @@ type ReportPageData struct {
 	ShowTimelineView   bool                     // Future feature?
 	ErrorMessage       string                   // If report generation has a top-level error
 	FaviconBase64      string                   // Base64 encoded favicon
-	ProbeResultsJSON   template.JS              // JSON cho JS client
+	ProbeResultsJSON   template.JS              `json:"-"` // JSON string of ProbeResults for JavaScript processing
+
+	// Diffing summary data, map key is RootTargetURL
+	DiffSummaryData map[string]DiffSummaryEntry `json:"diff_summary_data"`
 }
 
 // ReporterConfigForTemplate is a subset of reporter configurations relevant for the template.
 type ReporterConfigForTemplate struct {
 	ItemsPerPage int
-}
-
-// formatTime formats a time.Time object into a string using the specified layout.
-// Returns "N/A" if the time is zero.
-func formatTime(t time.Time, layout string) string {
-	if t.IsZero() {
-		return "N/A"
-	}
-	return t.Format(layout)
 }
 
 // Helper function to transform ProbeResult to ProbeResultDisplay
@@ -111,12 +105,12 @@ func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
 		TLSVersion:      pr.TLSVersion,
 		TLSCipher:       pr.TLSCipher,
 		TLSCertIssuer:   pr.TLSCertIssuer,
-		TLSCertExpiry:   formatTime(pr.TLSCertExpiry, "2006-01-02"),
+		TLSCertExpiry:   FormatTimeOptional(pr.TLSCertExpiry, "2006-01-02"),
 		Duration:        pr.Duration,
 		Headers:         pr.Headers,
 		Body:            pr.Body, // Consider snippet or link
 		Error:           pr.Error,
-		Timestamp:       formatTime(pr.Timestamp, "2006-01-02 15:04:05 MST"),
+		Timestamp:       FormatTimeOptional(pr.Timestamp, "2006-01-02 15:04:05 MST"),
 		IsSuccess:       isSuccess,
 		HasTechnologies: len(technologies) > 0,
 		HasTLS:          pr.TLSVersion != "",
@@ -124,7 +118,6 @@ func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
 		HasCNAMEs:       len(pr.CNAMEs) > 0,
 		HasIPs:          len(pr.IPs) > 0,
 		RootTargetURL:   pr.RootTargetURL, // Use the correct RootTargetURL from ProbeResult
-		URLStatus:       pr.URLStatus,     // Pass through URLStatus from ProbeResult
 	}
 }
 
@@ -148,4 +141,12 @@ func GetDefaultReportPageData() ReportPageData {
 		ItemsPerPage:     10,   // Default, should come from config
 		EnableDataTables: true, // Default, should come from config
 	}
+}
+
+// DiffSummaryEntry holds counts for a specific root target's diff results
+type DiffSummaryEntry struct {
+	NewCount      int `json:"new_count"`
+	OldCount      int `json:"old_count"`
+	ExistingCount int `json:"existing_count"`
+	ChangedCount  int `json:"changed_count"` // Keep for future use
 }

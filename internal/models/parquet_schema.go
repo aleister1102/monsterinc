@@ -1,7 +1,9 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
+	// "monsterinc/internal/utils" // Removed: Imported and not used, and caused naming conflict
 )
 
 // Required for TLSCertExpiry potentially if it becomes time.Time
@@ -42,4 +44,61 @@ func TimePtrToUnixMilliOptional(t time.Time) *int64 {
 	}
 	millis := t.UnixMilli()
 	return &millis
+}
+
+// ToProbeResult converts a ParquetProbeResult back to a models.ProbeResult.
+func (ppr *ParquetProbeResult) ToProbeResult() ProbeResult {
+	var headers map[string]string
+	if ppr.HeadersJSON != nil && *ppr.HeadersJSON != "" {
+		if err := json.Unmarshal([]byte(*ppr.HeadersJSON), &headers); err != nil {
+			// Log or handle error appropriately, for now, headers will be nil
+		}
+	}
+
+	var technologies []Technology
+	for _, name := range ppr.Technologies { // Assuming ppr.Technologies is []string
+		technologies = append(technologies, Technology{Name: name})
+	}
+
+	return ProbeResult{
+		InputURL:            ppr.OriginalURL,
+		FinalURL:            StringFromPtr(ppr.FinalURL),
+		Method:              StringFromPtr(ppr.Method),
+		Timestamp:           UnixMilliToTimeOptional(ppr.LastSeenTimestamp), // Corrected: Call directly from models package
+		Error:               StringFromPtr(ppr.ProbeError),
+		RootTargetURL:       StringFromPtr(ppr.RootTargetURL),
+		StatusCode:          int(Int32FromPtr(ppr.StatusCode)),
+		ContentLength:       Int64FromPtr(ppr.ContentLength),
+		ContentType:         StringFromPtr(ppr.ContentType),
+		Headers:             headers,
+		Title:               StringFromPtr(ppr.Title),
+		WebServer:           StringFromPtr(ppr.WebServer),
+		IPs:                 ppr.IPAddress,
+		Technologies:        technologies,
+		URLStatus:           StringFromPtr(ppr.DiffStatus),
+		OldestScanTimestamp: UnixMilliToTimeOptional(ppr.FirstSeenTimestamp), // Corrected: Call directly from models package
+	}
+}
+
+// Helper functions to convert from pointer to value (or zero value if nil)
+// These should be in a shared utility or models package if used elsewhere.
+func StringFromPtr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func Int32FromPtr(i *int32) int32 {
+	if i == nil {
+		return 0
+	}
+	return *i
+}
+
+func Int64FromPtr(i *int64) int64 {
+	if i == nil {
+		return 0
+	}
+	return *i
 }

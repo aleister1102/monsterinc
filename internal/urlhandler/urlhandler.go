@@ -164,6 +164,36 @@ func ResolveURL(href string, base *url.URL) (string, error) {
 	return resolved.String(), nil
 }
 
+// Helper function to find the root target for a given discovered URL
+// This logic is copied from main.go/scheduler.go and should be consistent.
+// A more robust solution might involve tracking the crawl path or using scope rules.
+func GetRootTargetForURL(discoveredURL string, seedURLs []string) string {
+	discoveredHost := ""
+	parsedDiscoveredURL, err := url.Parse(discoveredURL)
+	if err == nil {
+		discoveredHost = parsedDiscoveredURL.Hostname()
+	} else {
+		// If parsing fails, we can't reliably get a hostname.
+		// Fallback: use the first seed URL if available, or the discoveredURL itself.
+		if len(seedURLs) > 0 {
+			return seedURLs[0]
+		}
+		return discoveredURL
+	}
+
+	for _, seed := range seedURLs {
+		parsedSeed, err := url.Parse(seed)
+		if err == nil && parsedSeed.Hostname() == discoveredHost {
+			return seed // Return the original seed URL as the root target
+		}
+	}
+	// Fallback if no direct hostname match or if seedURLs is empty.
+	if len(seedURLs) > 0 {
+		return seedURLs[0]
+	}
+	return discoveredURL // Absolute fallback if no seeds
+}
+
 // SanitizeFilename creates a safe filename string from a URL or any input string.
 // It removes the protocol, replaces unsafe characters with underscores, and cleans up underscores.
 func SanitizeFilename(input string) string {

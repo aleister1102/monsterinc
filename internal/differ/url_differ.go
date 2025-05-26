@@ -1,10 +1,15 @@
 package differ
 
 import (
+	"fmt"
 	"log"
 	"monsterinc/internal/datastore"
 	"monsterinc/internal/models"
 	"os"
+	// "time" // Removed: No longer needed
+	// "strings" // Add if normalization is re-introduced
+	// Import "net/url" and "strings" if a normalization function like normalizeURLKey is introduced.
+	// For now, sticking to the original keying logic.
 )
 
 // UrlDiffer is responsible for comparing URL lists from current and previous scans.
@@ -24,118 +29,101 @@ func NewUrlDiffer(pr *datastore.ParquetReader, logger *log.Logger) *UrlDiffer {
 	}
 }
 
-// Compare compares the current scan results with historical data to identify new and old URLs.
-// It also updates the URLStatus field in the input currentScanResults slice.
-func (ud *UrlDiffer) Compare(currentScanResults []models.ProbeResult, rootTargetURL string) (*models.URLDiffResult, error) {
-	ud.logger.Printf("Starting URL comparison for target: %s. Received %d current scan results.", rootTargetURL, len(currentScanResults))
+// Compare performs the diffing logic.
+// It updates the URLStatus field within the passed-in currentScanProbes items directly
+// for 'new', 'existing', and 'changed' statuses.
+// It uses historicalProbes to identify 'old' URLs and constructs DiffedURL entries for them.
+func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget string) (*models.URLDiffResult, error) {
+	ud.logger.Printf("[INFO] Differ: Starting URL diff for root target: %s. Current probes: %d", rootTarget, len(currentScanProbes))
 
-	historicalURLs, err := ud.parquetReader.FindHistoricalURLsForTarget(rootTargetURL)
+	historicalProbes, err := ud.parquetReader.FindHistoricalDataForTarget(rootTarget)
 	if err != nil {
-		ud.logger.Printf("Error reading historical data for %s: %v. Treating as first scan.", rootTargetURL, err)
-		historicalURLs = []string{} // Treat as empty historical data, equivalent to a first scan
-	} else {
-		ud.logger.Printf("Retrieved %d historical URLs for target: %s.", len(historicalURLs), rootTargetURL)
-		if len(historicalURLs) == 0 {
-			ud.logger.Printf("No historical URLs found for %s, treating as a first scan scenario.", rootTargetURL)
+		ud.logger.Printf("[ERROR] Differ: Failed to get historical data for target %s: %v", rootTarget, err)
+		return nil, fmt.Errorf("failed to get historical data for %s: %w", rootTarget, err)
+	}
+	ud.logger.Printf("[INFO] Differ: Retrieved %d historical probes for target %s", len(historicalProbes), rootTarget)
+
+	result := &models.URLDiffResult{
+		RootTargetURL: rootTarget,                  // Corrected field name
+		Results:       make([]models.DiffedURL, 0), // Corrected: slice, not map
+		New:           0,
+		Old:           0,
+		Existing:      0,
+	}
+
+	// Use InputURL as key for comparison. Normalization can be added later.
+	currentProbesMap := make(map[string]*models.ProbeResult)
+	for _, p := range currentScanProbes {
+		if p.InputURL == "" {
+			ud.logger.Printf("[WARN] Differ: Skipping current probe with empty InputURL.")
+			continue
 		}
+		currentProbesMap[p.InputURL] = p
 	}
 
-	currentURLsSet := make(map[string]models.ProbeResult)
-	for i := range currentScanResults { // Iterate by index to modify original slice elements
-		// Use FinalURL if available, otherwise InputURL for the set key
-		keyURL := currentScanResults[i].FinalURL
-		if keyURL == "" {
-			keyURL = currentScanResults[i].InputURL
+	historicalProbesMap := make(map[string]models.ProbeResult)
+	for _, hp := range historicalProbes {
+		if hp.InputURL == "" {
+			ud.logger.Printf("[WARN] Differ: Skipping historical probe with empty InputURL: %+v", hp)
+			continue
 		}
-		currentURLsSet[keyURL] = currentScanResults[i]
-	}
-	ud.logger.Printf("Built set of %d unique current URLs for %s.", len(currentURLsSet), rootTargetURL)
-
-	historicalURLSet := make(map[string]bool)
-	for _, hURL := range historicalURLs {
-		historicalURLSet[hURL] = true
-	}
-	ud.logger.Printf("Built set of %d unique historical URLs for %s.", len(historicalURLSet), rootTargetURL)
-
-	diffResult := &models.URLDiffResult{
-		RootTargetURL: rootTargetURL,
-		Results:       []models.DiffedURL{},
+		historicalProbesMap[hp.InputURL] = hp
 	}
 
-	urlStatuses := make(map[string]models.URLStatus)
+	// currentScanTime := time.Now() // Removed: Not used, currentProbe.Timestamp is used
 
-	// Find New URLs: in current, not in historical
-	for urlStr := range currentURLsSet {
-		if !historicalURLSet[urlStr] {
-			diffResult.Results = append(diffResult.Results, models.DiffedURL{
-				NormalizedURL: urlStr,
-				Status:        models.StatusNew,
-			})
-			urlStatuses[urlStr] = models.StatusNew
+	// Identify New, Existing, or Changed URLs
+	for keyURL, currentProbe := range currentProbesMap {
+		currentProbe.URLStatus = string(models.StatusNew) // Default to New
+		currentProbe.RootTargetURL = rootTarget           // Ensure RootTargetURL is set
+
+		if historicalProbe, found := historicalProbesMap[keyURL]; found {
+			currentProbe.URLStatus = string(models.StatusExisting)
+			// Preserve FirstSeenTimestamp from historical data if it exists and is valid
+			if !historicalProbe.OldestScanTimestamp.IsZero() {
+				currentProbe.OldestScanTimestamp = historicalProbe.OldestScanTimestamp
+			} else {
+				currentProbe.OldestScanTimestamp = currentProbe.Timestamp // currentProbe.Timestamp is from current scan
+			}
+			// LastSeen for existing items is the current scan's timestamp
+			// currentProbe.Timestamp should already be the current scan time from the prober
+
+			result.Existing++
 		} else {
-			// If in current and in historical, it's existing
-			urlStatuses[urlStr] = models.StatusExisting
+			// URL is New
+			currentProbe.OldestScanTimestamp = currentProbe.Timestamp // First time seeing it
+			// currentProbe.Timestamp is already current scan time
+			result.New++
 		}
+		result.Results = append(result.Results, models.DiffedURL{ProbeResult: *currentProbe})
+		delete(historicalProbesMap, keyURL) // Remove from historical map to find "Old" URLs later
 	}
 
-	// Find Old URLs: in historical, not in current
-	for histURL := range historicalURLSet {
-		if _, existsInCurrent := currentURLsSet[histURL]; !existsInCurrent {
-			diffResult.Results = append(diffResult.Results, models.DiffedURL{
-				NormalizedURL: histURL,
-				Status:        models.StatusOld,
-				LastSeenData:  models.ProbeResult{InputURL: histURL, Error: "Present in historical data, not in current scan"},
-			})
-			// urlStatuses[histURL] = models.StatusOld // No need to add old to this map, as it's for currentScanResults
-		}
+	// Identify Old URLs (those remaining in historicalProbesMap)
+	for _, oldProbe := range historicalProbesMap {
+		oldProbe.URLStatus = string(models.StatusOld)
+		// RootTargetURL should already be set from when it was stored
+		// Timestamps (OldestScanTimestamp, Timestamp) for old probes remain as they were in historical data
+		result.Results = append(result.Results, models.DiffedURL{ProbeResult: oldProbe})
+		result.Old++
 	}
 
-	// Update URLStatus in the original currentScanResults slice
-	for i := range currentScanResults {
-		keyURL := currentScanResults[i].FinalURL
-		if keyURL == "" {
-			keyURL = currentScanResults[i].InputURL
-		}
-		if status, ok := urlStatuses[keyURL]; ok {
-			currentScanResults[i].URLStatus = string(status)
-		} else {
-			// This case should ideally not be hit if logic is correct,
-			// but as a fallback, or if a URL somehow didn't get processed.
-			ud.logger.Printf("Warning: URL %s from current scan results not found in status map. Defaulting status.", keyURL)
-			currentScanResults[i].URLStatus = string(models.StatusExisting) // Or some other default/unknown status
-		}
-	}
+	ud.logger.Printf("[INFO] Differ: Diff complete for %s. New: %d, Existing: %d, Old: %d. Total diff entries: %d",
+		rootTarget, result.New, result.Existing, result.Old, len(result.Results))
 
-	ud.logger.Printf("URL comparison for %s complete. New: %d, Old: %d, Existing: %d (in current scan).",
-		rootTargetURL,
-		countStatus(diffResult, models.StatusNew),
-		countStatus(diffResult, models.StatusOld),
-		countExisting(currentScanResults))
-
-	return diffResult, nil
+	return result, nil
 }
 
-// Helper to count statuses in DiffResult
-func countStatus(result *models.URLDiffResult, status models.URLStatus) int {
-	if result == nil {
-		return 0
-	}
-	count := 0
-	for _, r := range result.Results {
-		if r.Status == status {
-			count++
-		}
-	}
-	return count
-}
+// Helper to count statuses in DiffResult - NO LONGER NEEDED here if counts are in URLDiffResult struct
+/*
+func countStatus(result *models.URLDiffResult, status models.URLStatus) int { ... }
+*/
 
-// Helper to count existing statuses in currentScanResults
-func countExisting(currentScanResults []models.ProbeResult) int {
-	count := 0
-	for _, pr := range currentScanResults {
-		if pr.URLStatus == string(models.StatusExisting) {
-			count++
-		}
-	}
-	return count
-}
+// Helper to count existing statuses in currentScanResults - NO LONGER NEEDED here
+/*
+func countExisting(currentScanResults []*models.ProbeResult) int { ... } // If it were to be used, signature would change
+*/
+
+// NOTE: If a URL normalization strategy (like in the other url_differ) is required,
+// the normalizeURLKey function should be added here and used consistently for both
+// current and historical URL keys.

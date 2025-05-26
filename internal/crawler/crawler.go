@@ -220,7 +220,7 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 			return
 		}
 		if !isAllowed {
-			log.Printf("[INFO] Crawler: URL '%s' is out of scope. Skipping.", normalizedAbsURL)
+			// log.Printf("[INFO] Crawler: URL '%s' is out of scope. Skipping.", normalizedAbsURL)
 			return
 		}
 	}
