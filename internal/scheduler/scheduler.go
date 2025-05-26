@@ -6,7 +6,7 @@ import (
 	"monsterinc/internal/config"
 	"monsterinc/internal/datastore"
 	"monsterinc/internal/models"
-	"monsterinc/internal/notification"
+	notification "monsterinc/internal/notifier"
 	"monsterinc/internal/orchestrator"
 	"monsterinc/internal/reporter"
 	"os"
