@@ -63,4 +63,17 @@ Relies heavily on `config.json` for detailed configuration of all modules (crawl
 
 ## Logging
 
-Uses the standard Go `log` package for logging informational messages, warnings, errors, and fatal errors throughout its execution. 
+The application utilizes the `zerolog` library for logging. The logger is initialized centrally in `main.go` based on the `log_config` section in the global configuration file (`config.yaml` or `config.json`).
+
+Key features:
+-   **Structured Logging**: Logs are structured, primarily in JSON format when directed to a file or if `log_format: "json"` is set.
+-   **Configurable Log Levels**: Supports "debug", "info", "warn", "error", "fatal", and "panic" levels.
+-   **Output Formats**: 
+    -   `console`: Human-readable, colorized output for terminals.
+    -   `json`: Machine-readable JSON.
+    -   `text`: Plain text without color.
+-   **File Logging**: Can output logs to a specified file.
+-   **Log Rotation**: Includes built-in log rotation (size, backups, compression) for file logs via `lumberjack`.
+-   **Module-Specific Context**: Modules derive a logger from the main application logger and add their own context (e.g., `logger.With().Str("module", "ModuleName").Logger()`) for better traceability.
+
+Refer to `config.example.yaml` for detailed `log_config` options and `internal/logger/README.md` for more information on the logger package and its usage. 

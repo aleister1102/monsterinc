@@ -36,44 +36,45 @@ type Scheduler struct {
 
 // NewScheduler creates a new Scheduler instance
 func NewScheduler(cfg *config.GlobalConfig, urlFileOverride string, logger zerolog.Logger, notificationHelper *notifier.NotificationHelper) (*Scheduler, error) {
-	// Ensure database directory exists
+	moduleLogger := logger.With().Str("module", "Scheduler").Logger()
+
+	if cfg.SchedulerConfig.SQLiteDBPath == "" {
+		moduleLogger.Error().Msg("SQLiteDBPath is not configured in SchedulerConfig")
+		return nil, fmt.Errorf("SQLiteDBPath is required for scheduler")
+	}
+
+	// Ensure the directory for SQLiteDBPath exists
 	dbDir := filepath.Dir(cfg.SchedulerConfig.SQLiteDBPath)
 	if err := os.MkdirAll(dbDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create database directory: %w", err)
+		moduleLogger.Error().Err(err).Str("path", dbDir).Msg("Failed to create directory for SQLite database")
+		return nil, fmt.Errorf("failed to create directory for SQLite database '%s': %w", dbDir, err)
 	}
 
-	// Initialize database
-	db, err := NewDB(cfg.SchedulerConfig.SQLiteDBPath, logger)
+	db, err := NewDB(cfg.SchedulerConfig.SQLiteDBPath, moduleLogger) // Pass moduleLogger to NewDB
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
+		moduleLogger.Error().Err(err).Msg("Failed to initialize scheduler database")
+		return nil, fmt.Errorf("failed to initialize scheduler database: %w", err)
 	}
 
-	// Initialize schema
-	if err := db.InitSchema(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to initialize database schema: %w", err)
+	targetManager := NewTargetManager(moduleLogger) // Pass moduleLogger
+
+	// Initialize ParquetReader & Writer (needed for orchestrator)
+	// These should use the main application logger or a sub-logger for datastore, not scheduler's logger directly unless specifically for scheduler's own parquet ops.
+	// For now, using the passed 'logger' which is the main app logger instance.
+	parquetReader := datastore.NewParquetReader(&cfg.StorageConfig, logger)             // Use main logger
+	parquetWriter, parquetErr := datastore.NewParquetWriter(&cfg.StorageConfig, logger) // Use main logger
+	if parquetErr != nil {
+		// This error will be logged by NewParquetWriter if it's critical, or handled by orchestrator if writer is nil.
+		moduleLogger.Warn().Err(parquetErr).Msg("Failed to initialize ParquetWriter for scheduler's orchestrator. Parquet writing might be disabled or limited.")
+		// Continue with parquetWriter as nil, orchestrator should handle this.
 	}
 
-	// Initialize ParquetReader (needed for orchestrator)
-	parquetReader := datastore.NewParquetReader(&cfg.StorageConfig, logger)
-
-	// Initialize ParquetWriter (needed for orchestrator)
-	parquetWriter, err := datastore.NewParquetWriter(&cfg.StorageConfig, logger)
-	if err != nil {
-		logger.Warn().Err(err).Msg("Scheduler: Failed to initialize ParquetWriter for orchestrator. Parquet storage will be disabled.")
-		parquetWriter = nil
-	}
-
-	// Initialize TargetManager
-	targetManager := NewTargetManager(logger)
-
-	// Initialize ScanOrchestrator
-	scanOrchestrator := orchestrator.NewScanOrchestrator(cfg, logger, parquetReader, parquetWriter)
+	scanOrchestrator := orchestrator.NewScanOrchestrator(cfg, logger, parquetReader, parquetWriter) // Use main logger for orchestrator
 
 	return &Scheduler{
 		globalConfig:       cfg,
 		db:                 db,
-		logger:             logger,
+		logger:             moduleLogger, // Use the module-specific logger for scheduler's own logging
 		urlFileOverride:    urlFileOverride,
 		notificationHelper: notificationHelper,
 		targetManager:      targetManager,
@@ -87,89 +88,64 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.isRunning {
 		s.mu.Unlock()
+		s.logger.Warn().Msg("Scheduler is already running.")
 		return fmt.Errorf("scheduler is already running")
 	}
 	s.isRunning = true
+	s.stopChan = make(chan struct{}) // Recreate stopChan in case it was closed by a previous Stop()
 	s.mu.Unlock()
 
-	s.logger.Info().Msg("Scheduler: Starting automated scan scheduler...")
-
-	// Run initial scan immediately, respecting the context
-	s.logger.Info().Msg("Scheduler: Running initial scan...")
-	s.runScanCycleWithRetries(ctx) // Pass context
-
-	// Main scheduler loop
+	s.logger.Info().Msg("Scheduler starting...")
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		defer func() {
+			s.mu.Lock()
+			s.isRunning = false
+			s.mu.Unlock()
+			s.logger.Info().Msg("Scheduler has stopped main loop.")
+		}()
+
 		for {
-			// Check for context cancellation before calculating next scan or waiting
 			select {
-			case <-ctx.Done():
-				s.logger.Info().Msg("Scheduler: Context cancelled, exiting scheduler loop...")
+			case <-ctx.Done(): // Handle context cancellation (e.g., from main application shutdown)
+				s.logger.Info().Msg("Scheduler stopping due to context cancellation.")
+				return
+			case <-s.stopChan: // Handle explicit Stop() call
+				s.logger.Info().Msg("Scheduler stopping due to explicit Stop() call.")
 				return
 			default:
-			}
-
-			nextScanTime, err := s.calculateNextScanTime()
-			if err != nil {
-				s.logger.Error().Err(err).Msg("Scheduler: Failed to calculate next scan time")
-				// Wait a bit before retrying, but also check context
-				select {
-				case <-time.After(5 * time.Minute):
+				// Determine next scan time
+				nextScanTime, err := s.calculateNextScanTime()
+				if err != nil {
+					s.logger.Error().Err(err).Msg("Failed to calculate next scan time. Retrying after 1 minute.")
+					time.Sleep(1 * time.Minute) // Prevent rapid retries on calculation error
 					continue
-				case <-ctx.Done():
-					s.logger.Info().Msg("Scheduler: Context cancelled during error backoff, exiting scheduler loop...")
-					return
-				case <-s.stopChan: // Also respect internal stopChan if Stop() is called directly
-					s.logger.Info().Msg("Scheduler: Stop signal received during error backoff, exiting scheduler loop...")
-					return
 				}
-			}
 
-			s.logger.Info().Time("next_scan_time", nextScanTime).Msg("Scheduler: Next scan scheduled for")
+				now := time.Now()
+				if now.Before(nextScanTime) {
+					sleepDuration := nextScanTime.Sub(now)
+					s.logger.Info().Time("next_scan_at", nextScanTime).Dur("sleep_duration", sleepDuration).Msg("Scheduler waiting for next scan cycle.")
 
-			timer := time.NewTimer(time.Until(nextScanTime))
-			select {
-			case <-timer.C:
-				// Ensure timer is stopped and drained if it fired, to prevent race conditions with Stop() or context cancellation
-				if !timer.Stop() {
 					select {
-					case <-timer.C: // Drain the channel if Stop() returned false
-					default:
+					case <-time.After(sleepDuration): // Wait for the calculated duration
+						// Continue to scan
+					case <-s.stopChan: // Or stop if Stop() is called during sleep
+						s.logger.Info().Msg("Scheduler stopped during sleep period.")
+						return
+					case <-ctx.Done(): // Or stop if context is cancelled during sleep
+						s.logger.Info().Msg("Scheduler context cancelled during sleep period.")
+						return
 					}
 				}
-				s.logger.Info().Msg("Scheduler: Starting scheduled scan...")
-				s.runScanCycleWithRetries(ctx) // Pass context
-			case <-s.stopChan:
-				timer.Stop() // Stop the timer if it hasn't fired
-				s.logger.Info().Msg("Scheduler: Received internal stop signal, exiting scheduler loop...")
-				return
-			case <-ctx.Done(): // Listen for context cancellation from main
-				timer.Stop()
-				s.logger.Info().Msg("Scheduler: Context cancelled by main, exiting scheduler loop...")
-				return
-				// Removed direct sigChan handling here as it's handled in main and propagated via context and s.stopChan
+				s.logger.Info().Msg("Scheduler starting new scan cycle.")
+				s.runScanCycleWithRetries(ctx) // Pass context to the scan cycle
 			}
 		}
 	}()
 
-	// Wait for scheduler to stop or context to be cancelled
-	select {
-	case <-s.stopChan:
-		s.logger.Info().Msg("Scheduler: Internal stop acknowledged.")
-	case <-ctx.Done():
-		s.logger.Info().Msg("Scheduler: Main context cancellation acknowledged, ensuring shutdown.")
-		s.Stop() // Trigger internal stop to ensure wg is handled correctly
-	}
-
-	s.wg.Wait() // Wait for the goroutine to finish
-	if s.db != nil {
-		s.logger.Info().Msg("Closing scheduler database connection.")
-		s.db.Close()
-	}
-
-	s.logger.Info().Msg("Scheduler: Scheduler fully stopped.")
+	s.logger.Info().Msg("Scheduler main loop started.")
 	return nil
 }
 
@@ -179,9 +155,20 @@ func (s *Scheduler) Stop() {
 	defer s.mu.Unlock()
 
 	if !s.isRunning {
+		s.logger.Info().Msg("Scheduler is not running, no action needed for Stop().")
 		return
 	}
 
+	s.logger.Info().Msg("Scheduler Stop() called, attempting to stop...")
+	if s.stopChan != nil {
+		close(s.stopChan) // Signal the main loop to stop
+	}
+	// isRunning will be set to false by the main loop goroutine upon exiting.
+
+	// Optional: Wait for the scheduler's main goroutine to finish
+	// This might be useful if you need to ensure cleanup or that no more scans are initiated.
+	// However, this could block if the goroutine is stuck. Consider a timeout if using this.
+	// s.wg.Wait() // This might block if runScanCycleWithRetries is long-running and doesn't respect stopChan quickly.
 	s.logger.Info().Msg("Scheduler: Stopping scheduler...")
 	close(s.stopChan)
 	s.wg.Wait()

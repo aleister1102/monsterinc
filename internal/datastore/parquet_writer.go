@@ -8,6 +8,7 @@ import (
 	"monsterinc/internal/urlhandler"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/parquet-go/parquet-go"
@@ -87,37 +88,45 @@ func (pw *ParquetWriter) transformToParquetResult(pr models.ProbeResult, scanTim
 // The URL diffing and population of URLStatus and OldestScanTimestamp in ProbeResult
 // is expected to have been done *before* calling this Write method.
 func (pw *ParquetWriter) Write(probeResults []models.ProbeResult, scanSessionID string, rootTarget string) error {
+	pw.logger.Info().Str("root_target", rootTarget).Str("session_id", scanSessionID).Int("result_count", len(probeResults)).Msg("Starting Parquet write operation")
+
+	if pw.config == nil || pw.config.ParquetBasePath == "" {
+		pw.logger.Error().Msg("ParquetBasePath is not configured. Cannot write Parquet file.")
+		return fmt.Errorf("ParquetWriter: ParquetBasePath is not configured")
+	}
 	if len(probeResults) == 0 {
-		pw.logger.Info().Str("target", rootTarget).Str("session", scanSessionID).Msg("No probe results to write for target")
+		pw.logger.Info().Str("root_target", rootTarget).Msg("No probe results to write for target. Skipping Parquet file creation.")
 		return nil
 	}
 
-	normalizedRootTarget, err := urlhandler.NormalizeURL(rootTarget)
-	if err != nil {
-		pw.logger.Error().Err(err).Str("target", rootTarget).Msg("Error normalizing root target URL")
-		normalizedRootTarget = rootTarget // Fallback to raw if normalization fails
+	sanitizedTargetName := urlhandler.SanitizeFilename(rootTarget)
+	if sanitizedTargetName == "" {
+		pw.logger.Error().Str("original_target", rootTarget).Msg("Root target sanitized to empty string, cannot create valid path for Parquet file.")
+		return fmt.Errorf("sanitized root target is empty, cannot write parquet file for: %s", rootTarget)
 	}
 
-	filename := urlhandler.SanitizeFilename(normalizedRootTarget) + ".parquet"
-	filePath := filepath.Join(pw.config.ParquetBasePath, filename)
-	pw.logger.Info().Int("num_results", len(probeResults)).Str("target", rootTarget).Str("session", scanSessionID).Str("file_path", filePath).Msg("Preparing to write probe results to Parquet file")
-
-	// Ensure the directory exists
-	err = os.MkdirAll(filepath.Dir(filePath), 0755)
-	if err != nil {
-		pw.logger.Error().Err(err).Str("path", filepath.Dir(filePath)).Msg("Failed to create directory for Parquet file")
-		return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(filePath), err)
+	// Create a unique directory for this scan session under the target's directory
+	sessionDir := filepath.Join(pw.config.ParquetBasePath, sanitizedTargetName, scanSessionID)
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		pw.logger.Error().Err(err).Str("path", sessionDir).Msg("Failed to create session directory for Parquet file")
+		return fmt.Errorf("failed to create session directory '%s': %w", sessionDir, err)
 	}
 
-	// Create or open the file for writing
-	file, err := os.Create(filePath) // Use os.Create to truncate if exists, or create if not.
+	fileName := "data.parquet"
+	filePath := filepath.Join(sessionDir, fileName)
+	pw.logger.Info().Str("path", filePath).Msg("Target Parquet file path determined")
+
+	// Create the output file
+	file, err := os.Create(filePath)
 	if err != nil {
-		pw.logger.Error().Err(err).Str("file_path", filePath).Msg("Failed to create/open Parquet file for writing")
-		return fmt.Errorf("failed to create/open Parquet file %s: %w", filePath, err)
+		pw.logger.Error().Err(err).Str("path", filePath).Msg("Failed to create Parquet file")
+		return fmt.Errorf("failed to create parquet file %s: %w", filePath, err)
 	}
 	defer func() {
-		if err := file.Close(); err != nil {
-			pw.logger.Error().Err(err).Str("file_path", filePath).Msg("Failed to close Parquet file")
+		if ferr := file.Close(); ferr != nil {
+			pw.logger.Error().Err(ferr).Str("path", filePath).Msg("Failed to close Parquet file after writing")
+			// Decide if this should overwrite the original error or be appended.
+			// For now, just log it, as the write operation might have already failed.
 		}
 	}()
 
@@ -125,42 +134,58 @@ func (pw *ParquetWriter) Write(probeResults []models.ProbeResult, scanSessionID 
 	options := []parquet.WriterOption{
 		parquet.Compression(&parquet.Zstd),
 	}
-	// TODO: Add logic to select compression codec based on pw.config.CompressionCodec
-	// Example: switch strings.ToLower(pw.config.CompressionCodec) {
-	// case "snappy":
-	// options = append(options, parquet.Compression(&parquet.Snappy))
-	// case "gzip":
-	// options = append(options, parquet.Compression(&parquet.Gzip))
-	// case "none", "":
-	// options = append(options, parquet.Compression(&parquet.Uncompressed))
-	// default:
-	// options = append(options, parquet.Compression(&parquet.Zstd)) // Default or log warning for unknown
-	// }
-
-	pqWriter := parquet.NewGenericWriter[models.ParquetProbeResult](file, options...)
-
-	scanTime := time.Now() // Use a consistent scan time for all records in this batch
-	parquetData := make([]models.ParquetProbeResult, len(probeResults))
-	for i, pr := range probeResults {
-		parquetData[i] = pw.transformToParquetResult(pr, scanTime)
-	}
-
-	_, err = pqWriter.Write(parquetData)
-	if err != nil {
-		pw.logger.Error().Err(err).Msg("Failed to write records to Parquet writer")
-		// Attempt to close to flush any partial data, then return error
-		if closeErr := pqWriter.Close(); closeErr != nil {
-			pw.logger.Error().Err(closeErr).Msg("Failed to close Parquet writer after write error")
+	// Allow overriding compression codec via config
+	if pw.config.CompressionCodec != "" {
+		switch strings.ToLower(pw.config.CompressionCodec) {
+		case "snappy":
+			options[0] = parquet.Compression(&parquet.Snappy)
+			pw.logger.Debug().Msg("Using Snappy compression for Parquet.")
+		case "gzip":
+			options[0] = parquet.Compression(&parquet.Gzip)
+			pw.logger.Debug().Msg("Using Gzip compression for Parquet.")
+		case "none":
+			options[0] = parquet.Compression(&parquet.Uncompressed)
+			pw.logger.Debug().Msg("Using Uncompressed for Parquet.")
+		case "zstd":
+			// Already default, but good to be explicit
+			pw.logger.Debug().Msg("Using Zstd compression for Parquet.")
+		default:
+			pw.logger.Warn().Str("codec", pw.config.CompressionCodec).Msg("Unsupported compression codec specified, defaulting to Zstd.")
 		}
-		return fmt.Errorf("failed to write records to Parquet: %w", err)
 	}
 
-	if err = pqWriter.Close(); err != nil { // Close also flushes the data
-		pw.logger.Error().Err(err).Msg("Failed to close Parquet writer")
-		return fmt.Errorf("failed to close Parquet writer: %w", err)
+	// Create a schema from the ParquetProbeResult struct
+	schemaPtr := parquet.SchemaOf(models.ParquetProbeResult{})
+	if schemaPtr == nil {
+		pw.logger.Error().Msg("Failed to generate parquet schema, cannot create writer.")
+		return fmt.Errorf("failed to generate parquet schema")
 	}
 
-	pw.logger.Info().Str("file_path", filePath).Int("records_written", len(probeResults)).Msg("Successfully wrote data to Parquet file")
+	// Add schema as a writer option
+	options = append(options, schemaPtr) // Pass the schema pointer directly
+
+	w := parquet.NewWriter(file, options...)
+
+	scanTime := time.Now() // Consistent timestamp for all records in this batch
+
+	for _, pr := range probeResults {
+		parquetResult := pw.transformToParquetResult(pr, scanTime)
+		if err := w.Write(&parquetResult); err != nil {
+			pw.logger.Error().Err(err).Str("path", filePath).Msg("Failed to write record to Parquet file")
+			// Attempt to close and remove the partially written file to avoid corruption
+			_ = w.Close()           // Best effort close
+			_ = file.Close()        // Best effort close underlying file
+			_ = os.Remove(filePath) // Best effort remove
+			return fmt.Errorf("failed to write record to parquet file %s: %w", filePath, err)
+		}
+	}
+
+	if err := w.Close(); err != nil {
+		pw.logger.Error().Err(err).Str("path", filePath).Msg("Failed to close Parquet writer")
+		return fmt.Errorf("failed to close parquet writer for %s: %w", filePath, err)
+	}
+
+	pw.logger.Info().Str("path", filePath).Int("record_count", len(probeResults)).Msg("Successfully wrote Parquet file")
 	return nil
 }
 

@@ -1,79 +1,101 @@
 package logger
 
 import (
-	"log"
+	"io"
+	stdlog "log" // Standard Go log package, aliased to avoid conflict with zerolog field
+	"monsterinc/internal/config"
 	"os"
+	"strings"
+	"time"
+
+	"github.com/rs/zerolog"
+	// "github.com/rs/zerolog/log" // Removed to avoid conflict
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// Logger defines a simple interface for logging.
-// This allows for different logging implementations to be used.
-type Logger interface {
-	Debugf(format string, args ...interface{})
-	Infof(format string, args ...interface{})
-	Warnf(format string, args ...interface{})
-	Errorf(format string, args ...interface{})
-	Fatalf(format string, args ...interface{})
-	Debug(args ...interface{})
-	Info(args ...interface{})
-	Warn(args ...interface{})
-	Error(args ...interface{})
-	Fatal(args ...interface{})
-}
+// New initializes a new zerolog.Logger instance based on the provided LogConfig.
+func New(cfg config.LogConfig) (zerolog.Logger, error) {
+	var finalLogger zerolog.Logger
+	var outputWriters []io.Writer
 
-// stdLogger is a basic implementation of the Logger interface using the standard log package.
+	// Preliminary logger for setup issues (before finalLogger is fully configured)
+	prelimLogger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 
-type stdLogger struct {
-	logger *log.Logger
-}
-
-// NewStdLogger creates a new logger that writes to os.Stdout with standard log flags.
-func NewStdLogger() Logger {
-	return &stdLogger{
-		logger: log.New(os.Stdout, "", log.LstdFlags),
+	// Set log level
+	level, err := zerolog.ParseLevel(strings.ToLower(cfg.LogLevel))
+	if err != nil {
+		prelimLogger.Warn().Str("provided_level", cfg.LogLevel).Err(err).Msg("Invalid log level, defaulting to 'info'")
+		level = zerolog.InfoLevel
 	}
-}
+	zerolog.SetGlobalLevel(level) // This affects the global level for all zerolog instances if not overridden
 
-func (l *stdLogger) Debugf(format string, args ...interface{}) {
-	l.logger.Printf("[DEBUG] "+format, args...)
-}
+	// Configure console writer (always to stderr for primary console output)
+	var consoleWriter io.Writer
+	switch strings.ToLower(cfg.LogFormat) {
+	case "console":
+		consoleWriter = zerolog.ConsoleWriter{
+			Out:        os.Stderr,
+			TimeFormat: time.RFC3339,
+			NoColor:    false,
+		}
+	case "json":
+		consoleWriter = os.Stderr // Raw JSON to stderr
+	case "text":
+		consoleWriter = zerolog.ConsoleWriter{
+			Out:        os.Stderr,
+			TimeFormat: time.RFC3339,
+			NoColor:    true, // Plain text is console writer without color
+			// PartsExclude: []string{zerolog.CallerFieldName}, // Optionally exclude caller for cleaner text
+		}
+	default:
+		prelimLogger.Warn().Str("provided_format", cfg.LogFormat).Msg("Unknown log format, defaulting to 'console'")
+		cfg.LogFormat = "console" // Correct the format for subsequent logic
+		consoleWriter = zerolog.ConsoleWriter{
+			Out:        os.Stderr,
+			TimeFormat: time.RFC3339,
+			NoColor:    false,
+		}
+	}
+	// Only add consoleWriter to outputWriters if LogFile is not set OR if LogFile is set but we want duplicate console output.
+	// Current behavior: if LogFile is set, console output still happens based on cfg.LogFormat.
+	// If cfg.LogFile is "" (empty), then consoleWriter is the ONLY writer unless LogFormat was json (raw to stderr).
+	// This logic seems to ensure consoleWriter is always considered for stderr.
+	outputWriters = append(outputWriters, consoleWriter)
 
-func (l *stdLogger) Infof(format string, args ...interface{}) {
-	l.logger.Printf("[INFO] "+format, args...)
-}
+	// Configure file writer if LogFile is specified
+	if cfg.LogFile != "" {
+		lumberjackLogger := &lumberjack.Logger{
+			Filename:   cfg.LogFile,
+			MaxSize:    cfg.MaxLogSizeMB,
+			MaxBackups: cfg.MaxLogBackups,
+			Compress:   cfg.CompressOldLogs,
+			LocalTime:  true,
+		}
 
-func (l *stdLogger) Warnf(format string, args ...interface{}) {
-	l.logger.Printf("[WARN] "+format, args...)
-}
+		var fileLogTargetWriter io.Writer = lumberjackLogger // Default to lumberjack for JSON
+		switch strings.ToLower(cfg.LogFormat) {
+		case "console":
+			fileLogTargetWriter = zerolog.ConsoleWriter{Out: lumberjackLogger, TimeFormat: time.RFC3339, NoColor: true}
+		case "text":
+			fileLogTargetWriter = zerolog.ConsoleWriter{Out: lumberjackLogger, TimeFormat: time.RFC3339, NoColor: true /* PartsExclude: []string{zerolog.CallerFieldName} */}
+			// case "json": // Default, lumberjackLogger is already set for JSON output by zerolog.New()
+		}
+		outputWriters = append(outputWriters, fileLogTargetWriter)
+	}
 
-func (l *stdLogger) Errorf(format string, args ...interface{}) {
-	l.logger.Printf("[ERROR] "+format, args...)
-}
+	if len(outputWriters) == 0 {
+		// This should ideally not be reached if consoleWriter is always added to outputWriters initially.
+		// However, as a safeguard:
+		prelimLogger.Error().Msg("No output writers configured for logger, defaulting to stderr for finalLogger.")
+		outputWriters = append(outputWriters, os.Stderr)
+	}
 
-func (l *stdLogger) Fatalf(format string, args ...interface{}) {
-	l.logger.Fatalf("[FATAL] "+format, args...)
-}
+	multiWriter := zerolog.MultiLevelWriter(outputWriters...)
+	finalLogger = zerolog.New(multiWriter).Level(level).With().Timestamp().Logger() // Ensure level is set on the final logger
 
-func (l *stdLogger) Debug(args ...interface{}) {
-	logArgs := append([]interface{}{"[DEBUG]"}, args...)
-	l.logger.Println(logArgs...)
-}
+	// Replace standard log package's output
+	stdlog.SetOutput(finalLogger) // Redirect Go's standard log to zerolog
+	stdlog.SetFlags(0)            // Disable standard log's prefix and timestamp, as zerolog handles it
 
-func (l *stdLogger) Info(args ...interface{}) {
-	logArgs := append([]interface{}{"[INFO]"}, args...)
-	l.logger.Println(logArgs...)
-}
-
-func (l *stdLogger) Warn(args ...interface{}) {
-	logArgs := append([]interface{}{"[WARN]"}, args...)
-	l.logger.Println(logArgs...)
-}
-
-func (l *stdLogger) Error(args ...interface{}) {
-	logArgs := append([]interface{}{"[ERROR]"}, args...)
-	l.logger.Println(logArgs...)
-}
-
-func (l *stdLogger) Fatal(args ...interface{}) {
-	logArgs := append([]interface{}{"[FATAL]"}, args...)
-	l.logger.Fatalln(logArgs...)
+	return finalLogger, nil
 }

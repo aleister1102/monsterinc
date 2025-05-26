@@ -3,7 +3,6 @@ package httpxrunner
 import (
 	"context"
 	"fmt"
-	"log"
 	"monsterinc/internal/models"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/projectdiscovery/httpx/common/customheader"
 	"github.com/projectdiscovery/httpx/runner"
+	"github.com/rs/zerolog"
 	// Thêm import cho clients và wappalyzer nếu thực sự cần và có sẵn
 	// "github.com/projectdiscovery/httpx/common/httpx/clients"
 	// "github.com/projectdiscovery/wappalyzergo"
@@ -27,6 +27,7 @@ type Runner struct {
 	resultsMutex     sync.Mutex            // Added to protect collectedResults
 	errors           chan error
 	wg               sync.WaitGroup
+	logger           zerolog.Logger // Added logger field
 }
 
 // Config holds the configuration for the httpx runner
@@ -69,7 +70,7 @@ type Config struct {
 
 // configureHttpxOptions applies the MonsterInc configuration to httpx.Options.
 // It centralizes the logic for setting up httpx based on the provided Config.
-func configureHttpxOptions(config *Config) *runner.Options {
+func configureHttpxOptions(config *Config, logger zerolog.Logger) *runner.Options {
 	options := &runner.Options{
 		// Sensible defaults for library usage
 		Methods:                 "GET",
@@ -131,7 +132,13 @@ func configureHttpxOptions(config *Config) *runner.Options {
 			for k, v := range config.CustomHeaders {
 				headerVal := k + ": " + v
 				if err := headers.Set(headerVal); err != nil {
-					log.Printf("[WARN] HTTPXRunner: Failed to set custom header %s: %v", headerVal, err)
+					// Use the instance logger if available, otherwise a temporary one or standard log for this rare setup case
+					// Since this function is static and doesn't have access to r.logger, we can't use it directly.
+					// For now, let's assume this setup error is rare and a global/temp logger might be too much overhead.
+					// If this becomes problematic, we might need to pass a logger to configureHttpxOptions.
+					// For the purpose of removing std log, this will be commented.
+					// log.Printf("[WARN] HTTPXRunner: Failed to set custom header %s: %v", headerVal, err)
+					logger.Warn().Str("component", "HttpxRunnerSetup").Str("header", headerVal).Err(err).Msg("Failed to set custom header")
 					continue
 				}
 			}
@@ -255,50 +262,57 @@ func mapHttpxResultToProbeResult(res runner.Result, rootURL string) *models.Prob
 
 // NewRunner creates a new instance of the httpx runner wrapper
 // rootTargetForThisInstance is the primary target URL this runner instance is responsible for.
-func NewRunner(config *Config, rootTargetForThisInstance string) (*Runner, error) {
-	resultsChan := make(chan *models.ProbeResult, 100)
-	errorChan := make(chan error, 10)
+func NewRunner(cfg *Config, rootTargetForThisInstance string, appLogger zerolog.Logger) (*Runner, error) {
+	moduleLogger := appLogger.With().Str("module", "HttpxRunner").Str("root_target", rootTargetForThisInstance).Logger()
+
+	if cfg == nil {
+		moduleLogger.Error().Msg("Configuration for HttpxRunner cannot be nil.")
+		return nil, fmt.Errorf("httpxrunner: config cannot be nil")
+	}
 
 	r := &Runner{
-		config:           config,
-		rootTargetURL:    rootTargetForThisInstance, // Store the root target
-		results:          resultsChan,
-		errors:           errorChan,
+		// Initialize collectedResults and other fields early if they are needed by OnResult closure
 		collectedResults: make([]*models.ProbeResult, 0),
+		resultsMutex:     sync.Mutex{},
+		config:           cfg,
+		rootTargetURL:    rootTargetForThisInstance,
+		results:          make(chan *models.ProbeResult, (cfg.Threads*2)+10), // Adjusted buffer size
+		errors:           make(chan error, 1),
+		logger:           moduleLogger,
 	}
 
-	// Configure httpx options using the new helper function
-	options := configureHttpxOptions(config)
-	r.options = options // Store the configured options
+	options := configureHttpxOptions(cfg, moduleLogger)
+	options.OnResult = func(result runner.Result) {
+		// This callback will be invoked for each result by the httpx engine.
+		probeRes := mapHttpxResultToProbeResult(result, r.rootTargetURL) // Use r.rootTargetURL from the outer scope
+		if probeRes != nil {
+			r.resultsMutex.Lock()
+			r.collectedResults = append(r.collectedResults, probeRes)
+			r.resultsMutex.Unlock()
 
-	// OnResult Callback: Maps httpx.Result to our ProbeResult
-	options.OnResult = func(res runner.Result) {
-		// Pass the stored rootTargetURL to the mapping function
-		probeResult := mapHttpxResultToProbeResult(res, r.rootTargetURL)
-
-		// Send to results channel for live processing if needed
-		// r.results <- probeResult // If external live consumption is still needed
-		// Also, store it internally
-		r.resultsMutex.Lock()
-		r.collectedResults = append(r.collectedResults, probeResult)
-		r.resultsMutex.Unlock()
+			// Optionally, if r.results channel is still intended for real-time streaming (though GetResults is primary)
+			// select {
+			// case r.results <- probeRes:
+			// default:
+			// 	r.logger.Warn().Str("url", probeRes.InputURL).Msg("Results channel full or closed, dropping result for streaming.")
+			// }
+		}
 	}
 
-	httpxActualRunner, err := runner.New(options)
+	httpxRun, err := runner.New(options)
 	if err != nil {
-		log.Printf("[ERROR] HTTPXRunner: Failed to create new httpx.Runner engine: %v", err)
-		// Close channels as runner creation failed before Run could manage them
-		close(r.results)
-		close(r.errors)
-		return nil, fmt.Errorf("failed to create httpx engine: %w", err)
+		moduleLogger.Error().Err(err).Msg("Failed to initialize httpx engine.")
+		return nil, fmt.Errorf("httpxrunner: failed to initialize httpx engine: %w", err)
 	}
-	r.httpxRunner = httpxActualRunner
 
-	// log.Printf("[DEBUG] HTTPXRunner: NewRunner created successfully. Options configured with %d targets.", len(options.InputTargetHost))
+	r.httpxRunner = httpxRun // Assign httpxRun to r after options (and its OnResult) are fully set up.
+	r.options = options      // Store options as well
+
+	moduleLogger.Info().Msg("HttpxRunner initialized successfully.")
 	return r, nil
 }
 
-// Close performs cleanup of the httpx runner
+// Close cleans up resources used by the runner, such as closing the httpx engine.
 func (r *Runner) Close() {
 	// Ensure underlying httpx runner is closed first.
 	// This should signal its internal goroutines (like the one calling OnResult) to stop.
@@ -313,77 +327,72 @@ func (r *Runner) Close() {
 	// For simplicity here, assume Close() is called once by the defer in Run().
 	close(r.results)
 	close(r.errors)
-	log.Println("[INFO] HTTPXRunner: Results and Errors channels closed.")
+	r.logger.Info().Msg("Results and Errors channels closed.")
 }
 
-// Run executes the httpx probing with the configured targets, now accepting a context.
+// Run executes the httpx probing against the configured targets.
 func (r *Runner) Run(ctx context.Context) error {
-	if r.config == nil || r.httpxRunner == nil {
-		log.Println("[ERROR] HTTPXRunner: Runner not properly initialized (config or httpxRunner is nil). Cannot run.")
-		// Ensure channels are closed if they were somehow created
-		if r.results != nil {
-			close(r.results)
-		}
-		if r.errors != nil {
-			close(r.errors)
-		}
-		return fmt.Errorf("runner not properly initialized")
+	if r.httpxRunner == nil {
+		r.logger.Error().Msg("Httpx engine is not initialized. Call NewRunner first.")
+		return fmt.Errorf("httpx engine not initialized")
 	}
 
-	if len(r.options.InputTargetHost) == 0 {
-		log.Println("[INFO] HTTPXRunner: No targets configured to probe. Skipping run enumeration.")
-		close(r.results)
+	if len(r.config.Targets) == 0 {
+		r.logger.Info().Msg("No targets configured for HttpxRunner. Nothing to do.")
+		close(r.results) // Close channels as there's nothing to process
 		close(r.errors)
 		return nil
 	}
 
-	log.Printf("[INFO] HTTPXRunner: Starting HTTPX probing run for %d targets... (Root Target: %s)", len(r.options.InputTargetHost), r.rootTargetURL)
+	r.logger.Info().Int("target_count", len(r.config.Targets)).Msg("Starting httpx enumeration")
 
-	var runErr error
-	r.wg.Add(1)
+	// httpx.Runner.RunEnumeration() is blocking.
+	// It will use the targets provided during options setup (e.g. options.InputTargetHost or via options.ScanInput + strings.NewReader)
+	// For this setup, we assume targets are already in r.config.Targets and were used to set r.options.InputTargetHost in configureHttpxOptions.
+	// If using a different method like ScanInput, that needs to be set in configureHttpxOptions.
 
+	// The context handling with httpx.RunEnumeration is a bit tricky as it doesn't directly accept a context.
+	// httpx internally might handle SIGINT, but for programmatic cancellation:
+	// One common pattern is to call httpxRunner.Close() from another goroutine when the context is done.
+	done := make(chan struct{})
 	go func() {
-		defer r.wg.Done()
-		// Listen for context cancellation
-		go func() {
-			<-ctx.Done()
-			log.Println("[INFO] HTTPXRunner: Context cancelled, attempting to close httpxRunner.")
-			if r.httpxRunner != nil {
-				// httpx runner.Close() is designed to stop the enumeration.
-				// It closes internal channels which should cause RunEnumeration to return.
-				r.httpxRunner.Close()
-				log.Println("[INFO] HTTPXRunner: httpxRunner.Close() called due to context cancellation.")
-			}
-		}()
-
-		if r.httpxRunner == nil {
-			log.Printf("[ERROR] HTTPXRunner: Goroutine: httpxRunner is nil before RunEnumeration!")
-			return
-		}
-		// RunEnumeration is blocking. If ctx is cancelled, the goroutine above will call r.httpxRunner.Close(),
-		// which should cause RunEnumeration to stop and return.
 		r.httpxRunner.RunEnumeration()
-		log.Println("[INFO] HTTPXRunner: RunEnumeration completed or was stopped.")
+		close(done)
 	}()
 
-	r.wg.Wait()
-	// Check context error after wait, as RunEnumeration might have returned due to cancellation
-	if ctx.Err() != nil {
-		log.Printf("[INFO] HTTPXRunner: Probing run finished due to context cancellation: %v", ctx.Err())
-		runErr = ctx.Err()
+	select {
+	case <-done:
+		r.logger.Info().Msg("Httpx RunEnumeration completed.")
+	case <-ctx.Done():
+		r.logger.Info().Msg("Context cancelled during httpx RunEnumeration. Attempting to close httpx runner.")
+		r.httpxRunner.Close() // This should interrupt RunEnumeration
+		<-done                // Wait for RunEnumeration to actually finish after Close
+		r.logger.Info().Msg("Httpx runner closed due to context cancellation.")
+		// Send error to r.errors channel if it's not already closed
+		select {
+		case r.errors <- ctx.Err():
+		default:
+			r.logger.Warn().Err(ctx.Err()).Msg("Failed to send context cancellation error to error channel (full or closed)")
+		}
+		// Close results and errors channels here as the run was prematurely stopped.
+		close(r.results)
+		close(r.errors)
+		return ctx.Err()
 	}
-	r.Close() // Close our exposed channels
 
-	log.Printf("[INFO] HTTPXRunner: HTTPX Probing finished. Collected %d results. Error: %v", len(r.collectedResults), runErr)
-	return runErr
+	// Close the results and error channels as the run is complete.
+	close(r.results)
+	close(r.errors)
+	r.logger.Info().Int("result_count", len(r.collectedResults)).Msg("Httpx probing finished.")
+	return nil
 }
 
-// Results returns a channel that receives probe results
+// Results returns a channel from which probe results can be read.
 func (r *Runner) Results() <-chan *models.ProbeResult {
 	return r.results
 }
 
-// Errors returns a channel that receives errors during probing
+// Errors returns a channel from which errors during probing can be read.
 func (r *Runner) Errors() <-chan error {
 	return r.errors
 }

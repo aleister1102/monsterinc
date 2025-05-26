@@ -2,13 +2,14 @@ package crawler
 
 import (
 	"errors"
-	"fmt"
-	"log" // For logging regex compilation errors
-	"monsterinc/internal/urlhandler"
+	"fmt" // For logging regex compilation errors
 	"net/url"
 	"regexp" // For path restriction logic
 	"strings"
+
 	// "log" // For debugging scope decisions later
+
+	"github.com/rs/zerolog"
 )
 
 // ScopeSettings defines the rules for what URLs the crawler is allowed to visit.
@@ -21,6 +22,7 @@ type ScopeSettings struct {
 
 	AllowedPathPatterns    []*regexp.Regexp // Task 2.2: Regex for allowed paths
 	DisallowedPathPatterns []*regexp.Regexp // Task 2.2: Regex for disallowed paths
+	logger                 zerolog.Logger   // Added logger
 	// TODO: Add Robots.txt handling (Task 2.3)
 }
 
@@ -30,8 +32,10 @@ func NewScopeSettings(
 	allowedHostnames, allowedSubdomains,
 	disallowedHostnames, disallowedSubdomains,
 	allowedPathRegexes, disallowedPathRegexes []string, // Task 2.2: Added path regexes
+	logger zerolog.Logger, // Added logger parameter
 ) *ScopeSettings {
-	// Normalize all inputs to lowercase for case-insensitive matching
+	scopeLogger := logger.With().Str("component", "ScopeSettings").Logger()
+
 	normalize := func(items []string) []string {
 		normalized := make([]string, len(items))
 		for i, item := range items {
@@ -40,15 +44,23 @@ func NewScopeSettings(
 		return normalized
 	}
 
+	ss := &ScopeSettings{
+		AllowedHostnames:     normalize(allowedHostnames),
+		AllowedSubdomains:    normalize(allowedSubdomains),
+		DisallowedHostnames:  normalize(disallowedHostnames),
+		DisallowedSubdomains: normalize(disallowedSubdomains),
+		logger:               scopeLogger,
+	}
+
 	compileRegexes := func(patterns []string) []*regexp.Regexp {
 		compiled := make([]*regexp.Regexp, 0, len(patterns))
 		for _, pattern := range patterns {
-			if strings.TrimSpace(pattern) == "" {
+			if pattern == "" {
 				continue
 			}
 			re, err := regexp.Compile(pattern)
 			if err != nil {
-				log.Printf("[ERROR] ScopeSettings: Failed to compile regex pattern '%s': %v. Skipping pattern.", pattern, err)
+				ss.logger.Error().Err(err).Str("regex_pattern", pattern).Msg("Failed to compile regex. Skipping pattern.")
 				continue
 			}
 			compiled = append(compiled, re)
@@ -56,14 +68,10 @@ func NewScopeSettings(
 		return compiled
 	}
 
-	return &ScopeSettings{
-		AllowedHostnames:       normalize(allowedHostnames),
-		AllowedSubdomains:      normalize(allowedSubdomains),
-		DisallowedHostnames:    normalize(disallowedHostnames),
-		DisallowedSubdomains:   normalize(disallowedSubdomains),
-		AllowedPathPatterns:    compileRegexes(allowedPathRegexes),    // Task 2.2
-		DisallowedPathPatterns: compileRegexes(disallowedPathRegexes), // Task 2.2
-	}
+	ss.AllowedPathPatterns = compileRegexes(allowedPathRegexes)
+	ss.DisallowedPathPatterns = compileRegexes(disallowedPathRegexes)
+
+	return ss
 }
 
 // CheckHostnameScope evaluates if the given hostname is within the configured scope
@@ -78,95 +86,59 @@ func (ss *ScopeSettings) CheckHostnameScope(hostname string) bool {
 	// 1. Check DisallowedHostnames (highest precedence for direct disallow)
 	for _, disallowedHost := range ss.DisallowedHostnames {
 		if normalizedHostname == disallowedHost {
-			// log.Printf("[DEBUG] Scope: Hostname '%s' disallowed by DisallowedHostnames.", hostname)
 			return false
 		}
 	}
 
 	// 2. Check DisallowedSubdomains
 	for _, disallowedSubdomain := range ss.DisallowedSubdomains {
-		// This checks if normalizedHostname is "disallowedSubdomain" or "anything.disallowedSubdomain"
-		// Example: if "internal.example.com" is disallowed, then "internal.example.com" and "api.internal.example.com" are out.
-		if urlhandler.IsDomainOrSubdomain(normalizedHostname, disallowedSubdomain) {
-			// log.Printf("[DEBUG] Scope: Hostname '%s' disallowed by DisallowedSubdomains ('%s').", hostname, disallowedSubdomain)
+		if strings.HasSuffix(normalizedHostname, "."+disallowedSubdomain) || normalizedHostname == disallowedSubdomain {
 			return false
 		}
 	}
 
-	// 3. Check AllowedHostnames
-	// If AllowedHostnames is not set, any hostname is potentially allowed (subject to disallows which were already checked).
+	// 3. If AllowedHostnames is empty, all hostnames that are not disallowed are implicitly allowed.
 	if len(ss.AllowedHostnames) == 0 {
-		// log.Printf("[DEBUG] Scope: Hostname '%s' allowed (no AllowedHostnames defined, passed disallows).", hostname)
-		return true // Allowed by default if no specific allowed hostnames, and not disallowed.
+		return true
 	}
 
-	// If AllowedHostnames is set, the hostname must match one of them or be a permitted subdomain.
+	// 4. Check AllowedHostnames and AllowedSubdomains
 	for _, allowedHost := range ss.AllowedHostnames {
-		if normalizedHostname == allowedHost { // Exact match for an allowed hostname
-			// log.Printf("[DEBUG] Scope: Hostname '%s' allowed by AllowedHostnames.", hostname)
+		if normalizedHostname == allowedHost {
 			return true
 		}
-
-		// Check for subdomain allowance if it's a subdomain of an allowedHost.
-		// AllowedSubdomains list refines this. If AllowedSubdomains is empty, any subdomain is fine.
-		// If AllowedSubdomains is *not* empty, it must be one of *those* specific subdomains.
-		if strings.HasSuffix(normalizedHostname, "."+allowedHost) { // It's a potential subdomain
-			if len(ss.AllowedSubdomains) == 0 {
-				// No specific subdomains listed, so any subdomain of allowedHost is fine.
-				// log.Printf("[DEBUG] Scope: Hostname '%s' (subdomain of '%s') allowed (no specific AllowedSubdomains).", hostname, allowedHost)
-				return true
-			}
-			// Specific AllowedSubdomains are listed. Check if this hostname matches one.
-			// The entries in AllowedSubdomains are full hostnames, e.g., "sub.example.com".
-			for _, allowedSub := range ss.AllowedSubdomains {
-				if normalizedHostname == allowedSub {
-					// log.Printf("[DEBUG] Scope: Hostname '%s' allowed by specific AllowedSubdomains.", hostname)
-					return true
-				}
-			}
-			// It's a subdomain of an allowedHost, but not in the specific AllowedSubdomains list. So, not allowed.
-			// log.Printf("[DEBUG] Scope: Hostname '%s' (subdomain of '%s') not in specific AllowedSubdomains list.", hostname, allowedHost)
-			// Continue checking other AllowedHostnames. This specific one didn't grant permission via its subdomains.
+		// Check if it's an allowed subdomain for this specific allowedHost
+		if (strings.HasSuffix(normalizedHostname, "."+allowedHost)) && (len(ss.AllowedSubdomains) == 0 || isStringInSlice(allowedHost, ss.AllowedSubdomains)) {
+			return true
 		}
 	}
 
-	// If we went through all allowed hostnames and found no match (direct or via subdomain rules)
-	// log.Printf("[DEBUG] Scope: Hostname '%s' not allowed (did not match any AllowedHostnames or their subdomain rules).", hostname)
 	return false
 }
 
 // checkPathScope evaluates if the given URL path is within the configured path regexes.
 // Task 2.2: Implement path restriction logic.
 func (ss *ScopeSettings) checkPathScope(path string) bool {
-	// 1. Check DisallowedPathPatterns first
+	// 1. Check DisallowedPathPatterns
 	for _, re := range ss.DisallowedPathPatterns {
 		if re.MatchString(path) {
-			// log.Printf("[DEBUG] Scope: Path '%s' disallowed by pattern '%s'.", path, re.String())
 			return false
 		}
 	}
 
-	// 2. If AllowedPathPatterns is defined, path must match at least one.
-	// If AllowedPathPatterns is empty, any path is allowed (if not disallowed).
-	if len(ss.AllowedPathPatterns) > 0 {
-		pathIsAllowed := false
-		for _, re := range ss.AllowedPathPatterns {
-			if re.MatchString(path) {
-				// log.Printf("[DEBUG] Scope: Path '%s' allowed by pattern '%s'.", path, re.String())
-				pathIsAllowed = true
-				break
-			}
-		}
-		if !pathIsAllowed {
-			// log.Printf("[DEBUG] Scope: Path '%s' did not match any AllowedPathPatterns.", path)
-			return false // Not explicitly allowed, and allowed patterns are defined.
+	// 2. If AllowedPathPatterns is empty, all paths not disallowed are implicitly allowed.
+	if len(ss.AllowedPathPatterns) == 0 {
+		return true
+	}
+
+	// 3. Check AllowedPathPatterns
+	for _, re := range ss.AllowedPathPatterns {
+		if re.MatchString(path) {
+			return true
 		}
 	}
-	// If we reach here, either:
-	// - No disallowed patterns matched.
-	// - And ( (AllowedPathPatterns is empty) OR (path matched an allowed pattern) )
-	// log.Printf("[DEBUG] Scope: Path '%s' allowed by path scope rules.", path)
-	return true
+
+	return false
 }
 
 // IsURLAllowed determines if a given URL string is within the defined crawling scope.
@@ -184,7 +156,6 @@ func (ss *ScopeSettings) IsURLAllowed(urlString string) (bool, error) {
 	}
 
 	if !parsedURL.IsAbs() {
-		// log.Printf("[DEBUG] Scope: URL '%s' is not absolute, cannot determine hostname scope accurately without resolving.", urlString)
 		// Depending on policy, relative URLs might be considered in scope if their base is,
 		// but for a direct check, we need an absolute URL.
 		// For now, let's say non-absolute URLs need resolution first.
@@ -194,16 +165,13 @@ func (ss *ScopeSettings) IsURLAllowed(urlString string) (bool, error) {
 	hostname := parsedURL.Hostname()
 	if hostname == "" {
 		// This can happen for URLs like "file:///path/to/file" or malformed ones
-		// log.Printf("[DEBUG] Scope: URL '%s' has no hostname component.", urlString)
 		return false, errors.New("URL has no hostname component")
 	}
 
 	// 1. Check hostname scope
 	if !ss.CheckHostnameScope(hostname) {
-		// log.Printf("[DEBUG] Scope: URL '%s' (hostname '%s') failed hostname scope.", urlString, hostname)
 		return false, nil // Hostname not allowed
 	}
-	// log.Printf("[DEBUG] Scope: URL '%s' (hostname '%s') passed hostname scope.", urlString, hostname)
 
 	// 2. Check path scope (Task 2.2)
 	// The path component for regex matching typically includes the leading slash.
@@ -215,11 +183,19 @@ func (ss *ScopeSettings) IsURLAllowed(urlString string) (bool, error) {
 	}
 
 	if !ss.checkPathScope(path) {
-		// log.Printf("[DEBUG] Scope: URL '%s' (path '%s') failed path scope.", urlString, path)
 		return false, nil // Path not allowed
 	}
-	// log.Printf("[DEBUG] Scope: URL '%s' (path '%s') passed path scope.", urlString, path)
 
 	// If all checks pass
 	return true, nil
+}
+
+// isStringInSlice checks if a string is present in a slice of strings.
+func isStringInSlice(str string, slice []string) bool {
+	for _, s := range slice {
+		if s == str {
+			return true
+		}
+	}
+	return false
 }

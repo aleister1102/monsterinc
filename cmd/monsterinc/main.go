@@ -8,6 +8,7 @@ import (
 	"log"
 	"monsterinc/internal/config"
 	"monsterinc/internal/datastore"
+	"monsterinc/internal/logger"
 	"monsterinc/internal/models"
 	"monsterinc/internal/notifier"
 	"monsterinc/internal/orchestrator"
@@ -37,8 +38,7 @@ func main() {
 
 	// Check required --mode
 	if *modeFlag == "" {
-		fmt.Println("[FATAL] --mode argument is required (onetime or automated)")
-		os.Exit(1)
+		log.Fatalln("[FATAL] --mode argument is required (onetime or automated)")
 	}
 
 	// urlfile alias logic
@@ -62,24 +62,31 @@ func main() {
 	}
 	log.Println("[INFO] Main: Global configuration loaded successfully.")
 
+	// Initialize zerolog logger
+	zLogger, err := logger.New(gCfg.LogConfig)
+	if err != nil {
+		log.Fatalf("[FATAL] Main: Could not initialize logger: %v", err)
+	}
+	zLogger.Info().Msg("Logger initialized successfully.")
+
 	// Override mode if --mode flag is set (takes precedence over config file)
 	if *modeFlag != "" {
 		gCfg.Mode = *modeFlag
+		zLogger.Info().Str("mode", gCfg.Mode).Msg("Mode overridden by command line flag.")
 	}
 
 	// Ensure the reporter output directory exists before validation (if validator checks for existence)
 	if gCfg.ReporterConfig.OutputDir != "" {
 		if err := os.MkdirAll(gCfg.ReporterConfig.OutputDir, 0755); err != nil {
-			log.Fatalf("[FATAL] Main: Could not create report output directory '%s' before validation: %v", gCfg.ReporterConfig.OutputDir, err)
+			zLogger.Fatal().Err(err).Str("directory", gCfg.ReporterConfig.OutputDir).Msg("Could not create report output directory before validation")
 		}
 	}
 
 	// Validate the loaded configuration
 	if err := config.ValidateConfig(gCfg); err != nil {
-		log.Fatalf("[FATAL] Main: Configuration validation failed: %v", err)
+		zLogger.Fatal().Err(err).Msg("Configuration validation failed")
 	}
-
-	zLogger := setupZeroLogger(gCfg.LogConfig)
+	zLogger.Info().Msg("Configuration validated successfully.")
 
 	discordNotifier, err := notifier.NewDiscordNotifier(gCfg.NotificationConfig, zLogger, &http.Client{Timeout: 20 * time.Second})
 	if err != nil {
@@ -299,25 +306,4 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFile 
 	notificationHelper.SendScanCompletionNotification(ctx, summaryData) // Use passed context
 
 	appLogger.Info().Msg("MonsterInc Crawler finished (onetime mode).")
-}
-
-// setupZeroLogger initializes zerolog based on config
-func setupZeroLogger(logCfg config.LogConfig) zerolog.Logger {
-	var logger zerolog.Logger
-	logLevel, err := zerolog.ParseLevel(logCfg.LogLevel)
-	if err != nil {
-		logLevel = zerolog.InfoLevel // Default to info if parsing fails
-		fmt.Fprintf(os.Stderr, "Invalid log level '%s', defaulting to 'info'\n", logCfg.LogLevel)
-	}
-
-	if logCfg.LogFormat == "console" {
-		logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).Level(logLevel).With().Timestamp().Logger()
-	} else if logCfg.LogFormat == "json" {
-		// TODO: Add file logging support if logCfg.LogFile is set
-		logger = zerolog.New(os.Stderr).Level(logLevel).With().Timestamp().Logger()
-	} else { // Default to text or console-like if format is unknown
-		logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).Level(logLevel).With().Timestamp().Logger()
-		fmt.Fprintf(os.Stderr, "Unknown log format '%s', defaulting to 'console'\n", logCfg.LogFormat)
-	}
-	return logger
 }

@@ -3,8 +3,7 @@ package crawler
 import (
 	"errors" // Added for resolveURL
 	// Added for more detailed logging
-	"fmt"
-	"log" // Placeholder for proper logging integration later
+	"fmt" // Placeholder for proper logging integration later
 	"net/http"
 	"net/url" // For URL parsing and manipulation
 	"strconv"
@@ -16,7 +15,10 @@ import (
 	"monsterinc/internal/urlhandler"
 
 	"github.com/gocolly/colly/v2"
+	"github.com/rs/zerolog"
 )
+
+const defaultHeadTimeout = 10 * time.Second
 
 // Crawler represents the web crawler instance.
 type Crawler struct {
@@ -35,6 +37,8 @@ type Crawler struct {
 	RespectRobotsTxt bool           // Task 2.3: Store robots.txt preference
 	maxContentLength int64
 	headTimeout      time.Duration
+	logger           zerolog.Logger
+	config           *config.CrawlerConfig
 }
 
 // configureCollyCollector sets up and configures a new colly.Collector instance based on CrawlerConfig.
@@ -72,7 +76,7 @@ func (cr *Crawler) handleError(r *colly.Response, e error) {
 	cr.mutex.Lock()
 	cr.totalErrors++
 	cr.mutex.Unlock()
-	log.Printf("[ERROR] Crawler: Request to %s failed. Status: %d. Error: %v", r.Request.URL, r.StatusCode, e)
+	cr.logger.Error().Str("url", r.Request.URL.String()).Int("status", r.StatusCode).Err(e).Msg("Request failed")
 }
 
 // handleRequest is a Colly callback executed before a request is made.
@@ -82,7 +86,7 @@ func (cr *Crawler) handleRequest(r *colly.Request) {
 		path := r.URL.Path
 		for _, re := range cr.Scope.DisallowedPathPatterns {
 			if re.MatchString(path) {
-				log.Printf("[INFO] Crawler: Abort request to %s (path matches disallowed regex: %s)", r.URL.String(), re.String())
+				cr.logger.Info().Str("url", r.URL.String()).Str("regex", re.String()).Msg("Abort request (path matches disallowed regex)")
 				r.Abort()
 				return
 			}
@@ -97,16 +101,16 @@ func (cr *Crawler) handleResponse(r *colly.Response) {
 	cr.totalVisited++
 	cr.mutex.Unlock()
 	if r.Headers.Get("Content-Type") != "" && strings.Contains(strings.ToLower(r.Headers.Get("Content-Type")), "text/html") {
-		assets, err := ExtractAssetsFromHTML(strings.NewReader(string(r.Body)), r.Request.URL, cr)
-		if err != nil {
-			log.Printf("[WARN] Crawler: Error extracting assets from %s: %v", r.Request.URL.String(), err)
-		} else {
-			// Log an info message, but avoid overly verbose logging for every page if many assets are typically found.
-			// Consider logging only if a significant number of assets are found, or if specific types of assets are found.
-			if len(assets) > 0 {
-				log.Printf("[INFO] Crawler: Extracted %d assets from %s", len(assets), r.Request.URL.String())
-			}
+		// Pass r.Body ([]byte) directly
+		assets := ExtractAssetsFromHTML(r.Body, r.Request.URL, cr)
+		// ExtractAssetsFromHTML now logs its own errors and doesn't return one.
+		// if err != nil { // Removed error handling here as function signature changed
+		// 	cr.logger.Warn().Str("url", r.Request.URL.String()).Err(err).Msg("Error extracting assets")
+		// } else {
+		if len(assets) > 0 {
+			cr.logger.Info().Str("url", r.Request.URL.String()).Int("assets", len(assets)).Msg("Extracted assets")
 		}
+		// }
 	}
 }
 
@@ -117,9 +121,12 @@ func (cr *Crawler) handleResponse(r *colly.Response) {
 // Task 2.2: Update NewCrawler to accept path regexes for ScopeSettings.
 // Task 2.3: Add RespectRobotsTxt parameter to NewCrawler
 // Task 4.x: Modify NewCrawler to accept CrawlerConfig
-func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
+func NewCrawler(cfg *config.CrawlerConfig, httpClient *http.Client, appLogger zerolog.Logger) (*Crawler, error) {
+	moduleLogger := appLogger.With().Str("module", "Crawler").Logger()
+
 	if cfg == nil {
-		return nil, errors.New("crawler configuration cannot be nil")
+		moduleLogger.Error().Msg("Crawler configuration cannot be nil.")
+		return nil, fmt.Errorf("crawler config cannot be nil")
 	}
 
 	// Validate essential configurations
@@ -158,16 +165,20 @@ func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
 	}
 	maxContentLength := int64(maxContentLengthMB) * 1024 * 1024
 
-	// Create ScopeSettings internally using scope parameters from CrawlerConfig
-	currentScopeSettings := NewScopeSettings(
-		cfg.Scope.AllowedHostnames, cfg.Scope.AllowedSubdomains,
-		cfg.Scope.DisallowedHostnames, cfg.Scope.DisallowedSubdomains,
-		cfg.Scope.AllowedPathRegexes, cfg.Scope.DisallowedPathRegexes,
+	// Initialize ScopeSettings with the logger
+	scopeSettings := NewScopeSettings(
+		cfg.Scope.AllowedHostnames,
+		cfg.Scope.AllowedSubdomains,
+		cfg.Scope.DisallowedHostnames,
+		cfg.Scope.DisallowedSubdomains,
+		cfg.Scope.AllowedPathRegexes,    // Task 2.2
+		cfg.Scope.DisallowedPathRegexes, // Task 2.2
+		moduleLogger,                    // Pass the moduleLogger to ScopeSettings
 	)
 
 	collector, err := configureCollyCollector(cfg, crawlerTimeoutDuration, userAgent)
 	if err != nil {
-		log.Printf("[ERROR] Crawler: Failed to configure Colly collector: %v", err)
+		moduleLogger.Error().Err(err).Msg("Failed to configure Colly collector")
 		return nil, err
 	}
 
@@ -179,10 +190,12 @@ func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
 		Threads:          crawlerThreads,         // Initialize cr.Threads
 		MaxDepth:         maxDepth,               // Initialize cr.MaxDepth
 		seedURLs:         append([]string(nil), cfg.SeedURLs...),
-		Scope:            currentScopeSettings,
+		Scope:            scopeSettings,
 		RespectRobotsTxt: cfg.RespectRobotsTxt, // Store the actual setting used
 		maxContentLength: maxContentLength,
 		headTimeout:      crawlerTimeoutDuration,
+		logger:           moduleLogger,
+		config:           cfg,
 	}
 
 	// Setup Colly Callbacks using the new methods
@@ -190,8 +203,7 @@ func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
 	cr.Collector.OnRequest(cr.handleRequest)
 	cr.Collector.OnResponse(cr.handleResponse)
 
-	log.Printf("[INFO] Crawler: Initialized with config. Seeds: %v, UserAgent: '%s', Timeout: %s, Threads: %d, MaxDepth: %d, RespectRobotsTxt: %t. Scope: %+v",
-		cr.seedURLs, cr.UserAgent, cr.RequestTimeout, cr.Threads, cr.MaxDepth, cr.RespectRobotsTxt, cr.Scope)
+	moduleLogger.Info().Strs("seeds", cr.seedURLs).Str("user_agent", cr.UserAgent).Dur("timeout", cr.RequestTimeout).Int("threads", cr.Threads).Int("max_depth", cr.MaxDepth).Bool("respect_robots_txt", cr.RespectRobotsTxt).Interface("scope", cr.Scope).Msg("Initialized with config")
 
 	return cr, nil
 }
@@ -200,7 +212,7 @@ func NewCrawler(cfg *config.CrawlerConfig) (*Crawler, error) {
 func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 	absURL, err := urlhandler.ResolveURL(rawURL, base)
 	if err != nil {
-		log.Printf("[WARN] Crawler: Could not resolve URL '%s' relative to '%s': %v", rawURL, base, err)
+		cr.logger.Warn().Str("raw_url", rawURL).Str("base", base.String()).Err(err).Msg("Could not resolve URL")
 		// Vẫn ghi nhận URL để httpx probe thử
 		cr.mutex.Lock()
 		cr.discoveredURLs[rawURL] = true
@@ -216,7 +228,7 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 	if cr.Scope != nil {
 		isAllowed, scopeErr := cr.Scope.IsURLAllowed(normalizedAbsURL)
 		if scopeErr != nil {
-			log.Printf("[WARN] Crawler: Scope check for URL '%s' encountered an issue: %v. URL will not be visited.", normalizedAbsURL, scopeErr)
+			cr.logger.Warn().Str("url", normalizedAbsURL).Err(scopeErr).Msg("Scope check encountered an issue")
 			return
 		}
 		if !isAllowed {
@@ -236,7 +248,7 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 			client := &http.Client{Timeout: cr.RequestTimeout}
 			resp, err := client.Do(headReq)
 			if err != nil {
-				log.Printf("[WARN] Crawler: HEAD request failed for %s: %v. Still adding to discoveredURLs for httpx.", normalizedAbsURL, err)
+				cr.logger.Warn().Str("url", normalizedAbsURL).Err(err).Msg("HEAD request failed")
 				cr.mutex.Lock()
 				cr.discoveredURLs[normalizedAbsURL] = true
 				cr.mutex.Unlock()
@@ -245,7 +257,7 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 			resp.Body.Close()
 			if cl := resp.Header.Get("Content-Length"); cl != "" {
 				if size, err := strconv.ParseInt(cl, 10, 64); err == nil && size > cr.maxContentLength {
-					log.Printf("[INFO] Crawler: Skip queue %s (Content-Length %d > %d bytes)", normalizedAbsURL, size, cr.maxContentLength)
+					cr.logger.Info().Str("url", normalizedAbsURL).Int64("size", size).Int64("max_size", cr.maxContentLength).Msg("Skip queue (Content-Length exceeded)")
 					// Vẫn ghi nhận URL vào discoveredURLs để httpx runner xử lý
 					cr.mutex.Lock()
 					cr.discoveredURLs[normalizedAbsURL] = true
@@ -261,7 +273,7 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 			cr.mutex.Unlock()
 			visitErr := cr.Collector.Visit(normalizedAbsURL)
 			if visitErr != nil && !strings.Contains(visitErr.Error(), "already visited") && !errors.Is(visitErr, colly.ErrRobotsTxtBlocked) {
-				log.Printf("[WARN] Crawler: Error queueing visit for %s: %v", normalizedAbsURL, visitErr)
+				cr.logger.Warn().Str("url", normalizedAbsURL).Err(visitErr).Msg("Error queueing visit")
 			}
 		} else {
 			cr.mutex.Unlock() // Already added by another goroutine
@@ -289,14 +301,14 @@ func (cr *Crawler) Start() {
 	// cr.totalErrors = 0
 	// cr.discoveredURLs = make(map[string]bool) // Or clear if re-using
 
-	log.Printf("[INFO] Crawler: Starting crawl for %d seed(s): %v", len(cr.seedURLs), cr.seedURLs)
+	cr.logger.Info().Int("seed_count", len(cr.seedURLs)).Strs("seeds", cr.seedURLs).Msg("Starting crawl")
 
 	for _, seed := range cr.seedURLs {
 		// Resolve the seed URL against nil base to ensure it's absolute and valid
 		// DiscoverURL will then handle adding it to the collector
 		parsedSeed, err := urlhandler.ResolveURL(seed, nil) // base is nil for seed
 		if err != nil {
-			log.Printf("[ERROR] Crawler: Invalid or non-absolute seed URL '%s': %v. Skipping.", seed, err)
+			cr.logger.Error().Str("seed", seed).Err(err).Msg("Invalid or non-absolute seed URL")
 			continue
 		}
 		// Use parsedSeed as its own base for the DiscoverURL call, or nil if DiscoverURL handles it
@@ -305,7 +317,7 @@ func (cr *Crawler) Start() {
 	}
 
 	// Wait for crawling to complete
-	log.Printf("[INFO] Crawler: Waiting for %d active threads to complete...", cr.Threads)
+	cr.logger.Info().Int("active_threads", cr.Threads).Msg("Waiting for threads to complete")
 	cr.Collector.Wait()
 
 	cr.logSummary()
@@ -320,9 +332,8 @@ func (cr *Crawler) logSummary() {
 	// Clarify what "URLs Visited" means in this context.
 	// totalVisited is incremented on OnResponse, which might include redirects or non-HTML pages.
 	// len(cr.discoveredURLs) is the count of unique URLs our DiscoverURL method decided to queue.
-	log.Printf("[INFO] Crawler: Crawl finished for seeds: %v", cr.seedURLs)
-	log.Printf("[INFO] Crawler: Summary - Duration: %s, URLs processed (OnResponse): %d, Unique URLs discovered/queued: %d, HTTP errors (OnError): %d",
-		duration, cr.totalVisited, len(cr.discoveredURLs), cr.totalErrors)
+	cr.logger.Info().Strs("seeds", cr.seedURLs).Msg("Crawl finished")
+	cr.logger.Info().Dur("duration", duration).Int("visited", cr.totalVisited).Int("discovered", len(cr.discoveredURLs)).Int("errors", cr.totalErrors).Msg("Summary")
 }
 
 // TODO:

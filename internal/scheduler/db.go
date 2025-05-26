@@ -3,10 +3,11 @@ package scheduler
 import (
 	"database/sql"
 	// "log"
+	"fmt"
 	"time"
 
 	"github.com/rs/zerolog" // Added
-	_ "modernc.org/sqlite" // SQLite driver, CGO-free
+	_ "modernc.org/sqlite"  // SQLite driver, CGO-free
 )
 
 // DB wraps the SQL database connection and provides methods for interacting with scan history.
@@ -26,18 +27,27 @@ type ScanHistoryEntry struct {
 	LogSummary     sql.NullString // Use sql.NullString for nullable string fields
 }
 
-// NewDB initializes a new DB wrapper with the given data source name (SQLite file path).
-// It also pings the database to ensure connectivity.
-func NewDB(dataSourceName string, logger zerolog.Logger) (*DB, error) { // Changed logger type
-	d, err := sql.Open("sqlite", dataSourceName)
+// NewDB initializes a new DB connection and ensures the schema is set up.
+// The logger passed here should ideally be a logger instance already contextualized for the scheduler or DB operations.
+func NewDB(dataSourceName string, logger zerolog.Logger) (*DB, error) {
+	dbInstance, err := sql.Open("sqlite", dataSourceName)
 	if err != nil {
-		return nil, err
+		logger.Error().Err(err).Str("datasource", dataSourceName).Msg("Failed to open SQLite database")
+		return nil, fmt.Errorf("sql.Open failed for %s: %w", dataSourceName, err)
 	}
-	if err = d.Ping(); err != nil {
-		return nil, err
+
+	db := &DB{
+		db:     dbInstance,
+		logger: logger, // Use the passed logger directly (already contextualized or base scheduler logger)
 	}
-	logger.Info().Str("database_path", dataSourceName).Msg("DB: Successfully connected to SQLite database") // Changed logger call
-	return &DB{db: d, logger: logger}, nil
+
+	if err := db.InitSchema(); err != nil {
+		db.Close() // Close the DB if schema initialization fails
+		logger.Error().Err(err).Msg("Failed to initialize database schema")
+		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+	}
+	logger.Info().Str("path", dataSourceName).Msg("Database initialized and schema verified.")
+	return db, nil
 }
 
 // Close closes the database connection.
@@ -77,36 +87,31 @@ func (d *DB) InitSchema() error {
 
 // RecordScanStart inserts a new record into scan_history with status "STARTED"
 // and returns the ID of the newly inserted row.
-func (d *DB) RecordScanStart(scanSessionID string, targetSource string, numTargets int, startTime time.Time) (int64, error) { // Updated signature
-	query := `INSERT INTO scan_history (scan_session_id, scan_start_time, status, target_source, num_targets) VALUES (?, ?, ?, ?, ?)`
-	res, err := d.db.Exec(query, scanSessionID, startTime, "STARTED", targetSource, numTargets)
+func (d *DB) RecordScanStart(scanSessionID string, targetSource string, numTargets int, startTime time.Time) (int64, error) {
+	query := `INSERT INTO scan_history (scan_session_id, target_source, num_targets, scan_start_time, status) VALUES (?, ?, ?, ?, ?)`
+	result, err := d.db.Exec(query, scanSessionID, targetSource, numTargets, startTime, "STARTED")
 	if err != nil {
-		d.logger.Error().Err(err).Str("scan_session_id", scanSessionID).Msg("DB: Failed to record scan start") // Changed logger call
-		return 0, err
+		d.logger.Error().Err(err).Str("query", query).Msg("Failed to record scan start")
+		return 0, fmt.Errorf("failed to insert scan start record: %w", err)
 	}
-	id, err := res.LastInsertId()
+	id, err := result.LastInsertId()
 	if err != nil {
-		d.logger.Error().Err(err).Str("scan_session_id", scanSessionID).Msg("DB: Failed to get last insert ID for scan start") // Changed logger call
-		return 0, err
+		d.logger.Error().Err(err).Msg("Failed to get last insert ID for scan start")
+		return 0, fmt.Errorf("failed to get last insert ID: %w", err)
 	}
-	d.logger.Info().Int64("db_id", id).Str("scan_session_id", scanSessionID).Str("target_source", targetSource).Msg("DB: Recorded scan start") // Changed logger call
+	d.logger.Info().Int64("db_id", id).Str("scan_session_id", scanSessionID).Msg("Recorded scan start in DB")
 	return id, nil
 }
 
 // UpdateScanCompletion updates an existing scan_history record with completion details.
-func (d *DB) UpdateScanCompletion(id int64, endTime time.Time, status string, logSummary string, newURLs int, oldURLs int, existingURLs int, reportPath string) error { // Updated signature
-	query := `UPDATE scan_history SET scan_end_time = ?, status = ?, report_file_path = ?, log_summary = ?, new_urls = ?, old_urls = ?, existing_urls = ? WHERE id = ?`
-
-	nullReportPath := sql.NullString{String: reportPath, Valid: reportPath != ""}
-	nullLogSummary := sql.NullString{String: logSummary, Valid: logSummary != ""}
-	nullEndTime := sql.NullTime{Time: endTime, Valid: !endTime.IsZero()}
-
-	_, err := d.db.Exec(query, nullEndTime, status, nullReportPath, nullLogSummary, newURLs, oldURLs, existingURLs, id)
+func (d *DB) UpdateScanCompletion(dbScanID int64, endTime time.Time, status string, logSummary string, newURLs int, oldURLs int, existingURLs int, reportPath string) error {
+	query := `UPDATE scan_history SET scan_end_time = ?, status = ?, log_summary = ?, new_urls = ?, old_urls = ?, existing_urls = ?, report_file_path = ? WHERE id = ?`
+	_, err := d.db.Exec(query, endTime, status, sql.NullString{String: logSummary, Valid: logSummary != ""}, newURLs, oldURLs, existingURLs, sql.NullString{String: reportPath, Valid: reportPath != ""}, dbScanID)
 	if err != nil {
-		d.logger.Error().Err(err).Int64("db_id", id).Msg("DB: Failed to update scan completion") // Changed logger call
-		return err
+		d.logger.Error().Err(err).Int64("db_id", dbScanID).Str("query", query).Msg("Failed to update scan completion")
+		return fmt.Errorf("failed to update scan completion for ID %d: %w", dbScanID, err)
 	}
-	d.logger.Info().Int64("db_id", id).Str("status", status).Msg("DB: Updated scan completion") // Changed logger call
+	d.logger.Info().Int64("db_id", dbScanID).Str("status", status).Msg("Updated scan completion in DB")
 	return nil
 }
 
@@ -114,26 +119,22 @@ func (d *DB) UpdateScanCompletion(id int64, endTime time.Time, status string, lo
 // (either successfully completed or the last retry that failed).
 // Returns nil if no scan history is found.
 func (d *DB) GetLastScanTime() (*time.Time, error) {
-	query := `SELECT scan_end_time FROM scan_history ORDER BY scan_start_time DESC LIMIT 1`
-	var lastScanEndTime sql.NullTime
-	err := d.db.QueryRow(query).Scan(&lastScanEndTime)
-
+	query := `SELECT scan_end_time FROM scan_history WHERE status = ? ORDER BY scan_end_time DESC LIMIT 1`
+	var nullableTime sql.NullTime
+	err := d.db.QueryRow(query, "COMPLETED").Scan(&nullableTime)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			d.logger.Info().Msg("DB: No previous scan history found.") // Changed logger call
-			return nil, nil // No history, not an error for scheduler logic
+			d.logger.Info().Msg("No completed scan found in history.")
+			return nil, err // Return sql.ErrNoRows as is, so caller can distinguish
 		}
-		d.logger.Error().Err(err).Msg("DB: Failed to get last scan time") // Changed logger call
-		return nil, err
+		d.logger.Error().Err(err).Str("query", query).Msg("Failed to query last scan time")
+		return nil, fmt.Errorf("failed to query last scan time: %w", err)
 	}
 
-	if lastScanEndTime.Valid {
-		d.logger.Info().Time("last_scan_end_time", lastScanEndTime.Time).Msg("DB: Retrieved last scan end time") // Changed logger call
-		return &lastScanEndTime.Time, nil
+	if nullableTime.Valid {
+		d.logger.Debug().Time("last_scan_time", nullableTime.Time).Msg("Found last scan time.")
+		return &nullableTime.Time, nil
 	}
-	d.logger.Info().Msg("DB: Last scan end time was NULL (scan might be in progress or crashed). Consider scan_start_time for next logic if needed.") // Changed logger call
-	// If scan_end_time is NULL, it means the last scan didn't complete properly.
-	// The scheduler might want to use scan_start_time of that record for its next calculation,
-	// or treat it as if no valid last completion time exists. For now, returning nil.
-	return nil, nil
+	d.logger.Info().Msg("Last scan time was NULL in DB (likely an incomplete scan was the latest). Treat as no scan found.")
+	return nil, sql.ErrNoRows // Treat NULL as no row for scheduling purposes
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"monsterinc/internal/datastore"
 	"monsterinc/internal/models"
+	"time"
 
 	"github.com/rs/zerolog"
 	// For default logger if needed
@@ -23,7 +24,7 @@ type UrlDiffer struct {
 func NewUrlDiffer(pr *datastore.ParquetReader, logger zerolog.Logger) *UrlDiffer {
 	return &UrlDiffer{
 		parquetReader: pr,
-		logger:        logger,
+		logger:        logger.With().Str("module", "UrlDiffer").Logger(),
 	}
 }
 
@@ -32,28 +33,27 @@ func NewUrlDiffer(pr *datastore.ParquetReader, logger zerolog.Logger) *UrlDiffer
 // for 'new', 'existing', and 'changed' statuses.
 // It uses historicalProbes to identify 'old' URLs and constructs DiffedURL entries for them.
 func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget string) (*models.URLDiffResult, error) {
-	ud.logger.Info().Msgf("[INFO] Differ: Starting URL diff for root target: %s. Current probes: %d", rootTarget, len(currentScanProbes))
+	ud.logger.Info().Str("root_target", rootTarget).Int("current_probe_count", len(currentScanProbes)).Msg("Starting URL diff")
 
 	historicalProbes, err := ud.parquetReader.FindHistoricalDataForTarget(rootTarget)
 	if err != nil {
-		ud.logger.Error().Msgf("[ERROR] Differ: Failed to get historical data for target %s: %v", rootTarget, err)
+		ud.logger.Error().Err(err).Str("root_target", rootTarget).Msg("Failed to get historical data")
 		return nil, fmt.Errorf("failed to get historical data for %s: %w", rootTarget, err)
 	}
-	ud.logger.Info().Msgf("[INFO] Differ: Retrieved %d historical probes for target %s", len(historicalProbes), rootTarget)
+	ud.logger.Info().Int("historical_probe_count", len(historicalProbes)).Str("root_target", rootTarget).Msg("Retrieved historical probes")
 
 	result := &models.URLDiffResult{
-		RootTargetURL: rootTarget,                  // Corrected field name
-		Results:       make([]models.DiffedURL, 0), // Corrected: slice, not map
+		RootTargetURL: rootTarget,
+		Results:       make([]models.DiffedURL, 0, len(currentScanProbes)+len(historicalProbes)), // Pre-allocate slice
 		New:           0,
 		Old:           0,
 		Existing:      0,
 	}
 
-	// Use InputURL as key for comparison. Normalization can be added later.
 	currentProbesMap := make(map[string]*models.ProbeResult)
 	for _, p := range currentScanProbes {
-		if p.InputURL == "" {
-			ud.logger.Warn().Msgf("[WARN] Differ: Skipping current probe with empty InputURL.")
+		if p == nil || p.InputURL == "" {
+			ud.logger.Warn().Msg("Skipping current probe with nil or empty InputURL.")
 			continue
 		}
 		currentProbesMap[p.InputURL] = p
@@ -62,13 +62,11 @@ func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget
 	historicalProbesMap := make(map[string]models.ProbeResult)
 	for _, hp := range historicalProbes {
 		if hp.InputURL == "" {
-			ud.logger.Warn().Msgf("[WARN] Differ: Skipping historical probe with empty InputURL: %+v", hp)
+			ud.logger.Warn().Interface("historical_probe_details", hp).Msg("Skipping historical probe with empty InputURL.")
 			continue
 		}
 		historicalProbesMap[hp.InputURL] = hp
 	}
-
-	// currentScanTime := time.Now() // Removed: Not used, currentProbe.Timestamp is used
 
 	// Identify New, Existing, or Changed URLs
 	for keyURL, currentProbe := range currentProbesMap {
@@ -77,37 +75,38 @@ func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget
 
 		if historicalProbe, found := historicalProbesMap[keyURL]; found {
 			currentProbe.URLStatus = string(models.StatusExisting)
-			// Preserve FirstSeenTimestamp from historical data if it exists and is valid
 			if !historicalProbe.OldestScanTimestamp.IsZero() {
 				currentProbe.OldestScanTimestamp = historicalProbe.OldestScanTimestamp
+			} else if !currentProbe.Timestamp.IsZero() { // currentProbe.Timestamp is from current scan
+				currentProbe.OldestScanTimestamp = currentProbe.Timestamp
 			} else {
-				currentProbe.OldestScanTimestamp = currentProbe.Timestamp // currentProbe.Timestamp is from current scan
+				// Fallback if both are zero, though currentProbe.Timestamp should ideally always be set
+				currentProbe.OldestScanTimestamp = time.Now()
+				ud.logger.Warn().Str("url", keyURL).Msg("Current probe timestamp is zero, using time.Now() for OldestScanTimestamp.")
 			}
-			// LastSeen for existing items is the current scan's timestamp
-			// currentProbe.Timestamp should already be the current scan time from the prober
-
 			result.Existing++
+			delete(historicalProbesMap, keyURL) // Remove from historical map to find "Old" URLs later
 		} else {
 			// URL is New
-			currentProbe.OldestScanTimestamp = currentProbe.Timestamp // First time seeing it
-			// currentProbe.Timestamp is already current scan time
+			if !currentProbe.Timestamp.IsZero() {
+				currentProbe.OldestScanTimestamp = currentProbe.Timestamp // First time seeing it
+			} else {
+				currentProbe.OldestScanTimestamp = time.Now()
+				ud.logger.Warn().Str("url", keyURL).Msg("Current probe timestamp is zero for NEW URL, using time.Now() for OldestScanTimestamp.")
+			}
 			result.New++
 		}
 		result.Results = append(result.Results, models.DiffedURL{ProbeResult: *currentProbe})
-		delete(historicalProbesMap, keyURL) // Remove from historical map to find "Old" URLs later
 	}
 
 	// Identify Old URLs (those remaining in historicalProbesMap)
 	for _, oldProbe := range historicalProbesMap {
 		oldProbe.URLStatus = string(models.StatusOld)
-		// RootTargetURL should already be set from when it was stored
-		// Timestamps (OldestScanTimestamp, Timestamp) for old probes remain as they were in historical data
 		result.Results = append(result.Results, models.DiffedURL{ProbeResult: oldProbe})
 		result.Old++
 	}
 
-	ud.logger.Info().Msgf("[INFO] Differ: Diff complete for %s. New: %d, Existing: %d, Old: %d. Total diff entries: %d",
-		rootTarget, result.New, result.Existing, result.Old, len(result.Results))
+	ud.logger.Info().Str("root_target", rootTarget).Int("new", result.New).Int("existing", result.Existing).Int("old", result.Old).Int("total_diff_entries", len(result.Results)).Msg("Diff complete")
 
 	return result, nil
 }

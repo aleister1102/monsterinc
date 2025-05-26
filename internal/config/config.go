@@ -247,23 +247,29 @@ func NewDefaultNotificationConfig() NotificationConfig {
 	}
 }
 
+// LogConfig defines the configuration for application logging.
+// It allows setting the logging level, format, and output file.
+// Rotation settings might be added in the future.
 type LogConfig struct {
-	LogLevel        string `json:"log_level,omitempty" yaml:"log_level,omitempty" validate:"omitempty,loglevel"`
-	LogFormat       string `json:"log_format,omitempty" yaml:"log_format,omitempty" validate:"omitempty,logformat"`
-	LogFile         string `json:"log_file,omitempty" yaml:"log_file,omitempty" validate:"omitempty,filepath"`
-	MaxLogSizeMB    int    `json:"max_log_size_mb,omitempty" yaml:"max_log_size_mb,omitempty"`
-	MaxLogBackups   int    `json:"max_log_backups,omitempty" yaml:"max_log_backups,omitempty"`
-	CompressOldLogs bool   `json:"compress_old_logs" yaml:"compress_old_logs"`
+	LogLevel  string `json:"log_level,omitempty" yaml:"log_level,omitempty" validate:"omitempty,loglevel"`
+	LogFormat string `json:"log_format,omitempty" yaml:"log_format,omitempty" validate:"omitempty,logformat"`
+	LogFile   string `json:"log_file,omitempty" yaml:"log_file,omitempty" validate:"omitempty,filepath"` // Optional: Path to the log file. If empty, logs to stderr.
+
+	// Future consideration for rotation, if not using an external tool or simple file output:
+	MaxLogSizeMB    int  `json:"max_log_size_mb,omitempty" yaml:"max_log_size_mb,omitempty"`
+	MaxLogBackups   int  `json:"max_log_backups,omitempty" yaml:"max_log_backups,omitempty"`
+	CompressOldLogs bool `json:"compress_old_logs" yaml:"compress_old_logs"`
 }
 
+// NewDefaultLogConfig creates a LogConfig with default values.
 func NewDefaultLogConfig() LogConfig {
 	return LogConfig{
-		LogLevel:        DefaultLogLevel,
-		LogFormat:       DefaultLogFormat,
-		LogFile:         DefaultLogFile,
-		MaxLogSizeMB:    DefaultMaxLogSizeMB,
-		MaxLogBackups:   DefaultMaxLogBackups,
-		CompressOldLogs: DefaultCompressOldLogs,
+		LogLevel:        "info",    // Default log level
+		LogFormat:       "console", // Default log format
+		LogFile:         "",        // Default to stderr, not a file
+		MaxLogSizeMB:    100,       // Example default if implementing rotation
+		MaxLogBackups:   3,         // Example default if implementing rotation
+		CompressOldLogs: false,     // Example default if implementing rotation
 	}
 }
 
@@ -372,35 +378,23 @@ func LoadGlobalConfig(providedPath string) (*GlobalConfig, error) { // providedP
 		isYAML := ext == ".yaml" || ext == ".yml"
 
 		if isYAML {
-			// --- YAML Unmarshalling (requires import "gopkg.in/yaml.v3") ---
-			// The user MUST ADD THE IMPORT "gopkg.in/yaml.v3" for the below to work.
-			// For now, I will comment it out to prevent build errors if the import is missing.
-			// Once the import is added, uncomment the following lines:
-			// /*
-			errYaml := yaml.Unmarshal(data, cfg) // Ensure you have: import "gopkg.in/yaml.v3"
-			if errYaml == nil {
-				// YAML loaded successfully. Environment variables will be processed after this if-else block.
-				// No further action needed here for file loading if YAML succeeds.
-			} else {
-				// YAML parsing failed.
-				return nil, fmt.Errorf("failed to unmarshal YAML from '%s': %w", filePath, errYaml)
-			}
-			// */
-
 			// UNCOMMENTED YAML parsing block:
-			errYaml = yaml.Unmarshal(data, cfg)
-			if errYaml != nil {
-				return nil, fmt.Errorf("failed to unmarshal YAML from '%s': %w", filePath, errYaml)
+			if e := yaml.Unmarshal(data, cfg); e != nil {
+				// log.Printf("[ERROR] Config: Failed to unmarshal YAML from '%s': %v", filePath, e) // Example of an error log
+				return nil, fmt.Errorf("failed to unmarshal YAML from '%s': %w", filePath, e)
 			}
-
+			// log.Println("[DEBUG] Config: YAML configuration (re-check) loaded successfully.")
 		} else { // Not a YAML extension, assume JSON
 			err = json.Unmarshal(data, cfg)
 			if err != nil {
+				// log.Printf("[ERROR] Config: Failed to unmarshal JSON config file '%s': %v", filePath, err) // Example of an error log
 				return nil, fmt.Errorf("failed to unmarshal JSON config file '%s': %w", filePath, err)
 			}
+			// log.Println("[DEBUG] Config: JSON configuration loaded successfully.")
 		}
 	} else {
-		// fmt.Println("No configuration file path provided, using defaults and environment variables.")
+		// No config file found or providedPath was empty and no defaults exist.
+		// log.Println("[INFO] Config: No configuration file loaded. Using defaults and environment variables.") // Example of an info log
 	}
 
 	// Override with environment variables

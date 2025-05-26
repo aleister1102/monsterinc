@@ -3,6 +3,7 @@ package reporter
 import (
 	"bytes"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -29,6 +30,9 @@ var customCSS embed.FS
 //go:embed assets/js/report.js
 var reportJS embed.FS
 
+//go:embed assets/img/favicon.ico
+var faviconICO []byte
+
 // HtmlReporter is responsible for generating HTML reports from probe results.
 // It uses Go's html/template package.
 type HtmlReporter struct {
@@ -40,49 +44,75 @@ type HtmlReporter struct {
 
 // NewHtmlReporter creates a new HtmlReporter.
 func NewHtmlReporter(cfg *config.ReporterConfig, appLogger zerolog.Logger) (*HtmlReporter, error) {
-	if cfg == nil {
-		cfg = &config.ReporterConfig{} // Use default config if nil
+	moduleLogger := appLogger.With().Str("module", "HtmlReporter").Logger()
+
+	if cfg.OutputDir == "" {
+		cfg.OutputDir = config.DefaultReporterOutputDir // Use constant from config package
+		moduleLogger.Info().Str("default_dir", cfg.OutputDir).Msg("OutputDir not specified in config, using default.")
 	}
 
-	hr := &HtmlReporter{
-		config: cfg,
-		logger: appLogger, // Assume appLogger is always provided and initialized
+	if err := os.MkdirAll(cfg.OutputDir, 0755); err != nil {
+		moduleLogger.Error().Err(err).Str("path", cfg.OutputDir).Msg("Failed to create report output directory.")
+		return nil, fmt.Errorf("failed to create report output directory '%s': %w", cfg.OutputDir, err)
 	}
 
-	// Load and parse the template
-	templateName := "report.html.tmpl"
-	var err error
-	if hr.config.TemplatePath != "" {
-		hr.logger.Info().Str("path", hr.config.TemplatePath).Msg("Loading template from custom path")
-		hr.template, err = template.New(filepath.Base(hr.config.TemplatePath)).Funcs(templateFunctions).ParseFiles(hr.config.TemplatePath)
+	tmpl := template.New("report").Funcs(templateFunctions) // Add custom functions
+	var parseErr error                                      // Use a distinct variable name for parsing errors
+
+	if cfg.TemplatePath != "" {
+		moduleLogger.Info().Str("template_path", cfg.TemplatePath).Msg("Loading custom report template from file.")
+		// Attempt to parse the custom file. ParseFiles creates a new template associated with the receiver (tmpl)
+		// and adds all parsed templates to it. If successful, the returned *template.Template is the same as tmpl.
+		_, parseErr = tmpl.ParseFiles(cfg.TemplatePath) // Assign to _, as tmpl is already the correct *template.Template instance
+		if parseErr != nil {
+			moduleLogger.Error().Err(parseErr).Str("path", cfg.TemplatePath).Msg("Failed to parse custom report template from file.")
+			return nil, fmt.Errorf("failed to parse custom report template '%s': %w", cfg.TemplatePath, parseErr)
+		}
 	} else {
-		hr.logger.Info().Str("template", templateName).Msg("Loading embedded template")
-		hr.template, err = template.New(templateName).Funcs(templateFunctions).ParseFS(defaultTemplate, "templates/"+templateName)
+		moduleLogger.Info().Msg("Loading embedded default report template.")
+		defaultTemplateContent, errRead := defaultTemplate.ReadFile("templates/report.html.tmpl")
+		if errRead != nil {
+			moduleLogger.Error().Err(errRead).Msg("Failed to read embedded default report template.")
+			return nil, fmt.Errorf("failed to load embedded default report template: %w", errRead)
+		}
+
+		cleanedTemplateContent := strings.ReplaceAll(string(defaultTemplateContent), "\r\n", "\n")
+
+		// Parse the cleaned content into the existing tmpl instance.
+		// The returned *template.Template is tmpl itself if successful.
+		_, parseErr = tmpl.Parse(cleanedTemplateContent) // Assign to _, as tmpl is already the correct *template.Template instance
+		if parseErr != nil {
+			moduleLogger.Error().Err(parseErr).Msg("Failed to parse cleaned embedded report template.")
+			return nil, fmt.Errorf("failed to parse cleaned embedded report template: %w", parseErr)
+		}
 	}
 
-	if err != nil {
-		// Use the reporter's logger once it's potentially initialized (or a temp one if init fails early)
-		// For simplicity, if template loading fails, this log might use the passed appLogger or a default if hr.logger isn't set yet.
-		hr.logger.Error().Err(err).Msg("Failed to parse HTML template")
-		return nil, fmt.Errorf("failed to parse HTML template: %w", err)
-	}
+	// Log the name of the parsed template for debugging
+	moduleLogger.Debug().Str("parsed_template_name", tmpl.Name()).Str("definition", tmpl.DefinedTemplates()).Msg("Template parsed/loaded")
 
-	return hr, nil
+	moduleLogger.Info().Msg("HtmlReporter initialized successfully.")
+	return &HtmlReporter{
+		config:       cfg,
+		logger:       moduleLogger,
+		template:     tmpl,
+		templatePath: cfg.TemplatePath,
+	}, nil
 }
 
 // prepareReportData populates the ReportPageData struct based on probe results and reporter config.
 // It now accepts a slice of pointers to ProbeResult.
 func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, urlDiffs map[string]models.URLDiffResult) (models.ReportPageData, error) {
-	pageData := models.GetDefaultReportPageData() // Get a base structure
+	r.logger.Debug().Msg("Preparing report page data.")
+	pageData := models.GetDefaultReportPageData()
 	pageData.ReportTitle = r.config.ReportTitle
 	if pageData.ReportTitle == "" {
-		pageData.ReportTitle = "MonsterInc Scan Report"
+		pageData.ReportTitle = "MonsterInc Scan Report" // Default if empty
 	}
 	pageData.GeneratedAt = time.Now().Format("2006-01-02 15:04:05 MST")
-	// pageData.TotalResults will be len(pageData.ProbeResults) after processing
-	pageData.ItemsPerPage = r.config.DefaultItemsPerPage
+	pageData.ItemsPerPage = r.config.ItemsPerPage // Corrected: was DefaultItemsPerPage
 	if pageData.ItemsPerPage <= 0 {
-		pageData.ItemsPerPage = 100 // Default fallback
+		pageData.ItemsPerPage = 25 // Default fallback for items per page
+		r.logger.Debug().Int("default_items", pageData.ItemsPerPage).Msg("Using default items per page.")
 	}
 	pageData.EnableDataTables = r.config.EnableDataTables
 	pageData.DiffSummaryData = make(map[string]models.DiffSummaryEntry)
@@ -91,56 +121,38 @@ func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, url
 	statusCodes := make(map[int]struct{})
 	contentTypes := make(map[string]struct{})
 	techs := make(map[string]struct{})
-	rootTargetsEncountered := make(map[string]struct{}) // For UniqueRootTargets
+	rootTargetsEncountered := make(map[string]struct{})
 
-	totalProcessedForSummary := 0
-	// Iterate through urlDiffs to populate displayResults and DiffSummaryData
 	for rootTgt, diffResult := range urlDiffs {
-		rootTargetsEncountered[rootTgt] = struct{}{}
-		currentRootNew := 0
-		currentRootOld := 0
-		currentRootExisting := 0
-		// currentRootChanged := 0 // For future use
+		rootTargetsEncountered[rootTgt] = struct{}{} // Track unique root targets
+		var currentRootNew, currentRootOld, currentRootExisting int
 
-		for _, diffedURL := range diffResult.Results { // Corrected: Iterate over Results (slice)
-			pr := diffedURL.ProbeResult // This is the full ProbeResult
-
-			// Ensure RootTargetURL is consistent if not already set by orchestrator/differ
+		for _, diffedURL := range diffResult.Results {
+			pr := diffedURL.ProbeResult
 			if pr.RootTargetURL == "" {
 				pr.RootTargetURL = rootTgt
+				r.logger.Debug().Str("url", pr.InputURL).Str("assigned_root_target", rootTgt).Msg("Assigned root target to probe result in diff.")
 			}
 
-			displayPr := models.ToProbeResultDisplay(pr) // Use the existing helper
-			displayPr.URLStatus = string(pr.URLStatus)   // Set DiffStatus from ProbeResult.URLStatus
+			displayPr := models.ToProbeResultDisplay(pr)
+			displayPr.URLStatus = string(pr.URLStatus)
 			displayResults = append(displayResults, displayPr)
-			totalProcessedForSummary++
 
-			switch models.URLStatus(pr.URLStatus) { // Corrected: Cast pr.URLStatus to models.URLStatus
+			switch models.URLStatus(pr.URLStatus) {
 			case models.StatusNew:
 				currentRootNew++
-				pageData.SuccessResults++ // Assuming new is a success for this counter
+				pageData.SuccessResults++
 			case models.StatusOld:
 				currentRootOld++
-				// Old URLs are not typically counted in active success/failure for the *current* scan
 			case models.StatusExisting:
 				currentRootExisting++
-				pageData.SuccessResults++ // Assuming existing is a success
-			// case models.StatusChanged:
-			// currentRootChanged++
-			// pageData.SuccessResults++ // Or handle as per business logic
+				pageData.SuccessResults++
 			default:
-				// For URLs from current scan that might have failed probing (e.g. no status code)
-				// This part needs clarification: probeResults input vs diffResult data
-				// For now, only New/Existing contribute to SuccessResults. FailedResults could be other conditions.
 				if displayPr.StatusCode == 0 || displayPr.StatusCode >= 400 {
 					pageData.FailedResults++
-				} else {
-					// if it's not new/existing but has a success code and not caught by other statuses
-					// this logic path might need review depending on how pr.URLStatus is set for failed probes
 				}
 			}
 
-			// Collect filter data from displayPr
 			if displayPr.StatusCode > 0 {
 				statusCodes[displayPr.StatusCode] = struct{}{}
 			}
@@ -152,31 +164,17 @@ func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, url
 					techs[techName] = struct{}{}
 				}
 			}
-		} // End iterating diffedURL in a rootTgt
-
+		}
 		pageData.DiffSummaryData[rootTgt] = models.DiffSummaryEntry{
 			NewCount:      currentRootNew,
 			OldCount:      currentRootOld,
 			ExistingCount: currentRootExisting,
-			// ChangedCount:  currentRootChanged,
 		}
-	} // End iterating urlDiffs
-
-	// If probeResults parameter is not empty, it represents the *current* scan's raw probes.
-	// This might be redundant if urlDiffs already contains all new/existing from current scan.
-	// However, if some probes failed very early and didn't make it to diffing, they might be here.
-	// For now, the primary source of truth for the report list is diffResult.DiffedURLs.
-	// The stats like Success/Failed might need to reconcile if probeResults has items not in any diffResult.
+	}
 
 	pageData.ProbeResults = displayResults
-	pageData.TotalResults = len(displayResults) // Total items in the report table
+	pageData.TotalResults = len(displayResults)
 
-	// If SuccessResults + FailedResults don't sum to TotalResults, it means some logic for counting is off
-	// or not all displayResults are categorized. This is a sanity check point.
-	// For now, we assume StatusNew and StatusExisting contribute to SuccessResults.
-	// StatusOld items are in displayResults but might not count towards current scan's success/failure.
-
-	// Populate unique filters
 	for code := range statusCodes {
 		pageData.UniqueStatusCodes = append(pageData.UniqueStatusCodes, code)
 	}
@@ -192,19 +190,18 @@ func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, url
 	}
 	sort.Strings(pageData.UniqueTechnologies)
 
-	for target := range rootTargetsEncountered { // Use the map built from urlDiffs keys
+	for target := range rootTargetsEncountered {
 		pageData.UniqueRootTargets = append(pageData.UniqueRootTargets, target)
 	}
 	sort.Strings(pageData.UniqueRootTargets)
 
-	// Serialize ProbeResults to JSON for JS
 	resultsJSON, err := json.Marshal(pageData.ProbeResults)
 	if err != nil {
-		r.logger.Error().Err(err).Msg("Failed to marshal probe results to JSON for report page data")
+		r.logger.Error().Err(err).Msg("Failed to marshal ProbeResults to JSON for template consumption.")
 		return pageData, fmt.Errorf("failed to marshal probe results to JSON: %w", err)
 	}
 	pageData.ProbeResultsJSON = template.JS(resultsJSON)
-	// r.logger.Debug().Str("json", string(resultsJSON)).Msg("ProbeResultsJSON for template")
+	r.logger.Debug().Int("total_results_for_json", len(pageData.ProbeResults)).Msg("ProbeResults marshalled to JSON for template.")
 
 	return pageData, nil
 }
@@ -214,77 +211,89 @@ func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, url
 // urlDiffs is a map where the key is RootTargetURL and value is its corresponding URLDiffResult.
 // It now accepts a slice of pointers to ProbeResult.
 func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, urlDiffs map[string]models.URLDiffResult, outputPath string) error {
-	if len(probeResults) == 0 && !r.config.GenerateEmptyReport {
-		r.logger.Info().Msg("No probe results to report, and GenerateEmptyReport is false. Skipping report generation.")
-		return nil // FR2: Do not generate report if no results and config says so.
+	if len(probeResults) == 0 && len(urlDiffs) == 0 && !r.config.GenerateEmptyReport {
+		r.logger.Info().Msg("No probe results or URL diffs to report, and GenerateEmptyReport is false. Skipping report generation.")
+		return nil
 	}
-	r.logger.Info().Msgf("Generating HTML report for %d probe results to %s", len(probeResults), outputPath)
+	r.logger.Info().Int("probe_result_count", len(probeResults)).Int("url_diff_count", len(urlDiffs)).Str("output_path", outputPath).Msg("Generating HTML report.")
 
 	pageData, err := r.prepareReportData(probeResults, urlDiffs)
 	if err != nil {
-		r.logger.Error().Err(err).Msg("Error preparing report data")
-		return err // Return the error from prepareReportData
-	}
-
-	// Embed custom assets before executing the template
-	assetErrors := r.embedCustomAssets(&pageData)
-	if len(assetErrors) > 0 {
-		for _, assetErr := range assetErrors {
-			r.logger.Warn().Err(assetErr).Msg("Failed to embed asset")
-		}
-		// Decide if asset embedding errors should be fatal or just warnings
-	}
-
-	// Execute template and write to file
-	if err := r.executeAndWriteReport(pageData, outputPath); err != nil {
-		// Error is already logged by executeAndWriteReport
+		r.logger.Error().Err(err).Msg("Error preparing report data during GenerateReport.")
 		return err
 	}
 
-	r.logger.Info().Msgf("HTML report successfully generated: %s", outputPath)
+	assetErrors := r.embedCustomAssets(&pageData)
+	if len(assetErrors) > 0 {
+		for _, assetErr := range assetErrors {
+			r.logger.Warn().Err(assetErr).Msg("Failed to embed a custom asset into pageData.")
+		}
+	}
+
+	if err := r.executeAndWriteReport(pageData, outputPath); err != nil {
+		return err // Error already logged by executeAndWriteReport
+	}
+
+	r.logger.Info().Str("path", outputPath).Msg("HTML report generated successfully.")
 	return nil
 }
 
 // executeAndWriteReport executes the HTML template with the given data and writes the output to a file.
 func (r *HtmlReporter) executeAndWriteReport(pageData models.ReportPageData, outputPath string) error {
 	var buf bytes.Buffer
+
+	r.logger.Debug().Str("executing_template_name", r.template.Name()).Str("definition", r.template.DefinedTemplates()).Msg("Before executing template")
+
 	if err := r.template.Execute(&buf, pageData); err != nil {
-		r.logger.Error().Err(err).Msg("Error executing HTML template")
+		r.logger.Error().Err(err).Msg("Error executing HTML template into buffer.")
 		return fmt.Errorf("failed to execute HTML template: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
-		r.logger.Error().Err(err).Str("path", filepath.Dir(outputPath)).Msg("Error creating directory for report")
+		r.logger.Error().Err(err).Str("path", filepath.Dir(outputPath)).Msg("Error creating directory for HTML report file.")
 		return fmt.Errorf("failed to create output directory %s: %w", filepath.Dir(outputPath), err)
 	}
 
 	if err := os.WriteFile(outputPath, buf.Bytes(), 0644); err != nil {
-		r.logger.Error().Err(err).Str("path", outputPath).Msg("Error writing HTML report to file")
+		r.logger.Error().Err(err).Str("path", outputPath).Msg("Error writing HTML report to file.")
 		return fmt.Errorf("failed to write HTML report to %s: %w", outputPath, err)
 	}
+	r.logger.Debug().Str("path", outputPath).Int("bytes_written", buf.Len()).Msg("Successfully wrote HTML report to file.")
 	return nil
 }
 
 // embedCustomAssets only embeds styles.css and report.js now
 func (r *HtmlReporter) embedCustomAssets(pageData *models.ReportPageData) []error {
 	var errs []error
+	r.logger.Debug().Msg("Attempting to embed custom assets (CSS, JS).")
 
 	cCSS, err := customCSS.ReadFile("assets/css/styles.css")
 	if err != nil {
-		errs = append(errs, fmt.Errorf("failed to read embedded styles.css: %w", err))
+		newErr := fmt.Errorf("failed to read embedded styles.css: %w", err)
+		r.logger.Warn().Err(newErr).Msg("Could not read embedded styles.css")
+		errs = append(errs, newErr)
 	} else {
 		pageData.CustomCSS = template.CSS(cCSS)
+		r.logger.Debug().Int("css_size", len(cCSS)).Msg("Embedded styles.css successfully.")
 	}
 
 	rpJS, err := reportJS.ReadFile("assets/js/report.js")
 	if err != nil {
-		errs = append(errs, fmt.Errorf("failed to read embedded report.js: %w", err))
+		newErr := fmt.Errorf("failed to read embedded report.js: %w", err)
+		r.logger.Warn().Err(newErr).Msg("Could not read embedded report.js")
+		errs = append(errs, newErr)
 	} else {
 		pageData.ReportJs = template.JS(rpJS)
+		r.logger.Debug().Int("js_size", len(rpJS)).Msg("Embedded report.js successfully.")
 	}
 
-	// DataTables are now CDN, so no embedding logic here for them by default.
-	// If a config option to embed them was re-introduced, it would go here.
+	// Favicon logic
+	if len(faviconICO) > 0 {
+		pageData.FaviconBase64 = base64.StdEncoding.EncodeToString(faviconICO)
+		r.logger.Debug().Int("favicon_size_original", len(faviconICO)).Int("favicon_base64_len", len(pageData.FaviconBase64)).Msg("Embedded favicon.ico successfully as base64.")
+	} else {
+		r.logger.Warn().Msg("Embedded favicon.ico data is empty.")
+	}
 
 	return errs
 }

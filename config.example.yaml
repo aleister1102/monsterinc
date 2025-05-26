@@ -236,22 +236,41 @@ notification_config:
 
 # Logging configuration: Settings for application logging.
 log_config:
-  # Logging level (e.g., "debug", "info", "warn", "error", "fatal", "panic").
+  # Logging level. Determines the minimum severity of messages to be logged.
+  # Valid levels: "debug", "info", "warn", "error", "fatal", "panic".
+  # "debug": Detailed information, typically of interest only when diagnosing problems.
+  # "info": Confirmation that things are working as expected.
+  # "warn": An indication that something unexpected happened, or indicative of some problem in the near future (e.g., "disk space low"). The software is still working as expected.
+  # "error": Due to a more serious problem, the software has not been able to perform some function.
+  # "fatal": A severe error that will prevent the application from continuing. After logging, the application will exit.
+  # "panic": Similar to fatal, but also initiates a panic.
   # Default: "info"
   log_level: "info"
-  # Log output format ("console", "text", "json").
-  # "console" is human-readable, colored output. "text" is plain.
+
+  # Log output format.
+  # Valid formats: "console", "json", "text".
+  # "console": Human-readable, colored output for interactive terminals.
+  # "json":    Machine-readable JSON objects, one per line.
+  # "text":    Plain text output, similar to console but without color codes. Suitable for simple file logging or environments where color is not supported.
   # Default: "console"
   log_format: "console"
-  # Path to a log file. If empty, logs are written to stderr.
+
+  # Path to a log file. If empty, logs are written to standard error (stderr).
+  # Example: "/var/log/monsterinc.log" or "monsterinc.log" (for current directory).
   # Default: ""
-  log_file: "" # e.g., "/var/log/monsterinc.log"
+  log_file: ""
+
+  # Log rotation settings (applicable when log_file is specified).
+  # These settings are handled by an internal log rotation library (lumberjack).
+
   # Maximum size in megabytes of a log file before it gets rotated.
   # Default: 100
   max_log_size_mb: 100
+
   # Maximum number of old log files to retain.
   # Default: 3
   max_log_backups: 3
+
   # Whether to compress old, rotated log files (e.g., with gzip).
   # Default: false
   compress_old_logs: false

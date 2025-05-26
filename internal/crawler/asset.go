@@ -1,10 +1,10 @@
 package crawler
 
 import (
-	"io"
-	"log"
+	"bytes"
 	"net/url"
 	"strings"
+	"time"
 
 	"monsterinc/internal/models"
 
@@ -41,72 +41,95 @@ var tagsToExtract = map[string]string{
 	// srcset for img/source can contain multiple URLs, needs special handling.
 }
 
-// ExtractAssetsFromHTML parses an HTML document and extracts all relevant asset URLs.
-// It resolves relative URLs against the provided basePageURL.
-// Task 3.1: Implement URL extraction from HTML tags.
-// Task 3.2 (partially): This function collects asset URLs.
-func ExtractAssetsFromHTML(htmlBody io.Reader, basePageURL *url.URL, crawlerInstance *Crawler) ([]models.ExtractedAsset, error) {
-	if basePageURL == nil {
-		log.Println("[WARN] AssetExtractor: Base page URL is nil, cannot resolve relative URLs effectively.")
-	}
-
-	doc, err := goquery.NewDocumentFromReader(htmlBody)
+// ExtractAssetsFromHTML parses HTML content and extracts various assets like links, scripts, styles, images.
+func ExtractAssetsFromHTML(htmlContent []byte, basePageURL *url.URL, crawlerInstance *Crawler) []models.Asset {
+	var assets []models.Asset
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(htmlContent))
 	if err != nil {
-		return nil, err
+		crawlerInstance.logger.Error().Err(err).Msg("Failed to parse HTML content for asset extraction.")
+		return assets
 	}
 
-	var extractedAssets []models.ExtractedAsset
+	var baseDiscoveryURL string
+	if basePageURL != nil {
+		baseDiscoveryURL = basePageURL.String()
+	} else {
+		crawlerInstance.logger.Warn().Msg("AssetExtractor: Base page URL is nil, cannot resolve relative URLs effectively. Relative URLs might be skipped or miscategorized. DiscoveredFrom will be empty.")
+	}
+
+	extractFunc := func(i int, s *goquery.Selection, assetType models.AssetType, attributeName string) {
+		attrValue, exists := s.Attr(attributeName)
+		if !exists || strings.TrimSpace(attrValue) == "" {
+			return
+		}
+
+		urlsInAttr := []string{attrValue}
+		if attributeName == "srcset" {
+			urlsInAttr = parseSrcset(attrValue)
+		}
+
+		for _, rawURL := range urlsInAttr {
+			trimmedRawURL := strings.TrimSpace(rawURL)
+			if trimmedRawURL == "" || strings.HasPrefix(trimmedRawURL, "data:") || strings.HasPrefix(trimmedRawURL, "mailto:") || strings.HasPrefix(trimmedRawURL, "tel:") || strings.HasPrefix(trimmedRawURL, "javascript:") {
+				continue
+			}
+
+			var absoluteURL string
+
+			if basePageURL != nil {
+				resolved, errRes := basePageURL.Parse(trimmedRawURL)
+				if errRes != nil {
+					// log.Printf("[DEBUG] AssetExtractor: Failed to resolve URL '%s' against base '%s': %v", trimmedRawURL, basePageURL.String(), errRes)
+					continue
+				}
+				absoluteURL = resolved.String()
+			} else {
+				parsedRaw, errParse := url.Parse(trimmedRawURL)
+				if errParse != nil || !parsedRaw.IsAbs() {
+					// log.Printf("[DEBUG] AssetExtractor: URL '%s' is relative but no base URL provided, or unparsable. Skipping.", trimmedRawURL)
+					continue
+				}
+				absoluteURL = parsedRaw.String()
+			}
+
+			asset := models.Asset{
+				AbsoluteURL:    absoluteURL,
+				SourceTag:      s.Nodes[i].Data,
+				SourceAttr:     attributeName,
+				Type:           assetType,
+				DiscoveredAt:   time.Now(),
+				DiscoveredFrom: baseDiscoveryURL,
+			}
+			assets = append(assets, asset)
+
+			if crawlerInstance != nil {
+				crawlerInstance.DiscoverURL(absoluteURL, basePageURL)
+			}
+		}
+	}
 
 	for tag, attribute := range tagsToExtract {
 		doc.Find(tag).Each(func(i int, s *goquery.Selection) {
-			attrValue, exists := s.Attr(attribute)
-			if !exists || strings.TrimSpace(attrValue) == "" {
-				return
-			}
-
-			urlsInAttr := []string{attrValue}
-			if attribute == "srcset" {
-				urlsInAttr = parseSrcset(attrValue)
-			}
-
-			for _, rawURL := range urlsInAttr {
-				trimmedRawURL := strings.TrimSpace(rawURL)
-				if trimmedRawURL == "" || strings.HasPrefix(trimmedRawURL, "data:") || strings.HasPrefix(trimmedRawURL, "mailto:") || strings.HasPrefix(trimmedRawURL, "tel:") || strings.HasPrefix(trimmedRawURL, "javascript:") {
-					continue
-				}
-
-				var absoluteURL string
-
-				if basePageURL != nil {
-					resolved, errRes := basePageURL.Parse(trimmedRawURL)
-					if errRes != nil {
-						// log.Printf("[DEBUG] AssetExtractor: Failed to resolve URL '%s' against base '%s': %v", trimmedRawURL, basePageURL.String(), errRes)
-						continue
-					}
-					absoluteURL = resolved.String()
+			// Determine AssetType based on tag - this can be more sophisticated
+			var assetType models.AssetType
+			switch tag {
+			case "a", "link": // Treat 'link' also as a general link or stylesheet
+				// For 'link' tags, could check 'rel' attribute for 'stylesheet' to be more specific
+				if s.AttrOr("rel", "") == "stylesheet" {
+					assetType = models.AssetTypeStyle
 				} else {
-					parsedRaw, errParse := url.Parse(trimmedRawURL)
-					if errParse != nil || !parsedRaw.IsAbs() {
-						// log.Printf("[DEBUG] AssetExtractor: URL '%s' is relative but no base URL provided, or unparsable. Skipping.", trimmedRawURL)
-						continue
-					}
-					absoluteURL = parsedRaw.String()
+					assetType = models.AssetType(tag) // Or a more generic AssetTypeLink
 				}
-
-				asset := models.ExtractedAsset{
-					AbsoluteURL: absoluteURL,
-					SourceTag:   tag,
-					SourceAttr:  attribute,
-				}
-				extractedAssets = append(extractedAssets, asset)
-
-				if crawlerInstance != nil {
-					crawlerInstance.DiscoverURL(absoluteURL, basePageURL)
-				}
+			case "script", "img", "iframe", "form", "object", "embed":
+				assetType = models.AssetType(tag)
+			default:
+				crawlerInstance.logger.Warn().Str("tag", tag).Msg("Unknown tag type for asset extraction, using tag name as type.")
+				assetType = models.AssetType(tag) // Fallback
 			}
+			extractFunc(i, s, assetType, attribute)
 		})
 	}
-	return extractedAssets, nil
+	return assets
 }
 
 func parseSrcset(srcset string) []string {

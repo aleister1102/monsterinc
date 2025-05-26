@@ -1,6 +1,7 @@
-tests
-reports
-database
+/tests
+/reports
+/database
 /monsterinc
-monsterinc.exe
-config.yaml
+/monsterinc.exe
+/config.yaml
+/monsterinc.log

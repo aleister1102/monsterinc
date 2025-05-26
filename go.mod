@@ -11,6 +11,7 @@ require (
 	github.com/parquet-go/parquet-go v0.25.0
 	github.com/projectdiscovery/httpx v1.7.0
 	github.com/rs/zerolog v1.34.0
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.37.1
 )

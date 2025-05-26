@@ -1,43 +1,95 @@
-# Package crawler
+# Crawler Package (`internal/crawler`)
 
-Package `crawler` chịu trách nhiệm thu thập các URL từ các trang web mục tiêu.
+The `crawler` package is responsible for discovering URLs starting from a set of seed URLs. It uses the `gocolly/colly` library for web crawling and `goquery` for HTML parsing to extract links and other assets.
 
-## Chức năng chính
+## Key Features
 
--   **Khởi tạo Crawler**: `NewCrawler(cfg *config.CrawlerConfig)` tạo một instance của `Crawler` với các cấu hình được cung cấp. Cấu hình bao gồm seed URLs, user agent, timeout, số luồng, độ sâu tối đa, có tôn trọng `robots.txt` hay không, và các thiết lập phạm vi (scope).
--   **Quản lý Scope**: Sử dụng `ScopeSettings` để kiểm soát các URL nào được phép crawl. `ScopeSettings` bao gồm:
-    -   `AllowedHostnames`: Danh sách các hostname được phép.
-    -   `AllowedSubdomains`: Danh sách các subdomain cụ thể được phép (chỉ có hiệu lực nếu `AllowedHostnames` được thiết lập).
-    -   `DisallowedHostnames`: Danh sách các hostname bị cấm.
-    -   `DisallowedSubdomains`: Danh sách các subdomain cụ thể bị cấm.
-    -   `AllowedPathPatterns`: Danh sách các biểu thức chính quy (regex) cho các path được phép.
-    -   `DisallowedPathPatterns`: Danh sách các biểu thức chính quy (regex) cho các path bị cấm.
-    -   Hàm `IsURLAllowed(urlString string)` kiểm tra một URL có nằm trong phạm vi đã định nghĩa hay không.
--   **Phát hiện URL**: Phương thức `DiscoverURL(rawURL string, base *url.URL)` xử lý việc thêm URL mới vào hàng đợi. Trước khi thêm, nó thực hiện:
-    -   Chuẩn hóa và giải quyết URL.
-    -   Kiểm tra URL có nằm trong scope không bằng `ScopeSettings`.
-    -   Thực hiện một HEAD request để kiểm tra `Content-Length`. Nếu vượt quá `maxContentLength` (cấu hình trong `CrawlerConfig.MaxContentLengthMB`), URL sẽ không được crawl (nhưng vẫn được ghi nhận là đã phát hiện cho module httpx).
-    -   Thêm URL vào `Collector` của thư viện `colly` nếu tất cả các điều kiện được thỏa mãn và URL chưa được phát hiện trước đó.
--   **Bắt đầu Crawl**: Phương thức `Start()` khởi động quá trình crawl từ các `seedURLs` đã cấu hình và đợi cho đến khi tất cả các goroutine của `colly` hoàn thành.
--   **Lấy Kết quả**: Phương thức `GetDiscoveredURLs() []string` trả về một slice chứa tất cả các URL duy nhất đã được phát hiện và nằm trong scope (bao gồm cả những URL không được crawl do content length quá lớn nhưng vẫn được ghi nhận).
--   **Trích xuất Assets**: Hàm `ExtractAssetsFromHTML(htmlBody io.Reader, basePageURL *url.URL, crawlerInstance *Crawler)` (trong `asset.go`) được gọi trong callback `OnResponse` để trích xuất các URL từ các thẻ HTML như `<a>`, `<img>`, `<script>`, `<link>`. Các URL này sau đó được đưa qua `DiscoverURL`.
--   **Callbacks của Colly**:
-    -   `OnRequest`: Trước khi request, kiểm tra path có bị cấm bởi regex không.
-    -   `OnResponse`: Sau khi nhận response, nếu là HTML thì trích xuất assets.
-    -   `OnError`: Ghi log lỗi khi request.
+-   **Seed-based Crawling**: Starts crawling from a list of initial URLs.
+-   **Configurable Depth**: Limits how many links deep the crawler will go from the seed URLs.
+-   **Concurrency**: Supports configurable concurrent requests.
+-   **User-Agent Customization**: Allows setting a custom User-Agent string.
+-   **Request Timeouts**: Configurable timeout for each HTTP request.
+-   **Scope Management**:
+    -   Allows defining allowed and disallowed hostnames and subdomains.
+    -   Supports regex patterns for allowed and disallowed URL paths.
+-   **Robots.txt**: Option to respect `robots.txt` directives (currently configurable, default might be to ignore for wider discovery in a security testing context).
+-   **Content Length Limits**: Avoids downloading excessively large files.
+-   **Asset Extraction**: Extracts various assets from HTML pages, including links (`<a>`), scripts (`<script>`), stylesheets (`<link rel="stylesheet">`), images (`<img>`), iframes (`<iframe>`), forms (`<form>`), etc. The types of extracted assets are defined in `internal/models/asset.go`.
+-   **URL De-duplication**: Keeps track of discovered URLs to avoid processing the same URL multiple times.
+-   **Logging**: Integrates with the application's `zerolog` logger for detailed operational logging.
 
-## Cách sử dụng
+## Initialization
 
-1.  Tạo `config.CrawlerConfig`.
-2.  Gọi `NewCrawler()` với config đó để có được một instance `Crawler`.
-3.  Gọi `crawlerInstance.Start()` để bắt đầu.
-4.  Gọi `crawlerInstance.GetDiscoveredURLs()` để lấy danh sách URL.
+The crawler is initialized using `crawler.NewCrawler(cfg *config.CrawlerConfig, httpClient *http.Client, logger zerolog.Logger)`.
 
-## Thư viện sử dụng
+-   `cfg`: An instance of `config.CrawlerConfig` containing all crawler-specific settings (see `internal/config/config.go` and `config.example.yaml`).
+-   `httpClient`: An `*http.Client` to be used by the underlying `colly` collector. If `nil` is passed, `colly` will use its default client.
+-   `logger`: A `zerolog.Logger` instance for logging.
 
--   `github.com/gocolly/colly/v2`: Thư viện chính cho việc crawling.
--   `monsterinc/internal/config`: Để lấy cấu hình crawler.
--   `monsterinc/internal/urlhandler`: Để chuẩn hóa và xử lý URL.
+## Usage
+
+1.  **Initialize**: Create a new crawler instance.
+    ```go
+    import (
+        "monsterinc/internal/config"
+        "monsterinc/internal/crawler"
+        "github.com/rs/zerolog/log" // Example main logger
+        "net/http"
+    )
+
+    // Load or create crawlerConfig (e.g., from globalConfig.CrawlerConfig)
+    crawlerCfg := config.NewDefaultCrawlerConfig() // Or from loaded config
+    crawlerCfg.SeedURLs = []string{"https://example.com"}
+    // ... other configurations ...
+
+    appLogger := log.Logger // Your main application logger
+    crawlerInstance, err := crawler.NewCrawler(&crawlerCfg, http.DefaultClient, appLogger)
+    if err != nil {
+        // Handle error
+    }
+    ```
+
+2.  **Start Crawling**:
+    ```go
+    crawlerInstance.Start() // This is a blocking call
+    ```
+    Typically, you would run `Start()` in a goroutine if you need to perform other actions concurrently.
+
+3.  **Get Discovered URLs**: After the crawl is complete (or even during, with appropriate locking if needed, though `GetDiscoveredURLs` has its own lock):
+    ```go
+    discoveredURLs := crawlerInstance.GetDiscoveredURLs()
+    for _, u := range discoveredURLs {
+        // Process URL
+    }
+    ```
+
+## Asset Extraction
+
+The `ExtractAssetsFromHTML(htmlContent []byte, basePageURL *url.URL, crawlerInstance *Crawler) []models.Asset` function is used internally by the crawler when an HTML page is processed. It can also be used independently if needed.
+
+-   `htmlContent`: The byte slice of the HTML page.
+-   `basePageURL`: The URL of the page from which the content was fetched, used to resolve relative links.
+-   `crawlerInstance`: A pointer to the `Crawler` instance, primarily for logging purposes.
+
+It returns a slice of `models.Asset` structs, where each asset includes its absolute URL, source tag, source attribute, asset type, discovery time, and the URL of the page it was discovered on.
+
+## Scope Control
+
+The crawler's scope is managed by `ScopeSettings` (see `internal/crawler/scope.go`). This allows for fine-grained control over:
+-   Which hostnames are allowed or disallowed.
+-   Which subdomains (of allowed hostnames) are allowed or disallowed.
+-   Regex patterns for URL paths that are allowed or disallowed.
+
+This ensures the crawler stays within the intended boundaries of the scan.
+
+## Dependencies
+
+-   `gocolly/colly`: For the core crawling mechanism.
+-   `PuerkitoBio/goquery`: For HTML parsing.
+-   `monsterinc/internal/config`: For crawler configuration.
+-   `monsterinc/internal/models`: For `Asset` and `AssetType` definitions.
+-   `monsterinc/internal/urlhandler`: For URL resolution and normalization.
+-   `github.com/rs/zerolog`: For logging.
 
 ## Overview
 
