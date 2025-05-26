@@ -94,7 +94,40 @@ func ValidateConfig(cfg *GlobalConfig) error {
 		}
 	})
 
-	err := validate.Struct(cfg)
+	// Register custom validation for SchedulerConfig fields
+	_ = validate.RegisterValidation("scanintervaldays", func(fl validator.FieldLevel) bool {
+		days := fl.Field().Int()
+		return days >= 1
+	})
+	_ = validate.RegisterValidation("retryattempts", func(fl validator.FieldLevel) bool {
+		attempts := fl.Field().Int()
+		return attempts >= 0
+	})
+	_ = validate.RegisterValidation("sqlitepath", func(fl validator.FieldLevel) bool {
+		path := fl.Field().String()
+		return path != ""
+	})
+
+	validationView := struct {
+		PreviousScanLookbackDays int      `validate:"min=1"`
+		JSFileExtensions         []string `validate:"dive,required"`
+		HTMLFileExtensions       []string `validate:"dive,required"`
+		// SchedulerConfig fields - struct tags in SchedulerConfig itself handle validation rules.
+		// These are here to ensure they appear in user-friendly error messages if validation fails.
+		CycleMinutes  int    `validate:"-"` // Validation handled by tag in SchedulerConfig
+		RetryAttempts int    `validate:"-"` // Validation handled by tag in SchedulerConfig
+		SQLiteDBPath  string `validate:"-"` // Validation handled by tag in SchedulerConfig
+	}{
+		PreviousScanLookbackDays: cfg.DiffConfig.PreviousScanLookbackDays,
+		JSFileExtensions:         cfg.MonitorConfig.JSFileExtensions,
+		HTMLFileExtensions:       cfg.MonitorConfig.HTMLFileExtensions,
+		// Add SchedulerConfig fields for validation error reporting
+		CycleMinutes:  cfg.SchedulerConfig.CycleMinutes,
+		RetryAttempts: cfg.SchedulerConfig.RetryAttempts,
+		SQLiteDBPath:  cfg.SchedulerConfig.SQLiteDBPath,
+	}
+
+	err := validate.Struct(validationView)
 	if err != nil {
 		var errs validator.ValidationErrors
 		if errors.As(err, &errs) {

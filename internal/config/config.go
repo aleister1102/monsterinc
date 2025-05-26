@@ -67,6 +67,11 @@ const (
 
 	// Normalizer Defaults
 	DefaultNormalizerDefaultScheme = "http" // Example for future use
+
+	// Scheduler Defaults
+	DefaultSchedulerScanIntervalMinutes = 10080 // 7 days
+	DefaultSchedulerRetryAttempts       = 2
+	DefaultSchedulerSQLiteDBPath        = "database/scheduler_history.db"
 )
 
 // --- Nested Configuration Structs ---
@@ -298,6 +303,22 @@ func NewDefaultMonitorConfig() MonitorConfig {
 	}
 }
 
+// SchedulerConfig defines settings for automated periodic scans.
+type SchedulerConfig struct {
+	CycleMinutes  int    `json:"cycle_minutes,omitempty" yaml:"cycle_minutes,omitempty" validate:"min=1"` // Scan cycle interval in minutes
+	RetryAttempts int    `json:"retry_attempts,omitempty" yaml:"retry_attempts,omitempty" validate:"min=0"`
+	SQLiteDBPath  string `json:"sqlite_db_path,omitempty" yaml:"sqlite_db_path,omitempty" validate:"required"`
+}
+
+// NewDefaultSchedulerConfig creates a SchedulerConfig with default values.
+func NewDefaultSchedulerConfig() SchedulerConfig {
+	return SchedulerConfig{
+		CycleMinutes:  DefaultSchedulerScanIntervalMinutes,
+		RetryAttempts: DefaultSchedulerRetryAttempts,
+		SQLiteDBPath:  DefaultSchedulerSQLiteDBPath,
+	}
+}
+
 // --- Global Configuration ---
 
 type GlobalConfig struct {
@@ -311,7 +332,8 @@ type GlobalConfig struct {
 	DiffConfig         DiffConfig         `json:"diff_config,omitempty" yaml:"diff_config,omitempty"`
 	MonitorConfig      MonitorConfig      `json:"monitor_config,omitempty" yaml:"monitor_config,omitempty"`
 	NormalizerConfig   NormalizerConfig   `json:"normalizer_config,omitempty" yaml:"normalizer_config,omitempty"`
-	Mode               string             `json:"mode,omitempty" yaml:"mode,omitempty" validate:"omitempty,mode"`
+	SchedulerConfig    SchedulerConfig    `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
+	Mode               string             `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
 }
 
 func NewDefaultGlobalConfig() *GlobalConfig {
@@ -326,7 +348,8 @@ func NewDefaultGlobalConfig() *GlobalConfig {
 		DiffConfig:         NewDefaultDiffConfig(),
 		MonitorConfig:      NewDefaultMonitorConfig(),
 		NormalizerConfig:   NewDefaultNormalizerConfig(),
-		Mode:               "onetime", // Default mode set to onetime
+		SchedulerConfig:    NewDefaultSchedulerConfig(),
+		Mode:               "onetime",
 	}
 }
 
