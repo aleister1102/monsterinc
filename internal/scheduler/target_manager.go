@@ -3,23 +3,24 @@ package scheduler
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"monsterinc/internal/models"
 	"monsterinc/internal/urlhandler"
 	"os"
 	"strings"
+
+	"github.com/rs/zerolog"
 )
 
 // TargetManager handles loading, normalizing, and selecting targets based on configuration.
 // !monsterinc/target-management
 type TargetManager struct {
-	logger *log.Logger
+	logger zerolog.Logger
 	// We can add configuration here if needed later, e.g., for concurrent processing
 }
 
 // NewTargetManager creates a new TargetManager.
 // !monsterinc/target-management
-func NewTargetManager(logger *log.Logger) *TargetManager {
+func NewTargetManager(logger zerolog.Logger) *TargetManager {
 	return &TargetManager{logger: logger}
 }
 
@@ -33,7 +34,7 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfi
 
 	// Priority 1: Command-line file option (-urlfile)
 	if inputFileOption != "" {
-		tm.logger.Printf("[INFO] TargetManager: Loading targets from command-line file: %s", inputFileOption)
+		tm.logger.Info().Str("file", inputFileOption).Msg("TargetManager: Loading targets from command-line file")
 		loadedURLs, err := tm.loadURLsFromFile(inputFileOption) // Call as method
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to load URLs from file '%s': %w", inputFileOption, err)
@@ -42,7 +43,7 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfi
 		source = inputFileOption
 	} else if cfgInputFile != "" {
 		// Priority 2: Config file input_file
-		tm.logger.Printf("[INFO] TargetManager: Loading targets from config file: %s", cfgInputFile)
+		tm.logger.Info().Str("file", cfgInputFile).Msg("TargetManager: Loading targets from config file")
 		loadedURLs, err := tm.loadURLsFromFile(cfgInputFile) // Call as method
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to load URLs from config file '%s': %w", cfgInputFile, err)
@@ -51,7 +52,7 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfi
 		source = cfgInputFile
 	} else if len(inputConfigUrls) > 0 {
 		// Priority 3: Config input_urls
-		tm.logger.Printf("[INFO] TargetManager: Using %d URLs from config input_urls", len(inputConfigUrls))
+		tm.logger.Info().Int("count", len(inputConfigUrls)).Msg("TargetManager: Using URLs from config input_urls")
 		rawURLs = inputConfigUrls
 		source = "config_input_urls"
 	} else {
@@ -67,7 +68,7 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfi
 		}
 		normalizedURL, err := urlhandler.NormalizeURL(trimmed)
 		if err != nil {
-			tm.logger.Printf("[WARN] TargetManager: Skipping URL %s due to normalization error: %v", trimmed, err)
+			tm.logger.Warn().Str("url", trimmed).Err(err).Msg("TargetManager: Skipping URL due to normalization error")
 			continue
 		}
 		validTargets = append(validTargets, models.Target{OriginalURL: trimmed, NormalizedURL: normalizedURL})
@@ -77,7 +78,7 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfi
 		return nil, source, fmt.Errorf("no valid URLs found in source: %s", source)
 	}
 
-	tm.logger.Printf("[INFO] TargetManager: Loaded and normalized %d valid targets from %s", len(validTargets), source)
+	tm.logger.Info().Int("count", len(validTargets)).Str("source", source).Msg("TargetManager: Loaded and normalized valid targets")
 	return validTargets, source, nil
 }
 
@@ -111,7 +112,7 @@ func (tm *TargetManager) loadURLsFromFile(filePath string) ([]string, error) {
 
 		// Validate URL format (basic check)
 		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-			tm.logger.Printf("[WARN] TargetManager: Line %d in file %s: URL does not start with http:// or https:// - skipping: %s", lineNum, filePath, url)
+			tm.logger.Warn().Int("line", lineNum).Str("file", filePath).Str("url", url).Msg("TargetManager: URL does not start with http:// or https:// - skipping")
 			continue
 		}
 
@@ -148,7 +149,7 @@ func (tm *TargetManager) LoadTargetsFromFile(filePath string) ([]models.Target, 
 
 		normalizedURL, err := urlhandler.NormalizeURL(originalURL)
 		if err != nil {
-			tm.logger.Printf("[WARN] TargetManager: Skipping URL %s from file %s due to normalization error: %v", originalURL, filePath, err)
+			tm.logger.Warn().Str("url", originalURL).Str("file", filePath).Err(err).Msg("TargetManager: Skipping URL from file due to normalization error")
 			continue
 		}
 		targets = append(targets, models.Target{OriginalURL: originalURL, NormalizedURL: normalizedURL})
@@ -159,4 +160,19 @@ func (tm *TargetManager) LoadTargetsFromFile(filePath string) ([]models.Target, 
 	}
 
 	return targets, nil
+}
+
+// GetTargetStrings loads targets using LoadAndSelectTargets and returns a slice of normalized URL strings.
+// This is a convenience method if only the string representation of targets is needed.
+func (tm *TargetManager) GetTargetStrings(inputFileOption string, inputConfigUrls []string, cfgInputFile string) ([]string, error) {
+	targets, _, err := tm.LoadAndSelectTargets(inputFileOption, inputConfigUrls, cfgInputFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load targets: %w", err)
+	}
+
+	var urlStrings []string
+	for _, target := range targets {
+		urlStrings = append(urlStrings, target.NormalizedURL)
+	}
+	return urlStrings, nil
 }

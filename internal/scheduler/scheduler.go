@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"monsterinc/internal/config"
 	"monsterinc/internal/datastore"
@@ -10,10 +11,9 @@ import (
 	"monsterinc/internal/orchestrator"
 	"monsterinc/internal/reporter"
 	"os"
-	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -82,8 +82,8 @@ func NewScheduler(cfg *config.GlobalConfig, urlFileOverride string, logger zerol
 	}, nil
 }
 
-// Start begins the scheduler's main loop
-func (s *Scheduler) Start() error {
+// Start begins the scheduler's main loop, now accepting a context for cancellation.
+func (s *Scheduler) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.isRunning {
 		s.mu.Unlock()
@@ -94,55 +94,82 @@ func (s *Scheduler) Start() error {
 
 	s.logger.Info().Msg("Scheduler: Starting automated scan scheduler...")
 
-	// Set up signal handling for graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Run initial scan immediately
+	// Run initial scan immediately, respecting the context
 	s.logger.Info().Msg("Scheduler: Running initial scan...")
-	s.runScanCycleWithRetries(context.Background())
+	s.runScanCycleWithRetries(ctx) // Pass context
 
 	// Main scheduler loop
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-
 		for {
-			// Calculate next scan time
+			// Check for context cancellation before calculating next scan or waiting
+			select {
+			case <-ctx.Done():
+				s.logger.Info().Msg("Scheduler: Context cancelled, exiting scheduler loop...")
+				return
+			default:
+			}
+
 			nextScanTime, err := s.calculateNextScanTime()
 			if err != nil {
 				s.logger.Error().Err(err).Msg("Scheduler: Failed to calculate next scan time")
-				// Wait a bit before retrying
-				time.Sleep(5 * time.Minute)
-				continue
+				// Wait a bit before retrying, but also check context
+				select {
+				case <-time.After(5 * time.Minute):
+					continue
+				case <-ctx.Done():
+					s.logger.Info().Msg("Scheduler: Context cancelled during error backoff, exiting scheduler loop...")
+					return
+				case <-s.stopChan: // Also respect internal stopChan if Stop() is called directly
+					s.logger.Info().Msg("Scheduler: Stop signal received during error backoff, exiting scheduler loop...")
+					return
+				}
 			}
 
 			s.logger.Info().Time("next_scan_time", nextScanTime).Msg("Scheduler: Next scan scheduled for")
 
-			// Wait until next scan time or stop signal
+			timer := time.NewTimer(time.Until(nextScanTime))
 			select {
-			case <-time.After(time.Until(nextScanTime)):
+			case <-timer.C:
+				// Ensure timer is stopped and drained if it fired, to prevent race conditions with Stop() or context cancellation
+				if !timer.Stop() {
+					select {
+					case <-timer.C: // Drain the channel if Stop() returned false
+					default:
+					}
+				}
 				s.logger.Info().Msg("Scheduler: Starting scheduled scan...")
-				s.runScanCycleWithRetries(context.Background())
+				s.runScanCycleWithRetries(ctx) // Pass context
 			case <-s.stopChan:
-				s.logger.Info().Msg("Scheduler: Received stop signal, exiting scheduler loop...")
+				timer.Stop() // Stop the timer if it hasn't fired
+				s.logger.Info().Msg("Scheduler: Received internal stop signal, exiting scheduler loop...")
 				return
-			case sig := <-sigChan:
-				s.logger.Info().Str("signal", sig.String()).Msg("Scheduler: Received signal, initiating graceful shutdown")
-				close(s.stopChan)
+			case <-ctx.Done(): // Listen for context cancellation from main
+				timer.Stop()
+				s.logger.Info().Msg("Scheduler: Context cancelled by main, exiting scheduler loop...")
 				return
+				// Removed direct sigChan handling here as it's handled in main and propagated via context and s.stopChan
 			}
 		}
 	}()
 
-	// Wait for scheduler to stop
-	s.wg.Wait()
+	// Wait for scheduler to stop or context to be cancelled
+	select {
+	case <-s.stopChan:
+		s.logger.Info().Msg("Scheduler: Internal stop acknowledged.")
+	case <-ctx.Done():
+		s.logger.Info().Msg("Scheduler: Main context cancellation acknowledged, ensuring shutdown.")
+		s.Stop() // Trigger internal stop to ensure wg is handled correctly
+	}
+
+	s.wg.Wait() // Wait for the goroutine to finish
 	if s.db != nil {
 		s.logger.Info().Msg("Closing scheduler database connection.")
 		s.db.Close()
 	}
 
-	s.logger.Info().Msg("Scheduler: Scheduler stopped.")
+	s.logger.Info().Msg("Scheduler: Scheduler fully stopped.")
 	return nil
 }
 
@@ -200,17 +227,48 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 	var lastErr error
 	var scanSummary models.ScanSummaryData // To store summary for notification
 	var reportGeneratedPath string
-	scanID := fmt.Sprintf("scheduled_scan_%s", time.Now().Format("20060102-150405"))
+	scanID := time.Now().Format("20060102-150405")
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Check for context cancellation at the beginning of each attempt
+		select {
+		case <-ctx.Done():
+			s.logger.Info().Str("scan_id", scanID).Msg("Scheduler: Context cancelled before retry attempt. Stopping retry loop.")
+			// If there was a previous error, ensure a failure notification for that attempt is sent.
+			if lastErr != nil && attempt > 0 { // Only if this isn't the very first try and there was an error
+				// Use the summary from the last failed attempt
+				scanSummary.Status = string(models.ScanStatusFailed)
+				if !containsCancellationError(scanSummary.ErrorMessages) {
+					scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("Scan cycle aborted during retries due to context cancellation. Last error: %v", lastErr))
+				}
+				s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary) // Use a new context for this final notification
+			}
+			return
+		default:
+		}
+
 		if attempt > 0 {
 			s.logger.Info().Int("attempt", attempt).Int("max_retries", maxRetries).Dur("delay", retryDelay).Msg("Scheduler: Retrying scan cycle after delay...")
-			time.Sleep(retryDelay)
+			// Make the delay interruptible by context cancellation
+			select {
+			case <-time.After(retryDelay):
+				// Delay completed
+			case <-ctx.Done():
+				s.logger.Info().Str("scan_id", scanID).Msg("Scheduler: Context cancelled during retry delay. Stopping retry loop.")
+				// Similar notification logic as above if an error had occurred
+				if lastErr != nil {
+					scanSummary.Status = string(models.ScanStatusFailed)
+					if !containsCancellationError(scanSummary.ErrorMessages) {
+						scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("Scan cycle aborted during retry delay due to context cancellation. Last error: %v", lastErr))
+					}
+					s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary)
+				}
+				return
+			}
 		}
-		// Each attempt should have its own summary, or we update a common one.
-		// For now, runScanCycle will populate parts of a summary for its specific attempt.
-		scanSummary, reportGeneratedPath, lastErr = s.runScanCycle(ctx, scanID) // Pass context and scanID, get summary and report path back
-		scanSummary.RetriesAttempted = attempt                                  // Update retries
+
+		scanSummary, reportGeneratedPath, lastErr = s.runScanCycle(ctx, scanID)
+		scanSummary.RetriesAttempted = attempt
 
 		if lastErr == nil {
 			s.logger.Info().Str("scan_id", scanID).Msg("Scheduler: Scan cycle completed successfully.")
@@ -220,17 +278,40 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 			return
 		}
 
+		// If the error is due to context cancellation, stop retrying immediately.
+		if errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded) {
+			s.logger.Info().Str("scan_id", scanID).Err(lastErr).Msg("Scheduler: Scan cycle interrupted by context cancellation. No further retries.")
+			scanSummary.Status = string(models.ScanStatusFailed) // Or a specific "Interrupted" status
+			if !containsCancellationError(scanSummary.ErrorMessages) {
+				scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("Scan cycle interrupted: %v", lastErr))
+			}
+			scanSummary.ReportPath = reportGeneratedPath                                           // Report might have been partially generated
+			s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary) // Use new context for this notification
+			return
+		}
+
 		s.logger.Error().Err(lastErr).Str("scan_id", scanID).Int("attempt", attempt+1).Int("total_attempts", maxRetries+1).Msg("Scheduler: Scan cycle failed")
 
 		if attempt == maxRetries {
 			s.logger.Error().Str("scan_id", scanID).Msg("Scheduler: All retry attempts exhausted. Scan cycle failed permanently.")
 			scanSummary.Status = string(models.ScanStatusFailed)
-			scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("All %d retry attempts failed. Last error: %v", maxRetries+1, lastErr))
-			// reportGeneratedPath might be empty if error was before report generation
+			if !containsCancellationError(scanSummary.ErrorMessages) {
+				scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("All %d retry attempts failed. Last error: %v", maxRetries+1, lastErr))
+			}
 			scanSummary.ReportPath = reportGeneratedPath
-			s.notificationHelper.SendScanCompletionNotification(ctx, scanSummary) // Send final failure notification
+			s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary)
 		}
 	}
+}
+
+// Helper function to check if cancellation error is already in messages
+func containsCancellationError(messages []string) bool {
+	for _, msg := range messages {
+		if strings.Contains(msg, "context canceled") || strings.Contains(msg, "context deadline exceeded") || strings.Contains(msg, "Scan cycle interrupted") {
+			return true
+		}
+	}
+	return false
 }
 
 // runScanCycle executes a complete scan cycle
@@ -252,8 +333,22 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string) (mod
 		summary.ErrorMessages = []string{fmt.Sprintf("Failed to load targets: %v", err)}
 		return summary, "", fmt.Errorf("failed to load targets: %w", err) // Return error and empty summary
 	}
-	summary.Targets = s.targetManager.GetTargetStrings(targets)
-	summary.TotalTargets = len(targets)
+
+	// Get target strings for summary
+	targetStringsForSummary, err := s.targetManager.GetTargetStrings(
+		s.urlFileOverride, // This might be empty if not provided at startup
+		s.globalConfig.InputConfig.InputURLs,
+		s.globalConfig.InputConfig.InputFile,
+	)
+	if err != nil {
+		// Log the error, but proceed with an empty list for summary if critical targets themselves loaded fine.
+		// The main `targets` variable from LoadAndSelectTargets is used for actual scanning logic.
+		s.logger.Error().Err(err).Msg("Scheduler: Failed to get target strings for summary, summary.Targets will be empty.")
+		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Could not retrieve target strings for summary: %v", err))
+		targetStringsForSummary = []string{}
+	}
+	summary.Targets = targetStringsForSummary
+	summary.TotalTargets = len(targets) // TotalTargets should be based on the successfully loaded `targets` for scanning
 
 	// Extract original URLs for crawler and other parts that expect []string
 	var seedURLs []string
@@ -285,21 +380,31 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string) (mod
 	s.logger.Info().Str("scan_id", scanSessionID).Int("num_targets", len(seedURLs)).Str("target_source", targetSource).Msg("Scheduler: Starting scan cycle execution.")
 
 	// Execute Scan Workflow via Orchestrator
-	probeResults, urlDiffResults, workflowErr := s.scanOrchestrator.ExecuteScanWorkflow(seedURLs, scanSessionID)
+	probeResults, urlDiffResults, workflowErr := s.scanOrchestrator.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
 	scanDuration := time.Since(startTime)
 	summary.ScanDuration = scanDuration
 
 	// Populate stats for summary
 	if probeResults != nil {
-		// TODO: Accurately count successful/failed probes from probeResults
 		summary.ProbeStats.DiscoverableItems = len(probeResults)
-		summary.ProbeStats.SuccessfulProbes = len(probeResults) // Placeholder
+		for _, pr := range probeResults {
+			// Consider a probe successful if it has no error and status code is not a client/server error (>=400)
+			// Or if it has a redirect status code (3xx)
+			if pr.Error == "" && (pr.StatusCode < 400 || (pr.StatusCode >= 300 && pr.StatusCode < 400)) {
+				summary.ProbeStats.SuccessfulProbes++
+			} else {
+				summary.ProbeStats.FailedProbes++
+			}
+		}
 	}
+
+	// Populate DiffStats from urlDiffResults
 	if urlDiffResults != nil {
-		for _, diff := range urlDiffResults {
-			summary.DiffStats.New += diff.New
-			summary.DiffStats.Existing += diff.Existing
-			summary.DiffStats.Old += diff.Old
+		for _, diffResult := range urlDiffResults { // urlDiffResults is a map[string]models.URLDiffResult
+			summary.DiffStats.New += diffResult.New
+			summary.DiffStats.Old += diffResult.Old
+			summary.DiffStats.Existing += diffResult.Existing
+			// Note: diffResult.Changed is not currently populated by the differ
 		}
 	}
 
