@@ -353,11 +353,14 @@ func NewDefaultGlobalConfig() *GlobalConfig {
 	}
 }
 
-// LoadGlobalConfig loads the global configuration from the given file path.
-// It supports both JSON and YAML formats, and overrides with environment variables.
+// LoadGlobalConfig loads the global configuration.
+// It determines the config file path using GetConfigPath, supports both JSON and YAML formats,
+// and overrides with environment variables.
 // YAML is preferred if the file extension is .yaml or .yml.
-func LoadGlobalConfig(filePath string) (*GlobalConfig, error) {
+func LoadGlobalConfig(providedPath string) (*GlobalConfig, error) { // providedPath can come from a command-line flag
 	cfg := NewDefaultGlobalConfig() // Start with defaults
+
+	filePath := GetConfigPath(providedPath) // Determine the actual path to use
 
 	if filePath != "" {
 		data, err := os.ReadFile(filePath)
