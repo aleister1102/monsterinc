@@ -1,0 +1,81 @@
+## Relevant Files
+
+- `internal/scheduler/scheduler.go` - Main logic for the scheduler, including the main loop, cycle management, scan orchestration.
+- `internal/scheduler/db.go` - Handles all database interactions (SQLite), including schema definition, creation, and CRUD operations for scan history.
+- `internal/scheduler/target_loader.go` - Logic for loading and refreshing target lists for each scan cycle from file or config.
+- `internal/config/config.go` - Defines and manages `SchedulerConfig` struct and its defaults.
+- `internal/config/validator.go` - Adds validation rules for `SchedulerConfig` fields.
+- `cmd/monsterinc/main.go` - Integrates and initializes the scheduler when in `automated` mode, handles main application lifecycle.
+- `config.example.yaml` - Includes `scheduler_config` section with example values and comments.
+- `internal/notifier/notification_service.go` (or similar) - Modifies existing notification logic or creates new service to handle scheduler events (scan success/failure).
+- `go.mod` and `go.sum` - To add `github.com/mattn/go-sqlite3` dependency.
+
+### Notes
+
+- Unit tests should typically be placed alongside the code files they are testing (e.g., `scheduler_test.go`, `db_test.go`).
+- Use `go test ./...` to run all tests after adding new packages and dependencies.
+- Remember to run `go mod tidy` after adding new imports like the SQLite driver.
+
+## Tasks
+
+- [x] 1.0 Setup Scheduler Configuration and Validation
+  - [x] 1.1 Define `SchedulerConfig` struct in `internal/config/config.go` with fields: `ScanIntervalDays`, `RetryAttempts`, `SQLiteDBPath`.
+  - [x] 1.2 Add default values for `SchedulerConfig` in `internal/config/config.go` (e.g., 7 days, 2 retries, `database/scheduler_history.db`).
+  - [x] 1.3 Create `NewDefaultSchedulerConfig()` function in `internal/config/config.go`.
+  - [x] 1.4 Integrate `SchedulerConfig` into `GlobalConfig` struct and its initialization in `internal/config/config.go`.
+  - [x] 1.5 Update `config.example.yaml` to include the `scheduler_config` section with all new fields and explanatory comments.
+  - [x] 1.6 Add validation tags (`min=1` for ScanIntervalDays, `min=0` for RetryAttempts, `required` for SQLiteDBPath) to `SchedulerConfig` struct fields in `internal/config/config.go`.
+  - [x] 1.7 Ensure `SchedulerConfig` fields are included in the `validationView` struct in `internal/config/validator.go` for user-friendly error messages.
+- [ ] 2.0 Implement SQLite Database for Scan History
+  - [x] 2.1 Add `github.com/mattn/go-sqlite3` dependency to `go.mod` (and run `go mod tidy`).
+  - [x] 2.2 Create `internal/scheduler/db.go`.
+  - [x] 2.3 Define `ScanHistoryEntry` struct (or similar) in `db.go` to represent a record in the `scan_history` table (id, scan_start_time, scan_end_time, status, target_source, report_file_path, log_summary).
+  - [x] 2.4 Implement `NewDB(dataSourceName string, logger *log.Logger)` function in `db.go` to initialize and return a `*sql.DB` connection.
+  - [x] 2.5 Implement `InitSchema()` method in `db.go` to create the `scan_history` table if it doesn't exist, using SQL `CREATE TABLE IF NOT EXISTS`.
+  - [x] 2.6 Implement `RecordScanStart(startTime time.Time, targetSource string) (int64, error)` in `db.go` to insert a new record with status "STARTED" and return its ID.
+  - [x] 2.7 Implement `UpdateScanCompletion(id int64, endTime time.Time, status string, reportPath string, logSummary string) error` in `db.go`.
+  - [x] 2.8 Implement `GetLastScanTime() (*time.Time, error)` in `db.go` to retrieve the `scan_end_time` of the most recent successfully completed scan or last attempt.
+  - [ ] 2.9 Implement basic unit tests for database operations in `internal/scheduler/db_test.go` (e.g., init, insert, update, get last scan time).
+- [ ] 3.0 Develop Core Scheduling Logic and Main Loop
+  - [ ] 3.1 Create `internal/scheduler/scheduler.go`.
+  - [ ] 3.2 Define `Scheduler` struct in `scheduler.go` holding `config *config.SchedulerConfig`, `db *DB` (custom DB handler from `db.go`), `logger *log.Logger`, and any other necessary components (e.g., instances of crawler, httpxrunner etc. or functions to create them).
+  - [ ] 3.3 Implement `NewScheduler(cfg *config.GlobalConfig, logger *log.Logger)` function in `scheduler.go` to initialize and return a `*Scheduler`.
+        - This function will initialize the DB connection using `db.NewDB` and `db.InitSchema`.
+  - [ ] 3.4 Implement `Start()` method for the `Scheduler` struct.
+        - This method will contain the main loop for `automated` mode.
+        - On first call, it should trigger a scan immediately (as per FR 2.1.2).
+        - Loop: calculate `nextScanTime` using `db.GetLastScanTime()` and `cfg.ScanIntervalDays`.
+        - Sleep until `nextScanTime` using `time.Sleep()` or `time.After()`.
+        - Call `runScanCycle()` (to be implemented in 4.0).
+- [ ] 4.0 Implement Scan Cycle Execution (Target Reloading, Orchestration)
+  - [ ] 4.1 Create `internal/scheduler/target_loader.go` (or add to `scheduler.go`).
+  - [ ] 4.2 Implement `loadTargets(inputFileOption string, inputConfigUrls []string, cfgInputFile string, logger *log.Logger) ([]string, string, error)` function in `target_loader.go` to reload target URLs from `input_config.input_file` or the `-urlfile` command-line argument (similar to current `main.go` logic but callable by scheduler). It should return the list of URLs and the source string (filepath or "config_input_urls").
+  - [ ] 4.3 Implement `runScanCycle(targetFileOverride string)` method in `scheduler.go`.
+        - Record scan start in DB using `db.RecordScanStart()`, get scan ID.
+        - Load targets using `loadTargets()`.
+        - If target loading fails, update DB record with failure, log, and handle retries (see 5.0).
+        - Execute the full scan workflow: Crawl -> HTTPX Probe -> Diff -> Report.
+          - This will involve calling or adapting logic currently in `cmd/monsterinc/main.go` for these steps.
+          - Consider passing the global config (`gCfg`) or relevant parts to these modules.
+        - Generate report filename based on `YYYYMMDD-HHMMSS_automated_report.html` format.
+        - Update DB record with completion status, end time, report path, and summary using `db.UpdateScanCompletion()`.
+- [ ] 5.0 Integrate Error Handling, Retries, and Notifications
+  - [ ] 5.1 Modify `runScanCycle()` in `scheduler.go` to include a retry loop (up to `cfg.RetryAttempts`).
+  - [ ] 5.2 Implement a fixed delay (e.g., 5-10 minutes) between retries using `time.Sleep()`.
+  - [ ] 5.3 If a scan cycle (including all retries) fails, log the final failure and ensure the DB reflects this final attempt's status.
+  - [ ] 5.4 If a scan cycle succeeds (possibly after some retries), log success.
+  - [ ] 5.5 Integrate notification calls within `runScanCycle()` or `Start()` loop after a cycle completes (success or final failure), using `NotificationConfig`.
+        - This might involve creating a small notification helper or service if not already present.
+- [ ] 6.0 Integrate Scheduler into Main Application Flow (`automated` mode)
+  - [ ] 6.1 In `cmd/monsterinc/main.go`, if `gCfg.Mode == "automated"`:
+        - Initialize the `Scheduler` using `scheduler.NewScheduler()`.
+        - Call `scheduler.Start()`.
+        - Ensure `main.go` does not exit after `scheduler.Start()` is called in automated mode (e.g., `scheduler.Start()` could be a blocking call or use a channel to keep main alive).
+  - [ ] 6.2 Adapt `scanSessionID` generation in `main.go` or `scheduler.go` to match `YYYYMMDD-HHMMSS` for automated reports.
+  - [ ] 6.3 Ensure graceful shutdown for `automated` mode (e.g., listen for SIGINT/SIGTERM, tell scheduler to stop, allow current cycle to finish if configured, or save state).
+- [ ] 7.0 Documentation and Testing
+  - [ ] 7.1 Update `monsterinc/internal/scheduler/README.md` with details of implemented components and their usage.
+  - [ ] 7.2 Update main `README.md` to reflect the new automated mode capabilities, SQLite usage, and new configurations.
+  - [ ] 7.3 Write unit tests for the `Scheduler` logic in `internal/scheduler/scheduler_test.go` (e.g., scheduling calculation, loop control, retry logic - may require mocks for DB and scan functions).
+  - [ ] 7.4 Write unit tests for `target_loader.go` in `internal/scheduler/target_loader_test.go`.
+  - [ ] 7.5 Perform end-to-end testing of the `automated` mode with various configurations (different intervals, retries, valid/invalid target files). 
