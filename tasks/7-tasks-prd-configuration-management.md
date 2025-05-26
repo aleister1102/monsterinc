@@ -30,7 +30,7 @@
 
 - [x] 2.0 Implement Configuration Loading (in `internal/config/loader.go`)
   - [x] 2.1 Implement `LoadConfig(configPath string) (*GlobalConfig, error)` function.
-  - [ ] 2.2 Add logic to determine config file path: command-line flag (e.g., `-config`), environment variable, default path (e.g., `config.json` in CWD or executable dir).
+  - [x] 2.2 Add logic to determine config file path: command-line flag (e.g., `-config`), environment variable, default path (e.g., `config.json` in CWD or executable dir).
   - [x] 2.3 Implement reading the configuration file (JSON or YAML - choose one, YAML might be more user-friendly for comments).
   - [x] 2.4 Implement parsing the file content into the `GlobalConfig` struct.
   - [x] 2.5 After parsing, call `SetDefaults()` to ensure all fields have values.
