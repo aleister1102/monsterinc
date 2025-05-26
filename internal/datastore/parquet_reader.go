@@ -3,7 +3,6 @@ package datastore
 import (
 	"fmt"
 	"io"
-	"log"
 	"monsterinc/internal/config"
 	"monsterinc/internal/models"
 	"monsterinc/internal/urlhandler" // Added urlhandler
@@ -12,26 +11,26 @@ import (
 
 	// "regexp" // No longer needed for local sanitization
 	// "sort"
-	// "strings"
 	// "time"
 
 	"github.com/parquet-go/parquet-go"
+	"github.com/rs/zerolog"
 )
 
 // ParquetReader handles reading data from Parquet files.
 type ParquetReader struct {
 	storageConfig *config.StorageConfig
-	logger        *log.Logger
+	logger        zerolog.Logger
 }
 
 // NewParquetReader creates a new ParquetReader.
-func NewParquetReader(cfg *config.StorageConfig, logger *log.Logger) *ParquetReader {
+func NewParquetReader(cfg *config.StorageConfig, logger zerolog.Logger) *ParquetReader {
 	if cfg == nil || cfg.ParquetBasePath == "" {
-		logger.Println("[WARN] ParquetReader: StorageConfig or ParquetBasePath is not properly configured.")
+		logger.Warn().Msg("ParquetReader: StorageConfig or ParquetBasePath is not properly configured.")
 	}
 	return &ParquetReader{
 		storageConfig: cfg,
-		logger:        logger,
+		logger:        logger.With().Str("component", "ParquetReader").Logger(),
 	}
 }
 
@@ -39,13 +38,13 @@ func NewParquetReader(cfg *config.StorageConfig, logger *log.Logger) *ParquetRea
 // and returns it as a slice of models.ProbeResult.
 func (pr *ParquetReader) FindHistoricalDataForTarget(rootTargetURL string) ([]models.ProbeResult, error) {
 	if pr.storageConfig == nil || pr.storageConfig.ParquetBasePath == "" {
-		pr.logger.Println("[ERROR] ParquetReader: ParquetBasePath is not configured.")
+		pr.logger.Error().Msg("ParquetReader: ParquetBasePath is not configured.")
 		return nil, fmt.Errorf("ParquetBasePath not configured")
 	}
 
 	sanitizedTargetName := urlhandler.SanitizeFilename(rootTargetURL)
 	if sanitizedTargetName == "sanitized_empty_input" || sanitizedTargetName == "" {
-		pr.logger.Printf("[WARN] FindHistoricalDataForTarget: Root target '%s' sanitized to empty. Cannot find file.", rootTargetURL)
+		pr.logger.Warn().Str("rootTargetURL", rootTargetURL).Msg("FindHistoricalDataForTarget: Root target sanitized to empty. Cannot find file.")
 		return []models.ProbeResult{}, nil
 	}
 

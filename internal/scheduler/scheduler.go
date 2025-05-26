@@ -1,12 +1,12 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
-	"log"
 	"monsterinc/internal/config"
 	"monsterinc/internal/datastore"
 	"monsterinc/internal/models"
-	notification "monsterinc/internal/notifier"
+	"monsterinc/internal/notifier"
 	"monsterinc/internal/orchestrator"
 	"monsterinc/internal/reporter"
 	"os"
@@ -15,15 +15,17 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 // Scheduler manages periodic scan operations in automated mode
 type Scheduler struct {
 	globalConfig       *config.GlobalConfig
 	db                 *DB
-	logger             *log.Logger
+	logger             zerolog.Logger
 	urlFileOverride    string // From -urlfile command line flag
-	notificationHelper *notification.NotificationHelper
+	notificationHelper *notifier.NotificationHelper
 	targetManager      *TargetManager
 	scanOrchestrator   *orchestrator.ScanOrchestrator
 	stopChan           chan struct{}
@@ -33,7 +35,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new Scheduler instance
-func NewScheduler(cfg *config.GlobalConfig, urlFileOverride string, logger *log.Logger) (*Scheduler, error) {
+func NewScheduler(cfg *config.GlobalConfig, urlFileOverride string, logger zerolog.Logger, notificationHelper *notifier.NotificationHelper) (*Scheduler, error) {
 	// Ensure database directory exists
 	dbDir := filepath.Dir(cfg.SchedulerConfig.SQLiteDBPath)
 	if err := os.MkdirAll(dbDir, 0755); err != nil {
@@ -58,12 +60,9 @@ func NewScheduler(cfg *config.GlobalConfig, urlFileOverride string, logger *log.
 	// Initialize ParquetWriter (needed for orchestrator)
 	parquetWriter, err := datastore.NewParquetWriter(&cfg.StorageConfig, logger)
 	if err != nil {
-		logger.Printf("[WARN] Scheduler: Failed to initialize ParquetWriter for orchestrator: %v. Parquet storage will be disabled.", err)
+		logger.Warn().Err(err).Msg("Scheduler: Failed to initialize ParquetWriter for orchestrator. Parquet storage will be disabled.")
 		parquetWriter = nil
 	}
-
-	// Initialize NotificationHelper
-	notificationHelper := notification.NewNotificationHelper(&cfg.NotificationConfig, logger)
 
 	// Initialize TargetManager
 	targetManager := NewTargetManager(logger)
@@ -93,15 +92,15 @@ func (s *Scheduler) Start() error {
 	s.isRunning = true
 	s.mu.Unlock()
 
-	s.logger.Println("[INFO] Scheduler: Starting automated scan scheduler...")
+	s.logger.Info().Msg("Scheduler: Starting automated scan scheduler...")
 
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Run initial scan immediately
-	s.logger.Println("[INFO] Scheduler: Running initial scan...")
-	s.runScanCycleWithRetries()
+	s.logger.Info().Msg("Scheduler: Running initial scan...")
+	s.runScanCycleWithRetries(context.Background())
 
 	// Main scheduler loop
 	s.wg.Add(1)
@@ -112,24 +111,24 @@ func (s *Scheduler) Start() error {
 			// Calculate next scan time
 			nextScanTime, err := s.calculateNextScanTime()
 			if err != nil {
-				s.logger.Printf("[ERROR] Scheduler: Failed to calculate next scan time: %v", err)
+				s.logger.Error().Err(err).Msg("Scheduler: Failed to calculate next scan time")
 				// Wait a bit before retrying
 				time.Sleep(5 * time.Minute)
 				continue
 			}
 
-			s.logger.Printf("[INFO] Scheduler: Next scan scheduled for: %v", nextScanTime)
+			s.logger.Info().Time("next_scan_time", nextScanTime).Msg("Scheduler: Next scan scheduled for")
 
 			// Wait until next scan time or stop signal
 			select {
 			case <-time.After(time.Until(nextScanTime)):
-				s.logger.Println("[INFO] Scheduler: Starting scheduled scan...")
-				s.runScanCycleWithRetries()
+				s.logger.Info().Msg("Scheduler: Starting scheduled scan...")
+				s.runScanCycleWithRetries(context.Background())
 			case <-s.stopChan:
-				s.logger.Println("[INFO] Scheduler: Received stop signal, exiting scheduler loop...")
+				s.logger.Info().Msg("Scheduler: Received stop signal, exiting scheduler loop...")
 				return
 			case sig := <-sigChan:
-				s.logger.Printf("[INFO] Scheduler: Received signal %v, initiating graceful shutdown...", sig)
+				s.logger.Info().Str("signal", sig.String()).Msg("Scheduler: Received signal, initiating graceful shutdown")
 				close(s.stopChan)
 				return
 			}
@@ -138,6 +137,12 @@ func (s *Scheduler) Start() error {
 
 	// Wait for scheduler to stop
 	s.wg.Wait()
+	if s.db != nil {
+		s.logger.Info().Msg("Closing scheduler database connection.")
+		s.db.Close()
+	}
+
+	s.logger.Info().Msg("Scheduler: Scheduler stopped.")
 	return nil
 }
 
@@ -150,7 +155,7 @@ func (s *Scheduler) Stop() {
 		return
 	}
 
-	s.logger.Println("[INFO] Scheduler: Stopping scheduler...")
+	s.logger.Info().Msg("Scheduler: Stopping scheduler...")
 	close(s.stopChan)
 	s.wg.Wait()
 	s.isRunning = false
@@ -160,7 +165,7 @@ func (s *Scheduler) Stop() {
 		s.db.Close()
 	}
 
-	s.logger.Println("[INFO] Scheduler: Scheduler stopped.")
+	s.logger.Info().Msg("Scheduler: Scheduler stopped.")
 }
 
 // calculateNextScanTime determines when the next scan should run
@@ -188,52 +193,67 @@ func (s *Scheduler) calculateNextScanTime() (time.Time, error) {
 }
 
 // runScanCycleWithRetries runs a scan cycle with retry logic
-func (s *Scheduler) runScanCycleWithRetries() {
+func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 	maxRetries := s.globalConfig.SchedulerConfig.RetryAttempts
 	retryDelay := 5 * time.Minute // Fixed retry delay
 
 	var lastErr error
-	var targetSource string
+	var scanSummary models.ScanSummaryData // To store summary for notification
+	var reportGeneratedPath string
+	scanID := fmt.Sprintf("scheduled_scan_%s", time.Now().Format("20060102-150405"))
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			s.logger.Printf("[INFO] Scheduler: Retry attempt %d/%d after %v delay...", attempt, maxRetries, retryDelay)
+			s.logger.Info().Int("attempt", attempt).Int("max_retries", maxRetries).Dur("delay", retryDelay).Msg("Scheduler: Retrying scan cycle after delay...")
 			time.Sleep(retryDelay)
 		}
+		// Each attempt should have its own summary, or we update a common one.
+		// For now, runScanCycle will populate parts of a summary for its specific attempt.
+		scanSummary, reportGeneratedPath, lastErr = s.runScanCycle(ctx, scanID) // Pass context and scanID, get summary and report path back
+		scanSummary.RetriesAttempted = attempt                                  // Update retries
 
-		targetSource, lastErr = s.runScanCycle()
 		if lastErr == nil {
-			// Success
-			s.logger.Println("[INFO] Scheduler: Scan cycle completed successfully.")
+			s.logger.Info().Str("scan_id", scanID).Msg("Scheduler: Scan cycle completed successfully.")
+			scanSummary.Status = string(models.ScanStatusCompleted)
+			scanSummary.ReportPath = reportGeneratedPath
+			s.notificationHelper.SendScanCompletionNotification(ctx, scanSummary)
 			return
 		}
 
-		s.logger.Printf("[ERROR] Scheduler: Scan cycle failed (attempt %d/%d): %v", attempt+1, maxRetries+1, lastErr)
+		s.logger.Error().Err(lastErr).Str("scan_id", scanID).Int("attempt", attempt+1).Int("total_attempts", maxRetries+1).Msg("Scheduler: Scan cycle failed")
 
 		if attempt == maxRetries {
-			// All retries exhausted
-			s.logger.Printf("[ERROR] Scheduler: All retry attempts exhausted. Scan cycle failed.")
-			// Send failure notification
-			if err := s.notificationHelper.SendScanFailureNotification(targetSource, lastErr, maxRetries+1); err != nil {
-				s.logger.Printf("[ERROR] Scheduler: Failed to send failure notification: %v", err)
-			}
+			s.logger.Error().Str("scan_id", scanID).Msg("Scheduler: All retry attempts exhausted. Scan cycle failed permanently.")
+			scanSummary.Status = string(models.ScanStatusFailed)
+			scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("All %d retry attempts failed. Last error: %v", maxRetries+1, lastErr))
+			// reportGeneratedPath might be empty if error was before report generation
+			scanSummary.ReportPath = reportGeneratedPath
+			s.notificationHelper.SendScanCompletionNotification(ctx, scanSummary) // Send final failure notification
 		}
 	}
 }
 
 // runScanCycle executes a complete scan cycle
-func (s *Scheduler) runScanCycle() (string, error) {
-	startTime := time.Now() // Ensure startTime is declared and used
+func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string) (models.ScanSummaryData, string, error) { // Added context, scanSessionID, return summary, report path and error
+	startTime := time.Now()
+	summary := models.GetDefaultScanSummaryData()
+	summary.ScanID = scanSessionID
 
 	// Load targets using TargetManager
+	// In scheduler mode, target source is usually determined by config or persisted state, not direct file override each time.
+	// For now, let's assume LoadAndSelectTargets correctly handles this based on initial config and potential future state management.
 	targets, targetSource, err := s.targetManager.LoadAndSelectTargets(
-		s.urlFileOverride,
+		s.urlFileOverride, // This might be empty if not provided at startup
 		s.globalConfig.InputConfig.InputURLs,
 		s.globalConfig.InputConfig.InputFile,
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to load targets: %w", err)
+		summary.Status = string(models.ScanStatusFailed)
+		summary.ErrorMessages = []string{fmt.Sprintf("Failed to load targets: %v", err)}
+		return summary, "", fmt.Errorf("failed to load targets: %w", err) // Return error and empty summary
 	}
+	summary.Targets = s.targetManager.GetTargetStrings(targets)
+	summary.TotalTargets = len(targets)
 
 	// Extract original URLs for crawler and other parts that expect []string
 	var seedURLs []string
@@ -242,104 +262,92 @@ func (s *Scheduler) runScanCycle() (string, error) {
 	}
 
 	if len(seedURLs) == 0 {
-		return targetSource, fmt.Errorf("no valid seed URLs to scan from source: %s", targetSource)
+		msg := fmt.Sprintf("No valid seed URLs to scan from source: %s", targetSource)
+		s.logger.Warn().Str("target_source", targetSource).Msg(msg)
+		summary.Status = string(models.ScanStatusFailed)
+		summary.ErrorMessages = []string{msg}
+		return summary, "", fmt.Errorf(msg)
 	}
 
 	// Send scan start notification
-	if err := s.notificationHelper.SendScanStartNotification(targetSource); err != nil {
-		s.logger.Printf("[ERROR] Scheduler: Failed to send start notification: %v", err)
-	}
+	s.notificationHelper.SendScanStartNotification(ctx, scanSessionID, summary.Targets, summary.TotalTargets)
 
-	// Record scan start in database
-	scanID, err := s.db.RecordScanStart(time.Now(), targetSource) // Added time.Now()
+	// Record scan start in DB
+	scanDBID, err := s.db.RecordScanStart(scanSessionID, targetSource, len(seedURLs), startTime)
 	if err != nil {
-		// If we can't even record the scan start, it's a critical failure for this cycle.
-		// Log it, but don't necessarily stop the scheduler from trying future cycles.
-		s.logger.Printf("[ERROR] Scheduler: Failed to record scan start in DB for source '%s': %v. This cycle will be aborted.", targetSource, err)
-		return targetSource, fmt.Errorf("failed to record scan start in DB: %w", err)
+		msg := fmt.Sprintf("failed to record scan start in DB: %v", err)
+		s.logger.Error().Err(err).Str("scan_id", scanSessionID).Msg("Failed to record scan start in DB")
+		// Continue scan, but this is a notable issue
+		summary.ErrorMessages = append(summary.ErrorMessages, msg)
 	}
-	s.logger.Printf("[INFO] Scheduler: Scan cycle initiated with ID: %d for target source: %s", scanID, targetSource)
+	summary.ScanID = fmt.Sprintf("%s (DB ID: %d)", scanSessionID, scanDBID) // Update ScanID with DB ID for clarity
 
-	// Execute the main scan workflow (crawl, probe, diff)
-	// probeResults, urlDiffResults, err := s.scanOrchestrator.ExecuteScanWorkflow(targets, scanSessionID) // Original line with error
-	probeResults, urlDiffResults, err := s.scanOrchestrator.ExecuteScanWorkflow(seedURLs, fmt.Sprintf("scan-%d", scanID)) // Use seedURLs and a session ID based on scanID
-	if err != nil {
-		s.logger.Printf("[ERROR] Scheduler: Scan workflow failed for source '%s' (scanID %d): %v", targetSource, scanID, err)
-		// s.db.RecordScanEnd(scanID, time.Now(), models.ScanStatusFailed, "", fmt.Sprintf("Workflow error: %v", err)) // Original line with error
-		s.db.UpdateScanCompletion(scanID, time.Now(), "FAILED", "", fmt.Sprintf("Workflow error: %v", err)) // Corrected
-		return targetSource, fmt.Errorf("scan workflow execution failed: %w", err)
-	}
+	s.logger.Info().Str("scan_id", scanSessionID).Int("num_targets", len(seedURLs)).Str("target_source", targetSource).Msg("Scheduler: Starting scan cycle execution.")
 
-	s.logger.Printf("[INFO] Scheduler: Scan workflow completed for source '%s' (scanID %d). Probe results: %d, Diff sets: %d", targetSource, scanID, len(probeResults), len(urlDiffResults))
-
-	// Generate report (if any results)
-	reportPath := ""
-	if len(probeResults) > 0 || len(urlDiffResults) > 0 {
-		// Construct a meaningful report path
-		// Example: reports/scan-YYYYMMDD-HHMMSS-targetSource.json (or .html, .pdf)
-		// For now, using a simple name related to the scanID
-		ts := time.Now().Format("20060102-150405")
-		// safeTargetSource := SanitizeFilename(targetSource) // Assuming SanitizeFilename exists or will be added
-		reportFilename := fmt.Sprintf("%s_automated_report.html", ts)
-
-		// Ensure reports directory exists (using global config)
-		reportsDir := s.globalConfig.ReporterConfig.OutputDir // Corrected to OutputDir
-		if reportsDir == "" {
-			reportsDir = "reports" // Default if not configured
-		}
-		if err := os.MkdirAll(reportsDir, 0755); err != nil {
-			s.logger.Printf("[ERROR] Scheduler: Failed to create reports directory '%s': %v", reportsDir, err)
-			// Non-fatal for scan record, but report won't be saved
-		} else {
-			reportPath = filepath.Join(reportsDir, reportFilename)
-			s.logger.Printf("[INFO] Scheduler: Generating report for scanID %d at: %s", scanID, reportPath)
-
-			// Create a slice of pointers for generateReport
-			probeResultsPtr := make([]*models.ProbeResult, len(probeResults))
-			for i := range probeResults {
-				probeResultsPtr[i] = &probeResults[i]
-			}
-
-			if err := s.generateReport(probeResultsPtr, urlDiffResults, reportPath); err != nil { // Corrected to use probeResultsPtr
-				s.logger.Printf("[ERROR] Scheduler: Failed to generate report for scanID %d: %v", scanID, err)
-				// s.db.RecordScanEnd(scanID, time.Now(), models.ScanStatusFailed, "", fmt.Sprintf("Report generation error: %v", err)) // Original line with error
-				s.db.UpdateScanCompletion(scanID, time.Now(), "FAILED", "", fmt.Sprintf("Report generation error: %v", err)) // Corrected
-				return targetSource, fmt.Errorf("failed to generate report: %w", err)
-			}
-		}
-	}
-
-	// Record scan completion
-	// s.db.RecordScanEnd(scanID, time.Now(), models.ScanStatusCompleted, reportPath, "Scan completed successfully") // Original line with error
-	err = s.db.UpdateScanCompletion(scanID, time.Now(), "COMPLETED", reportPath, "Scan completed successfully") // Corrected
-	if err != nil {
-		s.logger.Printf("[ERROR] Scheduler: Failed to update scan completion status for scanID %d: %v", scanID, err)
-		// This is an issue, but the scan itself was successful. Log and continue.
-	}
-
-	s.logger.Printf("[INFO] Scheduler: Successfully completed and recorded scan cycle for ID: %d, Target Source: %s", scanID, targetSource)
-
-	// Calculate scan duration
+	// Execute Scan Workflow via Orchestrator
+	probeResults, urlDiffResults, workflowErr := s.scanOrchestrator.ExecuteScanWorkflow(seedURLs, scanSessionID)
 	scanDuration := time.Since(startTime)
+	summary.ScanDuration = scanDuration
 
-	// Calculate URL statistics for notification
-	urlStats := make(map[string]int)
-	urlStats["new"] = 0
-	urlStats["existing"] = 0
-	urlStats["old"] = 0
-
-	for _, diffResult := range urlDiffResults {
-		urlStats["new"] += diffResult.New
-		urlStats["existing"] += diffResult.Existing
-		urlStats["old"] += diffResult.Old
+	// Populate stats for summary
+	if probeResults != nil {
+		// TODO: Accurately count successful/failed probes from probeResults
+		summary.ProbeStats.DiscoverableItems = len(probeResults)
+		summary.ProbeStats.SuccessfulProbes = len(probeResults) // Placeholder
+	}
+	if urlDiffResults != nil {
+		for _, diff := range urlDiffResults {
+			summary.DiffStats.New += diff.New
+			summary.DiffStats.Existing += diff.Existing
+			summary.DiffStats.Old += diff.Old
+		}
 	}
 
-	// Send success notification
-	if err := s.notificationHelper.SendScanSuccessNotification(targetSource, reportPath, scanDuration, urlStats); err != nil {
-		s.logger.Printf("[ERROR] Scheduler: Failed to send success notification: %v", err)
+	var reportPath string
+	if workflowErr != nil {
+		s.logger.Error().Err(workflowErr).Str("scan_id", scanSessionID).Msg("Scheduler: Scan workflow execution failed.")
+		if scanDBID > 0 {
+			s.db.UpdateScanCompletion(scanDBID, time.Now(), "FAILED", workflowErr.Error(), 0, 0, 0, "")
+		}
+		summary.Status = string(models.ScanStatusFailed)
+		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Scan workflow failed: %v", workflowErr))
+		return summary, "", workflowErr // Return error and current summary
 	}
 
-	return targetSource, nil // Success
+	s.logger.Info().Str("scan_id", scanSessionID).Msg("Scheduler: Scan workflow completed successfully.")
+
+	// Generate HTML report
+	reportFilename := fmt.Sprintf("%s_automated_report.html", scanSessionID)
+	reportPath = filepath.Join(s.globalConfig.ReporterConfig.OutputDir, reportFilename)
+
+	// Convert probeResults to []*models.ProbeResult for reporter
+	probeResultsPtr := make([]*models.ProbeResult, len(probeResults))
+	for i := range probeResults {
+		probeResultsPtr[i] = &probeResults[i]
+	}
+
+	err = s.generateReport(probeResultsPtr, urlDiffResults, reportPath)
+	if err != nil {
+		s.logger.Error().Err(err).Str("scan_id", scanSessionID).Msg("Scheduler: Failed to generate HTML report.")
+		if scanDBID > 0 {
+			s.db.UpdateScanCompletion(scanDBID, time.Now(), "PARTIAL_COMPLETE", fmt.Sprintf("Workflow OK, but report generation failed: %v", err), summary.DiffStats.New, summary.DiffStats.Old, summary.DiffStats.Existing, "")
+		}
+		summary.Status = string(models.ScanStatusPartialComplete) // Or Failed, depending on severity
+		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Report generation failed: %v", err))
+		// Even if report fails, the scan itself might have been a success in terms of data gathering
+		// Return the error, but the caller (runScanCycleWithRetries) will decide if this is a full failure for retry purposes.
+		return summary, "", err // Return with report error
+	}
+	s.logger.Info().Str("scan_id", scanSessionID).Str("report_path", reportPath).Msg("Scheduler: HTML report generated successfully.")
+	summary.ReportPath = reportPath
+
+	// Record scan completion in DB
+	if scanDBID > 0 {
+		s.db.UpdateScanCompletion(scanDBID, time.Now(), "COMPLETED", "", summary.DiffStats.New, summary.DiffStats.Old, summary.DiffStats.Existing, reportPath)
+	}
+
+	summary.Status = string(models.ScanStatusCompleted)
+	return summary, reportPath, nil
 }
 
 // generateReport generates a report from scan results

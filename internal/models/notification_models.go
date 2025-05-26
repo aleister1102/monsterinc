@@ -1,0 +1,116 @@
+package models
+
+import "time"
+
+// DiscordMessagePayload represents the JSON payload sent to a Discord webhook.
+type DiscordMessagePayload struct {
+	Content         string           `json:"content,omitempty"`          // Message content (text)
+	Username        string           `json:"username,omitempty"`         // Override the default webhook username
+	AvatarURL       string           `json:"avatar_url,omitempty"`       // Override the default webhook avatar
+	TTS             bool             `json:"tts,omitempty"`              // Whether this is a text-to-speech message
+	Embeds          []DiscordEmbed   `json:"embeds,omitempty"`           // Array of embed objects
+	AllowedMentions *AllowedMentions `json:"allowed_mentions,omitempty"` // Allowed mentions for the message
+	// Files      []interface{}   `json:"files"` // For file uploads, handled by multipart/form-data, not directly in JSON
+}
+
+// AllowedMentions specifies how mentions should be handled in a message.
+type AllowedMentions struct {
+	Parse       []string `json:"parse,omitempty"`        // Types of mentions to parse (e.g., "roles", "users", "everyone")
+	Roles       []string `json:"roles,omitempty"`        // Array of role_ids to mention (max 100)
+	Users       []string `json:"users,omitempty"`        // Array of user_ids to mention (max 100)
+	RepliedUser bool     `json:"replied_user,omitempty"` // For replies, whether to mention the author of the message being replied to
+}
+
+// DiscordEmbed represents a Discord embed object.
+type DiscordEmbed struct {
+	Title       string                 `json:"title,omitempty"`       // Title of embed
+	Description string                 `json:"description,omitempty"` // Description of embed
+	URL         string                 `json:"url,omitempty"`         // URL of embed
+	Timestamp   string                 `json:"timestamp,omitempty"`   // ISO8601 timestamp
+	Color       int                    `json:"color,omitempty"`       // Color code of the embed
+	Footer      *DiscordEmbedFooter    `json:"footer,omitempty"`
+	Image       *DiscordEmbedImage     `json:"image,omitempty"`
+	Thumbnail   *DiscordEmbedThumbnail `json:"thumbnail,omitempty"`
+	Author      *DiscordEmbedAuthor    `json:"author,omitempty"`
+	Fields      []DiscordEmbedField    `json:"fields,omitempty"` // Array of embed field objects
+}
+
+// DiscordEmbedFooter represents the footer of an embed.
+type DiscordEmbedFooter struct {
+	Text    string `json:"text"`               // Footer text
+	IconURL string `json:"icon_url,omitempty"` // URL of footer icon (only supports http(s) and attachments)
+}
+
+// DiscordEmbedImage represents the image of an embed.
+type DiscordEmbedImage struct {
+	URL string `json:"url"` // Source URL of image (only supports http(s) and attachments)
+}
+
+// DiscordEmbedThumbnail represents the thumbnail of an embed.
+type DiscordEmbedThumbnail struct {
+	URL string `json:"url"` // Source URL of thumbnail (only supports http(s) and attachments)
+}
+
+// DiscordEmbedAuthor represents the author of an embed.
+type DiscordEmbedAuthor struct {
+	Name    string `json:"name"`               // Name of author
+	URL     string `json:"url,omitempty"`      // URL of author (only supports http(s))
+	IconURL string `json:"icon_url,omitempty"` // URL of author icon (only supports http(s) and attachments)
+}
+
+// DiscordEmbedField represents a field in an embed.
+type DiscordEmbedField struct {
+	Name   string `json:"name"`             // Name of the field
+	Value  string `json:"value"`            // Value of the field
+	Inline bool   `json:"inline,omitempty"` // Whether or not this field should display inline
+}
+
+// ScanSummaryData holds summary information about a scan, used for notifications.
+type ScanSummaryData struct {
+	ScanID           string        // Unique identifier for the scan (e.g., session ID or database ID)
+	Targets          []string      // List of original target URLs/identifiers
+	TotalTargets     int           // Total number of targets processed or attempted
+	ProbeStats       ProbeStats    // Statistics from the probing phase
+	DiffStats        DiffStats     // Statistics from the diffing phase (New, Old, Existing)
+	ScanDuration     time.Duration // Total duration of the scan
+	ReportPath       string        // Filesystem path to the generated report (used by notifier to attach)
+	Status           string        // Overall status: "COMPLETED", "FAILED", "STARTED"
+	ErrorMessages    []string      // Any critical errors encountered during the scan
+	Component        string        // Component where an error might have occurred (for critical errors)
+	RetriesAttempted int           // Number of retries, if applicable
+}
+
+// ProbeStats holds statistics related to the probing phase.
+type ProbeStats struct {
+	TotalProbed       int // Total URLs sent to the prober
+	SuccessfulProbes  int // Number of probes that returned a successful response (e.g., 2xx)
+	FailedProbes      int // Number of probes that failed or returned error codes
+	DiscoverableItems int // e.g. number of items from httpx
+}
+
+// DiffStats holds statistics from the URL diffing process.
+type DiffStats struct {
+	New      int
+	Old      int
+	Existing int
+	Changed  int // (If StatusChanged is implemented)
+}
+
+// ScanStatus defines the status of a scan.
+type ScanStatus string
+
+const (
+	ScanStatusStarted         ScanStatus = "STARTED"
+	ScanStatusCompleted       ScanStatus = "COMPLETED"
+	ScanStatusFailed          ScanStatus = "FAILED"
+	ScanStatusCriticalError   ScanStatus = "CRITICAL_ERROR"   // For application-level critical errors
+	ScanStatusPartialComplete ScanStatus = "PARTIAL_COMPLETE" // If some targets succeed and others fail
+)
+
+// GetDefaultScanSummaryData initializes ScanSummaryData with default values.
+func GetDefaultScanSummaryData() ScanSummaryData {
+	return ScanSummaryData{
+		Targets:       make([]string, 0),
+		ErrorMessages: make([]string, 0),
+	}
+}
