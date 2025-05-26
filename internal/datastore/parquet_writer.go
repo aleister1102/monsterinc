@@ -10,9 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/parquet-go/parquet-go"
 	"github.com/rs/zerolog"
-	"github.com/xitongsys/parquet-go-source/localfile"
-	"github.com/xitongsys/parquet-go/writer"
 )
 
 // ParquetWriter handles writing probe results to Parquet files.
@@ -110,31 +109,55 @@ func (pw *ParquetWriter) Write(probeResults []models.ProbeResult, scanSessionID 
 		return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(filePath), err)
 	}
 
-	fw, err := localfile.NewLocalFileWriter(filePath)
+	// Create or open the file for writing
+	file, err := os.Create(filePath) // Use os.Create to truncate if exists, or create if not.
 	if err != nil {
-		pw.logger.Error().Err(err).Str("file_path", filePath).Msg("Failed to create local Parquet file writer")
-		return fmt.Errorf("failed to create Parquet file writer for %s: %w", filePath, err)
+		pw.logger.Error().Err(err).Str("file_path", filePath).Msg("Failed to create/open Parquet file for writing")
+		return fmt.Errorf("failed to create/open Parquet file %s: %w", filePath, err)
 	}
-	defer fw.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			pw.logger.Error().Err(err).Str("file_path", filePath).Msg("Failed to close Parquet file")
+		}
+	}()
 
-	pqWriter, err := writer.NewParquetWriter(fw, new(models.ParquetProbeResult), 4) // Concurrency for writing
-	if err != nil {
-		pw.logger.Error().Err(err).Msg("Failed to create Parquet writer instance")
-		return fmt.Errorf("failed to create Parquet writer: %w", err)
+	// Configure Parquet writer options
+	options := []parquet.WriterOption{
+		parquet.Compression(&parquet.Zstd),
 	}
+	// TODO: Add logic to select compression codec based on pw.config.CompressionCodec
+	// Example: switch strings.ToLower(pw.config.CompressionCodec) {
+	// case "snappy":
+	// options = append(options, parquet.Compression(&parquet.Snappy))
+	// case "gzip":
+	// options = append(options, parquet.Compression(&parquet.Gzip))
+	// case "none", "":
+	// options = append(options, parquet.Compression(&parquet.Uncompressed))
+	// default:
+	// options = append(options, parquet.Compression(&parquet.Zstd)) // Default or log warning for unknown
+	// }
+
+	pqWriter := parquet.NewGenericWriter[models.ParquetProbeResult](file, options...)
 
 	scanTime := time.Now() // Use a consistent scan time for all records in this batch
-	for _, pr := range probeResults {
-		// Important: pr.URLStatus and pr.OldestScanTimestamp should be populated by the diffing logic *before* this point.
-		if err = pqWriter.Write(pw.transformToParquetResult(pr, scanTime)); err != nil {
-			pw.logger.Error().Err(err).Interface("problematic_record", pr).Msg("Failed to write record to Parquet file")
-			// Decide if we should continue or abort. For now, log and continue.
-		}
+	parquetData := make([]models.ParquetProbeResult, len(probeResults))
+	for i, pr := range probeResults {
+		parquetData[i] = pw.transformToParquetResult(pr, scanTime)
 	}
 
-	if err = pqWriter.WriteStop(); err != nil {
-		pw.logger.Error().Err(err).Msg("Failed to stop Parquet writer")
-		return fmt.Errorf("failed to stop Parquet writer: %w", err)
+	_, err = pqWriter.Write(parquetData)
+	if err != nil {
+		pw.logger.Error().Err(err).Msg("Failed to write records to Parquet writer")
+		// Attempt to close to flush any partial data, then return error
+		if closeErr := pqWriter.Close(); closeErr != nil {
+			pw.logger.Error().Err(closeErr).Msg("Failed to close Parquet writer after write error")
+		}
+		return fmt.Errorf("failed to write records to Parquet: %w", err)
+	}
+
+	if err = pqWriter.Close(); err != nil { // Close also flushes the data
+		pw.logger.Error().Err(err).Msg("Failed to close Parquet writer")
+		return fmt.Errorf("failed to close Parquet writer: %w", err)
 	}
 
 	pw.logger.Info().Str("file_path", filePath).Int("records_written", len(probeResults)).Msg("Successfully wrote data to Parquet file")
