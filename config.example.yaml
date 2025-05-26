@@ -281,17 +281,47 @@ diff_config:
   # Default: 7
   previous_scan_lookback_days: 7
 
-# MonitorConfig: Configuration for monitoring JS/HTML files for changes (e.g., in a continuous mode).
+# MonitorConfig: Configuration for monitoring JS/HTML files for changes.
 monitor_config:
-  # Comma-separated list of JavaScript file extensions to monitor.
-  # Default: [".js", ".jsx", ".ts", ".tsx"] (derived from ".js,.jsx,.ts,.tsx")
+  # Whether the monitoring feature is enabled.
+  # Default: false
+  enabled: false
+  # Interval in seconds for how often to check monitored files.
+  # Default: 3600 (1 hour)
+  check_interval_seconds: 3600
+  # List of regex or glob patterns for URLs that identify JavaScript files to monitor.
+  # Default: [] (Example: ["(.*\\.js)", "(.*\\.mjs)"])
+  target_js_file_patterns: []
+  # List of regex or glob patterns for URLs that identify HTML files to monitor.
+  # Default: [] (Example: ["(.*\\.html?)"])
+  target_html_file_patterns: []
+  # Maximum number of concurrent checks for monitored files.
+  # Default: 5
+  max_concurrent_checks: 5
+  # Whether to store the full content of a file when a change is detected.
+  # If false, only hash/metadata might be stored.
+  # Default: false
+  store_full_content_on_change: false
+  # Timeout in seconds for HTTP requests made by the monitor.
+  # Default: 30
+  http_timeout_seconds: 30
+  # Initial list of specific URLs to monitor. Full URLs are expected.
+  # Default: []
+  initial_monitor_urls:
+    # - https://example.com/main.js
+    # - https://example.com/app.js
+    # - https://anotherexample.com/index.html
+  # Legacy: Comma-separated list of JavaScript file extensions to monitor.
+  # Consider using target_js_file_patterns for more flexibility.
+  # Default: ["\\.js", "\\.jsx", "\\.ts", "\\.tsx"]
   js_file_extensions:
     - "\\.js"
     - "\\.jsx"
     - "\\.ts"
     - "\\.tsx"
-  # Comma-separated list of HTML file extensions to monitor.
-  # Default: [".html", ".htm"] (derived from ".html,.htm")
+  # Legacy: Comma-separated list of HTML file extensions to monitor.
+  # Consider using target_html_file_patterns for more flexibility.
+  # Default: ["\\.html", "\\.htm"]
   html_file_extensions:
     - "\\.html"
     - "\\.htm"

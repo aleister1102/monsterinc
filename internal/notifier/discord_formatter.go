@@ -261,3 +261,67 @@ func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.Notif
 		},
 	}
 }
+
+// FormatFileChangeNotification creates a Discord message payload for a file change event.
+func FormatFileChangeNotification(url, oldHash, newHash, contentType string, cfg config.NotificationConfig) models.DiscordMessagePayload {
+	mentionText := buildMentions(cfg.MentionRoleIDs)
+	title := ":warning: File Change Detected"
+	description := fmt.Sprintf("A change was detected for monitored file: **%s**", url)
+
+	color := 0xFFCC00 // Yellow/Orange for warning
+
+	embed := models.DiscordEmbed{
+		Title:       title,
+		Description: description,
+		Color:       color,
+		Timestamp:   time.Now().Format(time.RFC3339),
+		Fields:      []models.DiscordEmbedField{},
+	}
+
+	embed.Fields = append(embed.Fields, models.DiscordEmbedField{
+		Name:   "URL",
+		Value:  url,
+		Inline: false,
+	})
+	embed.Fields = append(embed.Fields, models.DiscordEmbedField{
+		Name:   "Content Type",
+		Value:  fmt.Sprintf("`%s`", contentType),
+		Inline: true,
+	})
+
+	if oldHash != "" {
+		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
+			Name:   "Previous Hash (SHA256)",
+			Value:  fmt.Sprintf("`%s`", truncateString(oldHash, 32)), // Show a truncated hash
+			Inline: true,
+		})
+		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
+			Name:   "New Hash (SHA256)",
+			Value:  fmt.Sprintf("`%s`", truncateString(newHash, 32)),
+			Inline: true,
+		})
+	} else {
+		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
+			Name:   "New Hash (SHA256) (New File)",
+			Value:  fmt.Sprintf("`%s`", truncateString(newHash, 32)),
+			Inline: true,
+		})
+	}
+
+	// Add a deep link if possible (e.g., to a dashboard or the file itself)
+	// embed.Fields = append(embed.Fields, models.DiscordEmbedField{
+	// 	Name:   "Link to File",
+	// 	Value:  fmt.Sprintf("[View File](%s)", url),
+	// 	Inline: false,
+	// })
+
+	payload := models.DiscordMessagePayload{
+		Content: mentionText,
+		Embeds:  []models.DiscordEmbed{embed},
+	}
+	if len(cfg.MentionRoleIDs) > 0 {
+		payload.AllowedMentions = &models.AllowedMentions{Parse: []string{"roles"}}
+	}
+
+	return payload
+}

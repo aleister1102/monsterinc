@@ -297,15 +297,33 @@ func NewDefaultDiffConfig() DiffConfig {
 
 // MonitorConfig holds configuration for monitoring JS/HTML files for changes.
 type MonitorConfig struct {
+	Enabled                  bool     `json:"enabled" yaml:"enabled"`
+	CheckIntervalSeconds     int      `json:"check_interval_seconds,omitempty" yaml:"check_interval_seconds,omitempty" validate:"omitempty,min=1"`
+	TargetJSFilePatterns     []string `json:"target_js_file_patterns,omitempty" yaml:"target_js_file_patterns,omitempty"`
+	TargetHTMLFilePatterns   []string `json:"target_html_file_patterns,omitempty" yaml:"target_html_file_patterns,omitempty"`
+	MaxConcurrentChecks      int      `json:"max_concurrent_checks,omitempty" yaml:"max_concurrent_checks,omitempty" validate:"omitempty,min=1"`
+	StoreFullContentOnChange bool     `json:"store_full_content_on_change" yaml:"store_full_content_on_change"`
+	HTTPTimeoutSeconds       int      `json:"http_timeout_seconds,omitempty" yaml:"http_timeout_seconds,omitempty" validate:"omitempty,min=1"`
+	InitialMonitorURLs       []string `json:"initial_monitor_urls,omitempty" yaml:"initial_monitor_urls,omitempty" validate:"omitempty,dive,url"`
+	// JSFileExtensions and HTMLFileExtensions are kept for now, but patterns are more flexible.
+	// Consider deprecating them in favor of TargetJSFilePatterns and TargetHTMLFilePatterns.
 	JSFileExtensions   []string `json:"js_file_extensions,omitempty" yaml:"js_file_extensions,omitempty"`
 	HTMLFileExtensions []string `json:"html_file_extensions,omitempty" yaml:"html_file_extensions,omitempty"`
 }
 
-// NewDefaultMonitorConfig creates a new MonitorConfig with default values.
+// NewDefaultMonitorConfig creates a MonitorConfig with default values.
 func NewDefaultMonitorConfig() MonitorConfig {
 	return MonitorConfig{
-		JSFileExtensions:   filepath.SplitList(DefaultMonitorJSFileExtensions),
-		HTMLFileExtensions: filepath.SplitList(DefaultMonitorHTMLFileExtensions),
+		Enabled:                  false,
+		CheckIntervalSeconds:     3600, // 1 hour
+		TargetJSFilePatterns:     []string{},
+		TargetHTMLFilePatterns:   []string{},
+		MaxConcurrentChecks:      5,
+		StoreFullContentOnChange: false,
+		HTTPTimeoutSeconds:       30,
+		InitialMonitorURLs:       []string{},                                     // New field default
+		JSFileExtensions:         []string{"\\.js", "\\.jsx", "\\.ts", "\\.tsx"}, // Default patterns
+		HTMLFileExtensions:       []string{"\\.html", "\\.htm"},                  // Default patterns
 	}
 }
 
