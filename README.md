@@ -1,127 +1,130 @@
 # MonsterInc
 
-MonsterInc là một công cụ dòng lệnh (CLI) được viết bằng Go, dùng để thu thập thông tin từ các trang web, thực hiện probing HTTP/HTTPS, và tạo báo cáo.
+MonsterInc is a command-line interface (CLI) tool written in Go, used for gathering information from websites, performing HTTP/HTTPS probing, and generating reports.
 
-## Tính năng chính
+## Key Features
 
--   **Crawling Web**: Thu thập các URL từ các trang web bắt đầu từ một hoặc nhiều URL gốc (seed URLs).
-    -   Kiểm soát phạm vi crawl (allowed/disallowed hostnames, subdomains, path regexes).
-    -   Tùy chỉnh User Agent, timeout, độ sâu, số luồng.
-    -   Có thể tôn trọng hoặc bỏ qua `robots.txt`.
-    -   Kiểm tra `Content-Length` trước khi crawl để tránh tải các file lớn.
--   **HTTP/HTTPS Probing**: Gửi request đến các URL đã thu thập để lấy thông tin chi tiết.
-    -   Sử dụng thư viện `httpx` của ProjectDiscovery.
-    -   Trích xuất đa dạng thông tin: status code, content type, content length, title, web server, headers, IPs, CNAMEs, ASN, thông tin TLS, công nghệ sử dụng.
-    -   Tùy chỉnh phương thức HTTP, request URIs, headers, proxy, timeout, retries.
--   **Báo cáo HTML**: Tạo báo cáo HTML tương tác từ kết quả probing.
-    -   Hiển thị kết quả dưới dạng bảng, có thể tìm kiếm, lọc, sắp xếp.
-    -   Nhúng CSS/JS tùy chỉnh để có giao diện và trải nghiệm người dùng tốt.
-    -   Sử dụng Bootstrap (qua CDN) cho styling cơ bản.
--   **Lưu trữ Parquet**: Ghi kết quả probing vào file Parquet để phân tích dữ liệu sau này.
-    -   Hỗ trợ các codec nén: ZSTD (mặc định), SNAPPY, GZIP, UNCOMPRESSED.
-    -   Lưu file theo cấu trúc thư mục `ParquetBasePath/YYYYMMDD/scan_results_*.parquet`.
--   **Cấu hình Linh hoạt**: Quản lý cấu hình qua file JSON (`config.json`) và các tham số dòng lệnh.
+-   **Web Crawling**: Collects URLs from websites starting from one or more seed URLs.
+    -   Control crawl scope (allowed/disallowed hostnames, subdomains, path regexes).
+    -   Customize User-Agent, timeout, depth, number of threads.
+    -   Can respect or ignore `robots.txt`.
+    -   Checks `Content-Length` before crawling to avoid downloading large files.
+-   **HTTP/HTTPS Probing**: Sends requests to collected URLs to get detailed information.
+    -   Uses ProjectDiscovery's `httpx` library.
+    -   Extracts diverse information: status code, content type, content length, title, web server, headers, IPs, CNAMEs, ASN, TLS information, used technologies.
+    -   Customize HTTP method, request URIs, headers, proxy, timeout, retries.
+-   **HTML Reporting**: Generates interactive HTML reports from probing results.
+    -   Displays results in a table format, searchable, filterable, and sortable.
+    -   Embeds custom CSS/JS for a good user interface and experience.
+    -   Uses Bootstrap (via CDN) for basic styling.
+-   **Parquet Storage**: Writes probing results to Parquet files for later data analysis.
+    -   Supports compression codecs: ZSTD (default), SNAPPY, GZIP, UNCOMPRESSED.
+    -   Saves files in the directory structure `ParquetBasePath/YYYYMMDD/scan_results_*.parquet`.
+-   **Flexible Configuration**: Manages configuration via a YAML file (`config.yaml` preferred) or JSON (`config.json`) and command-line parameters.
 
-## Cài đặt và Build
+## Installation and Build
 
-### Yêu cầu
+### Prerequisites
 
--   Go version 1.23.0 hoặc mới hơn.
+-   Go version 1.23.0 or newer.
 
 ### Build
 
-1.  Clone repository (nếu có):
+1.  Clone the repository (if applicable):
     ```bash
     git clone <your-repository-url>
     cd monsterinc
     ```
-2.  Build ứng dụng:
+2.  Build the application:
     ```bash
     go build -o monsterinc.exe ./cmd/monsterinc
     ```
-    (Hoặc `go build -o monsterinc ./cmd/monsterinc` cho Linux/macOS)
+    (Or `go build -o monsterinc ./cmd/monsterinc` for Linux/macOS)
 
-## Cách sử dụng
+## Usage
 
-Chạy ứng dụng từ dòng lệnh:
+Run the application from the command line:
 
 ```bash
-./monsterinc.exe --mode <onetime|automated> [tùy chọn khác]
+./monsterinc.exe --mode <onetime|automated> [other_options]
 ```
 
-### Tham số dòng lệnh chính
+### Main Command-Line Parameters
 
--   `--mode <onetime|automated>`: (Bắt buộc) Chế độ chạy.
-    -   `onetime`: Chạy một lần, tên file báo cáo sẽ có timestamp chi tiết (ví dụ: `reports/2023-10-27-15-30-00.html`).
-    -   `automated`: Chạy tự động (ví dụ: theo lịch), tên file báo cáo sẽ theo ngày (ví dụ: `reports/2023-10-27.html`).
--   `-u <path/to/urls.txt>` hoặc `--urlfile <path/to/urls.txt>`: (Tùy chọn) Đường dẫn đến file text chứa danh sách các URL gốc để crawl, mỗi URL một dòng. Nếu không cung cấp, sẽ sử dụng `input_config.input_urls` từ `config.json`.
--   `--globalconfig <path/to/config.json>`: (Tùy chọn) Đường dẫn đến file cấu hình JSON. Mặc định là `config.json` ở cùng thư mục với file thực thi.
+-   `--mode <onetime|automated>`: (Required) Execution mode.
+    -   `onetime`: Runs once. The report filename will include a detailed timestamp (e.g., `reports/YYYYMMDD-HHMMSS_onetime_report.html`).
+    -   `automated`: Runs automatically (e.g., scheduled). The report filename will include the date and mode (e.g., `reports/YYYYMMDD-HHMMSS_automated_report.html`).
+-   `-u <path/to/urls.txt>` or `--urlfile <path/to/urls.txt>`: (Optional) Path to a text file containing a list of seed URLs to crawl, one URL per line. If not provided, `input_config.input_urls` from the configuration file will be used.
+-   `--globalconfig <path/to/config.yaml>`: (Optional) Path to the configuration file. Defaults to `config.yaml` in the same directory as the executable.
 
-### Ví dụ
+### Examples
 
 ```bash
-# Chạy một lần với danh sách URL từ file targets.txt
+# Run once with a list of URLs from targets.txt
 ./monsterinc.exe --mode onetime -u targets.txt
 
-# Chạy tự động, sử dụng URL từ config.json (nếu có)
+# Run automatically, using URLs from the config file (if any)
 ./monsterinc.exe --mode automated
 
-# Chạy với file cấu hình tùy chỉnh
-./monsterinc.exe --mode onetime --globalconfig custom_config.json -u targets.txt
+# Run with a custom configuration file
+./monsterinc.exe --mode onetime --globalconfig custom_config.yaml -u targets.txt
 ```
 
-### File Cấu hình (`config.json`)
+### Configuration File (`config.yaml` or `config.json`)
 
-File `config.json` cho phép tùy chỉnh chi tiết hành vi của các module. Xem `internal/config/README.md` và file `config.json` mẫu để biết thêm chi tiết về các tùy chọn cấu hình.
+The configuration file allows detailed customization of module behavior. By default, the application looks for `config.yaml`. If not found and `config.json` exists, it might be used as a fallback (depending on the current logic in `LoadGlobalConfig`).
 
-## Cấu trúc thư mục dự án
+See `internal/config/README.md` and the sample `config.example.yaml` (recommended) or `config.json` file for more details on configuration options.
+
+## Project Directory Structure
 
 ```
 monsterinc/
-├── cmd/monsterinc/         # Entrypoint của ứng dụng (main.go)
+├── cmd/monsterinc/         # Application entrypoint (main.go)
 │   └── README.md
-├── internal/                 # Code logic nội bộ của ứng dụng
-│   ├── config/             # Quản lý cấu hình (config.go, README.md)
-│   ├── core/               # Logic nghiệp vụ cốt lõi (target_manager.go, README.md)
-│   ├── crawler/            # Module crawling web (crawler.go, scope.go, asset.go, README.md)
-│   ├── datastore/          # Module lưu trữ dữ liệu (parquet_writer.go, README.md)
-│   ├── differ/             # (Chưa sử dụng) Module so sánh sự khác biệt
-│   ├── httpxrunner/        # Wrapper cho thư viện httpx (runner.go, result.go, README.md)
-│   ├── logger/             # Module logging (logger.go, README.md)
-│   ├── models/             # Định nghĩa các struct dữ liệu (probe_result.go, parquet_schema.go, report_data.go, etc., README.md)
-│   ├── notifier/           # (Chưa sử dụng) Module gửi thông báo
-│   ├── reporter/           # Module tạo báo cáo HTML
-│   │   ├── assets/         # CSS, JS cho báo cáo HTML
-│   │   ├── templates/      # Template HTML (report.html.tmpl)
+├── internal/                 # Internal application logic code
+│   ├── config/             # Configuration management (config.go, validator.go, README.md)
+│   ├── core/               # Core business logic (target_manager.go, README.md)
+│   ├── crawler/            # Web crawling module (crawler.go, scope.go, asset.go, README.md)
+│   ├── datastore/          # Data storage module (parquet_writer.go, parquet_reader.go, README.md)
+│   ├── differ/             # Module for comparing differences (url_differ.go, README.md)
+│   ├── httpxrunner/        # Wrapper for the httpx library (runner.go, result.go, README.md)
+│   ├── logger/             # Logging module (logger.go, README.md)
+│   ├── models/             # Data structure definitions (probe_result.go, parquet_schema.go, report_data.go, etc., README.md)
+│   ├── notifier/           # (Not yet used) Notification module
+│   ├── reporter/           # HTML report generation module
+│   │   ├── assets/         # CSS, JS for HTML reports
+│   │   ├── templates/      # HTML Template (report.html.tmpl)
 │   │   └── html_reporter.go, README.md
-│   ├── urlhandler/         # Xử lý và chuẩn hóa URL (urlhandler.go, file.go, README.md)
-│   └── utils/              # (Chưa sử dụng) Các tiện ích chung
-├── reports/                  # Thư mục mặc định chứa các báo cáo HTML đã tạo (được .gitignore)
-├── database/                 # Thư mục mặc định chứa các file Parquet (theo config.json, được .gitignore)
-├── tasks/                    # Chứa các file PRD và danh sách task (ví dụ: *.md)
-├── tests/                    # Chứa các file test (ví dụ: _test.go, được .gitignore)
-├── .gitignore                # Các file và thư mục bị bỏ qua bởi Git
-├── config.json               # File cấu hình mẫu
-├── go.mod                    # Khai báo module Go và các dependency
-├── go.sum                    # Checksum của các dependency
-├── monsterinc.exe            # (Sau khi build) File thực thi cho Windows
-├── monsterinc                # (Sau khi build) File thực thi cho Linux/macOS
-├── PLAN.md                   # Kế hoạch phát triển (nếu có)
-└── README.md                 # README này
+│   ├── urlhandler/         # URL handling and normalization (urlhandler.go, file.go, README.md)
+│   └── utils/              # (Not yet used) Common utilities
+├── reports/                  # Default directory for generated HTML reports (.gitignore-d)
+├── database/                 # Default directory for Parquet files (per config, .gitignore-d)
+├── tasks/                    # Contains PRD files and task lists (e.g., *.md)
+├── .gitignore                # Files and directories ignored by Git
+├── config.yaml               # Main application configuration file (should be created from config.example.yaml)
+├── config.example.yaml       # Sample YAML configuration file, comprehensive and commented
+├── config.json               # Sample JSON configuration file (may not be updated as frequently as YAML)
+├── go.mod                    # Go module declaration and dependencies
+├── go.sum                    # Dependency checksums
+├── monsterinc.exe            # (After build) Executable file for Windows
+├── monsterinc                # (After build) Executable file for Linux/macOS
+├── PLAN.md                   # Development plan (if any)
+└── README.md                 # This README file
 ```
 
-## Các module chính và chức năng
+## Main Modules and Functionality
 
--   **`config`**: Đọc và quản lý cấu hình từ file JSON.
--   **`urlhandler`**: Chuẩn hóa URL, đọc URL từ file.
--   **`crawler`**: Thu thập URL từ các trang web.
--   **`httpxrunner`**: Thực hiện thăm dò HTTP/HTTPS đến các URL bằng `httpx`.
--   **`models`**: Định nghĩa các struct dữ liệu chung.
--   **`datastore`**: Lưu trữ kết quả vào file Parquet.
--   **`reporter`**: Tạo báo cáo HTML từ kết quả.
--   **`logger`**: Cung cấp interface và triển khai cơ bản cho logging.
--   **`core`**: (Đang phát triển) Chứa logic điều phối chính.
+-   **`config`**: Reads and manages configuration from YAML (preferred) or JSON files.
+-   **`urlhandler`**: Normalizes URLs, reads URLs from files.
+-   **`crawler`**: Collects URLs from websites.
+-   **`httpxrunner`**: Performs HTTP/HTTPS probing on URLs using `httpx`.
+-   **`models`**: Defines common data structures.
+-   **`datastore`**: Stores results into Parquet files.
+-   **`reporter`**: Generates HTML reports from results.
+-   **`logger`**: Provides an interface and basic implementation for logging.
+-   **`core`**: (Under development) Contains main orchestration logic.
 
-## Đóng góp
+## Contributing
 
-(Thông tin về cách đóng góp vào dự án - nếu có) 
+(Information on how to contribute to the project - if applicable) 
