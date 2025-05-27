@@ -73,18 +73,11 @@ func NewMonitoringService(
 	contentDifferInstance := differ.NewContentDiffer(instanceLogger, diffReporterCfg)
 
 	// Initialize PathExtractor
-	var pathExtractorInstance *extractor.PathExtractor
-	var peErr error
-	if crawlerCfg != nil { // PathExtractor needs CrawlerConfig for JS regexes
-		pathExtractorInstance, peErr = extractor.NewPathExtractor(instanceLogger, crawlerCfg.JSPathRegexes, crawlerCfg.ExtractPathsFromJSComments)
-	} else {
-		// If no crawlerCfg, initialize with default regexes
-		pathExtractorInstance, peErr = extractor.NewPathExtractor(instanceLogger, nil, false)
-		instanceLogger.Warn().Msg("CrawlerConfig not provided to MonitoringService, PathExtractor will use default JS regexes.")
-	}
-	if peErr != nil {
-		instanceLogger.Error().Err(peErr).Msg("Failed to initialize PathExtractor for MonitoringService. Path extraction from JS may not work.")
-		// Depending on policy, could return nil or a service with a disabled pathExtractor
+	pathExtractorInstance, err := extractor.NewPathExtractor(instanceLogger)
+	if err != nil {
+		// Log the error but consider if this should be fatal for the MonitoringService
+		instanceLogger.Error().Err(err).Msg("Failed to initialize PathExtractor for MonitoringService. Path extraction from JS may not work.")
+		pathExtractorInstance = nil // Ensure it's nil if initialization failed
 	}
 
 	var htmlDiffReporterInstance *reporter.HtmlDiffReporter // Declare var for clarity
@@ -443,6 +436,7 @@ func (s *MonitoringService) checkURL(url string) {
 					s.logger.Error().Err(err).Str("url", url).Msg("Failed to extract paths from JS content during monitoring check")
 					// Do not fail the whole checkURL, just log the error
 				} else if len(extractedPaths) > 0 {
+					s.logger.Debug().Str("url", url).Int("path_count", len(extractedPaths)).Msg("Extracted paths from JS content")
 					pathsJSON, jsonErr := json.Marshal(extractedPaths)
 					if jsonErr != nil {
 						s.logger.Error().Err(jsonErr).Str("url", url).Msg("Failed to marshal extracted paths to JSON")

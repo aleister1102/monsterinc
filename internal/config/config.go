@@ -173,10 +173,6 @@ type CrawlerConfig struct {
 	ExcludedHostRegex     []string           `json:"excluded_host_regex,omitempty" yaml:"excluded_host_regex,omitempty"`
 	Scope                 CrawlerScopeConfig `json:"scope,omitempty" yaml:"scope,omitempty"`
 	MaxContentLengthMB    int                `json:"max_content_length_mb,omitempty" yaml:"max_content_length_mb,omitempty"`
-
-	// Path Extractor specific configurations
-	ExtractPathsFromJSComments bool     `json:"extract_paths_from_js_comments" yaml:"extract_paths_from_js_comments"`
-	JSPathRegexes              []string `json:"js_path_regexes,omitempty" yaml:"js_path_regexes,omitempty"`
 }
 
 func NewDefaultCrawlerConfig() CrawlerConfig {
@@ -188,14 +184,8 @@ func NewDefaultCrawlerConfig() CrawlerConfig {
 		MaxDepth:              DefaultCrawlerMaxDepth,
 		RespectRobotsTxt:      DefaultCrawlerRespectRobotsTxt,
 		IncludeSubdomains:     DefaultCrawlerIncludeSubdomains,
-		AllowedHostRegex:      []string{},
-		ExcludedHostRegex:     []string{},
 		Scope:                 NewDefaultCrawlerScopeConfig(),
 		MaxContentLengthMB:    2,
-
-		// Defaults for Path Extractor
-		ExtractPathsFromJSComments: false,
-		JSPathRegexes:              []string{},
 	}
 }
 
