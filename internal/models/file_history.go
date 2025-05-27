@@ -22,6 +22,9 @@ type FileHistoryRecord struct {
 	ETag           string  `parquet:"etag,zstd,optional"`
 	LastModified   string  `parquet:"last_modified,zstd,optional"`
 	DiffResultJSON *string `parquet:"diff_result_json,zstd,optional"`
+	// ExtractedPathsJSON stores the JSON string representation of []models.ExtractedPath
+	// This is for JS files primarily, to store paths found within them.
+	ExtractedPathsJSON *string `parquet:"extracted_paths_json,zstd,optional"`
 }
 
 // FileHistoryStore defines the interface for storing and retrieving file history.

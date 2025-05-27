@@ -12,8 +12,8 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/projectdiscovery/httpx v1.7.0
 	github.com/rs/zerolog v1.34.0
-	github.com/xitongsys/parquet-go v1.6.2
-	github.com/xitongsys/parquet-go-source v0.0.0-20241021075129-b732d2ac9c9b
+	github.com/sergi/go-diff v1.3.1
+	golang.org/x/net v0.40.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.37.1
@@ -33,8 +33,6 @@ require (
 	github.com/antchfx/htmlquery v1.3.4 // indirect
 	github.com/antchfx/xmlquery v1.4.4 // indirect
 	github.com/antchfx/xpath v1.3.3 // indirect
-	github.com/apache/arrow/go/arrow v0.0.0-20200730104253-651201b0f516 // indirect
-	github.com/apache/thrift v0.14.2 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
@@ -134,7 +132,6 @@ require (
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
 	github.com/sashabaranov/go-openai v1.37.0 // indirect
-	github.com/sergi/go-diff v1.3.1 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.2 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
@@ -170,7 +167,6 @@ require (
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
 	golang.org/x/mod v0.24.0 // indirect
-	golang.org/x/net v0.40.0 // indirect
 	golang.org/x/oauth2 v0.18.0 // indirect
 	golang.org/x/sync v0.14.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
@@ -178,7 +174,6 @@ require (
 	golang.org/x/text v0.25.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.33.0 // indirect
-	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/djherbis/times.v1 v1.3.0 // indirect

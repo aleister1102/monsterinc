@@ -138,6 +138,7 @@ func main() {
 
 				monitoringService = monitor.NewMonitoringService(
 					&gCfg.MonitorConfig,
+					&gCfg.CrawlerConfig,
 					&gCfg.NotificationConfig,
 					&gCfg.ReporterConfig,
 					&gCfg.DiffReporterConfig,

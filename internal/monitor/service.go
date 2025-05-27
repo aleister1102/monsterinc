@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"monsterinc/internal/config"
 	"monsterinc/internal/differ"
+	"monsterinc/internal/extractor"
 	"monsterinc/internal/models"
 	"monsterinc/internal/notifier"
 	"monsterinc/internal/reporter"
 	"net/http"
+	"strings"
 	sync "sync"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 // MonitoringService orchestrates the monitoring of HTML/JS files.
 type MonitoringService struct {
 	cfg                *config.MonitorConfig
+	crawlerCfg         *config.CrawlerConfig
 	notificationCfg    *config.NotificationConfig
 	reporterConfig     *config.ReporterConfig
 	historyStore       models.FileHistoryStore
@@ -29,6 +32,7 @@ type MonitoringService struct {
 	scheduler          *Scheduler
 	contentDiffer      *differ.ContentDiffer
 	htmlDiffReporter   *reporter.HtmlDiffReporter
+	pathExtractor      *extractor.PathExtractor
 
 	// For managing target URLs dynamically
 	monitorChan        chan string         // Channel to receive new URLs to monitor
@@ -52,6 +56,7 @@ type MonitoringService struct {
 // NewMonitoringService creates a new instance of MonitoringService.
 func NewMonitoringService(
 	monitorCfg *config.MonitorConfig,
+	crawlerCfg *config.CrawlerConfig,
 	notificationCfg *config.NotificationConfig,
 	mainReporterCfg *config.ReporterConfig,
 	diffReporterCfg *config.DiffReporterConfig,
@@ -66,7 +71,21 @@ func NewMonitoringService(
 	fetcherInstance := NewFetcher(httpClient, instanceLogger, monitorCfg)
 	processorInstance := NewProcessor(instanceLogger)
 	contentDifferInstance := differ.NewContentDiffer(instanceLogger, diffReporterCfg)
-	// urlHandlerInstance := urlhandler.NewURLHandler(instanceLogger) // Removed
+
+	// Initialize PathExtractor
+	var pathExtractorInstance *extractor.PathExtractor
+	var peErr error
+	if crawlerCfg != nil { // PathExtractor needs CrawlerConfig for JS regexes
+		pathExtractorInstance, peErr = extractor.NewPathExtractor(instanceLogger, crawlerCfg.JSPathRegexes, crawlerCfg.ExtractPathsFromJSComments)
+	} else {
+		// If no crawlerCfg, initialize with default regexes
+		pathExtractorInstance, peErr = extractor.NewPathExtractor(instanceLogger, nil, false)
+		instanceLogger.Warn().Msg("CrawlerConfig not provided to MonitoringService, PathExtractor will use default JS regexes.")
+	}
+	if peErr != nil {
+		instanceLogger.Error().Err(peErr).Msg("Failed to initialize PathExtractor for MonitoringService. Path extraction from JS may not work.")
+		// Depending on policy, could return nil or a service with a disabled pathExtractor
+	}
 
 	var htmlDiffReporterInstance *reporter.HtmlDiffReporter // Declare var for clarity
 	if mainReporterCfg != nil && store != nil {             // Ensure necessary configs are present
@@ -82,6 +101,7 @@ func NewMonitoringService(
 
 	s := &MonitoringService{
 		cfg:                   monitorCfg,
+		crawlerCfg:            crawlerCfg,
 		notificationCfg:       notificationCfg,
 		reporterConfig:        mainReporterCfg,
 		historyStore:          store,
@@ -92,6 +112,7 @@ func NewMonitoringService(
 		processor:             processorInstance,
 		contentDiffer:         contentDifferInstance,
 		htmlDiffReporter:      htmlDiffReporterInstance,
+		pathExtractor:         pathExtractorInstance,
 		monitorChan:           make(chan string, monitorCfg.MaxConcurrentChecks*2),
 		monitoredURLs:         make(map[string]struct{}),
 		monitoredURLsMutex:    sync.RWMutex{},
@@ -413,6 +434,24 @@ func (s *MonitoringService) checkURL(url string) {
 			}
 			if s.cfg.StoreFullContentOnChange { // Ensure content is stored if configured
 				storeRecord.Content = fetchResult.Content
+			}
+
+			// Extract paths if it's a JS file and pathExtractor is available
+			if s.pathExtractor != nil && (strings.Contains(storeRecord.ContentType, "javascript") || strings.HasSuffix(url, ".js")) {
+				extractedPaths, err := s.pathExtractor.ExtractPaths(url, storeRecord.Content, storeRecord.ContentType)
+				if err != nil {
+					s.logger.Error().Err(err).Str("url", url).Msg("Failed to extract paths from JS content during monitoring check")
+					// Do not fail the whole checkURL, just log the error
+				} else if len(extractedPaths) > 0 {
+					pathsJSON, jsonErr := json.Marshal(extractedPaths)
+					if jsonErr != nil {
+						s.logger.Error().Err(jsonErr).Str("url", url).Msg("Failed to marshal extracted paths to JSON")
+					} else {
+						jsonStr := string(pathsJSON)
+						storeRecord.ExtractedPathsJSON = &jsonStr
+						s.logger.Info().Str("url", url).Int("path_count", len(extractedPaths)).Msg("Extracted paths from JS content and will store with history record")
+					}
+				}
 			}
 
 			if errStore := s.historyStore.StoreFileRecord(storeRecord); errStore != nil {

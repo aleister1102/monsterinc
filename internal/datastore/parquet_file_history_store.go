@@ -234,10 +234,8 @@ func (pfs *ParquetFileHistoryStore) GetLastKnownRecord(recordURL string) (*model
 		// If os.IsNotExist was the root cause in readFileHistoryRecords, it would have returned an empty slice and nil error.
 		// Let's refine this for clarity. readFileHistoryRecords returns empty slice + nil for NotExist.
 		// So, if err is not nil here, it's a more significant error.
-		if err != nil { // This check might be redundant if getAndSortRecordsForURL properly bubbles up NotExist as nil error + empty slice
-			pfs.logger.Error().Err(err).Str("url", recordURL).Msg("Failed to get and sort records for GetLastKnownRecord")
-			return nil, err
-		}
+		pfs.logger.Error().Err(err).Str("url", recordURL).Msg("Failed to get and sort records for GetLastKnownRecord")
+		return nil, err
 		// If err is nil, but records might be empty (e.g. file not found or empty file case handled by readFileHistoryRecords)
 		// This is handled by len(records) == 0 check below.
 	}

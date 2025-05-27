@@ -177,6 +177,14 @@ crawler_config:
   # Maximum content length in MB to download for a page.
   # Default: 2
   max_content_length_mb: 2
+  # Path Extractor specific settings (within crawler_config)
+  # extract_paths_from_js_comments: false # Experimental: Whether to try to extract paths from JS comments (not just string literals)
+  # js_path_regexes: # Custom regex patterns to find paths in JavaScript. Extractor defaults will be used if empty.
+    # Each string should be a valid Go regex pattern. The first capturing group of the regex should be the path/URL itself.
+    # Example: to find paths like "/api/data/v1/items"
+    # - "/api/data/v[0-9]+/items"
+    # Example: to find full URLs in assignments like `var x = "http://api.example.com/data";`
+    # - "(?:https?|ftp):\\/\\/[^\\s\"\']+" # Note: YAML may require escaping for backslashes
 
 # Reporter configuration: Settings for generating HTML reports.
 reporter_config:
