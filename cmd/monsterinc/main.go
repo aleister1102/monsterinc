@@ -91,7 +91,7 @@ func main() {
 	// Ensure the reporter output directory exists before validation (if validator checks for existence)
 	if gCfg.ReporterConfig.OutputDir != "" {
 		if err := os.MkdirAll(gCfg.ReporterConfig.OutputDir, 0755); err != nil {
-			zLogger.Fatal().Err(err).Str("directory", gCfg.ReporterConfig.OutputDir).Msg("Could not create report output directory before validation")
+			zLogger.Fatal().Err(err).Str("directory", gCfg.ReporterConfig.OutputDir).Msg("Could not create default report output directory before validation")
 		}
 	}
 
@@ -101,15 +101,13 @@ func main() {
 	}
 	zLogger.Info().Msg("Configuration validated successfully.")
 
-	discordNotifier, err := notifier.NewDiscordNotifier(gCfg.NotificationConfig, zLogger, &http.Client{Timeout: 20 * time.Second})
+	// Initialize DiscordNotifier (without specific webhook URL at this stage)
+	discordNotifier, err := notifier.NewDiscordNotifier(zLogger, &http.Client{Timeout: 20 * time.Second})
 	if err != nil {
-		criticalErrSummary := models.GetDefaultScanSummaryData()
-		criticalErrSummary.Component = "DiscordNotifierInitialization"
-		criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize DiscordNotifier: %v", err)}
-		// Cannot use notificationHelper here as it's not initialized yet.
-		// Log fatally as this is a critical setup step.
-		zLogger.Fatal().Err(err).Msg("Failed to initialize DiscordNotifier")
+		// This error is from NewDiscordNotifier if something fundamental fails, not webhook related anymore.
+		zLogger.Fatal().Err(err).Msg("Failed to initialize DiscordNotifier infra.")
 	}
+	// NotificationHelper now holds the NotificationConfig and decides which webhook to use.
 	notificationHelper := notifier.NewNotificationHelper(discordNotifier, gCfg.NotificationConfig, zLogger)
 
 	// --- Monitoring Service Initialization ---
