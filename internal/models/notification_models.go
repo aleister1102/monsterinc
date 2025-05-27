@@ -99,11 +99,12 @@ type DiffStats struct {
 
 // FileChangeInfo holds information about a single file change for aggregation.
 type FileChangeInfo struct {
-	URL         string
-	OldHash     string
-	NewHash     string
-	ContentType string
-	ChangeTime  time.Time // Time the change was detected
+	URL            string
+	OldHash        string
+	NewHash        string
+	ContentType    string
+	ChangeTime     time.Time // Time the change was detected
+	DiffReportPath *string   // Path to the generated HTML diff report for this specific change
 }
 
 // MonitorFetchErrorInfo holds information about an error encountered during file fetching or processing.

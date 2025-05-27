@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	// "log"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/rs/zerolog" // Added
@@ -30,9 +32,18 @@ type ScanHistoryEntry struct {
 // NewDB initializes a new DB connection and ensures the schema is set up.
 // The logger passed here should ideally be a logger instance already contextualized for the scheduler or DB operations.
 func NewDB(dataSourceName string, logger zerolog.Logger) (*DB, error) {
+	logger.Info().Str("db_path", dataSourceName).Msg("Initializing scheduler database connection")
+
+	// Ensure the directory for the SQLite database exists
+	dbDir := filepath.Dir(dataSourceName)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		logger.Error().Err(err).Str("directory", dbDir).Msg("Failed to create scheduler database directory")
+		return nil, fmt.Errorf("failed to create scheduler database directory %s: %w", dbDir, err)
+	}
+
 	dbInstance, err := sql.Open("sqlite", dataSourceName)
 	if err != nil {
-		logger.Error().Err(err).Str("datasource", dataSourceName).Msg("Failed to open SQLite database")
+		logger.Error().Err(err).Str("db_path", dataSourceName).Msg("Failed to open scheduler database")
 		return nil, fmt.Errorf("sql.Open failed for %s: %w", dataSourceName, err)
 	}
 

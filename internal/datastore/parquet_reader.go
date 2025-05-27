@@ -55,7 +55,7 @@ func (pr *ParquetReader) FindAllProbeResultsForTarget(rootTargetURL string) ([]m
 
 	// Path is now <base_path>/<sanitized_rootTarget>.parquet
 	fileName := fmt.Sprintf("%s.parquet", sanitizedTargetName)
-	parquetFilePath := filepath.Join(pr.storageConfig.ParquetBasePath, fileName)
+	parquetFilePath := filepath.Join(pr.storageConfig.ParquetBasePath, "scan", fileName)
 
 	fileInfo, err := os.Stat(parquetFilePath)
 	if os.IsNotExist(err) {

@@ -89,82 +89,6 @@ func (pw *ParquetWriter) transformToParquetResult(pr models.ProbeResult, scanTim
 	}
 }
 
-/*
-// mergeProbeResults function is commented out as the writer no longer merges internally.
-// This logic might reside in the orchestrator or be handled differently if true historical append is needed.
-func (pw *ParquetWriter) mergeProbeResults(currentProbes []models.ProbeResult, historicalProbes []models.ProbeResult, currentScanTime time.Time) []models.ProbeResult {
-	pw.logger.Debug().Int("current_count", len(currentProbes)).Int("historical_count", len(historicalProbes)).Msg("Starting merge of probe results")
-	mergedResultsMap := make(map[string]models.ProbeResult)
-
-	for _, hp := range historicalProbes {
-		key := hp.InputURL
-		if key == "" && hp.FinalURL != "" {
-			key = hp.FinalURL
-		}
-		if key == "" {
-			pw.logger.Warn().Interface("probe", hp).Msg("Historical probe with no InputURL or FinalURL, cannot merge.")
-			continue
-		}
-		if hp.OldestScanTimestamp.IsZero() && !hp.Timestamp.IsZero() {
-			hp.OldestScanTimestamp = hp.Timestamp
-		}
-		mergedResultsMap[key] = hp
-	}
-	pw.logger.Debug().Int("historical_map_size", len(mergedResultsMap)).Msg("Historical probes mapped.")
-
-	for _, cp := range currentProbes {
-		key := cp.InputURL
-		if key == "" && cp.FinalURL != "" {
-			key = cp.FinalURL
-		}
-		if key == "" {
-			pw.logger.Warn().Interface("probe", cp).Msg("Current probe with no InputURL or FinalURL, cannot merge.")
-			continue
-		}
-
-		if existingProbe, found := mergedResultsMap[key]; found {
-			updatedProbe := existingProbe
-			updatedProbe.FinalURL = cp.FinalURL
-			updatedProbe.StatusCode = cp.StatusCode
-			updatedProbe.ContentLength = cp.ContentLength
-			updatedProbe.ContentType = cp.ContentType
-			updatedProbe.Title = cp.Title
-			updatedProbe.WebServer = cp.WebServer
-			updatedProbe.Technologies = cp.Technologies
-			updatedProbe.IPs = cp.IPs
-			updatedProbe.Error = cp.Error
-			updatedProbe.Method = cp.Method
-			updatedProbe.Headers = cp.Headers
-			updatedProbe.Duration = cp.Duration
-			updatedProbe.CNAMEs = cp.CNAMEs
-			updatedProbe.ASN = cp.ASN
-			updatedProbe.ASNOrg = cp.ASNOrg
-			updatedProbe.TLSVersion = cp.TLSVersion
-			updatedProbe.TLSCipher = cp.TLSCipher
-			updatedProbe.TLSCertIssuer = cp.TLSCertIssuer
-			updatedProbe.TLSCertExpiry = cp.TLSCertExpiry
-			updatedProbe.Timestamp = currentScanTime
-			updatedProbe.URLStatus = cp.URLStatus
-			mergedResultsMap[key] = updatedProbe
-			pw.logger.Debug().Str("url", key).Msg("Updated existing probe in merge map.")
-		} else {
-			newProbe := cp
-			newProbe.OldestScanTimestamp = currentScanTime
-			newProbe.Timestamp = currentScanTime
-			mergedResultsMap[key] = newProbe
-			pw.logger.Debug().Str("url", key).Msg("Added new probe to merge map.")
-		}
-	}
-
-	finalMergedProbes := make([]models.ProbeResult, 0, len(mergedResultsMap))
-	for _, probe := range mergedResultsMap {
-		finalMergedProbes = append(finalMergedProbes, probe)
-	}
-	pw.logger.Debug().Int("final_merged_count", len(finalMergedProbes)).Msg("Probe results merged.")
-	return finalMergedProbes
-}
-*/
-
 // Write takes a slice of ProbeResult, a scanSessionID (can be a timestamp or unique ID),
 // and the rootTarget string, then writes them to a Parquet file specific to that rootTarget.
 // This version overwrites the file with the currentProbeResults, it does not merge with historical data.
@@ -192,14 +116,17 @@ func (pw *ParquetWriter) Write(ctx context.Context, currentProbeResults []models
 		return fmt.Errorf("sanitized root target is empty, cannot write parquet file for: %s", rootTarget)
 	}
 
-	// Ensure the base directory for Parquet files exists
-	if err := os.MkdirAll(pw.config.ParquetBasePath, 0755); err != nil {
-		pw.logger.Error().Err(err).Str("path", pw.config.ParquetBasePath).Msg("Failed to create base Parquet directory")
-		return fmt.Errorf("failed to create base Parquet directory '%s': %w", pw.config.ParquetBasePath, err)
+	// Define the scan-specific subdirectory
+	scanOutputDir := filepath.Join(pw.config.ParquetBasePath, "scan")
+
+	// Ensure the base directory and the scan-specific subdirectory for Parquet files exist
+	if err := os.MkdirAll(scanOutputDir, 0755); err != nil {
+		pw.logger.Error().Err(err).Str("path", scanOutputDir).Msg("Failed to create scan-specific Parquet directory")
+		return fmt.Errorf("failed to create scan-specific Parquet directory '%s': %w", scanOutputDir, err)
 	}
 
-	fileName := fmt.Sprintf("%s.parquet", sanitizedTargetName)     // Filename is <sanitized_rootTarget>.parquet
-	filePath := filepath.Join(pw.config.ParquetBasePath, fileName) // Path is <base_path>/<sanitized_rootTarget>.parquet
+	fileName := fmt.Sprintf("%s.parquet", sanitizedTargetName)
+	filePath := filepath.Join(scanOutputDir, fileName) // Path is now <base_path>/scan/<sanitized_rootTarget>.parquet
 	pw.logger.Info().Str("path", filePath).Msg("Target Parquet file path for writing (overwrite)")
 
 	// Removed historical data reading and merging logic
