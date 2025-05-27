@@ -113,6 +113,7 @@ func main() {
 	// --- Monitoring Service Initialization ---
 	var monitoringService *monitor.MonitoringService
 	var monitorWg sync.WaitGroup
+	var schedulerInstance *scheduler.Scheduler // Declare schedulerInstance here to be accessible by signal handler
 
 	// Only initialize and run monitoring service in automated mode, if enabled in config, AND if --monitor-target-file is provided
 	if gCfg.Mode == "automated" && gCfg.MonitorConfig.Enabled {
@@ -173,12 +174,48 @@ func main() {
 			interruptionSummary := models.GetDefaultScanSummaryData()
 			interruptionSummary.ScanSessionID = fmt.Sprintf("%s_mode_interrupted_by_signal", gCfg.Mode)
 			interruptionSummary.TargetSource = "Signal Interrupt"
-			interruptionSummary.Status = string(models.ScanStatusInterrupted) // Use new status
+			interruptionSummary.Status = string(models.ScanStatusInterrupted)
 			interruptionSummary.ErrorMessages = []string{fmt.Sprintf("Application (%s mode) interrupted by signal: %s", gCfg.Mode, sig.String())}
 			notificationCtx, notificationCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer notificationCancel()
-			notificationHelper.SendScanCompletionNotification(notificationCtx, interruptionSummary)
-			zLogger.Info().Msg("Interruption notification sent.")
+
+			var sendInterruptionNotification bool = false
+			var interruptionServiceType notifier.NotificationServiceType = notifier.ScanServiceNotification // Default for onetime or if logic below doesn't set
+
+			if gCfg.Mode == "automated" {
+				isMonitorActive := monitoringService != nil
+				isSchedulerActive := schedulerInstance != nil
+
+				if isSchedulerActive { // If scheduler is active, it's the primary context
+					interruptionServiceType = notifier.ScanServiceNotification
+					if gCfg.NotificationConfig.ScanServiceDiscordWebhookURL != "" {
+						sendInterruptionNotification = true
+					}
+				} else if isMonitorActive { // Scheduler is not active, but Monitor is
+					interruptionServiceType = notifier.MonitorServiceNotification
+					if gCfg.NotificationConfig.MonitorServiceDiscordWebhookURL != "" {
+						sendInterruptionNotification = true
+					}
+				} else { // Neither Scheduler nor Monitor is active in automated mode
+					zLogger.Info().Msg("Interruption in automated mode: Neither monitor nor scheduler was active. Notification will be skipped.")
+					sendInterruptionNotification = false
+				}
+			} else { // Onetime mode
+				// interruptionServiceType is already default ScanServiceNotification
+				if gCfg.NotificationConfig.ScanServiceDiscordWebhookURL != "" {
+					sendInterruptionNotification = true
+				}
+			}
+
+			if sendInterruptionNotification {
+				notificationHelper.SendScanCompletionNotification(notificationCtx, interruptionSummary, interruptionServiceType)
+				zLogger.Info().Msg("Interruption notification sent.")
+			} else {
+				// Avoid double logging if already logged for automated+neither_active case
+				if !(gCfg.Mode == "automated" && monitoringService == nil && schedulerInstance == nil) {
+					zLogger.Info().Str("service_type_considered", string(interruptionServiceType)).Msg("Interruption notification skipped: Webhook not configured for the determined service type or no service deemed active for notification.")
+				}
+			}
 		}
 		cancel()
 	}()
@@ -239,14 +276,15 @@ func main() {
 			// Scheduler is not started, but monitoring (if enabled) and main app lifecycle (signal handling) will continue.
 		} else {
 			zLogger.Info().Str("urlfile", mainScanURLFile).Msg("Automated mode: -urlfile provided. Initializing and starting scheduler module...")
-			schedulerInstance, err := scheduler.NewScheduler(gCfg, mainScanURLFile, zLogger, notificationHelper)
-			if err != nil {
+			var errScheduler error // Declare error variable for scheduler
+			schedulerInstance, errScheduler = scheduler.NewScheduler(gCfg, mainScanURLFile, zLogger, notificationHelper)
+			if errScheduler != nil {
 				criticalErrSummary := models.GetDefaultScanSummaryData()
 				criticalErrSummary.Component = "SchedulerInitialization"
 				criticalErrSummary.TargetSource = mainScanURLFile // Use the determined file for source
-				criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize scheduler: %v", err)}
+				criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize scheduler: %v", errScheduler)}
 				notificationHelper.SendCriticalErrorNotification(context.Background(), "SchedulerInitialization", criticalErrSummary)
-				zLogger.Fatal().Err(err).Msg("Failed to initialize scheduler")
+				zLogger.Fatal().Err(errScheduler).Msg("Failed to initialize scheduler")
 			}
 
 			if err := schedulerInstance.Start(ctx); err != nil {
@@ -354,7 +392,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 		}
 		noTargetsSummary.Status = string(models.ScanStatusNoTargets) // New status
 		noTargetsSummary.ErrorMessages = []string{noSeedsMsg}
-		notificationHelper.SendScanCompletionNotification(context.Background(), noTargetsSummary)
+		notificationHelper.SendScanCompletionNotification(context.Background(), noTargetsSummary, notifier.ScanServiceNotification)
 		return
 	}
 
@@ -408,7 +446,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 	if workflowErr != nil {
 		summaryData.Status = string(models.ScanStatusFailed)
 		summaryData.ErrorMessages = []string{fmt.Sprintf("Scan workflow execution failed: %v", workflowErr)}
-		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData)
+		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification)
 		appLogger.Error().Err(workflowErr).Msg("Scan workflow execution failed")
 		return
 	}
@@ -419,7 +457,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 	if err != nil {
 		summaryData.Status = string(models.ScanStatusFailed)
 		summaryData.ErrorMessages = append(summaryData.ErrorMessages, fmt.Sprintf("Failed to initialize HTML reporter: %v", err))
-		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData)
+		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification)
 		appLogger.Error().Err(err).Msg("Failed to initialize HTML reporter")
 		return
 	}
@@ -435,7 +473,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 	if err := htmlReporter.GenerateReport(probeResultsPtr, urlDiffResults, reportPath); err != nil {
 		summaryData.Status = string(models.ScanStatusFailed) // Or models.ScanStatusPartialComplete
 		summaryData.ErrorMessages = append(summaryData.ErrorMessages, fmt.Sprintf("Failed to generate HTML report: %v", err))
-		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData)
+		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification)
 		appLogger.Error().Err(err).Msg("Failed to generate HTML report")
 		return
 	}
@@ -443,7 +481,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 	summaryData.ReportPath = reportPath
 	summaryData.Status = string(models.ScanStatusCompleted)
 
-	notificationHelper.SendScanCompletionNotification(ctx, summaryData)
+	notificationHelper.SendScanCompletionNotification(ctx, summaryData, notifier.ScanServiceNotification)
 
 	appLogger.Info().Msg("MonsterInc Crawler finished (onetime mode).")
 }
