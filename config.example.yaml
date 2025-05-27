@@ -214,9 +214,14 @@ storage_config:
 
 # Notification configuration: Settings for sending notifications (e.g., via Discord).
 notification_config:
-  # Discord webhook URL to send notifications to.
+  # Discord webhook URL for the Scan Service (onetime & automated scans).
   # Default: ""
-  discord_webhook_url: "" # e.g., "https://discord.com/api/webhooks/your/webhook"
+  scan_service_discord_webhook_url: "" # e.g., "https://discord.com/api/webhooks/your/scan_service_webhook"
+
+  # Discord webhook URL for the File Monitoring Service.
+  # Default: ""
+  monitor_service_discord_webhook_url: "" # e.g., "https://discord.com/api/webhooks/your/monitor_service_webhook"
+
   # List of Discord Role IDs to mention in notifications.
   # Default: []
   mention_role_ids:
@@ -280,6 +285,21 @@ diff_config:
   # Number of days to look back for previous scan data to compare against.
   # Default: 7
   previous_scan_lookback_days: 7
+
+# DiffReporterConfig: Configuration for generating content diff reports.
+diff_reporter_config:
+  # Maximum file size in MB for generating a detailed line-by-line diff.
+  # Files larger than this will still be reported as changed, but without a detailed diff.
+  # Default: 5
+  max_diff_file_size_mb: 5
+  # Whether to attempt to beautify HTML content before diffing to reduce noise.
+  # Requires a suitable beautifier library/logic to be implemented and enabled.
+  # Default: false
+  beautify_html_for_diff: false
+  # Whether to attempt to beautify JavaScript content before diffing to reduce noise.
+  # Requires a suitable beautifier library/logic to be implemented and enabled.
+  # Default: false
+  beautify_js_for_diff: false
 
 # MonitorConfig: Configuration for monitoring JS/HTML files for changes.
 monitor_config:
@@ -350,5 +370,5 @@ scheduler_config:
   # Default: 2
   retry_attempts: 2
   # Path to the SQLite database file used for storing scan history.
-  # Default: "database/scheduler_history.db"
-  sqlite_db_path: "database/scheduler_history.db"
+  # Default: "database/scheduler/scheduler_history.db"
+  sqlite_db_path: "database/scheduler/scheduler_history.db"

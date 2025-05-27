@@ -12,7 +12,7 @@ import (
 // --- Default Values ---
 const (
 	// Reporter Defaults
-	DefaultReporterOutputDir    = "reports"
+	DefaultReporterOutputDir    = "reports/scan"
 	DefaultReporterItemsPerPage = 25
 	DefaultReporterEmbedAssets  = true
 
@@ -228,22 +228,24 @@ func NewDefaultStorageConfig() StorageConfig {
 }
 
 type NotificationConfig struct {
-	DiscordWebhookURL     string   `json:"discord_webhook_url,omitempty" yaml:"discord_webhook_url,omitempty" validate:"omitempty,url"`
-	MentionRoleIDs        []string `json:"mention_role_ids,omitempty" yaml:"mention_role_ids,omitempty"`
-	NotifyOnSuccess       bool     `json:"notify_on_success" yaml:"notify_on_success"`
-	NotifyOnFailure       bool     `json:"notify_on_failure" yaml:"notify_on_failure"`
-	NotifyOnScanStart     bool     `json:"notify_on_scan_start" yaml:"notify_on_scan_start"`
-	NotifyOnCriticalError bool     `json:"notify_on_critical_error" yaml:"notify_on_critical_error"`
+	MonitorServiceDiscordWebhookURL string   `json:"monitor_service_discord_webhook_url,omitempty" yaml:"monitor_service_discord_webhook_url,omitempty" validate:"omitempty,url"`
+	ScanServiceDiscordWebhookURL    string   `json:"scan_service_discord_webhook_url,omitempty" yaml:"scan_service_discord_webhook_url,omitempty" validate:"omitempty,url"`
+	MentionRoleIDs                  []string `json:"mention_role_ids,omitempty" yaml:"mention_role_ids,omitempty"`
+	NotifyOnSuccess                 bool     `json:"notify_on_success" yaml:"notify_on_success"`
+	NotifyOnFailure                 bool     `json:"notify_on_failure" yaml:"notify_on_failure"`
+	NotifyOnScanStart               bool     `json:"notify_on_scan_start" yaml:"notify_on_scan_start"`
+	NotifyOnCriticalError           bool     `json:"notify_on_critical_error" yaml:"notify_on_critical_error"`
 }
 
 func NewDefaultNotificationConfig() NotificationConfig {
 	return NotificationConfig{
-		DiscordWebhookURL:     "",
-		MentionRoleIDs:        []string{},
-		NotifyOnSuccess:       false,
-		NotifyOnFailure:       true,
-		NotifyOnScanStart:     false,
-		NotifyOnCriticalError: true,
+		MonitorServiceDiscordWebhookURL: "",
+		ScanServiceDiscordWebhookURL:    "",
+		MentionRoleIDs:                  []string{},
+		NotifyOnSuccess:                 false,
+		NotifyOnFailure:                 true,
+		NotifyOnScanStart:               false,
+		NotifyOnCriticalError:           true,
 	}
 }
 

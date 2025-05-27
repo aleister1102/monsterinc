@@ -2,6 +2,7 @@ package notifier
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,7 +19,8 @@ const (
 	colorRed                  = 0xE74C3C
 	colorBlue                 = 0x3498DB
 	colorOrange               = 0xE67E22
-	monsterIncIconURL         = "https://i.imgur.com/kRdXp5X.png" // Placeholder icon
+	monsterIncIconURL         = "" // Placeholder icon - User should provide a publicly accessible URL to their favicon.ico or other desired avatar.
+	monsterIncUsername        = "MonsterInc"
 	defaultScanCompleteTitle  = ":white_check_mark: Scan Complete"
 	defaultScanStartTitle     = ":rocket: Scan Started"
 	defaultCriticalErrorTitle = ":x: Critical Error"
@@ -63,7 +65,7 @@ func FormatScanStartMessage(summary models.ScanSummaryData, cfg config.Notificat
 		description += "\n**Sample Targets**:\n"
 		for i, t := range summary.Targets {
 			if i < 5 {
-				description += fmt.Sprintf("- `%s`\n", truncateString(t, 100))
+				description += fmt.Sprintf("- %s\n", truncateString(t, 100))
 			}
 		}
 	} else if len(summary.Targets) > 5 {
@@ -81,8 +83,10 @@ func FormatScanStartMessage(summary models.ScanSummaryData, cfg config.Notificat
 	}
 
 	return models.DiscordMessagePayload{
-		Content: messageContent,
-		Embeds:  []models.DiscordEmbed{embed},
+		Username:  monsterIncUsername,
+		AvatarURL: monsterIncIconURL,
+		Content:   messageContent,
+		Embeds:    []models.DiscordEmbed{embed},
 		AllowedMentions: &models.AllowedMentions{
 			Parse: []string{"roles"},
 			Roles: cfg.MentionRoleIDs,
@@ -203,7 +207,7 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 				targetURLsString.WriteString(fmt.Sprintf("\n... and %d more.", len(summary.Targets)-maxTargetsToShow))
 				break
 			}
-			targetURLsString.WriteString(fmt.Sprintf("- `%s`\n", truncateString(target, 100)))
+			targetURLsString.WriteString(fmt.Sprintf("- %s\n", truncateString(target, 100)))
 		}
 
 		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
@@ -221,8 +225,10 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 	}
 
 	payload := models.DiscordMessagePayload{
-		Content: messageContent,
-		Embeds:  []models.DiscordEmbed{embed},
+		Username:  monsterIncUsername,
+		AvatarURL: monsterIncIconURL,
+		Content:   messageContent,
+		Embeds:    []models.DiscordEmbed{embed},
 		AllowedMentions: &models.AllowedMentions{
 			Parse: []string{"roles"},
 			Roles: cfg.MentionRoleIDs,
@@ -247,24 +253,24 @@ func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.Notif
 
 	description := "A critical error occurred that may have prevented the application from functioning correctly."
 	if summary.ScanSessionID != "" {
-		description += fmt.Sprintf("\n**Related Scan Session ID**: `%s`", summary.ScanSessionID)
+		description += fmt.Sprintf("\n**Context/Session ID**: `%s`", summary.ScanSessionID)
 	}
 	if summary.TargetSource != "" {
-		description += fmt.Sprintf("\n**Related Target Source**: `%s`", summary.TargetSource)
+		description += fmt.Sprintf("\n**Target Source Context**: `%s`", summary.TargetSource)
 	}
 
 	var fields []models.DiscordEmbedField
 	if len(summary.ErrorMessages) > 0 {
 		errorMsg := ""
 		for i, e := range summary.ErrorMessages {
-			errorMsg += truncateString(e, 200)
+			errorMsg += truncateString(e, 200) // Truncate individual errors
 			if i < len(summary.ErrorMessages)-1 {
 				errorMsg += "\n"
 			}
 		}
 		fields = append(fields, models.DiscordEmbedField{
-			Name:   ":warning: Error Details",
-			Value:  truncateString(errorMsg, 1000),
+			Name:   "Error Details",
+			Value:  truncateString(errorMsg, 1000), // Truncate overall error message block
 			Inline: false,
 		})
 	}
@@ -272,19 +278,21 @@ func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.Notif
 	embed := models.DiscordEmbed{
 		Title:       title,
 		Description: description,
-		Color:       0x992D22, // Dark Red
+		Color:       0xDD2E44, // Darker Red
 		Timestamp:   time.Now().Format(time.RFC3339),
 		Fields:      fields,
 		Footer: &models.DiscordEmbedFooter{
-			Text: "MonsterInc Monitoring",
+			Text: "MonsterInc System Alert",
 		},
 	}
 
 	return models.DiscordMessagePayload{
-		Content: messageContent,
-		Embeds:  []models.DiscordEmbed{embed},
+		Username:  monsterIncUsername,
+		AvatarURL: monsterIncIconURL,
+		Content:   messageContent,
+		Embeds:    []models.DiscordEmbed{embed},
 		AllowedMentions: &models.AllowedMentions{
-			Parse: []string{"roles"},
+			Parse: []string{"roles", "users", "everyone"}, // Be more liberal with critical errors
 			Roles: cfg.MentionRoleIDs,
 		},
 	}
@@ -298,7 +306,7 @@ func FormatInitialMonitoredURLsMessage(monitoredURLs []string, cfg config.Notifi
 
 	description := "Monitoring the following URLs for changes:\n\n"
 	for i, url := range monitoredURLs {
-		description += fmt.Sprintf("%d. `%s`\n", i+1, url)
+		description += fmt.Sprintf("%d. %s\n", i+1, url)
 		if len(description) > 3800 { // Keep under Discord's limit
 			description += fmt.Sprintf("\n...and %d more URLs.", len(monitoredURLs)-(i+1))
 			break
@@ -316,6 +324,8 @@ func FormatInitialMonitoredURLsMessage(monitoredURLs []string, cfg config.Notifi
 	}
 
 	return models.DiscordMessagePayload{
+		Username:        monsterIncUsername,
+		AvatarURL:       monsterIncIconURL,
 		Embeds:          []models.DiscordEmbed{embed},
 		AllowedMentions: &allowedMentions,
 	}
@@ -335,7 +345,7 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 	maxLength := 3800 // Discord embed description limit is 4096, leave some room
 
 	for i, change := range changes {
-		changeEntry := fmt.Sprintf("**%d. URL:** `%s`\n   - **Content Type:** `%s`\n   - **Time:** %s\n   - **New Hash:** `%s`\n   - **Old Hash:** `%s`\n\n",
+		changeEntry := fmt.Sprintf("**%d. URL:** %s\n   - **Content Type:** `%s`\n   - **Time:** %s\n   - **New Hash:** `%s`\n   - **Old Hash:** `%s`\n",
 			i+1,
 			change.URL,
 			change.ContentType,
@@ -343,6 +353,15 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 			change.NewHash,
 			change.OldHash,
 		)
+		if change.DiffReportPath != nil && *change.DiffReportPath != "" {
+			// Note: Discord messages don't directly support local file links.
+			// This path is for user reference if they have access to the filesystem where reports are stored.
+			// Alternatively, if reports are uploaded to a web-accessible location, that URL could be put here.
+			baseName := filepath.Base(*change.DiffReportPath)
+			changeEntry += fmt.Sprintf("   - **Diff Report:** `%s` (details available in generated report)\n", baseName)
+		}
+		changeEntry += "\n"
+
 		if len(description)+len(changeEntry) > maxLength {
 			description += fmt.Sprintf("...and %d more changes.", len(changes)-i)
 			break
@@ -361,6 +380,8 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 	}}
 
 	return models.DiscordMessagePayload{
+		Username:        monsterIncUsername,
+		AvatarURL:       monsterIncIconURL,
 		Embeds:          embeds,
 		AllowedMentions: &allowedMentions,
 	}
@@ -435,6 +456,8 @@ func FormatAggregatedMonitorErrorsMessage(errors []models.MonitorFetchErrorInfo,
 	}
 
 	return models.DiscordMessagePayload{
+		Username:        monsterIncUsername,
+		AvatarURL:       monsterIncIconURL,
 		Content:         buildMentions(cfg.MentionRoleIDs),
 		Embeds:          []models.DiscordEmbed{embed},
 		AllowedMentions: &allowedMentions,

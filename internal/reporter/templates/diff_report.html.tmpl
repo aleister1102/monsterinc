@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {{if eq .ReportType "aggregated"}}
+    <title>MonsterInc Aggregated Content Diff Report</title>
+    {{else}}
+    <title>MonsterInc Content Diff Report: {{ (index .DiffResults 0).URL }}</title>
+    {{end}}
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.21/css/dataTables.bootstrap4.min.css">
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+        .report-container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .diff-summary {
+            margin-bottom: 30px;
+            padding: 15px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        .diff-url {
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 5px;
+        }
+        .diff-details {
+            font-size: 0.9em;
+            color: #555;
+            margin-bottom: 10px;
+        }
+        .diff-content {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+            white-space: pre-wrap;  /* Handles line breaks */
+            word-wrap: break-word;  /* Handles long unbreakable strings */
+            font-family: monospace;
+        }
+        ins {
+            background-color: #d4edda;  /* Light green for insertions */
+            text-decoration: none;
+        }
+        del {
+            background-color: #f8d7da;  /* Light red for deletions */
+            text-decoration: none;
+        }
+        .error-message {
+            color: red;
+            font-weight: bold;
+        }
+        .no-diffs {
+            text-align: center;
+            color: #777;
+            font-style: italic;
+        }
+        .hash-info {
+            font-size: 0.8em;
+            color: #6c757d; /* Bootstrap secondary color */
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="report-container">
+        {{if eq .ReportType "aggregated"}}
+        <h1>MonsterInc Aggregated Content Diff Report</h1>
+        {{else}}
+        <h1>MonsterInc Content Diff Report</h1>
+        {{end}}
+        <p>Generated At: {{ .GeneratedAt }}</p>
+        <p>Total Diffs Found: {{ .TotalDiffs }}</p>
+
+        <hr>
+
+        {{if .DiffResults}}
+            <div id="diffsAccordion">
+                {{range $index, $diff := .DiffResults}}
+                <div class="card mb-3">
+                    <div class="card-header" id="heading{{$index}}">
+                        <h5 class="mb-0">
+                            <button class="btn btn-link" data-toggle="collapse" data-target="#collapse{{$index}}" aria-expanded="{{if eq $index 0}}true{{else}}false{{end}}" aria-controls="collapse{{$index}}">
+                                {{ $diff.URL }} ({{ $diff.ContentType }}) - {{ $diff.Timestamp.Format "2006-01-02 15:04:05" }}
+                            </button>
+                        </h5>
+                    </div>
+
+                    <div id="collapse{{$index}}" class="collapse {{if eq $index 0}}show{{end}}" aria-labelledby="heading{{$index}}" data-parent="#diffsAccordion">
+                        <div class="card-body">
+                            {{if $diff.ErrorMessage}}
+                                <p class="error-message">Error: {{ $diff.ErrorMessage }}</p>
+                            {{else if $diff.IsIdentical}}
+                                <p>No changes detected for this item.</p>
+                            {{else}}
+                                <p><strong>Diff Summary:</strong> {{ $diff.Summary }}</p>
+                                <div class="hash-info">
+                                    Old Hash: {{ $diff.OldHash }} <br>
+                                    New Hash: {{ $diff.NewHash }}
+                                </div>
+                                <div class="diff-content">
+                                    {{ $diff.DiffHTML }}
+                                </div>
+                                {{if $diff.FullContent}}
+                                <hr>
+                                <p><strong>Full New Content:</strong></p>
+                                <div class="diff-content" style="background-color: #e9ecef;"> <!-- Lighter background for full content -->
+                                    <pre>{{ $diff.FullContent }}</pre>
+                                </div>
+                                {{end}}
+                            {{end}}
+                        </div>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+        {{else}}
+            <p class="no-diffs">No differences to report.</p>
+        {{end}}
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    {{if .EnableDataTables}}
+    <script type="text/javascript" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.min.js"></script>
+    <script type="text/javascript" src="https://cdn.datatables.net/1.10.21/js/dataTables.bootstrap4.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // Initialize DataTable for any tables if needed, for example, if diffs were tabular
+            // For now, the accordion handles individual diffs.
+            // If you had a summary table:
+            // $('#diffSummaryTable').DataTable({
+            //     \"pageLength\": {{ .ItemsPerPage }}
+            // });
+        });
+    </script>
+    {{end}}
+</body>
+</html> 

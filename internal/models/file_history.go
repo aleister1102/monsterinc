@@ -14,13 +14,14 @@ var ErrRecordNotFound = errors.New("record not found") // Exported
 // compression might need to be set as a WriterOption or per-column in a custom schema.
 // For now, we assume ",zstd" in tags works like ",snappy".
 type FileHistoryRecord struct {
-	URL          string    `parquet:"url,zstd"`
-	Timestamp    time.Time `parquet:"timestamp,zstd"`
-	Hash         string    `parquet:"hash,zstd"`
-	ContentType  string    `parquet:"content_type,zstd,optional"`
-	Content      []byte    `parquet:"content,zstd,optional"`
-	ETag         string    `parquet:"etag,zstd,optional"`
-	LastModified string    `parquet:"last_modified,zstd,optional"`
+	URL            string  `parquet:"url,zstd"`
+	Timestamp      int64   `parquet:"timestamp,zstd"`
+	Hash           string  `parquet:"hash,zstd"`
+	ContentType    string  `parquet:"content_type,zstd,optional"`
+	Content        []byte  `parquet:"content,zstd,optional"`
+	ETag           string  `parquet:"etag,zstd,optional"`
+	LastModified   string  `parquet:"last_modified,zstd,optional"`
+	DiffResultJSON *string `parquet:"diff_result_json,zstd,optional"`
 }
 
 // FileHistoryStore defines the interface for storing and retrieving file history.
@@ -38,4 +39,23 @@ type FileHistoryStore interface {
 
 	// GetFileHistory retrieves all historical records for a given URL (optional, for more advanced diffing later).
 	// GetFileHistory(url string) ([]FileHistoryRecord, error)
+
+	GetLatestRecord(url string) (*FileHistoryRecord, error)
+	GetRecordsForURL(url string, limit int) ([]*FileHistoryRecord, error)
+	ArchiveHistory(url string) error                      // Archives old records for a URL
+	GetAllRecordsWithDiff() ([]*FileHistoryRecord, error) // Added for aggregated diff reporting
+
+	// GetHostnamesWithHistory retrieves a list of unique hostnames that have history records.
+	GetHostnamesWithHistory() ([]string, error)
+
+	// DeleteOldRecordsForHost deletes records older than a specified duration for a given hostname.
+	DeleteOldRecordsForHost(hostname string, olderThan time.Duration) (int64, error)
+
+	GetAllLatestDiffResultsForURLs(urls []string) (map[string]*ContentDiffResult, error)
+	// GetAllDiffResults retrieves all stored diff results, primarily for aggregated reporting.
+	// It's up to the implementation to decide how to best fetch these (e.g., from all files, or specific diff storage).
+	GetAllDiffResults() ([]ContentDiffResult, error)
 }
+
+// DiffOperation defines the type of diff operation (insert, delete, equal).
+// ... existing code ...

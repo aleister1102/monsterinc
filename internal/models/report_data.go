@@ -150,3 +150,45 @@ type DiffSummaryEntry struct {
 	ExistingCount int `json:"existing_count"`
 	ChangedCount  int `json:"changed_count"` // Keep for future use
 }
+
+// DiffReportPageData holds all the data needed to render the diff_report.html.tmpl template.
+// It will now hold a list of diff results for multiple URLs.
+// Consider adding more metadata if needed, like report generation time, overall summary, etc.
+type DiffReportPageData struct {
+	ReportTitle      string              `json:"report_title"`
+	GeneratedAt      string              `json:"generated_at"`
+	DiffResults      []DiffResultDisplay `json:"diff_results"`
+	TotalDiffs       int                 `json:"total_diffs"`
+	ItemsPerPage     int                 `json:"items_per_page"`        // For potential pagination
+	EnableDataTables bool                `json:"enable_data_tables"`    // To enable/disable DataTables JS library features
+	ReportType       string              `json:"report_type,omitempty"` // Added ReportType for template logic
+	// You can add more fields here, for example, a summary of changes, etc.
+}
+
+// DiffResultDisplay is a version of ContentDiffResult tailored for display in the template.
+// It might include additional presentation-specific fields or formatting.
+type DiffResultDisplay struct {
+	URL          string        `json:"url"`
+	ContentType  string        `json:"content_type"`
+	Timestamp    time.Time     `json:"timestamp"` // Timestamp of the current content
+	IsIdentical  bool          `json:"is_identical"`
+	Diffs        []ContentDiff `json:"diffs"`         // The raw diffs
+	ErrorMessage string        `json:"error_message"` // If an error occurred generating this specific diff
+	DiffHTML     template.HTML `json:"diff_html"`     // Pre-rendered HTML for this diff
+	OldHash      string        `json:"old_hash,omitempty"`
+	NewHash      string        `json:"new_hash,omitempty"`
+	Summary      string        `json:"summary,omitempty"`
+	FullContent  string        `json:"full_content,omitempty"` // Added to display full new content
+}
+
+// GetDefaultDiffReportPageData initializes a DiffReportPageData with some default values.
+func GetDefaultDiffReportPageData() DiffReportPageData {
+	return DiffReportPageData{
+		ReportTitle: "Content Difference Report",
+		GeneratedAt: time.Now().Format("2006-01-02 15:04:05 MST"),
+		DiffResults: []DiffResultDisplay{},
+		// Sensible defaults, can be overridden by config
+		ItemsPerPage:     25,
+		EnableDataTables: true,
+	}
+}
