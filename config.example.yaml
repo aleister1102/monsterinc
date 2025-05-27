@@ -326,6 +326,14 @@ monitor_config:
     - "\\.html"
     - "\\.htm"
 
+  # Aggregation settings for monitor notifications (file changes and errors)
+  # How often to send aggregated notifications, in seconds.
+  # Default: 600 (10 minutes)
+  aggregation_interval_seconds: 600
+  # Maximum number of events (changes or errors) to aggregate before sending a notification, regardless of the interval.
+  # Default: 10
+  max_aggregated_events: 10
+
 # NormalizerConfig: Configuration related to URL normalization (currently minimal).
 # This section might be expanded in the future if more complex normalization rules are needed.
 normalizer_config: {}
