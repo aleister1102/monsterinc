@@ -115,33 +115,43 @@ func main() {
 	var monitoringService *monitor.MonitoringService
 	var monitorWg sync.WaitGroup
 
-	// Only initialize and run monitoring service in automated mode and if enabled in config
+	// Only initialize and run monitoring service in automated mode, if enabled in config, AND if --monitor-target-file is provided
 	if gCfg.Mode == "automated" && gCfg.MonitorConfig.Enabled {
-		zLogger.Info().Msg("File monitoring service is enabled for automated mode. Initializing...")
-		fileHistoryStore, fhStoreErr := datastore.NewParquetFileHistoryStore(&gCfg.StorageConfig, zLogger)
-		if fhStoreErr != nil {
-			zLogger.Error().Err(fhStoreErr).Msg("Failed to initialize ParquetFileHistoryStore for monitoring. Monitoring will be disabled.")
-		} else {
-			monitorHTTPClientTimeout := time.Duration(gCfg.MonitorConfig.HTTPTimeoutSeconds) * time.Second
-			if gCfg.MonitorConfig.HTTPTimeoutSeconds <= 0 {
-				monitorHTTPClientTimeout = 30 * time.Second // Default if not set or invalid
-				zLogger.Warn().Int("configured_timeout", gCfg.MonitorConfig.HTTPTimeoutSeconds).Msg("Monitor HTTPTimeoutSeconds invalid, defaulting to 30s")
-			}
-			monitorHTTPClient := &http.Client{Timeout: monitorHTTPClientTimeout}
-			monitorLogger := zLogger.With().Str("service", "FileMonitor").Logger()
+		if *monitorTargetFile != "" {
+			zLogger.Info().Msg("File monitoring service is enabled, in automated mode, and --monitor-target-file is provided. Initializing...")
+			fileHistoryStore, fhStoreErr := datastore.NewParquetFileHistoryStore(&gCfg.StorageConfig, zLogger)
+			if fhStoreErr != nil {
+				zLogger.Error().Err(fhStoreErr).Msg("Failed to initialize ParquetFileHistoryStore for monitoring. Monitoring will be disabled.")
+				// No need to assign to monitoringService, it will remain nil
+			} else {
+				monitorHTTPClientTimeout := time.Duration(gCfg.MonitorConfig.HTTPTimeoutSeconds) * time.Second
+				if gCfg.MonitorConfig.HTTPTimeoutSeconds <= 0 {
+					monitorHTTPClientTimeout = 30 * time.Second // Default if not set or invalid
+					zLogger.Warn().Int("configured_timeout", gCfg.MonitorConfig.HTTPTimeoutSeconds).Msg("Monitor HTTPTimeoutSeconds invalid, defaulting to 30s")
+				}
+				monitorHTTPClient := &http.Client{Timeout: monitorHTTPClientTimeout}
+				monitorLogger := zLogger.With().Str("service", "FileMonitor").Logger()
 
-			monitoringService = monitor.NewMonitoringService(
-				&gCfg.MonitorConfig,
-				&gCfg.NotificationConfig,
-				fileHistoryStore,
-				monitorLogger,
-				notificationHelper,
-				monitorHTTPClient,
-			)
-			zLogger.Info().Msg("File monitoring service initialized.")
+				monitoringService = monitor.NewMonitoringService(
+					&gCfg.MonitorConfig,
+					&gCfg.NotificationConfig,
+					&gCfg.ReporterConfig,
+					&gCfg.DiffReporterConfig,
+					fileHistoryStore,
+					monitorLogger,
+					notificationHelper,
+					monitorHTTPClient,
+				)
+				zLogger.Info().Msg("File monitoring service initialized.")
+			}
+		} else {
+			zLogger.Info().Msg("File monitoring service is configured and enabled in automated mode, but will NOT start because the --monitor-target-file (-mtf) flag was not provided.")
 		}
-	} else if gCfg.MonitorConfig.Enabled {
-		zLogger.Info().Str("current_mode", gCfg.Mode).Msg("File monitoring is enabled in config, but will only run in 'automated' mode.")
+	} else if gCfg.MonitorConfig.Enabled { // This implies Mode is not "automated" or MonitorConfig.Enabled is false (but caught by outer if)
+		if gCfg.Mode != "automated" {
+			zLogger.Info().Str("current_mode", gCfg.Mode).Msg("File monitoring is enabled in config, but will only run in 'automated' mode and if --monitor-target-file is specified.")
+		}
+		// If MonitorConfig.Enabled is false, no message is printed here, which is fine.
 	}
 
 	// Setup signal handling for graceful shutdown
