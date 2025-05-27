@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -126,10 +127,15 @@ func main() {
 			} else {
 				monitorHTTPClientTimeout := time.Duration(gCfg.MonitorConfig.HTTPTimeoutSeconds) * time.Second
 				if gCfg.MonitorConfig.HTTPTimeoutSeconds <= 0 {
-					monitorHTTPClientTimeout = 30 * time.Second // Default if not set or invalid
-					zLogger.Warn().Int("configured_timeout", gCfg.MonitorConfig.HTTPTimeoutSeconds).Msg("Monitor HTTPTimeoutSeconds invalid, defaulting to 30s")
+					monitorHTTPClientTimeout = 30 * time.Second // Default if not set or invalid - USER CAN CONFIRM THIS VALUE
+					zLogger.Warn().Int("configured_timeout", gCfg.MonitorConfig.HTTPTimeoutSeconds).Dur("default_timeout", monitorHTTPClientTimeout).Msg("Monitor HTTPTimeoutSeconds invalid or not set, using default")
 				}
-				monitorHTTPClient := &http.Client{Timeout: monitorHTTPClientTimeout}
+				monitorHTTPClient := &http.Client{
+					Timeout: monitorHTTPClientTimeout,
+					Transport: &http.Transport{
+						TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+					},
+				}
 				monitorLogger := zLogger.With().Str("service", "FileMonitor").Logger()
 
 				monitoringService = monitor.NewMonitoringService(
