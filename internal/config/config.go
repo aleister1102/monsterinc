@@ -309,21 +309,27 @@ type MonitorConfig struct {
 	// Consider deprecating them in favor of TargetJSFilePatterns and TargetHTMLFilePatterns.
 	JSFileExtensions   []string `json:"js_file_extensions,omitempty" yaml:"js_file_extensions,omitempty"`
 	HTMLFileExtensions []string `json:"html_file_extensions,omitempty" yaml:"html_file_extensions,omitempty"`
+
+	// Configuration for aggregating notifications (both changes and errors)
+	AggregationIntervalSeconds int `json:"aggregation_interval_seconds,omitempty" yaml:"aggregation_interval_seconds,omitempty" validate:"omitempty,min=1"`
+	MaxAggregatedEvents        int `json:"max_aggregated_events,omitempty" yaml:"max_aggregated_events,omitempty" validate:"omitempty,min=1"`
 }
 
 // NewDefaultMonitorConfig creates a MonitorConfig with default values.
 func NewDefaultMonitorConfig() MonitorConfig {
 	return MonitorConfig{
-		Enabled:                  false,
-		CheckIntervalSeconds:     3600, // 1 hour
-		TargetJSFilePatterns:     []string{},
-		TargetHTMLFilePatterns:   []string{},
-		MaxConcurrentChecks:      5,
-		StoreFullContentOnChange: false,
-		HTTPTimeoutSeconds:       30,
-		InitialMonitorURLs:       []string{},                                     // New field default
-		JSFileExtensions:         []string{"\\.js", "\\.jsx", "\\.ts", "\\.tsx"}, // Default patterns
-		HTMLFileExtensions:       []string{"\\.html", "\\.htm"},                  // Default patterns
+		Enabled:                    false,
+		CheckIntervalSeconds:       3600, // 1 hour
+		TargetJSFilePatterns:       []string{},
+		TargetHTMLFilePatterns:     []string{},
+		MaxConcurrentChecks:        5,
+		StoreFullContentOnChange:   false,
+		HTTPTimeoutSeconds:         30,
+		InitialMonitorURLs:         []string{},
+		JSFileExtensions:           []string{"\\.js", "\\.jsx", "\\.ts", "\\.tsx"},
+		HTMLFileExtensions:         []string{"\\.html", "\\.htm"},
+		AggregationIntervalSeconds: 600, // Default to 10 minutes for aggregation
+		MaxAggregatedEvents:        10,  // Default to 10 events before sending aggregated notification
 	}
 }
 
