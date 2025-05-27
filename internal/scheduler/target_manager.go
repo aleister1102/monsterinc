@@ -7,6 +7,7 @@ import (
 	"monsterinc/internal/urlhandler"
 
 	// "os" // No longer needed if urlhandler.ReadURLsFromFile is used
+	"path/filepath"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -31,37 +32,38 @@ func NewTargetManager(logger zerolog.Logger) *TargetManager {
 // !monsterinc/target-management
 func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfigUrls []string, cfgInputFile string) ([]models.Target, string, error) {
 	var rawURLs []string
-	var source string
+	var determinedSource string
 	var err error
 
-	// Priority 1: Command-line file option (-urlfile)
 	if inputFileOption != "" {
-		tm.logger.Info().Str("file", inputFileOption).Msg("TargetManager: Loading targets from command-line file")
-		rawURLs, err = urlhandler.ReadURLsFromFile(inputFileOption, tm.logger) // Use urlhandler
+		tm.logger.Info().Str("file", inputFileOption).Msg("Using URL file from command line argument.")
+		rawURLs, err = tm.loadURLsFromFile(inputFileOption)
 		if err != nil {
-			// ReadURLsFromFile logs details, so a general message here is fine.
-			tm.logger.Error().Err(err).Str("file", inputFileOption).Msg("TargetManager: Failed to load URLs from command-line file")
-			// Return the error to allow scheduler to handle (e.g., retry or skip cycle)
-			return nil, "", fmt.Errorf("failed to load URLs from file '%s': %w", inputFileOption, err)
+			return nil, filepath.Base(inputFileOption), fmt.Errorf("failed to load URLs from command line file '%s': %w", inputFileOption, err)
 		}
-		source = inputFileOption
-	} else if cfgInputFile != "" {
-		// Priority 2: Config file input_file
-		tm.logger.Info().Str("file", cfgInputFile).Msg("TargetManager: Loading targets from config file")
-		rawURLs, err = urlhandler.ReadURLsFromFile(cfgInputFile, tm.logger) // Use urlhandler
-		if err != nil {
-			tm.logger.Error().Err(err).Str("file", cfgInputFile).Msg("TargetManager: Failed to load URLs from config file")
-			return nil, "", fmt.Errorf("failed to load URLs from config file '%s': %w", cfgInputFile, err)
-		}
-		source = cfgInputFile
+		determinedSource = filepath.Base(inputFileOption)
 	} else if len(inputConfigUrls) > 0 {
-		// Priority 3: Config input_urls
-		tm.logger.Info().Int("count", len(inputConfigUrls)).Msg("TargetManager: Using URLs from config input_urls")
-		rawURLs = inputConfigUrls // These are already strings, normalization happens below
-		source = "config_input_urls"
+		tm.logger.Info().Int("count", len(inputConfigUrls)).Msg("Using input_urls from configuration.")
+		rawURLs = inputConfigUrls
+		determinedSource = "config_input_urls"
+	} else if cfgInputFile != "" {
+		tm.logger.Info().Str("file", cfgInputFile).Msg("Using input_file from configuration.")
+		rawURLs, err = tm.loadURLsFromFile(cfgInputFile)
+		if err != nil {
+			return nil, filepath.Base(cfgInputFile), fmt.Errorf("failed to load URLs from config file '%s': %w", cfgInputFile, err)
+		}
+		determinedSource = filepath.Base(cfgInputFile)
 	} else {
-		return nil, "", fmt.Errorf("no target URLs provided: specify -urlfile, input_file in config, or input_urls in config")
+		tm.logger.Info().Msg("No URL input source provided (command line or config). Returning empty target list.")
+		return []models.Target{}, "NoTargetsProvided", nil // Not an error, just no targets
 	}
+
+	if len(rawURLs) == 0 {
+		tm.logger.Warn().Str("source", determinedSource).Msg("URL input source was empty. Returning empty target list.")
+		return []models.Target{}, determinedSource, nil // Not an error, source was just empty
+	}
+
+	tm.logger.Info().Int("raw_url_count", len(rawURLs)).Str("source", determinedSource).Msg("Loaded raw URLs.")
 
 	// Filter out empty URLs and normalize
 	var validTargets []models.Target
@@ -79,11 +81,11 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfi
 	}
 
 	if len(validTargets) == 0 {
-		return nil, source, fmt.Errorf("no valid URLs found in source: %s", source)
+		return nil, determinedSource, fmt.Errorf("no valid URLs found in source: %s", determinedSource)
 	}
 
-	tm.logger.Info().Int("count", len(validTargets)).Str("source", source).Msg("TargetManager: Loaded and normalized valid targets")
-	return validTargets, source, nil
+	tm.logger.Info().Int("count", len(validTargets)).Str("source", determinedSource).Msg("TargetManager: Loaded and normalized valid targets")
+	return validTargets, determinedSource, nil
 }
 
 // loadURLsFromFile reads URLs from a file, one per line.

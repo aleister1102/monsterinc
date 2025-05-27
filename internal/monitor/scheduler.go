@@ -63,6 +63,21 @@ func (s *Scheduler) Start() error {
 	for i := 0; i < numWorkers; i++ {
 		s.wg.Add(1)
 		go s.worker(i)
+		s.logger.Info().Int("worker_id", i).Msg("Monitoring worker started")
+	}
+	s.logger.Info().Int("num_workers", numWorkers).Msg("MonitorScheduler started successfully with workers.")
+
+	// Initial population of workerChan with all currently monitored URLs
+	// This ensures an immediate first check for all targets.
+	initialURLs := s.service.GetCurrentlyMonitoredURLs()
+	s.logger.Info().Int("count", len(initialURLs)).Msg("Performing initial check for monitored URLs.")
+	for _, url := range initialURLs {
+		select {
+		case s.workerChan <- url:
+		case <-s.ctx.Done():
+			s.logger.Info().Msg("Context cancelled during initial URL population for workers.")
+			return nil // Stop if context is cancelled
+		}
 	}
 
 	var ticker *time.Ticker
@@ -104,7 +119,6 @@ func (s *Scheduler) Start() error {
 		}
 	}()
 
-	s.logger.Info().Msg("MonitorScheduler started successfully with workers.")
 	return nil
 }
 

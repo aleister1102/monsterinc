@@ -372,19 +372,27 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 
 	// Load targets using TargetManager. We use predeterminedTargetSource for consistency in reporting,
 	// but LoadAndSelectTargets will re-evaluate based on current files/config for the actual scan.
-	targets, actualTargetSource, err := s.targetManager.LoadAndSelectTargets(
+	targets, determinedTargetSource, err := s.targetManager.LoadAndSelectTargets(
 		s.urlFileOverride,
 		s.globalConfig.InputConfig.InputURLs,
 		s.globalConfig.InputConfig.InputFile,
 	)
 	if err != nil {
-		summary.Status = string(models.ScanStatusFailed)
-		summary.ErrorMessages = []string{fmt.Sprintf("Failed to load targets: %v", err)}
-		return summary, "", fmt.Errorf("failed to load targets: %w", err)
+		s.logger.Error().Err(err).Msg("Scheduler: Failed to load targets for scan cycle.")
+		return summary, "ErrorDeterminingSource", fmt.Errorf("failed to load targets: %w", err)
 	}
-	// If LoadAndSelectTargets returns a different source than predetermined, log it, but stick with predetermined for summary consistency in this cycle.
-	if actualTargetSource != predeterminedTargetSource {
-		s.logger.Warn().Str("predetermined_source", predeterminedTargetSource).Str("actual_source", actualTargetSource).Msg("Target source re-evaluation yielded a different source name, but using predetermined for this cycle's summary.")
+	if determinedTargetSource == "" { // Should ideally be set by TargetManager
+		determinedTargetSource = "UnknownSource"
+	}
+	summary.TargetSource = determinedTargetSource
+
+	if len(targets) == 0 {
+		s.logger.Info().Str("source", determinedTargetSource).Msg("Scheduler: No targets to scan in this cycle.")
+		summary.Status = string(models.ScanStatusNoTargets)
+		summary.ErrorMessages = []string{"No targets loaded for this scan cycle."}
+		// Do not return an error here, as it's a valid state (no targets)
+		// The notification will indicate no targets.
+		return summary, determinedTargetSource, nil
 	}
 
 	// Get target strings for summary (these are just for display in notification)
@@ -396,7 +404,7 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 	summary.Targets = targetStringsForSummary
 	summary.TotalTargets = len(targets)
 
-	var seedURLs []string
+	seedURLs := make([]string, len(targets))
 	for _, target := range targets {
 		seedURLs = append(seedURLs, target.OriginalURL)
 	}
@@ -406,7 +414,7 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 		s.logger.Warn().Str("target_source", summary.TargetSource).Msg(msg)
 		summary.Status = string(models.ScanStatusFailed)
 		summary.ErrorMessages = []string{msg}
-		return summary, "", fmt.Errorf(msg)
+		return summary, determinedTargetSource, fmt.Errorf(msg)
 	}
 
 	// Send scan start notification with the consistent summary data
@@ -465,7 +473,7 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 		}
 		summary.Status = string(models.ScanStatusFailed)
 		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Scan workflow failed: %v", workflowErr))
-		return summary, "", workflowErr
+		return summary, determinedTargetSource, workflowErr
 	}
 
 	s.logger.Info().Str("scan_id_log", logScanID).Msg("Scheduler: Scan workflow completed successfully.")
