@@ -190,11 +190,37 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 		Timestamp:   time.Now().Format(time.RFC3339),
 		Fields:      fields,
 		Footer: &models.DiscordEmbedFooter{
-			Text: "MonsterInc Scanning Platform",
+			Text: "MonsterInc Scan",
 		},
 	}
 
-	return models.DiscordMessagePayload{
+	// Add Target URLs field if available
+	if len(summary.Targets) > 0 {
+		var targetURLsString strings.Builder
+		maxTargetsToShow := 10 // Show up to 10 URLs directly in the message
+		for i, target := range summary.Targets {
+			if i >= maxTargetsToShow {
+				targetURLsString.WriteString(fmt.Sprintf("\n... and %d more.", len(summary.Targets)-maxTargetsToShow))
+				break
+			}
+			targetURLsString.WriteString(fmt.Sprintf("- `%s`\n", truncateString(target, 100)))
+		}
+
+		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
+			Name:   "Scanned Target URLs",
+			Value:  targetURLsString.String(),
+			Inline: false,
+		})
+	} else if summary.TargetSource != "" {
+		// Fallback to TargetSource if Targets list is empty but source is known
+		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
+			Name:   "Target Source",
+			Value:  fmt.Sprintf("`%s` (No individual URLs listed in summary)", summary.TargetSource),
+			Inline: false,
+		})
+	}
+
+	payload := models.DiscordMessagePayload{
 		Content: messageContent,
 		Embeds:  []models.DiscordEmbed{embed},
 		AllowedMentions: &models.AllowedMentions{
@@ -202,6 +228,8 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 			Roles: cfg.MentionRoleIDs,
 		},
 	}
+
+	return payload
 }
 
 // FormatCriticalErrorMessage creates a Discord message payload for critical errors.
@@ -262,66 +290,153 @@ func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.Notif
 	}
 }
 
-// FormatFileChangeNotification creates a Discord message payload for a file change event.
-func FormatFileChangeNotification(url, oldHash, newHash, contentType string, cfg config.NotificationConfig) models.DiscordMessagePayload {
-	mentionText := buildMentions(cfg.MentionRoleIDs)
-	title := ":warning: File Change Detected"
-	description := fmt.Sprintf("A change was detected for monitored file: **%s**", url)
+func FormatInitialMonitoredURLsMessage(monitoredURLs []string, cfg config.NotificationConfig) models.DiscordMessagePayload {
+	allowedMentions := models.AllowedMentions{
+		Parse: []string{"roles"}, // Mention roles if specified in config
+		Roles: cfg.MentionRoleIDs,
+	}
 
-	color := 0xFFCC00 // Yellow/Orange for warning
+	description := "Monitoring the following URLs for changes:\n\n"
+	for i, url := range monitoredURLs {
+		description += fmt.Sprintf("%d. `%s`\n", i+1, url)
+		if len(description) > 3800 { // Keep under Discord's limit
+			description += fmt.Sprintf("\n...and %d more URLs.", len(monitoredURLs)-(i+1))
+			break
+		}
+	}
+
+	embed := models.DiscordEmbed{
+		Title:       ":pencil: Initial File Monitoring Targets",
+		Description: description,
+		Color:       0x00ff00, // Green
+		Timestamp:   time.Now().Format(time.RFC3339),
+		Footer: &models.DiscordEmbedFooter{
+			Text: "MonsterInc File Monitor",
+		},
+	}
+
+	return models.DiscordMessagePayload{
+		Embeds:          []models.DiscordEmbed{embed},
+		AllowedMentions: &allowedMentions,
+	}
+}
+
+func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg config.NotificationConfig) models.DiscordMessagePayload {
+	if len(changes) == 0 {
+		return models.DiscordMessagePayload{}
+	}
+
+	allowedMentions := models.AllowedMentions{
+		Parse: []string{"roles"},
+		Roles: cfg.MentionRoleIDs,
+	}
+
+	description := "Multiple file changes detected:\n\n"
+	maxLength := 3800 // Discord embed description limit is 4096, leave some room
+
+	for i, change := range changes {
+		changeEntry := fmt.Sprintf("**%d. URL:** `%s`\n   - **Content Type:** `%s`\n   - **Time:** %s\n   - **New Hash:** `%s`\n   - **Old Hash:** `%s`\n\n",
+			i+1,
+			change.URL,
+			change.ContentType,
+			change.ChangeTime.Format(time.RFC1123),
+			change.NewHash,
+			change.OldHash,
+		)
+		if len(description)+len(changeEntry) > maxLength {
+			description += fmt.Sprintf("...and %d more changes.", len(changes)-i)
+			break
+		}
+		description += changeEntry
+	}
+
+	embeds := []models.DiscordEmbed{{
+		Title:       ":warning: Aggregated File Changes Detected",
+		Description: description,
+		Color:       0xffa500, // Orange
+		Timestamp:   time.Now().Format(time.RFC3339),
+		Footer: &models.DiscordEmbedFooter{
+			Text: "MonsterInc File Monitor",
+		},
+	}}
+
+	return models.DiscordMessagePayload{
+		Embeds:          embeds,
+		AllowedMentions: &allowedMentions,
+	}
+}
+
+// func FormatMonitorFetchErrorMessage(url string, fetchError error, cfg config.NotificationConfig) models.DiscordMessagePayload {
+// 	allowedMentions := models.AllowedMentions{
+// 		Parse: []string{"roles"}, // Mention roles if specified in config
+// 		Roles: cfg.MentionRoleIDs,
+// 	}
+
+// 	title := ":x: Monitor: File Fetch Error"
+// 	description := fmt.Sprintf("An error occurred while trying to fetch the monitored file: **%s**", url)
+
+// 	embed := models.DiscordEmbed{
+// 		Title:       title,
+// 		Description: description,
+// 		Color:       0xff0000, // Red for error
+// 		Timestamp:   time.Now().Format(time.RFC3339),
+// 		Fields: []models.DiscordEmbedField{
+// 			{
+// 				Name:   "Error Details",
+// 				Value:  truncateString(fetchError.Error(), 1000),
+// 				Inline: false,
+// 			},
+// 		},
+// 		Footer: &models.DiscordEmbedFooter{
+// 			Text: "MonsterInc File Monitor",
+// 		},
+// 	}
+
+// 	return models.DiscordMessagePayload{
+// 		Embeds:          []models.DiscordEmbed{embed},
+// 		AllowedMentions: &allowedMentions,
+// 	}
+// }
+
+func FormatAggregatedMonitorErrorsMessage(errors []models.MonitorFetchErrorInfo, cfg config.NotificationConfig) models.DiscordMessagePayload {
+	allowedMentions := models.AllowedMentions{
+		Parse: []string{"roles"}, // Mention roles if specified in config
+		Roles: cfg.MentionRoleIDs,
+	}
+
+	title := fmt.Sprintf(":x: Monitor: %d Fetch/Process Error(s) Detected", len(errors))
+	var descriptionBuilder strings.Builder
+	descriptionBuilder.WriteString(fmt.Sprintf("Found **%d** error(s) during file monitoring operations:\n", len(errors)))
+
+	for i, errInfo := range errors {
+		if i > 0 {
+			descriptionBuilder.WriteString("\n")
+		}
+		descriptionBuilder.WriteString(fmt.Sprintf("• **URL**: %s\n  **Source**: `%s`\n  **Error**: `%s`\n  **Time**: %s\n",
+			errInfo.URL,
+			errInfo.Source,
+			truncateString(errInfo.Error, 200), // Truncate individual error message if too long
+			errInfo.OccurredAt.Format(time.RFC1123)))
+		// Limit the number of detailed errors in the message to avoid exceeding Discord limits
+		if i >= 4 && len(errors) > 5 { // Show first 4, then a summary if more than 5 total
+			descriptionBuilder.WriteString(fmt.Sprintf("\n...and %d more errors.", len(errors)-(i+1)))
+			break
+		}
+	}
 
 	embed := models.DiscordEmbed{
 		Title:       title,
-		Description: description,
-		Color:       color,
+		Description: truncateString(descriptionBuilder.String(), 4000), // Max description length
+		Color:       0xffa500,                                          // Orange for warning/multiple errors
 		Timestamp:   time.Now().Format(time.RFC3339),
-		Fields:      []models.DiscordEmbedField{},
+		Footer: &models.DiscordEmbedFooter{
+			Text: "MonsterInc File Monitor",
+		},
 	}
 
-	embed.Fields = append(embed.Fields, models.DiscordEmbedField{
-		Name:   "URL",
-		Value:  url,
-		Inline: false,
-	})
-	embed.Fields = append(embed.Fields, models.DiscordEmbedField{
-		Name:   "Content Type",
-		Value:  fmt.Sprintf("`%s`", contentType),
-		Inline: true,
-	})
-
-	if oldHash != "" {
-		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
-			Name:   "Previous Hash (SHA256)",
-			Value:  fmt.Sprintf("`%s`", truncateString(oldHash, 32)), // Show a truncated hash
-			Inline: true,
-		})
-		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
-			Name:   "New Hash (SHA256)",
-			Value:  fmt.Sprintf("`%s`", truncateString(newHash, 32)),
-			Inline: true,
-		})
-	} else {
-		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
-			Name:   "New Hash (SHA256) (New File)",
-			Value:  fmt.Sprintf("`%s`", truncateString(newHash, 32)),
-			Inline: true,
-		})
+	return models.DiscordMessagePayload{
+		Content:         buildMentions(cfg.MentionRoleIDs),
+		Embeds:          []models.DiscordEmbed{embed},
+		AllowedMentions: &allowedMentions,
 	}
-
-	// Add a deep link if possible (e.g., to a dashboard or the file itself)
-	// embed.Fields = append(embed.Fields, models.DiscordEmbedField{
-	// 	Name:   "Link to File",
-	// 	Value:  fmt.Sprintf("[View File](%s)", url),
-	// 	Inline: false,
-	// })
-
-	payload := models.DiscordMessagePayload{
-		Content: mentionText,
-		Embeds:  []models.DiscordEmbed{embed},
-	}
-	if len(cfg.MentionRoleIDs) > 0 {
-		payload.AllowedMentions = &models.AllowedMentions{Parse: []string{"roles"}}
-	}
-
-	return payload
 }

@@ -109,3 +109,62 @@ func (nh *NotificationHelper) SendCriticalErrorNotification(ctx context.Context,
 		nh.logger.Info().Str("component", summaryData.Component).Msg("Critical error notification sent successfully.")
 	}
 }
+
+func (nh *NotificationHelper) SendAggregatedFileChangesNotification(ctx context.Context, changes []models.FileChangeInfo) {
+	if nh.discordNotifier == nil || nh.discordNotifier.IsDisabled() || len(changes) == 0 {
+		return
+	}
+
+	payload := FormatAggregatedFileChangesMessage(changes, nh.cfg)
+	nh.logger.Info().Int("change_count", len(changes)).Msg("Preparing to send aggregated file changes notification.")
+
+	err := nh.discordNotifier.SendNotification(ctx, payload, "") // No specific report file for aggregated changes
+	if err != nil {
+		nh.logger.Error().Err(err).Int("change_count", len(changes)).Msg("Failed to send aggregated file changes notification.")
+	} else {
+		nh.logger.Info().Int("change_count", len(changes)).Msg("Aggregated file changes notification sent successfully.")
+	}
+}
+
+func (nh *NotificationHelper) SendInitialMonitoredURLsNotification(ctx context.Context, monitoredURLs []string) {
+	if nh.discordNotifier == nil || nh.discordNotifier.IsDisabled() || len(monitoredURLs) == 0 {
+		return
+	}
+
+	payload := FormatInitialMonitoredURLsMessage(monitoredURLs, nh.cfg)
+	nh.logger.Info().Int("url_count", len(monitoredURLs)).Msg("Preparing to send initial monitored URLs notification.")
+
+	err := nh.discordNotifier.SendNotification(ctx, payload, "") // No specific report file
+	if err != nil {
+		nh.logger.Error().Err(err).Int("url_count", len(monitoredURLs)).Msg("Failed to send initial monitored URLs notification.")
+	} else {
+		nh.logger.Info().Int("url_count", len(monitoredURLs)).Msg("Initial monitored URLs notification sent successfully.")
+	}
+}
+
+// SendFileChangeNotification is removed as changes are aggregated.
+// func (nh *NotificationHelper) SendFileChangeNotification(ctx context.Context, ...) { ... }
+
+func (nh *NotificationHelper) SendAggregatedMonitorErrorsNotification(ctx context.Context, errors []models.MonitorFetchErrorInfo) {
+	if nh.discordNotifier == nil || nh.discordNotifier.IsDisabled() {
+		nh.logger.Debug().Int("error_count", len(errors)).Msg("Discord notifier is disabled, skipping aggregated monitor error notification.")
+		return
+	}
+
+	if !nh.cfg.NotifyOnCriticalError { // Assuming these errors fall under critical, or add a specific config flag
+		nh.logger.Debug().Int("error_count", len(errors)).Msg("Aggregated monitor error notifications are disabled in config.")
+		return
+	}
+
+	if len(errors) == 0 {
+		return
+	}
+
+	nh.logger.Info().Int("error_count", len(errors)).Msg("Preparing to send aggregated monitor error notification.")
+	payload := FormatAggregatedMonitorErrorsMessage(errors, nh.cfg)
+
+	err := nh.discordNotifier.SendNotification(ctx, payload, "") // No report file for this type of notification
+	if err != nil {
+		nh.logger.Error().Err(err).Str("webhook_url", nh.cfg.DiscordWebhookURL).Msg("Failed to send aggregated monitor error notification")
+	}
+}

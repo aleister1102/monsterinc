@@ -35,6 +35,11 @@ type DiscordNotifier struct {
 	disabled   bool // Added to indicate if notifier is operational
 }
 
+// IsDisabled checks if the notifier is explicitly disabled or if the webhook URL is not set.
+func (dn *DiscordNotifier) IsDisabled() bool {
+	return dn.disabled || dn.cfg.DiscordWebhookURL == ""
+}
+
 // NewDiscordNotifier creates a new DiscordNotifier.
 func NewDiscordNotifier(cfg config.NotificationConfig, logger zerolog.Logger, httpClient *http.Client) (*DiscordNotifier, error) {
 	moduleLogger := logger.With().Str("module", "DiscordNotifier").Logger()

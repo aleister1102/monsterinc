@@ -97,6 +97,23 @@ type DiffStats struct {
 	Changed  int // (If StatusChanged is implemented)
 }
 
+// FileChangeInfo holds information about a single file change for aggregation.
+type FileChangeInfo struct {
+	URL         string
+	OldHash     string
+	NewHash     string
+	ContentType string
+	ChangeTime  time.Time // Time the change was detected
+}
+
+// MonitorFetchErrorInfo holds information about an error encountered during file fetching or processing.
+type MonitorFetchErrorInfo struct {
+	URL        string    `json:"url"`
+	Error      string    `json:"error"`  // Error message
+	Source     string    `json:"source"` // e.g., "fetch", "process", "store_history"
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
 // ScanStatus defines the possible states of a scan.
 type ScanStatus string
 
@@ -104,10 +121,11 @@ const (
 	ScanStatusStarted         ScanStatus = "STARTED"
 	ScanStatusCompleted       ScanStatus = "COMPLETED"
 	ScanStatusFailed          ScanStatus = "FAILED"
-	ScanStatusCriticalError   ScanStatus = "CRITICAL_ERROR"   // For application-level critical errors
-	ScanStatusPartialComplete ScanStatus = "PARTIAL_COMPLETE" // If some targets succeed and others fail
-	ScanStatusInterrupted     ScanStatus = "INTERRUPTED"      // Added for scans interrupted by signal or context cancellation
-	ScanStatusUnknown         ScanStatus = "UNKNOWN"          // Default to unknown status
+	ScanStatusCriticalError   ScanStatus = "CRITICAL_ERROR"
+	ScanStatusPartialComplete ScanStatus = "PARTIAL_COMPLETE"
+	ScanStatusInterrupted     ScanStatus = "INTERRUPTED"
+	ScanStatusUnknown         ScanStatus = "UNKNOWN"
+	ScanStatusNoTargets       ScanStatus = "NO_TARGETS"
 )
 
 // GetDefaultScanSummaryData initializes a ScanSummaryData with default/empty values.
