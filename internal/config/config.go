@@ -71,7 +71,7 @@ const (
 	// Scheduler Defaults
 	DefaultSchedulerScanIntervalMinutes = 10080 // 7 days
 	DefaultSchedulerRetryAttempts       = 2
-	DefaultSchedulerSQLiteDBPath        = "database/scheduler_history.db"
+	DefaultSchedulerSQLiteDBPath        = "database/scheduler/scheduler_history.db"
 )
 
 // --- Nested Configuration Structs ---
@@ -323,7 +323,7 @@ func NewDefaultMonitorConfig() MonitorConfig {
 		TargetJSFilePatterns:       []string{},
 		TargetHTMLFilePatterns:     []string{},
 		MaxConcurrentChecks:        5,
-		StoreFullContentOnChange:   false,
+		StoreFullContentOnChange:   true,
 		HTTPTimeoutSeconds:         30,
 		InitialMonitorURLs:         []string{},
 		JSFileExtensions:           []string{"\\.js", "\\.jsx", "\\.ts", "\\.tsx"},
@@ -343,9 +343,9 @@ type SchedulerConfig struct {
 // NewDefaultSchedulerConfig creates a SchedulerConfig with default values.
 func NewDefaultSchedulerConfig() SchedulerConfig {
 	return SchedulerConfig{
-		CycleMinutes:  DefaultSchedulerScanIntervalMinutes,
-		RetryAttempts: DefaultSchedulerRetryAttempts,
-		SQLiteDBPath:  DefaultSchedulerSQLiteDBPath,
+		CycleMinutes:  10080, // 7 days
+		RetryAttempts: 2,
+		SQLiteDBPath:  "database/scheduler/scheduler_history.db", // Updated path
 	}
 }
 
@@ -364,6 +364,7 @@ type GlobalConfig struct {
 	NormalizerConfig   NormalizerConfig   `json:"normalizer_config,omitempty" yaml:"normalizer_config,omitempty"`
 	SchedulerConfig    SchedulerConfig    `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
 	Mode               string             `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
+	DiffReporterConfig DiffReporterConfig `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
 }
 
 func NewDefaultGlobalConfig() *GlobalConfig {
@@ -379,6 +380,7 @@ func NewDefaultGlobalConfig() *GlobalConfig {
 		MonitorConfig:      NewDefaultMonitorConfig(),
 		NormalizerConfig:   NewDefaultNormalizerConfig(),
 		SchedulerConfig:    NewDefaultSchedulerConfig(),
+		DiffReporterConfig: NewDefaultDiffReporterConfig(),
 		Mode:               "onetime",
 	}
 }
@@ -434,3 +436,22 @@ func LoadGlobalConfig(providedPath string) (*GlobalConfig, error) { // providedP
 // SaveGlobalConfig saves the global configuration to the given file path.
 // It supports both JSON and YAML formats based on file extension.
 // ... existing code ...
+
+// DiffReporterConfig holds specific settings for diff reports.
+// This is a new struct for task 6.1 from 12-tasks-prd-html-js-content-diff-reporting.md
+// It can be part of MonitorConfig or a top-level config if preferred.
+// For now, let's make it a separate struct that can be embedded or referenced.
+type DiffReporterConfig struct {
+	MaxDiffFileSizeMB   int  `json:"max_diff_file_size_mb,omitempty" yaml:"max_diff_file_size_mb,omitempty"`
+	BeautifyHTMLForDiff bool `json:"beautify_html_for_diff,omitempty" yaml:"beautify_html_for_diff,omitempty"`
+	BeautifyJSForDiff   bool `json:"beautify_js_for_diff,omitempty" yaml:"beautify_js_for_diff,omitempty"`
+}
+
+// NewDefaultDiffReporterConfig creates a DiffReporterConfig with default values.
+func NewDefaultDiffReporterConfig() DiffReporterConfig {
+	return DiffReporterConfig{
+		MaxDiffFileSizeMB:   5, // Default 5MB
+		BeautifyHTMLForDiff: true,
+		BeautifyJSForDiff:   true,
+	}
+}
