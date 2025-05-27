@@ -119,14 +119,15 @@ type MonitorFetchErrorInfo struct {
 type ScanStatus string
 
 const (
-	ScanStatusStarted         ScanStatus = "STARTED"
-	ScanStatusCompleted       ScanStatus = "COMPLETED"
-	ScanStatusFailed          ScanStatus = "FAILED"
-	ScanStatusCriticalError   ScanStatus = "CRITICAL_ERROR"
-	ScanStatusPartialComplete ScanStatus = "PARTIAL_COMPLETE"
-	ScanStatusInterrupted     ScanStatus = "INTERRUPTED"
-	ScanStatusUnknown         ScanStatus = "UNKNOWN"
-	ScanStatusNoTargets       ScanStatus = "NO_TARGETS"
+	ScanStatusStarted             ScanStatus = "STARTED"
+	ScanStatusCompleted           ScanStatus = "COMPLETED"
+	ScanStatusFailed              ScanStatus = "FAILED"
+	ScanStatusCriticalError       ScanStatus = "CRITICAL_ERROR"
+	ScanStatusPartialComplete     ScanStatus = "PARTIAL_COMPLETE"
+	ScanStatusInterrupted         ScanStatus = "INTERRUPTED"
+	ScanStatusUnknown             ScanStatus = "UNKNOWN"
+	ScanStatusNoTargets           ScanStatus = "NO_TARGETS"
+	ScanStatusCompletedWithIssues ScanStatus = "COMPLETED_WITH_ISSUES"
 )
 
 // GetDefaultScanSummaryData initializes a ScanSummaryData with default/empty values.

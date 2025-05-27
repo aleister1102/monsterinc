@@ -4,7 +4,6 @@ import (
 	"context"
 	"monsterinc/internal/config"
 	"monsterinc/internal/models"
-	"time"
 
 	"github.com/rs/zerolog"
 )
@@ -28,11 +27,12 @@ type NotificationHelper struct {
 
 // NewNotificationHelper creates a new NotificationHelper.
 func NewNotificationHelper(dn *DiscordNotifier, cfg config.NotificationConfig, logger zerolog.Logger) *NotificationHelper {
-	return &NotificationHelper{
+	nh := &NotificationHelper{
 		discordNotifier: dn,
 		cfg:             cfg,
 		logger:          logger.With().Str("module", "NotificationHelper").Logger(),
 	}
+	return nh
 }
 
 // getWebhookURL selects the appropriate webhook URL based on the service type.
@@ -75,44 +75,53 @@ func (nh *NotificationHelper) SendScanStartNotification(ctx context.Context, sum
 }
 
 // SendScanCompletionNotification sends a notification when a scan completes (successfully or with failure).
-func (nh *NotificationHelper) SendScanCompletionNotification(ctx context.Context, summary models.ScanSummaryData) {
-	webhookURL := nh.getWebhookURL(ScanServiceNotification)
-	if nh.discordNotifier == nil || webhookURL == "" {
-		nh.logger.Debug().Msg("DiscordNotifier or scan service webhook not configured, skipping completion notification.")
-		return
+func (nh *NotificationHelper) SendScanCompletionNotification(ctx context.Context, summary models.ScanSummaryData, serviceType NotificationServiceType) {
+	// Determine if notification should be sent based on success/failure and config
+	shouldSend := false
+	successStatus := summary.Status == string(models.ScanStatusCompleted) || summary.Status == string(models.ScanStatusCompletedWithIssues)
+
+	if successStatus && nh.cfg.NotifyOnSuccess {
+		shouldSend = true
+	} else if !successStatus && nh.cfg.NotifyOnFailure {
+		// This covers FAILED, INTERRUPTED, NO_TARGETS etc. as non-success cases
+		shouldSend = true
 	}
 
-	notify := false
-	switch models.ScanStatus(summary.Status) {
-	case models.ScanStatusCompleted, models.ScanStatusPartialComplete:
-		if nh.cfg.NotifyOnSuccess {
-			notify = true
+	if shouldSend {
+		nh.logger.Info().
+			Str("scan_session_id", summary.ScanSessionID).
+			Str("status", summary.Status).
+			Str("target_source", summary.TargetSource).
+			Msg("Preparing to send scan completion notification.")
+
+		payload := FormatScanCompleteMessage(summary, nh.cfg)
+		webhookURL := nh.getWebhookURL(serviceType) // Use the passed serviceType
+
+		if webhookURL == "" {
+			nh.logger.Warn().Msg("Webhook URL is empty for the determined service type, skipping scan completion notification.")
+			return
 		}
-	case models.ScanStatusFailed, models.ScanStatusInterrupted:
-		if nh.cfg.NotifyOnFailure {
-			notify = true
+
+		reportFilePath := "" // Default to no file
+		// Only attach report if the scan was completed (or partially) and a path exists.
+		// For interruptions or critical errors before report generation, this path will be empty.
+		if (summary.Status == string(models.ScanStatusCompleted) || summary.Status == string(models.ScanStatusPartialComplete) || summary.Status == string(models.ScanStatusCompletedWithIssues)) && summary.ReportPath != "" {
+			reportFilePath = summary.ReportPath
 		}
-	default:
-		nh.logger.Warn().Str("status", summary.Status).Msg("Unknown scan status for notification, skipping.")
-		return
-	}
 
-	if !notify {
-		nh.logger.Debug().Str("status", summary.Status).Msg("Notification for this scan status is disabled, skipping.")
-		return
-	}
-
-	nh.logger.Info().Str("scan_session_id", summary.ScanSessionID).Str("target_source", summary.TargetSource).Str("status", summary.Status).Msg("Preparing to send scan completion notification.")
-
-	payload := FormatScanCompleteMessage(summary, nh.cfg)
-	notificationCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	err := nh.discordNotifier.SendNotification(notificationCtx, webhookURL, payload, summary.ReportPath)
-	if err != nil {
-		nh.logger.Error().Err(err).Str("scan_session_id", summary.ScanSessionID).Msg("Failed to send scan completion notification")
+		err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, reportFilePath)
+		if err != nil {
+			nh.logger.Error().Err(err).Msg("Failed to send scan completion notification")
+		} else {
+			nh.logger.Info().Str("scan_session_id", summary.ScanSessionID).Msg("Scan completion notification sent successfully.")
+		}
 	} else {
-		nh.logger.Info().Str("scan_session_id", summary.ScanSessionID).Msg("Scan completion notification sent successfully.")
+		nh.logger.Debug().
+			Str("scan_session_id", summary.ScanSessionID).
+			Str("status", summary.Status).
+			Bool("notify_on_success", nh.cfg.NotifyOnSuccess).
+			Bool("notify_on_failure", nh.cfg.NotifyOnFailure).
+			Msg("Scan completion notification skipped based on status and configuration.")
 	}
 }
 

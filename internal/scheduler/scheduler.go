@@ -287,7 +287,7 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 				if !containsCancellationError(scanSummary.ErrorMessages) {
 					scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("Scan cycle aborted during retries due to context cancellation. Last error: %v", lastErr))
 				}
-				s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary)
+				s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary, notifier.ScanServiceNotification)
 			}
 			return
 		default:
@@ -304,7 +304,7 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 					if !containsCancellationError(scanSummary.ErrorMessages) {
 						scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("Scan cycle aborted during retry delay due to context cancellation. Last error: %v", lastErr))
 					}
-					s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary)
+					s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary, notifier.ScanServiceNotification)
 				}
 				return
 			}
@@ -326,7 +326,7 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 		if lastErr == nil {
 			s.logger.Info().Str("scan_session_id", currentScanSessionID).Msg("Scheduler: Scan cycle completed successfully.")
 			scanSummary.Status = string(models.ScanStatusCompleted)
-			s.notificationHelper.SendScanCompletionNotification(ctx, scanSummary)
+			s.notificationHelper.SendScanCompletionNotification(ctx, scanSummary, notifier.ScanServiceNotification)
 			return
 		}
 
@@ -336,7 +336,7 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 			if !containsCancellationError(scanSummary.ErrorMessages) {
 				scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("Scan cycle interrupted: %v", lastErr))
 			}
-			s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary)
+			s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary, notifier.ScanServiceNotification)
 			return
 		}
 
@@ -348,7 +348,7 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 			if !containsCancellationError(scanSummary.ErrorMessages) {
 				scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, fmt.Sprintf("All %d retry attempts failed. Last error: %v", maxRetries+1, lastErr))
 			}
-			s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary)
+			s.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary, notifier.ScanServiceNotification)
 		}
 	}
 }
