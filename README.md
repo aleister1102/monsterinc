@@ -1,145 +1,230 @@
 # MonsterInc
 
-MonsterInc is a command-line interface (CLI) tool written in Go, used for gathering information from websites, performing HTTP/HTTPS probing, and generating reports.
+MonsterInc is a command-line interface (CLI) tool written in Go, specialized for gathering information from websites, performing HTTP/HTTPS probing, and generating detailed reports.
 
 ## Key Features
 
--   **Web Crawling**: Collects URLs from websites starting from one or more seed URLs.
-    -   Control crawl scope (allowed/disallowed hostnames, subdomains, path regexes).
-    -   Customize User-Agent, timeout, depth, number of threads.
-    -   Can respect or ignore `robots.txt`.
-    -   Checks `Content-Length` before crawling to avoid downloading large files.
--   **HTTP/HTTPS Probing**: Sends requests to collected URLs to get detailed information.
-    -   Uses ProjectDiscovery's `httpx` library.
-    -   Extracts diverse information: status code, content type, content length, title, web server, headers, IPs, CNAMEs, ASN, TLS information, used technologies.
-    -   Customize HTTP method, request URIs, headers, proxy, timeout, retries.
--   **HTML Reporting**: Generates interactive HTML reports from probing results.
-    -   Displays results in a table format, searchable, filterable, and sortable.
-    -   Embeds custom CSS/JS for a good user interface and experience.
-    -   Uses Bootstrap (via CDN) for basic styling.
--   **Parquet Storage**: Writes probing results to Parquet files for later data analysis.
-    -   Supports compression codecs: ZSTD (default), SNAPPY, GZIP, UNCOMPRESSED.
-    -   Saves files in the directory structure `ParquetBasePath/YYYYMMDD/scan_results_*.parquet`.
--   **Flexible Configuration**: Manages configuration via a YAML file (`config.yaml` preferred) or JSON (`config.json`) and command-line parameters.
--   **Periodic Scanning (Automated Mode)**:
-    -   Allows scheduling of recurring scans (e.g., daily).
-    -   Reloads target lists at the beginning of each scan cycle.
-    -   Maintains a history of scans in an SQLite database.
-    -   Sends notifications (e.g., via Discord) on scan start, success, and failure.
-    -   Includes retry logic for failed scans.
+### 🕷️ Web Crawling
+- Collect URLs from websites starting from one or more seed URLs
+- Control crawl scope (allowed/disallowed hostnames, subdomains, path regexes)
+- Customize User-Agent, timeout, depth, number of threads
+- Can respect or ignore `robots.txt`
+- Check `Content-Length` before crawling to avoid downloading large files
 
-## Installation and Build
+### 🔍 HTTP/HTTPS Probing
+- Uses ProjectDiscovery's `httpx` library
+- Extract diverse information: status code, content type, content length, title, web server, headers, IPs, CNAMEs, ASN, TLS information, technologies used
+- Customize HTTP method, request URIs, headers, proxy, timeout, retries
 
-### Prerequisites
+### 📊 HTML Reporting
+- Generate interactive HTML reports from probing results
+- Display results in table format with search, filter, and sort capabilities
+- Embed custom CSS/JS for good user interface and experience
+- Use Bootstrap (via CDN) for basic styling
 
--   Go version 1.23.0 or newer.
+### 💾 Parquet Storage
+- Write probing results to Parquet files for later data analysis
+- Support compression codecs: ZSTD (default), SNAPPY, GZIP, UNCOMPRESSED
+- Save files in directory structure `ParquetBasePath/YYYYMMDD/scan_results_*.parquet`
 
-### Build
+### ⚙️ Flexible Configuration
+- Manage configuration via YAML file (`config.yaml` preferred) or JSON (`config.json`)
+- Support command-line parameters
 
-1.  Clone the repository (if applicable):
-    ```bash
-    git clone <your-repository-url>
-    cd monsterinc
-    ```
-2.  Build the application:
-    ```bash
-    go build -o monsterinc.exe ./cmd/monsterinc
-    ```
-    (Or `go build -o monsterinc ./cmd/monsterinc` for Linux/macOS)
+### 🔄 Periodic Scanning (Automated Mode)
+- Allow scheduling of recurring scans (e.g., daily)
+- Reload target lists at the beginning of each scan cycle
+- Maintain scan history in SQLite database
+- Send notifications (e.g., via Discord) on scan start, success, and failure
+- Include retry logic for failed scans
+
+### 📁 File Monitoring
+- Monitor JS/HTML file changes in real-time
+- Detect content changes and generate diff reports
+- Support aggregated notifications
+
+### 🔐 Secret Detection
+- Integrate TruffleHog for secret detection
+- Support custom regex patterns
+- Automatic notifications for high severity secrets
+
+### 🔗 Path Extraction
+- Extract paths/URLs from JS/HTML content
+- Use jsluice library for JS analysis
+- Support custom regex patterns
+
+## Installation
+
+### System Requirements
+- Go version 1.23.0 or newer
+
+### Install from Source
+
+1. Clone repository:
+```bash
+git clone https://github.com/your-username/monsterinc.git
+cd monsterinc
+```
+
+2. Build application:
+```bash
+# Windows
+go build -o monsterinc.exe ./cmd/monsterinc
+
+# Linux/macOS
+go build -o monsterinc ./cmd/monsterinc
+```
+
+### Install from GitHub Releases
+
+1. Download appropriate binary from [GitHub Releases](https://github.com/your-username/monsterinc/releases)
+2. Extract and place in system PATH
+
+### Install via Go install
+
+```bash
+go install github.com/your-username/monsterinc/cmd/monsterinc@latest
+```
 
 ## Usage
 
-Run the application from the command line:
+### Basic Syntax
 
 ```bash
-./monsterinc.exe --mode <onetime|automated> [other_options]
+./monsterinc --mode <onetime|automated> [options]
 ```
 
 ### Main Command-Line Parameters
 
--   `--mode <onetime|automated>`: (Required) Execution mode.
-    -   `onetime`: Runs a single scan and then exits. The report filename will include a detailed timestamp (e.g., `reports/YYYYMMDD-HHMMSS_onetime_report.html`).
-    -   `automated`: Runs in a continuous loop, performing scans at scheduled intervals. The report filename will include the date and mode (e.g., `reports/YYYYMMDD-HHMMSS_automated_report.html`). This mode uses settings from the `scheduler_config` section in the configuration file.
-        -   **Scheduling**: The interval between scan cycles is defined by `scheduler_config.cycle_minutes`.
-        -   **Target Reloading**: At the start of each cycle, targets are reloaded based on the `-u / --urlfile` flag (if provided at startup and its path is not overridden by `input_config.input_file`) or `input_config` settings in the configuration file.
-        -   **SQLite Database**: Scan history (start/end times, status, target source, report path, diff summary) is stored in an SQLite database. The path is specified by `scheduler_config.sqlite_db_path` (default: `database/scheduler_history.db`). This database is used to determine the next scan time.
-        -   **Retries**: If a scan cycle fails, it will be retried up to `scheduler_config.retry_attempts` times, with a fixed delay between attempts.
-        -   **Notifications**: Scan start and completion (success or final failure) events trigger notifications if configured in `notification_config`.
--   `-u <path/to/urls.txt>` or `--urlfile <path/to/urls.txt>`: (Optional) Path to a text file containing a list of seed URLs to crawl, one URL per line. If not provided, `input_config.input_urls` from the configuration file will be used. This flag is also used by the `automated` mode to specify the initial target list for the first scan, and can be reloaded if the file path is configured in `input_config.input_file`.
--   `--globalconfig <path/to/config.yaml>`: (Optional) Path to the configuration file. Defaults to `config.yaml` in the same directory as the executable.
+- `--mode <onetime|automated>`: (Required) Execution mode
+  - `onetime`: Run once and exit
+  - `automated`: Run continuously on schedule
+- `-u, --urlfile <path>`: Path to file containing seed URLs list
+- `--mtf, --monitor-target-file <path>`: File containing URLs to monitor (automated mode only)
+- `--gc, --globalconfig <path>`: Path to configuration file
 
-### Examples
+### Usage Examples
 
 ```bash
-# Run once with a list of URLs from targets.txt
-./monsterinc.exe --mode onetime -u targets.txt
+# Run once with URLs list from file
+./monsterinc --mode onetime -u targets.txt
 
-# Run automatically, using URLs from the config file (if any)
-./monsterinc.exe --mode automated
+# Run automatically with monitoring
+./monsterinc --mode automated --mtf monitor_targets.txt
 
-# Run with a custom configuration file
-./monsterinc.exe --mode onetime --globalconfig custom_config.yaml -u targets.txt
+# Use custom configuration file
+./monsterinc --mode onetime --globalconfig custom_config.yaml -u targets.txt
+
+# Run automated mode with both scan and monitor
+./monsterinc --mode automated -u scan_targets.txt --mtf monitor_targets.txt
 ```
 
-### Configuration File (`config.yaml` or `config.json`)
+## Configuration
 
-The configuration file allows detailed customization of module behavior. By default, the application looks for `config.yaml`. If not found and `config.json` exists, it might be used as a fallback (depending on the current logic in `LoadGlobalConfig`).
+### Configuration File
 
-See `internal/config/README.md` and the sample `config.example.yaml` (recommended) or `config.json` file for more details on configuration options.
+Application searches for configuration files in order:
+1. `config.yaml` (preferred)
+2. `config.json` (fallback)
 
-## Project Directory Structure
+Copy `config.example.yaml` to `config.yaml` and edit as needed:
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+### Main Configuration Sections
+
+- **input_config**: Target URLs source configuration
+- **httpx_runner_config**: Settings for httpx probing
+- **crawler_config**: Web crawling configuration
+- **reporter_config**: HTML report generation settings
+- **storage_config**: Parquet storage configuration
+- **notification_config**: Discord notification settings
+- **monitor_config**: File monitoring configuration
+- **secrets_config**: Secret detection settings
+- **scheduler_config**: Automated mode configuration
+
+## Directory Structure
 
 ```
 monsterinc/
-├── cmd/monsterinc/         # Application entrypoint (main.go)
-│   └── README.md
-├── internal/                 # Internal application logic code
-│   ├── config/             # Configuration management (config.go, validator.go, README.md)
-│   ├── core/               # Core business logic (target_manager.go, README.md) - TO BE RENAMED/REMOVED if scheduler replaces its role
-│   ├── crawler/            # Web crawling module (crawler.go, scope.go, asset.go, README.md)
-│   ├── datastore/          # Data storage module (parquet_writer.go, parquet_reader.go, README.md)
-│   ├── differ/             # Module for comparing differences (url_differ.go, README.md)
-│   ├── httpxrunner/        # Wrapper for the httpx library (runner.go, result.go, README.md)
-│   ├── logger/             # Logging module (logger.go, README.md)
-│   ├── models/             # Data structure definitions (probe_result.go, parquet_schema.go, report_data.go, etc., README.md)
-│   ├── notification/       # Notification module (notification_helper.go, README.md)
-│   ├── notifier/           # Corrected from notification/
-│   ├── reporter/           # HTML report generation module
-│   │   ├── assets/         # CSS, JS for HTML reports
-│   │   ├── templates/      # HTML Template (report.html.tmpl)
-│   │   └── html_reporter.go, README.md
-│   ├── scheduler/          # Automated scan scheduling module (scheduler.go, db.go, target_manager.go, README.md)
-│   ├── urlhandler/         # URL handling and normalization (urlhandler.go, file.go, README.md)
-│   └── utils/              # (Not yet used) Common utilities
-├── reports/                  # Default directory for generated HTML reports (.gitignore-d)
-├── database/                 # Default directory for SQLite database and Parquet files (per config, .gitignore-d)
-├── tasks/                    # Contains PRD files and task lists (e.g., *.md)
-├── .gitignore                # Files and directories ignored by Git
-├── config.yaml               # Main application configuration file (should be created from config.example.yaml)
-├── config.example.yaml       # Sample YAML configuration file, comprehensive and commented
-├── config.json               # Sample JSON configuration file (may not be updated as frequently as YAML)
-├── go.mod                    # Go module declaration and dependencies
-├── go.sum                    # Dependency checksums
-├── monsterinc.exe            # (After build) Executable file for Windows
-├── monsterinc                # (After build) Executable file for Linux/macOS
-├── PLAN.md                   # Development plan (if any)
-└── README.md                 # This README file
+├── cmd/monsterinc/         # Application entry point
+├── internal/               # Internal application logic
+│   ├── config/            # Configuration management
+│   ├── crawler/           # Web crawling module
+│   ├── datastore/         # Data storage module
+│   ├── differ/            # Difference comparison module
+│   ├── extractor/         # Path extraction module
+│   ├── httpxrunner/       # httpx wrapper
+│   ├── logger/            # Logging module
+│   ├── models/            # Data structure definitions
+│   ├── monitor/           # File monitoring module
+│   ├── notifier/          # Notification module
+│   ├── orchestrator/      # Workflow orchestration
+│   ├── reporter/          # HTML report generation
+│   ├── scheduler/         # Automated scan scheduling
+│   ├── secrets/           # Secret detection
+│   └── urlhandler/        # URL handling and normalization
+├── reports/               # HTML reports directory
+├── database/              # Database and Parquet files directory
+├── tasks/                 # PRD files and task lists
+├── config.example.yaml    # Sample configuration file
+└── README.md             # This file
 ```
 
-## Main Modules and Functionality
+## Workflow Operation
 
--   **`config`**: Reads and manages configuration from YAML (preferred) or JSON files.
--   **`urlhandler`**: Normalizes URLs, reads URLs from files.
--   **`crawler`**: Collects URLs from websites.
--   **`httpxrunner`**: Performs HTTP/HTTPS probing on URLs using `httpx`.
--   **`models`**: Defines common data structures.
--   **`datastore`**: Stores results into Parquet files.
--   **`reporter`**: Generates HTML reports from results.
--   **`logger`**: Provides an interface and basic implementation for logging.
--   **`core`**: (Under development) Contains main orchestration logic. - TO BE RENAMED/REMOVED if scheduler replaces its role
--   **`scheduler`**: Manages automated periodic scans, including scheduling, database interaction for scan history, target loading, and notifications.
--   **`notification`**: Handles sending notifications for scan events.
+### Onetime Mode
+1. **Initialization**: Load configuration, initialize logger and notification
+2. **Target Acquisition**: Determine seed URLs from file or config
+3. **Crawling**: Collect URLs from seed URLs
+4. **Probing**: Perform HTTP/HTTPS probing with httpx
+5. **Diffing**: Compare with historical data from Parquet
+6. **Secret Detection**: Scan content for secrets (if enabled)
+7. **Path Extraction**: Extract paths from JS/HTML content
+8. **Storage**: Save results to Parquet files
+9. **Reporting**: Generate HTML report
+10. **Notification**: Send completion notification
+
+### Automated Mode
+1. **Scheduler**: Calculate next scan time
+2. **Target Reloading**: Reload targets for each cycle
+3. **Scan Execution**: Execute workflow like onetime mode
+4. **History Management**: Save scan history to SQLite
+5. **Retry Logic**: Retry if scan fails
+6. **File Monitoring**: Monitor JS/HTML file changes (if enabled)
+
+## Logging and Notifications
+
+- Use `zerolog` for structured logging
+- Support Discord notifications for:
+  - Scan lifecycle events
+  - File change notifications
+  - Critical errors
+  - High severity secrets
+
+## Main Dependencies
+
+- [colly](https://github.com/gocolly/colly) - Web crawling
+- [httpx](https://github.com/projectdiscovery/httpx) - HTTP probing
+- [parquet-go](https://github.com/parquet-go/parquet-go) - Parquet file handling
+- [zerolog](https://github.com/rs/zerolog) - Structured logging
+- [jsluice](https://github.com/BishopFox/jsluice) - JavaScript analysis
 
 ## Contributing
 
-(Information on how to contribute to the project - if applicable) 
+1. Fork repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Create Pull Request
+
+## License
+
+This project is distributed under the MIT License. See `LICENSE` file for more details.
+
+## Support
+
+- Create [GitHub Issue](https://github.com/your-username/monsterinc/issues) to report bugs or suggest features
+- See [Wiki](./wiki.md) for more details about project structure and operation 
