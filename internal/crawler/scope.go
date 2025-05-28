@@ -23,7 +23,6 @@ type ScopeSettings struct {
 	AllowedPathPatterns    []*regexp.Regexp // Task 2.2: Regex for allowed paths
 	DisallowedPathPatterns []*regexp.Regexp // Task 2.2: Regex for disallowed paths
 	logger                 zerolog.Logger   // Added logger
-	// TODO: Add Robots.txt handling (Task 2.3)
 }
 
 // NewScopeSettings creates a new ScopeSettings with provided rules.

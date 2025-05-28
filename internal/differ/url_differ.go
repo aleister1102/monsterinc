@@ -67,8 +67,6 @@ func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget
 		if existsInHistory {
 			diffResult.Existing++
 			currentProbe.URLStatus = string(models.StatusExisting) // Mark as existing
-			// TODO: Implement content change detection if needed
-			// For now, just mark as existing. Actual content diffing is more complex.
 		} else {
 			diffResult.New++
 			currentProbe.URLStatus = string(models.StatusNew) // Mark as new

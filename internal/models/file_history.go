@@ -2,7 +2,6 @@ package models
 
 import (
 	"errors"
-	"time"
 )
 
 // ErrRecordNotFound is returned when a record is not found in the store.
@@ -45,14 +44,10 @@ type FileHistoryStore interface {
 
 	GetLatestRecord(url string) (*FileHistoryRecord, error)
 	GetRecordsForURL(url string, limit int) ([]*FileHistoryRecord, error)
-	ArchiveHistory(url string) error                      // Archives old records for a URL
 	GetAllRecordsWithDiff() ([]*FileHistoryRecord, error) // Added for aggregated diff reporting
 
 	// GetHostnamesWithHistory retrieves a list of unique hostnames that have history records.
 	GetHostnamesWithHistory() ([]string, error)
-
-	// DeleteOldRecordsForHost deletes records older than a specified duration for a given hostname.
-	DeleteOldRecordsForHost(hostname string, olderThan time.Duration) (int64, error)
 
 	GetAllLatestDiffResultsForURLs(urls []string) (map[string]*ContentDiffResult, error)
 	// GetAllDiffResults retrieves all stored diff results, primarily for aggregated reporting.

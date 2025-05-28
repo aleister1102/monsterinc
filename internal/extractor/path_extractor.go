@@ -89,9 +89,9 @@ func (pe *PathExtractor) ExtractPaths(sourceURL string, content []byte, contentT
 
 	// Add custom matchers
 	// These domains are from the user's example; consider making this configurable.
+	// TODO: Make this configurable.
 	domains := []string{"myoas.com", "wanyol.com", "oppoit.com"}
 
-	// TODO: Make this configurable.
 	// TODO: Add more matchers.
 	for _, domain := range domains {
 		analyzer.AddURLMatcher(jsluice.URLMatcher{Type: "string", Fn: makeBaseURLMatcher(domain, "custom_base_"+strings.ReplaceAll(domain, ".", "_"))})

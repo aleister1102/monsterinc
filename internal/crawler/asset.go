@@ -36,9 +36,6 @@ var tagsToExtract = map[string]string{
 	"form":   "action", // For form submission URLs
 	"object": "data",   // For embedded objects
 	"embed":  "src",    // For embedded content
-	// TODO: Add more tags/attributes if necessary based on common practices or specific needs
-	// e.g. <source src="...">, <video poster="...">, <area href="...">
-	// srcset for img/source can contain multiple URLs, needs special handling.
 }
 
 // ExtractAssetsFromHTML parses HTML content and extracts various assets like links, scripts, styles, images.

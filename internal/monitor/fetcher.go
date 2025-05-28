@@ -63,10 +63,6 @@ func (f *Fetcher) FetchFileContent(input FetchFileContentInput) (*FetchFileConte
 		req.Header.Set("If-Modified-Since", input.PreviousLastModified)
 	}
 
-	// Set User-Agent if specified in config (or a default one)
-	// TODO: Add User-Agent to MonitorConfig or use a global one from CrawlerConfig if appropriate
-	// req.Header.Set("User-Agent", f.cfg.UserAgent)
-
 	// Use httpClient with timeout from the MonitoringService (derived from config)
 	resp, err := f.httpClient.Do(req)
 	if err != nil {

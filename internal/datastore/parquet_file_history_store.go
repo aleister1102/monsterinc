@@ -14,8 +14,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
-	"time"
 
 	// Needed for GetLastKnownRecord sorting
 	"github.com/parquet-go/parquet-go"
@@ -32,8 +30,6 @@ const (
 	maxMonitorHistoryFileSize     int64 = 100 * 1024 * 1024 // 100MB
 	monitorHistoryFileGlobPattern       = "*_monitor_history.parquet"
 )
-
-var storeMutex sync.Mutex // Mutex to protect file read/write operations
 
 // ParquetFileHistoryStore implements the models.FileHistoryStore interface using Parquet files.
 // Each monitored URL will have its history stored in a separate Parquet file.
@@ -401,22 +397,6 @@ func (pfs *ParquetFileHistoryStore) readRecordsFromFile(filePath string) ([]*mod
 	return recordPtrs, nil
 }
 
-// ArchiveHistory archives old records for a given URL.
-// Placeholder implementation: Logs a message and returns nil.
-// Actual archiving logic (e.g., moving to a separate archive file or directory)
-// would be implemented here based on specific requirements (e.g., age threshold).
-func (pfs *ParquetFileHistoryStore) ArchiveHistory(url string) error {
-	pfs.logger.Info().Str("url", url).Msg("ArchiveHistory called, placeholder implementation. No actual archiving performed.")
-	// TODO: Implement actual archiving logic if required.
-	// This might involve:
-	// 1. Defining what "old" means (e.g., records older than X days/months).
-	// 2. Reading current_history.parquet for the URL.
-	// 3. Identifying old records.
-	// 4. Writing old records to an archive file (e.g., in an 'archive' subdirectory).
-	// 5. Rewriting current_history.parquet without the archived records.
-	return nil
-}
-
 // GetHostnamesWithHistory retrieves a list of unique hostnames that have history records.
 // This method scans the base monitor directory for subdirectories (each representing a host)
 // and checks if they contain a current_history.parquet file.
@@ -456,20 +436,6 @@ func (pfs *ParquetFileHistoryStore) GetHostnamesWithHistory() ([]string, error) 
 
 	pfs.logger.Info().Int("count", len(hostnames)).Msg("Successfully retrieved hostnames with history.")
 	return hostnames, nil
-}
-
-// DeleteOldRecordsForHost deletes records older than a specified duration for a given hostname.
-// Placeholder implementation: Logs a message and returns 0, nil.
-func (pfs *ParquetFileHistoryStore) DeleteOldRecordsForHost(hostname string, olderThan time.Duration) (int64, error) {
-	pfs.logger.Info().Str("hostname", hostname).Dur("olderThan", olderThan).
-		Msg("DeleteOldRecordsForHost called, placeholder implementation. No actual deletion performed.")
-	// TODO: Implement actual deletion logic. This would involve:
-	// 1. Constructing the path to the host's current_history.parquet file.
-	// 2. Reading all records from it.
-	// 3. Filtering out records that are NOT older than the 'olderThan' duration (i.e., keep recent records).
-	// 4. Rewriting the current_history.parquet file with only the recent records.
-	// 5. Counting how many records were deleted and returning that count.
-	return 0, nil
 }
 
 // GetAllLatestDiffResultsForURLs retrieves the latest diff result for each of the specified URLs.

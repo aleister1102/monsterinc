@@ -385,9 +385,3 @@ func (cr *Crawler) logSummary() {
 	cr.logger.Info().Strs("seeds", cr.seedURLs).Msg("Crawl finished")
 	cr.logger.Info().Dur("duration", duration).Int("visited", cr.totalVisited).Int("discovered", len(cr.discoveredURLs)).Int("errors", cr.totalErrors).Msg("Summary")
 }
-
-// TODO:
-// - Asset discovery (OnHTML callbacks to call DiscoverURL) - Task 3.x
-// - Scope control integration (check scope in DiscoverURL before c.Visit) - Task 2.x
-// - More refined error handling and specific logging levels (integrate project logger) - Task 5.x
-// - Configuration loading for crawler settings (MaxDepth, UserAgent, etc. from file) - Task 4.x
