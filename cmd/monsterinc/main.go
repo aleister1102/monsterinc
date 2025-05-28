@@ -33,11 +33,11 @@ func main() {
 	fmt.Println("MonsterInc Crawler starting...")
 
 	// Flags
-	urlListFile := flag.String("urlfile", "", "Path to a text file containing seed URLs for the main scan. Used if --diff-target-file is not set. This flag is for backward compatibility.")
-	urlListFileAlias := flag.String("uf", "", "Alias for -urlfile")
+	urlListFile := flag.String("scan-targets", "", "Path to a text file containing seed URLs for the main scan. Used if --diff-target-file is not set. This flag is for backward compatibility.")
+	urlListFileAlias := flag.String("st", "", "Alias for -scan-targets")
 
-	monitorTargetFile := flag.String("monitor-target-file", "", "Path to a text file containing JS/HTML URLs for file monitoring (only in automated mode).")
-	monitorTargetFileAlias := flag.String("mtf", "", "Alias for --monitor-target-file")
+	monitorTargetFile := flag.String("monitor-targets", "", "Path to a text file containing JS/HTML URLs for file monitoring (only in automated mode).")
+	monitorTargetFileAlias := flag.String("mt", "", "Alias for --monitor-targets")
 
 	globalConfigFile := flag.String("globalconfig", "", "Path to the global YAML/JSON configuration file. If not set, searches default locations.")
 	globalConfigFileAlias := flag.String("gc", "", "Alias for --globalconfig")

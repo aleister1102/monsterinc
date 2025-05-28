@@ -56,7 +56,7 @@ MonsterInc is a command-line interface (CLI) tool written in Go, specialized for
 ## Installation
 
 ### System Requirements
-- Go version 1.23.0 or newer
+- Go version 1.23.1 or newer
 
 ### Install from Source
 
@@ -96,27 +96,30 @@ go install github.com/your-username/monsterinc/cmd/monsterinc@latest
 
 ### Main Command-Line Parameters
 
+#### Required Parameters
 - `--mode <onetime|automated>`: (Required) Execution mode
   - `onetime`: Run once and exit
   - `automated`: Run continuously on schedule
-- `-u, --urlfile <path>`: Path to file containing seed URLs list
-- `--mtf, --monitor-target-file <path>`: File containing URLs to monitor (automated mode only)
-- `--gc, --globalconfig <path>`: Path to configuration file
+
+#### Optional Parameters
+- `-st, -scan-targets <path>`: Path to file containing seed URLs list
+- `-mt, -monitor-targets <path>`: File containing URLs to monitor (automated mode only)
+- `-gc, -globalconfig <path>`: Path to configuration file
 
 ### Usage Examples
 
 ```bash
 # Run once with URLs list from file
-./monsterinc --mode onetime -u targets.txt
+monsterinc --mode onetime -st targets.txt
 
 # Run automatically with monitoring
-./monsterinc --mode automated --mtf monitor_targets.txt
+./monsterinc --mode automated -mt monitor_targets.txt
 
 # Use custom configuration file
-./monsterinc --mode onetime --globalconfig custom_config.yaml -u targets.txt
+./monsterinc --mode onetime -gc custom_config.yaml -t targets.txt
 
 # Run automated mode with both scan and monitor
-./monsterinc --mode automated -u scan_targets.txt --mtf monitor_targets.txt
+./monsterinc --mode automated -st scan_targets.txt -mt monitor_targets.txt
 ```
 
 ## Configuration
@@ -211,6 +214,7 @@ monsterinc/
 - [parquet-go](https://github.com/parquet-go/parquet-go) - Parquet file handling
 - [zerolog](https://github.com/rs/zerolog) - Structured logging
 - [jsluice](https://github.com/BishopFox/jsluice) - JavaScript analysis
+- [sqlite](https://modernc.org/sqlite) - SQLite database (CGO-free)
 
 ## Contributing
 
@@ -226,5 +230,5 @@ This project is distributed under the MIT License. See `LICENSE` file for more d
 
 ## Support
 
-- Create [GitHub Issue](https://github.com/your-username/monsterinc/issues) to report bugs or suggest features
+- Create [GitHub Issue](https://github.com/aleister1102/monsterinc/issues) to report bugs or suggest features
 - See [Wiki](./wiki.md) for more details about project structure and operation 
