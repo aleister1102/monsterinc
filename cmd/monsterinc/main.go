@@ -16,6 +16,7 @@ import (
 	"monsterinc/internal/orchestrator"
 	"monsterinc/internal/reporter"
 	"monsterinc/internal/scheduler"
+	"monsterinc/internal/secrets"
 	"monsterinc/internal/urlhandler"
 	"net/http"
 	"os"
@@ -110,6 +111,37 @@ func main() {
 	// NotificationHelper now holds the NotificationConfig and decides which webhook to use.
 	notificationHelper := notifier.NewNotificationHelper(discordNotifier, gCfg.NotificationConfig, zLogger)
 
+	// --- Secrets Service Initialization ---
+	var secretStore datastore.SecretsStore
+	var secretDetector *secrets.SecretDetectorService
+	var errSecretService error
+
+	if gCfg.SecretsConfig.Enabled {
+		zLogger.Info().Msg("Secrets detection is enabled. Initializing services...")
+		secretStore, errSecretService = datastore.NewParquetSecretsStore(&gCfg.StorageConfig, zLogger)
+		if errSecretService != nil {
+			zLogger.Error().Err(errSecretService).Msg("Failed to initialize ParquetSecretsStore. Secret detection storage will be compromised.")
+			// Potentially send a critical notification or handle this as fatal depending on policy
+			// For now, we log and secretDetector will be nil if store fails.
+			secretStore = nil // Ensure store is nil if it failed
+		}
+
+		if secretStore != nil { // Only init detector if store was successful
+			secretDetector, errSecretService = secrets.NewSecretDetectorService(gCfg, secretStore, zLogger, notificationHelper)
+			if errSecretService != nil {
+				zLogger.Error().Err(errSecretService).Msg("Failed to initialize SecretDetectorService. Secret detection will be compromised.")
+				// Potentially send a critical notification
+				secretDetector = nil // Ensure detector is nil if it failed
+			} else {
+				zLogger.Info().Msg("SecretDetectorService initialized successfully.")
+			}
+		} else {
+			zLogger.Warn().Msg("ParquetSecretsStore failed to initialize. SecretDetectorService will not be initialized.")
+		}
+	} else {
+		zLogger.Info().Msg("Secrets detection is disabled in the configuration.")
+	}
+
 	// --- Monitoring Service Initialization ---
 	var monitoringService *monitor.MonitoringService
 	var monitorWg sync.WaitGroup
@@ -137,18 +169,37 @@ func main() {
 				}
 				monitorLogger := zLogger.With().Str("service", "FileMonitor").Logger()
 
-				monitoringService = monitor.NewMonitoringService(
-					&gCfg.MonitorConfig,
-					&gCfg.CrawlerConfig,
-					&gCfg.ExtractorConfig,
-					&gCfg.NotificationConfig,
-					&gCfg.ReporterConfig,
-					&gCfg.DiffReporterConfig,
-					fileHistoryStore,
-					monitorLogger,
-					notificationHelper,
-					monitorHTTPClient,
-				)
+				if gCfg.SecretsConfig.Enabled && secretDetector != nil {
+					monitoringService = monitor.NewMonitoringService(
+						&gCfg.MonitorConfig,
+						&gCfg.CrawlerConfig,
+						&gCfg.ExtractorConfig,
+						&gCfg.NotificationConfig,
+						&gCfg.ReporterConfig,
+						&gCfg.DiffReporterConfig,
+						&gCfg.SecretsConfig,
+						fileHistoryStore,
+						monitorLogger,
+						notificationHelper,
+						monitorHTTPClient,
+						secretDetector,
+					)
+				} else {
+					monitoringService = monitor.NewMonitoringService(
+						&gCfg.MonitorConfig,
+						&gCfg.CrawlerConfig,
+						&gCfg.ExtractorConfig,
+						&gCfg.NotificationConfig,
+						&gCfg.ReporterConfig,
+						&gCfg.DiffReporterConfig,
+						&gCfg.SecretsConfig,
+						fileHistoryStore,
+						monitorLogger,
+						notificationHelper,
+						monitorHTTPClient,
+						nil,
+					)
+				}
 				zLogger.Info().Msg("File monitoring service initialized.")
 			}
 		} else {
@@ -278,7 +329,7 @@ func main() {
 		} else {
 			zLogger.Info().Str("urlfile", mainScanURLFile).Msg("Automated mode: -urlfile provided. Initializing and starting scheduler module...")
 			var errScheduler error // Declare error variable for scheduler
-			schedulerInstance, errScheduler = scheduler.NewScheduler(gCfg, mainScanURLFile, zLogger, notificationHelper)
+			schedulerInstance, errScheduler = scheduler.NewScheduler(gCfg, mainScanURLFile, zLogger, notificationHelper, secretDetector)
 			if errScheduler != nil {
 				criticalErrSummary := models.GetDefaultScanSummaryData()
 				criticalErrSummary.Component = "SchedulerInitialization"
@@ -304,7 +355,7 @@ func main() {
 		}
 	} else {
 		zLogger.Info().Msg("Running in onetime mode...")
-		runOnetimeScan(ctx, gCfg, mainScanURLFile, zLogger, notificationHelper)
+		runOnetimeScan(ctx, gCfg, mainScanURLFile, zLogger, notificationHelper, secretDetector)
 	}
 
 	// Wait for monitoring service to stop if it was started
@@ -321,7 +372,7 @@ func main() {
 	}
 }
 
-func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileArgument string, appLogger zerolog.Logger, notificationHelper *notifier.NotificationHelper) {
+func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileArgument string, appLogger zerolog.Logger, notificationHelper *notifier.NotificationHelper, secretDetector *secrets.SecretDetectorService) {
 	parquetReader := datastore.NewParquetReader(&gCfg.StorageConfig, appLogger)
 	parquetWriter, parquetErr := datastore.NewParquetWriter(&gCfg.StorageConfig, appLogger)
 	if parquetErr != nil {
@@ -329,7 +380,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 		parquetWriter = nil
 	}
 
-	scanOrchestrator := orchestrator.NewScanOrchestrator(gCfg, appLogger, parquetReader, parquetWriter)
+	scanOrchestrator := orchestrator.NewScanOrchestrator(gCfg, appLogger, parquetReader, parquetWriter, secretDetector)
 
 	var seedURLs []string
 	var onetimeTargetSource string
