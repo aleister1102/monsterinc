@@ -479,6 +479,18 @@ func (pfs *ParquetFileHistoryStore) GetAllLatestDiffResultsForURLs(urls []string
 					// Store an error or skip? For now, skip.
 					break // Move to the next URL for this host
 				}
+
+				// Unmarshal ExtractedPathsJSON if available
+				if record.ExtractedPathsJSON != nil && *record.ExtractedPathsJSON != "" {
+					var extractedPaths []models.ExtractedPath
+					if err := json.Unmarshal([]byte(*record.ExtractedPathsJSON), &extractedPaths); err != nil {
+						pfs.logger.Error().Err(err).Str("url", u).Msg("Failed to unmarshal ExtractedPathsJSON for latest diff.")
+						// Do not assign to diffResult.ExtractedPaths if unmarshaling fails, it will remain nil or empty
+					} else {
+						diffResult.ExtractedPaths = extractedPaths
+					}
+				}
+
 				results[u] = &diffResult
 				break // Found the latest for this URL
 			}

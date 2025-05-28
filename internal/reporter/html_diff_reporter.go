@@ -169,16 +169,17 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, e
 		}
 
 		display := models.DiffResultDisplay{
-			URL:          url,
-			Timestamp:    time.UnixMilli(diffResult.Timestamp), // Convert back to time.Time for display
-			ContentType:  diffResult.ContentType,
-			OldHash:      diffResult.OldHash,
-			NewHash:      diffResult.NewHash,
-			Summary:      createDiffSummary(diffResult.Diffs),
-			DiffHTML:     r.generateDiffHTML(diffResult.Diffs),
-			Diffs:        diffResult.Diffs, // Keep raw diffs if needed by template or other logic
-			IsIdentical:  diffResult.IsIdentical,
-			ErrorMessage: diffResult.ErrorMessage,
+			URL:            url,
+			Timestamp:      time.UnixMilli(diffResult.Timestamp), // Convert back to time.Time for display
+			ContentType:    diffResult.ContentType,
+			OldHash:        diffResult.OldHash,
+			NewHash:        diffResult.NewHash,
+			Summary:        createDiffSummary(diffResult.Diffs),
+			DiffHTML:       r.generateDiffHTML(diffResult.Diffs),
+			Diffs:          diffResult.Diffs, // Keep raw diffs if needed by template or other logic
+			IsIdentical:    diffResult.IsIdentical,
+			ErrorMessage:   diffResult.ErrorMessage,
+			ExtractedPaths: diffResult.ExtractedPaths,
 		}
 		diffResultsDisplay = append(diffResultsDisplay, display)
 	}
@@ -263,17 +264,18 @@ func (r *HtmlDiffReporter) GenerateSingleDiffReport(urlStr string, diffResult *m
 	defer file.Close()
 
 	displayDiff := models.DiffResultDisplay{
-		URL:          urlStr,
-		Timestamp:    time.UnixMilli(diffResult.Timestamp),
-		ContentType:  diffResult.ContentType,
-		OldHash:      diffResult.OldHash, // Populate from diffResult
-		NewHash:      diffResult.NewHash, // Populate from diffResult
-		Summary:      createDiffSummary(diffResult.Diffs),
-		DiffHTML:     r.generateDiffHTML(diffResult.Diffs),
-		Diffs:        diffResult.Diffs, // Keep raw diffs
-		IsIdentical:  diffResult.IsIdentical,
-		ErrorMessage: diffResult.ErrorMessage,
-		FullContent:  string(currentContent), // Add current content
+		URL:            urlStr,
+		Timestamp:      time.UnixMilli(diffResult.Timestamp),
+		ContentType:    diffResult.ContentType,
+		OldHash:        diffResult.OldHash, // Populate from diffResult
+		NewHash:        diffResult.NewHash, // Populate from diffResult
+		Summary:        createDiffSummary(diffResult.Diffs),
+		DiffHTML:       r.generateDiffHTML(diffResult.Diffs),
+		Diffs:          diffResult.Diffs, // Keep raw diffs
+		IsIdentical:    diffResult.IsIdentical,
+		ErrorMessage:   diffResult.ErrorMessage,
+		FullContent:    string(currentContent), // Add current content
+		ExtractedPaths: diffResult.ExtractedPaths,
 	}
 
 	pageData := models.DiffReportPageData{

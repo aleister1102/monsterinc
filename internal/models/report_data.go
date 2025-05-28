@@ -168,17 +168,18 @@ type DiffReportPageData struct {
 // DiffResultDisplay is a version of ContentDiffResult tailored for display in the template.
 // It might include additional presentation-specific fields or formatting.
 type DiffResultDisplay struct {
-	URL          string        `json:"url"`
-	ContentType  string        `json:"content_type"`
-	Timestamp    time.Time     `json:"timestamp"` // Timestamp of the current content
-	IsIdentical  bool          `json:"is_identical"`
-	Diffs        []ContentDiff `json:"diffs"`         // The raw diffs
-	ErrorMessage string        `json:"error_message"` // If an error occurred generating this specific diff
-	DiffHTML     template.HTML `json:"diff_html"`     // Pre-rendered HTML for this diff
-	OldHash      string        `json:"old_hash,omitempty"`
-	NewHash      string        `json:"new_hash,omitempty"`
-	Summary      string        `json:"summary,omitempty"`
-	FullContent  string        `json:"full_content,omitempty"` // Added to display full new content
+	URL            string          `json:"url"`
+	ContentType    string          `json:"content_type"`
+	Timestamp      time.Time       `json:"timestamp"` // Timestamp of the current content
+	IsIdentical    bool            `json:"is_identical"`
+	Diffs          []ContentDiff   `json:"diffs"`         // The raw diffs
+	ErrorMessage   string          `json:"error_message"` // If an error occurred generating this specific diff
+	DiffHTML       template.HTML   `json:"diff_html"`     // Pre-rendered HTML for this diff
+	OldHash        string          `json:"old_hash,omitempty"`
+	NewHash        string          `json:"new_hash,omitempty"`
+	Summary        string          `json:"summary,omitempty"`
+	FullContent    string          `json:"full_content,omitempty"`    // Added to display full new content
+	ExtractedPaths []ExtractedPath `json:"extracted_paths,omitempty"` // Added
 }
 
 // GetDefaultDiffReportPageData initializes a DiffReportPageData with some default values.
@@ -192,3 +193,5 @@ func GetDefaultDiffReportPageData() DiffReportPageData {
 		EnableDataTables: true,
 	}
 }
+
+// ScanSummaryData holds summarized information about a scan session for notifications.

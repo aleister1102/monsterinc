@@ -110,6 +110,25 @@
                                 <div class="diff-content">
                                     {{ $diff.DiffHTML }}
                                 </div>
+
+                                {{if $diff.ExtractedPaths}}
+                                <hr>
+                                <p><strong>Extracted Paths ({{len $diff.ExtractedPaths}}):</strong></p>
+                                <ul class="list-group list-group-flush" style="font-size: 0.9em;">
+                                    {{range $path := $diff.ExtractedPaths}}
+                                    <li class="list-group-item py-1">
+                                        <small><strong>Raw:</strong> <code style="word-break: break-all;">{{$path.ExtractedRawPath}}</code></small><br>
+                                        <small><strong>Absolute:</strong> <a href="{{$path.ExtractedAbsoluteURL}}" target="_blank" style="word-break: break-all;">{{$path.ExtractedAbsoluteURL}}</a></small><br>
+                                        <small><strong>Type:</strong> {{$path.Type}}</small><br>
+                                        {{if $path.Context}}
+                                        <small><strong>Context:</strong></small>
+                                        <pre style="white-space: pre-wrap; word-break: break-all; background-color: #f8f9fa; padding: 5px; border-radius: 3px; max-height: 100px; overflow-y: auto;"><code>{{$path.Context}}</code></pre>
+                                        {{end}}
+                                    </li>
+                                    {{end}}
+                                </ul>
+                                {{end}}
+
                                 {{if $diff.FullContent}}
                                 <hr>
                                 <p><strong>Full New Content:</strong></p>
