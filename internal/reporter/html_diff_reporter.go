@@ -305,20 +305,24 @@ func min(a, b int) int {
 
 // generateDiffHTML generates the HTML representation of the diffs.
 func (r *HtmlDiffReporter) generateDiffHTML(diffs []models.ContentDiff) template.HTML {
-	var html strings.Builder
+	var htmlBuilder strings.Builder // Renamed to avoid conflict with html package
 	for _, d := range diffs {
-		text := strings.ReplaceAll(d.Text, "\n", "<br>") // Ensure newlines are rendered in HTML
-		// text = html.EscapeString(text) // Escape HTML characters in diff text - This might be too aggressive if we want to render HTML diffs
+		// Escape HTML characters in diff text to prevent XSS and rendering issues
+		escapedText := template.HTMLEscapeString(d.Text)
+
+		// white-space: pre-wrap; in CSS will handle newlines correctly, so no need to replace with <br>
+		// text := strings.ReplaceAll(d.Text, "\\n", "<br>") // Ensure newlines are rendered in HTML - REMOVED
+
 		switch d.Operation {
 		case models.DiffInsert:
-			html.WriteString(fmt.Sprintf(`<ins style="background:#e6ffe6; text-decoration: none;">%s</ins>`, text))
+			htmlBuilder.WriteString(fmt.Sprintf(`<ins style="background:#e6ffe6; text-decoration: none;">%s</ins>`, escapedText))
 		case models.DiffDelete:
-			html.WriteString(fmt.Sprintf(`<del style="background:#f8d7da; text-decoration: none;">%s</del>`, text))
+			htmlBuilder.WriteString(fmt.Sprintf(`<del style="background:#f8d7da; text-decoration: none;">%s</del>`, escapedText))
 		case models.DiffEqual:
-			html.WriteString(text)
+			htmlBuilder.WriteString(escapedText) // Directly use escaped text
 		}
 	}
-	return template.HTML(html.String())
+	return template.HTML(htmlBuilder.String())
 }
 
 // createDiffSummary creates a textual summary of the diff.
