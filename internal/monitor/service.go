@@ -21,6 +21,7 @@ import (
 type MonitoringService struct {
 	cfg                *config.MonitorConfig
 	crawlerCfg         *config.CrawlerConfig
+	extractorConfig    *config.ExtractorConfig
 	notificationCfg    *config.NotificationConfig
 	reporterConfig     *config.ReporterConfig
 	historyStore       models.FileHistoryStore
@@ -57,6 +58,7 @@ type MonitoringService struct {
 func NewMonitoringService(
 	monitorCfg *config.MonitorConfig,
 	crawlerCfg *config.CrawlerConfig,
+	extractorCfg *config.ExtractorConfig,
 	notificationCfg *config.NotificationConfig,
 	mainReporterCfg *config.ReporterConfig,
 	diffReporterCfg *config.DiffReporterConfig,
@@ -72,21 +74,19 @@ func NewMonitoringService(
 	processorInstance := NewProcessor(instanceLogger)
 	contentDifferInstance := differ.NewContentDiffer(instanceLogger, diffReporterCfg)
 
-	// Initialize PathExtractor
-	pathExtractorInstance, err := extractor.NewPathExtractor(instanceLogger)
+	// Initialize PathExtractor using the passed extractorCfg
+	pathExtractorInstance, err := extractor.NewPathExtractor(instanceLogger, *extractorCfg)
 	if err != nil {
-		// Log the error but consider if this should be fatal for the MonitoringService
 		instanceLogger.Error().Err(err).Msg("Failed to initialize PathExtractor for MonitoringService. Path extraction from JS may not work.")
-		pathExtractorInstance = nil // Ensure it's nil if initialization failed
+		pathExtractorInstance = nil
 	}
 
-	var htmlDiffReporterInstance *reporter.HtmlDiffReporter // Declare var for clarity
-	if mainReporterCfg != nil && store != nil {             // Ensure necessary configs are present
-		var errReporter error                                                                                        // Declare errReporter to avoid shadowing
-		htmlDiffReporterInstance, errReporter = reporter.NewHtmlDiffReporter(mainReporterCfg, instanceLogger, store) // Removed urlHandlerInstance
+	var htmlDiffReporterInstance *reporter.HtmlDiffReporter
+	if mainReporterCfg != nil && store != nil {
+		var errReporter error
+		htmlDiffReporterInstance, errReporter = reporter.NewHtmlDiffReporter(mainReporterCfg, instanceLogger, store)
 		if errReporter != nil {
 			instanceLogger.Error().Err(errReporter).Msg("Failed to initialize HtmlDiffReporter for MonitoringService. Aggregated diff reporting will be impacted.")
-			// Depending on policy, could return nil or a service with a disabled reporter
 		}
 	} else {
 		instanceLogger.Warn().Msg("HtmlDiffReporter not initialized due to missing mainReporterCfg or historyStore.")
@@ -95,6 +95,7 @@ func NewMonitoringService(
 	s := &MonitoringService{
 		cfg:                   monitorCfg,
 		crawlerCfg:            crawlerCfg,
+		extractorConfig:       extractorCfg,
 		notificationCfg:       notificationCfg,
 		reporterConfig:        mainReporterCfg,
 		historyStore:          store,

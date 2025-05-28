@@ -7,6 +7,7 @@ import (
 	"monsterinc/internal/crawler"
 	"monsterinc/internal/datastore"
 	"monsterinc/internal/differ"
+	"monsterinc/internal/extractor"
 	"monsterinc/internal/httpxrunner"
 	"monsterinc/internal/models"
 	"monsterinc/internal/urlhandler"
@@ -23,6 +24,7 @@ type ScanOrchestrator struct {
 	logger        zerolog.Logger
 	parquetReader *datastore.ParquetReader
 	parquetWriter *datastore.ParquetWriter
+	pathExtractor *extractor.PathExtractor
 	// latestProbeResults map[string][]models.ProbeResult // Potentially for caching latest results per target
 }
 
@@ -33,11 +35,23 @@ func NewScanOrchestrator(
 	pqReader *datastore.ParquetReader,
 	pqWriter *datastore.ParquetWriter,
 ) *ScanOrchestrator {
+	// Initialize PathExtractor with ExtractorConfig
+	// Ensure that the logger passed to PathExtractor is appropriately scoped if needed.
+	// For now, using the orchestrator's base logger.
+	pathExtractorInstance, err := extractor.NewPathExtractor(logger, cfg.ExtractorConfig)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to initialize PathExtractor in ScanOrchestrator")
+		// Depending on error handling strategy, you might return nil or panic.
+		// For a fatal initialization error, exiting or returning nil (if signature allows) is common.
+		return nil // Or handle error more gracefully if NewScanOrchestrator can return an error.
+	}
+
 	return &ScanOrchestrator{
 		globalConfig:  cfg,
 		logger:        logger.With().Str("module", "ScanOrchestrator").Logger(),
 		parquetReader: pqReader,
 		parquetWriter: pqWriter,
+		pathExtractor: pathExtractorInstance, // Assign initialized PathExtractor
 		// latestProbeResults: make(map[string][]models.ProbeResult),
 	}
 }

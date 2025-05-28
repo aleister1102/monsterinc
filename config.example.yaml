@@ -372,3 +372,17 @@ scheduler_config:
   # Path to the SQLite database file used for storing scan history.
   # Default: "database/scheduler/scheduler_history.db"
   sqlite_db_path: "database/scheduler/scheduler_history.db"
+
+# Extractor configuration: Settings for custom path extraction.
+extractor_config:
+  # List of custom regex patterns to extract paths/URLs from content.
+  # These regexes will be applied to the full content of downloaded files (e.g., JS, HTML).
+  # Each string in this list should be a valid Go regex.
+  # Example using block style (recommended for readability if manually editing):
+  custom_regexes:
+    - "/(?:[a-zA-Z0-9_\\-]+/)*[a-zA-Z0-9_\\-]+\\.js(?:\\?[^\\s\"]*)?" # Example: Finds /path/to/file.js?query
+    - "'(?:[a-zA-Z0-9_\\-]+/)*[a-zA-Z0-9_\\-]+\\.html(?:\\?[^\\s\']*)?'" # Example: Finds '/path/to/file.html'
+    - "https?:\\/\\/[^\\s\\\"\\'\\`]+" # Example: Finds http(s)://anything_not_whitespace_or_quote
+    # - "another_custom_regex_pattern"
+  # If you prefer flow style (ensure correct escaping and quoting if regexes contain special characters):
+  # custom_regexes: ["regex1", "regex2"] 

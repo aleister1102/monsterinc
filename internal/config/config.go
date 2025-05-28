@@ -343,49 +343,66 @@ type SchedulerConfig struct {
 // NewDefaultSchedulerConfig creates a SchedulerConfig with default values.
 func NewDefaultSchedulerConfig() SchedulerConfig {
 	return SchedulerConfig{
-		CycleMinutes:  10080, // 7 days
-		RetryAttempts: 2,
-		SQLiteDBPath:  "database/scheduler/scheduler_history.db", // Updated path
+		CycleMinutes:  DefaultSchedulerScanIntervalMinutes,
+		RetryAttempts: DefaultSchedulerRetryAttempts,
+		SQLiteDBPath:  DefaultSchedulerSQLiteDBPath,
 	}
 }
 
-// --- Global Configuration ---
-
-type GlobalConfig struct {
-	InputConfig        InputConfig        `json:"input_config,omitempty" yaml:"input_config,omitempty"`
-	HttpxRunnerConfig  HttpxRunnerConfig  `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
-	CrawlerConfig      CrawlerConfig      `json:"crawler_config,omitempty" yaml:"crawler_config,omitempty"`
-	ReporterConfig     ReporterConfig     `json:"reporter_config,omitempty" yaml:"reporter_config,omitempty"`
-	StorageConfig      StorageConfig      `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
-	NotificationConfig NotificationConfig `json:"notification_config,omitempty" yaml:"notification_config,omitempty"`
-	LogConfig          LogConfig          `json:"log_config,omitempty" yaml:"log_config,omitempty"`
-	DiffConfig         DiffConfig         `json:"diff_config,omitempty" yaml:"diff_config,omitempty"`
-	MonitorConfig      MonitorConfig      `json:"monitor_config,omitempty" yaml:"monitor_config,omitempty"`
-	NormalizerConfig   NormalizerConfig   `json:"normalizer_config,omitempty" yaml:"normalizer_config,omitempty"`
-	SchedulerConfig    SchedulerConfig    `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
-	Mode               string             `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
-	DiffReporterConfig DiffReporterConfig `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
+// ExtractorConfig defines configuration for path extraction.
+type ExtractorConfig struct {
+	CustomRegexes []string `json:"custom_regexes,omitempty" yaml:"custom_regexes,omitempty"`
 }
 
+// NewDefaultExtractorConfig creates a default ExtractorConfig.
+func NewDefaultExtractorConfig() ExtractorConfig {
+	return ExtractorConfig{
+		CustomRegexes: []string{}, // Default to no custom regexes
+	}
+}
+
+// GlobalConfig holds all configuration settings for the application.
+type GlobalConfig struct {
+	InputConfig          InputConfig        `json:"input_config,omitempty" yaml:"input_config,omitempty"`
+	HttpxRunnerConfig    HttpxRunnerConfig  `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
+	CrawlerConfig        CrawlerConfig      `json:"crawler_config,omitempty" yaml:"crawler_config,omitempty"`
+	ReporterConfig       ReporterConfig     `json:"reporter_config,omitempty" yaml:"reporter_config,omitempty"`
+	StorageConfig        StorageConfig      `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
+	NotificationConfig   NotificationConfig `json:"notification_config,omitempty" yaml:"notification_config,omitempty"`
+	LogConfig            LogConfig          `json:"log_config,omitempty" yaml:"log_config,omitempty"`
+	DiffConfig           DiffConfig         `json:"diff_config,omitempty" yaml:"diff_config,omitempty"`
+	MonitorConfig        MonitorConfig      `json:"monitor_config,omitempty" yaml:"monitor_config,omitempty"`
+	NormalizerConfig     NormalizerConfig   `json:"normalizer_config,omitempty" yaml:"normalizer_config,omitempty"`
+	SchedulerConfig      SchedulerConfig    `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
+	ExtractorConfig      ExtractorConfig    `json:"extractor_config,omitempty" yaml:"extractor_config,omitempty"`
+	Mode                 string             `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
+	DiffReporterConfig   DiffReporterConfig `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
+	PathExtractorDomains []string           `json:"path_extractor_domains,omitempty" yaml:"path_extractor_domains,omitempty" validate:"omitempty,dive,hostname_rfc1123"`
+}
+
+// NewDefaultGlobalConfig creates a new GlobalConfig with default values.
+// It's important to initialize all nested structs here.
 func NewDefaultGlobalConfig() *GlobalConfig {
 	return &GlobalConfig{
-		InputConfig:        InputConfig{InputURLs: []string{}, InputFile: ""},
-		HttpxRunnerConfig:  NewDefaultHTTPXRunnerConfig(),
-		CrawlerConfig:      NewDefaultCrawlerConfig(),
-		ReporterConfig:     NewDefaultReporterConfig(),
-		StorageConfig:      NewDefaultStorageConfig(),
-		NotificationConfig: NewDefaultNotificationConfig(),
-		LogConfig:          NewDefaultLogConfig(),
-		DiffConfig:         NewDefaultDiffConfig(),
-		MonitorConfig:      NewDefaultMonitorConfig(),
-		NormalizerConfig:   NewDefaultNormalizerConfig(),
-		SchedulerConfig:    NewDefaultSchedulerConfig(),
-		DiffReporterConfig: NewDefaultDiffReporterConfig(),
-		Mode:               "onetime",
+		Mode:                 "onetime",
+		InputConfig:          InputConfig{}, // Assuming empty is default or handled by loader
+		HttpxRunnerConfig:    NewDefaultHTTPXRunnerConfig(),
+		CrawlerConfig:        NewDefaultCrawlerConfig(),
+		ReporterConfig:       NewDefaultReporterConfig(),
+		StorageConfig:        NewDefaultStorageConfig(),
+		NotificationConfig:   NewDefaultNotificationConfig(),
+		LogConfig:            NewDefaultLogConfig(),
+		DiffConfig:           NewDefaultDiffConfig(),
+		MonitorConfig:        NewDefaultMonitorConfig(),
+		NormalizerConfig:     NewDefaultNormalizerConfig(),
+		SchedulerConfig:      NewDefaultSchedulerConfig(),
+		ExtractorConfig:      NewDefaultExtractorConfig(),
+		DiffReporterConfig:   NewDefaultDiffReporterConfig(),
+		PathExtractorDomains: []string{},
 	}
 }
 
-// LoadGlobalConfig loads the global configuration.
+// LoadGlobalConfig loads the configuration from a file or default locations.
 // It determines the config file path using GetConfigPath, supports both JSON and YAML formats,
 // and overrides with environment variables.
 // YAML is preferred if the file extension is .yaml or .yml.
