@@ -3,18 +3,23 @@ package secrets
 import (
 	"bufio"
 	"bytes"
+	"embed"
 	"fmt"
 	"io"
 	"math"
-	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/models"
 	"os"
 	"regexp"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
+
 	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed patterns.yaml
+var embeddedPatterns embed.FS
 
 // RegexScanner is responsible for scanning content using a list of regex patterns.
 type RegexScanner struct {
@@ -50,13 +55,13 @@ func NewRegexScanner(cfg *config.SecretsConfig, logger zerolog.Logger) (*RegexSc
 		scanner.patterns = append(scanner.patterns, customPatterns...)
 		scanner.logger.Info().Int("count", len(customPatterns)).Str("file", cfg.CustomRegexPatternsFile).Msg("Loaded custom regex patterns from file")
 	} else {
-		// Load Mantra patterns as fallback if no custom patterns file is specified
-		mantraPatterns, err := loadMantraPatternsFromFile("internal/secrets/patterns.yaml", scanner.logger)
+		// Load Mantra patterns from embedded file
+		mantraPatterns, err := loadMantraPatternsFromEmbedded(embeddedPatterns, scanner.logger)
 		if err != nil {
-			scanner.logger.Warn().Err(err).Msg("Failed to load Mantra patterns, continuing with default patterns only")
+			scanner.logger.Warn().Err(err).Msg("Failed to load embedded Mantra patterns, continuing with default patterns only")
 		} else {
 			scanner.patterns = append(scanner.patterns, mantraPatterns...)
-			scanner.logger.Info().Int("count", len(mantraPatterns)).Msg("Loaded Mantra regex patterns")
+			scanner.logger.Info().Int("count", len(mantraPatterns)).Msg("Loaded embedded Mantra regex patterns")
 		}
 	}
 
@@ -247,7 +252,53 @@ func truncateSecret(secret string, maxLength int) string {
 	return secret
 }
 
-// loadMantraPatternsFromFile loads regex patterns from a Mantra-style YAML file.
+// loadMantraPatternsFromEmbedded loads regex patterns from a Mantra-style YAML file embedded in the binary.
+func loadMantraPatternsFromEmbedded(fs embed.FS, logger zerolog.Logger) ([]RegexPattern, error) {
+	// Read embedded file content
+	data, err := fs.ReadFile("patterns.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read embedded mantra patterns file: %w", err)
+	}
+
+	// Define structure for YAML parsing
+	type MantraPatternFile struct {
+		Patterns []struct {
+			RuleID      string   `yaml:"rule_id"`
+			Description string   `yaml:"description"`
+			Pattern     string   `yaml:"pattern"`
+			Severity    string   `yaml:"severity"`
+			Keywords    []string `yaml:"keywords,omitempty"`
+			Entropy     float64  `yaml:"entropy,omitempty"`
+			MaxFinds    int      `yaml:"max_finds,omitempty"`
+			LineLength  int      `yaml:"line_length,omitempty"`
+		} `yaml:"patterns"`
+	}
+
+	var mantraFile MantraPatternFile
+	if err := yaml.Unmarshal(data, &mantraFile); err != nil {
+		return nil, fmt.Errorf("failed to parse embedded mantra patterns YAML: %w", err)
+	}
+
+	var patterns []RegexPattern
+	for _, p := range mantraFile.Patterns {
+		pattern := RegexPattern{
+			RuleID:      p.RuleID,
+			Description: p.Description,
+			Pattern:     p.Pattern,
+			Severity:    p.Severity,
+			Keywords:    p.Keywords,
+			Entropy:     p.Entropy,
+			MaxFinds:    p.MaxFinds,
+			LineLength:  p.LineLength,
+		}
+		patterns = append(patterns, pattern)
+	}
+
+	logger.Debug().Int("count", len(patterns)).Msg("Successfully loaded embedded Mantra patterns")
+	return patterns, nil
+}
+
+// loadMantraPatternsFromFile loads regex patterns from a Mantra-style YAML file (for backward compatibility).
 func loadMantraPatternsFromFile(filePath string, logger zerolog.Logger) ([]RegexPattern, error) {
 	// Check if file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
