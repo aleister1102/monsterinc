@@ -2,7 +2,7 @@ package urlhandler
 
 import (
 	"fmt"
-	"monsterinc/internal/models" // Assuming your error model is defined here
+	"github.com/aleister1102/monsterinc/internal/models" // Assuming your error model is defined here
 	"net/url"
 	"regexp"
 	"strings"

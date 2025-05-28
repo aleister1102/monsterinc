@@ -3,7 +3,7 @@ package logger
 import (
 	"io"
 	stdlog "log" // Standard Go log package, aliased to avoid conflict with zerolog field
-	"monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/config"
 	"os"
 	"strings"
 	"time"

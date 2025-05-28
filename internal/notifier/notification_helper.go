@@ -2,8 +2,8 @@ package notifier
 
 import (
 	"context"
-	"monsterinc/internal/config"
-	"monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
 	"os"
 
 	"github.com/rs/zerolog"

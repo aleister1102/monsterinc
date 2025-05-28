@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/config"
 	"net/http"
 
 	"github.com/rs/zerolog"

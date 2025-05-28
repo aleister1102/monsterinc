@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/models"
 
 	"github.com/PuerkitoBio/goquery"
 )

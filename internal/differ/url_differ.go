@@ -2,8 +2,8 @@ package differ
 
 import (
 	"fmt"
-	"monsterinc/internal/datastore"
-	"monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/datastore"
+	"github.com/aleister1102/monsterinc/internal/models"
 
 	"github.com/rs/zerolog"
 	// For default logger if needed
