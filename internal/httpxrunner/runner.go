@@ -3,7 +3,7 @@ package httpxrunner
 import (
 	"context"
 	"fmt"
-	"monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/models"
 	"strconv"
 	"strings"
 	"sync"

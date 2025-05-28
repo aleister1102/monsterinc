@@ -13,8 +13,8 @@ import (
 	"sync" // For thread-safe access to discoveredURLs
 	"time"
 
-	"monsterinc/internal/config" // Import the config package
-	"monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/config" // Import the config package
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/gocolly/colly/v2"
 	"github.com/rs/zerolog"

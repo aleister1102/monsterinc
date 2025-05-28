@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"monsterinc/internal/config"
-	"monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
 )
 
 const (
