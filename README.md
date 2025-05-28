@@ -62,7 +62,7 @@ MonsterInc is a command-line interface (CLI) tool written in Go, specialized for
 
 1. Clone repository:
 ```bash
-git clone https://github.com/your-username/monsterinc.git
+git clone https://github.com/aleister1102/monsterinc.git
 cd monsterinc
 ```
 
@@ -77,13 +77,13 @@ go build -o monsterinc ./cmd/monsterinc
 
 ### Install from GitHub Releases
 
-1. Download appropriate binary from [GitHub Releases](https://github.com/your-username/monsterinc/releases)
+1. Download appropriate binary from [GitHub Releases](https://github.com/aleister1102/monsterinc/releases)
 2. Extract and place in system PATH
 
 ### Install via Go install
 
 ```bash
-go install github.com/your-username/monsterinc/cmd/monsterinc@latest
+go install github.com/aleister1102/monsterinc/cmd/monsterinc@latest
 ```
 
 ## Usage
