@@ -1,0 +1,41 @@
+[Unit]
+Description=MonsterInc Watchdog Service
+Documentation=https://github.com/your-org/monsterinc
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=monsterinc
+Group=monsterinc
+WorkingDirectory=/opt/monsterinc
+ExecStart=/opt/monsterinc/scripts/monsterinc-watchdog.sh monitor
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=monsterinc-watchdog
+
+# Environment variables
+Environment=MONSTERINC_BIN=/opt/monsterinc/monsterinc
+Environment=MONSTERINC_ARGS=-mode scheduler
+Environment=CHECK_INTERVAL=3600
+Environment=LOG_DIR=/var/log/monsterinc
+Environment=MAX_RESTART_ATTEMPTS=3
+Environment=RESTART_DELAY=30
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/monsterinc /tmp
+CapabilityBoundingSet=CAP_KILL
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target 
