@@ -239,6 +239,11 @@ notification_config:
   # Default: true
   notify_on_critical_error: true
 
+  # Automatically delete the generated HTML report file after a Discord notification for that report has been successfully sent.
+  # This applies to notifications that include a report_path, like scan completion or diff reports.
+  # Default: false
+  auto_delete_report_after_discord_notification: true
+
 # Logging configuration: Settings for application logging.
 log_config:
   # Logging level. Determines the minimum severity of messages to be logged.
@@ -279,6 +284,54 @@ log_config:
   # Whether to compress old, rotated log files (e.g., with gzip).
   # Default: false
   compress_old_logs: false
+
+# SecretsConfig: Configuration for secret detection.
+secrets_config:
+  # Enable/disable secret detection feature globally.
+  # Default: false
+  enabled: true
+
+  # Enable/disable TruffleHog scanner.
+  # Default: true (if secrets_config.enabled is true)
+  enable_trufflehog: true
+
+  # Path to the TruffleHog executable (if using CLI mode).
+  # If empty, assumes "trufflehog" is in the system PATH.
+  # Default: "trufflehog"
+  trufflehog_path: "trufflehog"
+
+  # Enable/disable custom regex-based scanner.
+  # Default: true (if secrets_config.enabled is true)
+  enable_custom_regex: true
+
+  # Path to a YAML file containing custom regex patterns for secret detection.
+  # If empty, only default built-in patterns are used (if enable_custom_regex is true).
+  # Default: ""
+  custom_regex_patterns_file: ""
+
+  # Maximum file size in megabytes to scan for secrets.
+  # Files larger than this will be skipped.
+  # Default: 5 (MB)
+  max_file_size_to_scan_mb: 5
+
+  # Whether to send a notification if a high or critical severity secret is found.
+  # Depends on notification_config being properly set up.
+  # Default: true
+  notify_on_high_severity: true
+
+  # Maximum number of concurrent TruffleHog scans (if applicable, e.g. library mode).
+  # Default: 5
+  trufflehog_max_concurrency: 5
+
+  # Timeout in seconds for each TruffleHog scan operation.
+  # Default: 60
+  trufflehog_timeout_seconds: 60
+
+  # For TruffleHog CLI, whether to use the --no-verification flag.
+  # Setting this to true skips live verification of found secrets, which can be faster
+  # but might lead to more false positives if verification is crucial for your workflow.
+  # Default: true
+  trufflehog_no_verification: true
 
 # DiffConfig: Configuration for comparing current scan results with previous ones.
 diff_config:
@@ -385,4 +438,13 @@ extractor_config:
     - "https?:\\/\\/[^\\s\\\"\\'\\`]+" # Example: Finds http(s)://anything_not_whitespace_or_quote
     # - "another_custom_regex_pattern"
   # If you prefer flow style (ensure correct escaping and quoting if regexes contain special characters):
-  # custom_regexes: ["regex1", "regex2"] 
+  # custom_regexes: ["regex1", "regex2"]
+
+# Mode of operation for the application: "onetime" or "automated".
+# This is a top-level setting, reiterated here for context if you are looking at secrets_config.
+# mode: "onetime"
+
+# Path Extractor Domains: List of domains for which path extraction will be attempted
+# from JavaScript files. e.g., ["example.com", "api.example.org"]
+# Default: []
+path_extractor_domains: 

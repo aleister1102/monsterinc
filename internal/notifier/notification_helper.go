@@ -4,6 +4,7 @@ import (
 	"context"
 	"monsterinc/internal/config"
 	"monsterinc/internal/models"
+	"os"
 
 	"github.com/rs/zerolog"
 )
@@ -114,6 +115,15 @@ func (nh *NotificationHelper) SendScanCompletionNotification(ctx context.Context
 			nh.logger.Error().Err(err).Msg("Failed to send scan completion notification")
 		} else {
 			nh.logger.Info().Str("scan_session_id", summary.ScanSessionID).Msg("Scan completion notification sent successfully.")
+			// Auto-delete report file if configured and path exists
+			if nh.cfg.AutoDeleteReportAfterDiscordNotification && reportFilePath != "" {
+				nh.logger.Info().Str("report_path", reportFilePath).Msg("Attempting to auto-delete report file after successful Discord notification.")
+				if errDel := os.Remove(reportFilePath); errDel != nil {
+					nh.logger.Error().Err(errDel).Str("report_path", reportFilePath).Msg("Failed to auto-delete report file.")
+				} else {
+					nh.logger.Info().Str("report_path", reportFilePath).Msg("Successfully auto-deleted report file.")
+				}
+			}
 		}
 	} else {
 		nh.logger.Debug().
@@ -160,6 +170,17 @@ func (nh *NotificationHelper) SendAggregatedFileChangesNotification(ctx context.
 	payload := FormatAggregatedFileChangesMessage(changes, nh.cfg)
 	if err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, reportFilePath); err != nil {
 		nh.logger.Error().Err(err).Msg("Failed to send aggregated file changes notification")
+	} else {
+		nh.logger.Info().Int("change_count", len(changes)).Msg("Aggregated file changes notification sent successfully.")
+		// Auto-delete report file if configured and path exists
+		if nh.cfg.AutoDeleteReportAfterDiscordNotification && reportFilePath != "" {
+			nh.logger.Info().Str("report_path", reportFilePath).Msg("Attempting to auto-delete aggregated diff report file after successful Discord notification.")
+			if errDel := os.Remove(reportFilePath); errDel != nil {
+				nh.logger.Error().Err(errDel).Str("report_path", reportFilePath).Msg("Failed to auto-delete aggregated diff report file.")
+			} else {
+				nh.logger.Info().Str("report_path", reportFilePath).Msg("Successfully auto-deleted aggregated diff report file.")
+			}
+		}
 	}
 }
 
@@ -205,5 +226,29 @@ func (nh *NotificationHelper) SendAggregatedMonitorErrorsNotification(ctx contex
 	err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, "") // No report file
 	if err != nil {
 		nh.logger.Error().Err(err).Msg("Failed to send aggregated monitor error notification")
+	}
+}
+
+// SendHighSeveritySecretNotification sends a notification for high-severity secret findings.
+func (nh *NotificationHelper) SendHighSeveritySecretNotification(ctx context.Context, finding models.SecretFinding, serviceType NotificationServiceType) {
+	webhookURL := nh.getWebhookURL(serviceType)
+	if nh.discordNotifier == nil || webhookURL == "" {
+		nh.logger.Debug().Str("service_type", string(serviceType)).Msg("Discord notifier or webhook is disabled, skipping high-severity secret notification.")
+		return
+	}
+
+	if !nh.cfg.NotifyOnHighSeverity {
+		nh.logger.Debug().Msg("High-severity secret notifications are disabled in config.")
+		return
+	}
+
+	nh.logger.Info().Str("rule_id", finding.RuleID).Str("severity", finding.Severity).Str("source_url", finding.SourceURL).Msg("Preparing to send high-severity secret notification.")
+	payload := FormatHighSeveritySecretNotification(finding, nh.cfg)
+
+	err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, "") // No report file for individual secret findings
+	if err != nil {
+		nh.logger.Error().Err(err).Msg("Failed to send high-severity secret notification")
+	} else {
+		nh.logger.Info().Str("rule_id", finding.RuleID).Msg("High-severity secret notification sent successfully.")
 	}
 }
