@@ -3,33 +3,38 @@
 body {
     font-family: 'Nunito', sans-serif;
     font-size: 0.9rem;
-    background-color: #f0f8ff; /* Light Alice Blue background */
-    color: #333; /* Darker text for better readability */
+    background-color: #f0f8ff;
+    /* Light Alice Blue background */
+    color: #333;
+    /* Darker text for better readability */
     display: flex;
     flex-direction: column;
-    min-height: 100vh; /* Ensure body takes at least full viewport height */
+    min-height: 100vh;
+    /* Ensure body takes at least full viewport height */
 }
 
 .container-fluid {
-    flex: 1; /* Allow container to grow and push footer down */
+    flex: 1;
+    /* Allow container to grow and push footer down */
 }
 
 /* Sử dụng Bootstrap cho navbar, table, menu, bỏ gradient */
 .navbar {
     background-color: #111 !important;
     color: #fff;
-    box-shadow: 0 2px 4px rgba(0,0,0,.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
 }
 
 .table {
     border-radius: .5rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
     width: 100%;
     table-layout: auto;
     word-break: break-word;
 }
 
-.table th, .table td {
+.table th,
+.table td {
     padding: 0.5rem;
     vertical-align: middle;
     border-top: 1px solid #dee2e6;
@@ -40,19 +45,23 @@ body {
 
 .table thead th {
     vertical-align: bottom;
-    border-bottom: 2px solid #0056b3; /* Darker blue border */
-    background: #111 !important; /* Black background for table headers, !important to override other rules if necessary */
-    color: #fff !important; /* White text for table headers, !important */
+    border-bottom: 2px solid #0056b3;
+    /* Darker blue border */
+    background: #111 !important;
+    /* Black background for table headers, !important to override other rules if necessary */
+    color: #fff !important;
+    /* White text for table headers, !important */
     font-weight: 700;
     font-size: 1.05rem;
     text-align: center;
     white-space: nowrap;
-    background-image: none; /* Ensure no gradient is applied */
+    background-image: none;
+    /* Ensure no gradient is applied */
 }
 
 .table-hover tbody tr:hover {
     color: #212529;
-    background-color: rgba(0,0,0,.075);
+    background-color: rgba(0, 0, 0, .075);
 }
 
 /* Responsive: không cho scroll ngang, wrap text */
@@ -63,27 +72,34 @@ body {
 /* Bỏ gradient top menu, dùng nav-pills Bootstrap */
 .top-menu {
     display: flex;
-    gap: 1.5rem; /* Increased gap for better spacing */
+    gap: 1.5rem;
+    /* Increased gap for better spacing */
     justify-content: center;
     align-items: center;
     padding: 1rem 0;
-    background: #111; /* Changed to black background */
+    background: #111;
+    /* Changed to black background */
     color: #fff;
     font-weight: 600;
     border-radius: 0 0 1rem 1rem;
     margin-bottom: 1.5rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15); /* Slightly more pronounced shadow */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    /* Slightly more pronounced shadow */
 }
+
 .top-menu a {
-    color: #fff; /* White text for links */
+    color: #fff;
+    /* White text for links */
     text-decoration: none;
     padding: 0.5rem 1.2rem;
     border-radius: 2rem;
     transition: background 0.2s, color 0.2s;
 }
+
 .top-menu a.active,
 .top-menu a:hover {
-    background: #007bff; /* Blue background on hover/active */
+    background: #007bff;
+    /* Blue background on hover/active */
     color: #fff;
 }
 
@@ -93,63 +109,87 @@ body {
 .truncate-techs,
 .truncate-tls,
 .truncate-error {
-    max-width: 300px; /* Or adjust as needed for URLs */
-    white-space: normal !important; /* Ensure wrapping */
-    word-break: break-all !important; /* Break long URLs aggressively if needed, or use break-word */
-    overflow: visible !important; /* Ensure content is not clipped */
+    max-width: 300px;
+    /* Or adjust as needed for URLs */
+    white-space: normal !important;
+    /* Ensure wrapping */
+    word-break: break-all !important;
+    /* Break long URLs aggressively if needed, or use break-word */
+    overflow: visible !important;
+    /* Ensure content is not clipped */
 }
 
 /* Rounded buttons */
-.btn, .btn-sm, .btn-outline-info {
+.btn,
+.btn-sm,
+.btn-outline-info {
     border-radius: 1.5rem !important;
     background: #111;
     color: #fff;
     border: 1px solid #222;
 }
-.btn-outline-info:hover, .btn:hover {
+
+.btn-outline-info:hover,
+.btn:hover {
     background: #222;
     color: #fff;
 }
 
 /* Responsive fix: bảng không bị scroll ngang */
 @media (max-width: 1200px) {
-    .table th, .table td {
+
+    .table th,
+    .table td {
         max-width: 180px;
     }
 }
 
 /* Giữ lại một số style cho modal, card */
-.card, .modal-content {
+.card,
+.modal-content {
     border-radius: .5rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
 }
 
 /* Bỏ sidebar hoàn toàn */
-#sidebarMenu { display: none !important; }
+#sidebarMenu {
+    display: none !important;
+}
 
 /* Truncation styling */
 td {
-    max-width: 200px; /* Adjust as needed */
+    max-width: 200px;
+    /* Adjust as needed */
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 td a {
-    /* color: #0d6efd; */ /* Standard Bootstrap link color */
+    /* color: #0d6efd; */
+    /* Standard Bootstrap link color */
     text-decoration: none;
 }
+
 td a:hover {
     text-decoration: underline;
 }
 
 .status-code-200 {
-    /* color: green; */ /* Example: custom color for 200 status */
+    /* color: green; */
+    /* Example: custom color for 200 status */
 }
-.status-code-301, .status-code-302 {
+
+.status-code-301,
+.status-code-302 {
     /* color: orange; */
 }
-.status-code-400, .status-code-401, .status-code-403, .status-code-404, .status-code-500 {
+
+.status-code-400,
+.status-code-401,
+.status-code-403,
+.status-code-404,
+.status-code-500 {
     /* color: red; */
 }
 
@@ -164,6 +204,7 @@ td a:hover {
     margin: 0 2px;
     color: #007bff;
 }
+
 .pagination .page-item.active .page-link {
     z-index: 3;
     color: #fff;
@@ -172,9 +213,11 @@ td a:hover {
 }
 
 /* Styling for rounded corners, subtle box shadows, gradients (where appropriate) */
-.card, .alert, .modal-content {
+.card,
+.alert,
+.modal-content {
     border-radius: .3rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.24);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .12), 0 1px 2px rgba(0, 0, 0, .24);
 }
 
 /* Interactive element feedback */
@@ -185,7 +228,7 @@ td a:hover {
 
 .btn:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0,0,0,.1);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, .1);
 }
 
 .sortable:hover {
@@ -201,7 +244,8 @@ td a:hover {
 
 .truncate-tooltip .tooltiptext {
     visibility: hidden;
-    width: auto; /* Adjust as needed, or set max-width */
+    width: auto;
+    /* Adjust as needed, or set max-width */
     background-color: #555;
     color: #fff;
     text-align: center;
@@ -209,12 +253,15 @@ td a:hover {
     padding: 5px 10px;
     position: absolute;
     z-index: 1;
-    bottom: 125%; /* Position the tooltip above the text */
+    bottom: 125%;
+    /* Position the tooltip above the text */
     left: 50%;
-    margin-left: -60px; /* Use half of the tooltip's width to center it */
+    margin-left: -60px;
+    /* Use half of the tooltip's width to center it */
     opacity: 0;
     transition: opacity 0.3s;
-    white-space: normal; /* Allow tooltip text to wrap */
+    white-space: normal;
+    /* Allow tooltip text to wrap */
 }
 
 .truncate-tooltip:hover .tooltiptext {
@@ -234,7 +281,8 @@ td a:hover {
 
 .status-404 {
     /* color: #721c24; */
-    /* background-color: #f8d7da; */ /* Already handled by table-danger via .IsSuccess logic, but can be specific */
+    /* background-color: #f8d7da; */
+    /* Already handled by table-danger via .IsSuccess logic, but can be specific */
 }
 
 .status-403 {
@@ -252,7 +300,8 @@ td a:hover {
     border: 1px solid #dee2e6;
     padding: 10px;
     border-radius: 0.25rem;
-    max-height: 60vh; /* Ensure modal body is scrollable if content is too long */
+    max-height: 60vh;
+    /* Ensure modal body is scrollable if content is too long */
     overflow-y: auto;
 }
 
@@ -297,7 +346,8 @@ td a:hover {
 }
 
 .dark-theme .bg-light {
-    background-color: #343a40 !important; /* Override Bootstrap's light background */
+    background-color: #343a40 !important;
+    /* Override Bootstrap's light background */
 }
 
 .dark-theme .text-muted {
@@ -305,11 +355,13 @@ td a:hover {
 }
 
 .dark-theme .navbar-dark.bg-dark {
-    background-color: #1a1d20 !important; /* Darker navbar for dark theme */
+    background-color: #1a1d20 !important;
+    /* Darker navbar for dark theme */
 }
 
 /* Wrap line for technologies and web server */
-.truncate-techs, .truncate-webserver {
+.truncate-techs,
+.truncate-webserver {
     white-space: normal !important;
     word-break: break-word;
     max-width: 300px;
@@ -324,67 +376,103 @@ td a:hover {
 }
 
 /* Status code coloring: tô màu nền cho ô status */
-.status-2xx td:nth-child(3) { background: #28a745 !important; color: #fff !important; font-weight: bold; }
-.status-3xx td:nth-child(3) { background: #ffc107 !important; color: #111 !important; font-weight: bold; }
-.status-4xx td:nth-child(3) { background: #dc3545 !important; color: #fff !important; font-weight: bold; }
-.status-5xx td:nth-child(3) { background: #fd7e14 !important; color: #111 !important; font-weight: bold; }
+.status-2xx td:nth-child(3) {
+    background: #28a745 !important;
+    color: #fff !important;
+    font-weight: bold;
+}
+
+.status-3xx td:nth-child(3) {
+    background: #ffc107 !important;
+    color: #111 !important;
+    font-weight: bold;
+}
+
+.status-4xx td:nth-child(3) {
+    background: #dc3545 !important;
+    color: #fff !important;
+    font-weight: bold;
+}
+
+.status-5xx td:nth-child(3) {
+    background: #fd7e14 !important;
+    color: #111 !important;
+    font-weight: bold;
+}
 
 /* Table box shadow */
 .table {
-    box-shadow: 0 4px 24px rgba(0,0,0,0.10), 0 1.5px 4px rgba(0,0,0,0.08);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10), 0 1.5px 4px rgba(0, 0, 0, 0.08);
 }
 
 /* Box shadow for cards and modals */
-.card, .modal-content {
-    box-shadow: 0 4px 24px rgba(0,0,0,0.10), 0 1.5px 4px rgba(0,0,0,0.08);
+.card,
+.modal-content {
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10), 0 1.5px 4px rgba(0, 0, 0, 0.08);
 }
 
 /* General rounded corners */
-.table, .card, .modal-content, .btn {
+.table,
+.card,
+.modal-content,
+.btn {
     border-radius: 1rem !important;
 }
 
 /* Sidebar to top menu (hide sidebar, style nav as top menu) */
-#sidebarMenu { display: none !important; }
+#sidebarMenu {
+    display: none !important;
+}
 
 /* Footer styling */
 .footer {
-    background-color: #004080; /* Darker blue for footer */
-    color: #fff; /* White text on footer */
+    background-color: #004080;
+    /* Darker blue for footer */
+    color: #fff;
+    /* White text on footer */
     padding: 1rem 0;
     width: 100%;
-    /* position: fixed; */ /* Removed fixed position, will use flexbox */
+    /* position: fixed; */
+    /* Removed fixed position, will use flexbox */
     /* bottom: 0; */
-    box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+    box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
 }
 
 .footer .text-muted {
-    color: #e9ecef !important; /* Lighter text for muted elements in footer */
+    color: #e9ecef !important;
+    /* Lighter text for muted elements in footer */
 }
 
 /* Dark theme adjustments (if any are needed specifically for footer positioning) */
 .dark-theme .footer {
-    background-color: #1a1d20; /* Dark theme footer background */
+    background-color: #1a1d20;
+    /* Dark theme footer background */
 }
 
 /* Ensure other styles are not conflicting */
 main {
-    flex: 1 0 auto; /* Allow main content to grow and shrink but not less than its content size */
-    padding-bottom: 60px; /* Height of the footer */
+    flex: 1 0 auto;
+    /* Allow main content to grow and shrink but not less than its content size */
+    padding-bottom: 60px;
+    /* Height of the footer */
 }
 
 /* URL Diff Status Styles */
 .url-status-new {
-    background-color: #d4edda; /* Light green */
-    color: #155724; /* Dark green */
+    background-color: #d4edda;
+    /* Light green */
+    color: #155724;
+    /* Dark green */
 }
 
 .url-status-old {
-    background-color: #f8d7da; /* Light red */
-    color: #721c24; /* Dark red */
+    background-color: #f8d7da;
+    /* Light red */
+    color: #721c24;
+    /* Dark red */
     text-decoration: line-through;
 }
 
 .url-status-existing {
     /* No specific style, or a very subtle one if needed */
-} 
+}

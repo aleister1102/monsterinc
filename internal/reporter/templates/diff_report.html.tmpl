@@ -10,87 +10,363 @@
     {{end}}
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.21/css/dataTables.bootstrap4.min.css">
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
         body {
-            font-family: sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 20px;
-            background-color: #f4f4f4;
+            background-color: #f8f9fa;
         }
+
         .report-container {
             background-color: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
         }
+
+        .report-header {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .report-header h1 {
+            margin: 0;
+            font-weight: 600;
+        }
+
+        .report-stats {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+
         .diff-summary {
             margin-bottom: 30px;
-            padding: 15px;
-            border: 1px solid #eee;
-            border-radius: 4px;
+            padding: 20px;
+            border: none;
+            border-radius: 12px;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
+
         .diff-url {
             font-weight: bold;
             color: #007bff;
-            margin-bottom: 5px;
+            margin-bottom: 10px;
+            font-size: 1.1em;
         }
+
         .diff-details {
             font-size: 0.9em;
-            color: #555;
-            margin-bottom: 10px;
+            color: #6c757d;
+            margin-bottom: 15px;
         }
+
         .diff-content {
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            background-color: #f9f9f9;
-            white-space: pre-wrap;  /* Handles line breaks */
-            word-wrap: break-word;  /* Handles long unbreakable strings */
-            font-family: monospace;
+            padding: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            position: relative;
+            overflow-x: auto;
         }
+
+        .diff-content-with-lines {
+            display: flex;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+            overflow: hidden;
+        }
+
+        .line-numbers {
+            background-color: #e9ecef;
+            border-right: 1px solid #dee2e6;
+            color: #6c757d;
+            padding: 15px 12px;
+            text-align: right;
+            user-select: none;
+            min-width: 60px;
+            white-space: pre;
+            flex-shrink: 0;
+            font-weight: 500;
+        }
+
+        .diff-lines {
+            flex: 1;
+            padding: 15px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow-x: auto;
+            background-color: #ffffff;
+        }
+
         ins {
-            background-color: #d4edda;  /* Light green for insertions */
+            background-color: #d1ecf1;
+            color: #0c5460;
             text-decoration: none;
+            padding: 2px 4px;
+            border-radius: 3px;
         }
+
         del {
-            background-color: #f8d7da;  /* Light red for deletions */
+            background-color: #f8d7da;
+            color: #721c24;
             text-decoration: none;
+            padding: 2px 4px;
+            border-radius: 3px;
         }
+
         .error-message {
-            color: red;
+            color: #dc3545;
             font-weight: bold;
+            background-color: #f8d7da;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #f5c6cb;
         }
+
         .no-diffs {
             text-align: center;
-            color: #777;
+            color: #6c757d;
             font-style: italic;
+            padding: 40px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
         }
+
         .hash-info {
             font-size: 0.8em;
-            color: #6c757d; /* Bootstrap secondary color */
-            margin-top: 5px;
+            color: #6c757d;
+            margin-top: 10px;
+            padding: 8px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        }
+
+        .card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            transition: transform 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, #6c757d, #495057);
+            border: none;
+            border-radius: 12px 12px 0 0 !important;
+        }
+
+        .card-header .btn-link {
+            color: white;
+            text-decoration: none;
+            font-weight: 500;
+            width: 100%;
+            text-align: left;
+        }
+
+        .card-header .btn-link:hover {
+            color: #f8f9fa;
+        }
+
+        .extracted-paths {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+
+        .path-item {
+            background: white;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-left: 4px solid #007bff;
+        }
+
+        .path-item:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Secret Detection Styling */
+        .secret-section {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+            border: 1px solid #ffeaa7;
+        }
+
+        .secret-stats-card {
+            border-radius: 8px;
+            transition: transform 0.2s ease;
+            margin-bottom: 15px;
+        }
+
+        .secret-stats-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .secret-table {
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .secret-table th {
+            background: linear-gradient(135deg, #ffc107, #e0a800);
+            color: #212529;
+            border: none;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85em;
+            letter-spacing: 0.5px;
+        }
+
+        .secret-table td {
+            vertical-align: middle;
+            border-bottom: 1px solid #f8f9fa;
+        }
+
+        .badge {
+            font-size: 0.75em;
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+
+        .btn {
+            border-radius: 8px;
+            font-weight: 500;
+            padding: 6px 12px;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        /* URL Styling */
+        .truncate-url {
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .truncate-url a {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: 500;
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .truncate-url a:hover {
+            color: #0056b3;
+            text-decoration: underline;
+        }
+
+        /* Code Styling */
+        code {
+            padding: 2px 6px;
+            font-size: 0.85em;
+            border-radius: 4px;
+        }
+
+        .full-content-section {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+
+        .full-content-section pre {
+            background-color: white;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
         }
     </style>
 </head>
 <body>
     <div class="report-container">
+        <div class="report-header">
         {{if eq .ReportType "aggregated"}}
-        <h1>MonsterInc Aggregated Content Diff Report</h1>
+            <h1><i class="fas fa-code-branch me-3"></i>MonsterInc Aggregated Content Diff Report</h1>
         {{else}}
-        <h1>MonsterInc Content Diff Report</h1>
+            <h1><i class="fas fa-code-branch me-3"></i>MonsterInc Content Diff Report</h1>
         {{end}}
-        <p>Generated At: {{ .GeneratedAt }}</p>
-        <p>Total Diffs Found: {{ .TotalDiffs }}</p>
+        </div>
+
+        <div class="report-stats">
+            <div class="row text-center">
+                <div class="col-md-4">
+                    <div class="card border-primary">
+                        <div class="card-body">
+                            <i class="fas fa-clock fa-2x text-primary mb-2"></i>
+                            <h6 class="card-title">Generated At</h6>
+                            <p class="card-text">{{ .GeneratedAt }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card border-info">
+                        <div class="card-body">
+                            <i class="fas fa-list-alt fa-2x text-info mb-2"></i>
+                            <h6 class="card-title">Total Diffs</h6>
+                            <h4 class="text-info">{{ .TotalDiffs }}</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card border-success">
+                        <div class="card-body">
+                            <i class="fas fa-chart-line fa-2x text-success mb-2"></i>
+                            <h6 class="card-title">Status</h6>
+                            <p class="card-text">{{if gt .TotalDiffs 0}}Changes Detected{{else}}No Changes{{end}}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <hr>
 
         {{if .DiffResults}}
             <div id="diffsAccordion">
                 {{range $index, $diff := .DiffResults}}
-                <div class="card mb-3">
+                <div class="card">
                     <div class="card-header" id="heading{{$index}}">
                         <h5 class="mb-0">
                             <button class="btn btn-link" data-toggle="collapse" data-target="#collapse{{$index}}" aria-expanded="{{if eq $index 0}}true{{else}}false{{end}}" aria-controls="collapse{{$index}}">
-                                {{ $diff.URL }} ({{ $diff.ContentType }}) - {{ $diff.Timestamp.Format "2006-01-02 15:04:05" }}
+                                <i class="fas fa-globe me-2"></i>{{ $diff.URL }} 
+                                <span class="badge bg-secondary ms-2">{{ $diff.ContentType }}</span>
+                                <small class="ms-2 text-light">{{ $diff.Timestamp.Format "2006-01-02 15:04:05" }}</small>
                             </button>
                         </h5>
                     </div>
@@ -98,41 +374,158 @@
                     <div id="collapse{{$index}}" class="collapse {{if eq $index 0}}show{{end}}" aria-labelledby="heading{{$index}}" data-parent="#diffsAccordion">
                         <div class="card-body">
                             {{if $diff.ErrorMessage}}
-                                <p class="error-message">Error: {{ $diff.ErrorMessage }}</p>
-                            {{else if $diff.IsIdentical}}
-                                <p>No changes detected for this item.</p>
-                            {{else}}
-                                <p><strong>Diff Summary:</strong> {{ $diff.Summary }}</p>
-                                <div class="hash-info">
-                                    Old Hash: {{ $diff.OldHash }} <br>
-                                    New Hash: {{ $diff.NewHash }}
+                                <div class="error-message">
+                                    <i class="fas fa-exclamation-triangle me-2"></i>Error: {{ $diff.ErrorMessage }}
                                 </div>
+                            {{else if $diff.IsIdentical}}
+                                <div class="alert alert-info">
+                                    <i class="fas fa-check-circle me-2"></i>No changes detected for this item.
+                                </div>
+                            {{else}}
+                                <div class="row mb-3">
+                                    <div class="col-md-8">
+                                        <p><strong><i class="fas fa-info-circle me-1"></i>Diff Summary:</strong> {{ $diff.Summary }}</p>
+                                    </div>
+                                    <div class="col-md-4">
+                                <div class="hash-info">
+                                            <strong>Hash Information:</strong><br>
+                                            <small>Old: {{ $diff.OldHash }}</small><br>
+                                            <small>New: {{ $diff.NewHash }}</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
                                 <div class="diff-content">
-                                    {{ $diff.DiffHTML }}
+                                    <div class="diff-content-with-lines">
+                                        <div class="line-numbers" id="lineNumbers{{$index}}"></div>
+                                        <div class="diff-lines" id="diffContent{{$index}}">{{ $diff.DiffHTML }}</div>
+                                    </div>
                                 </div>
 
                                 {{if $diff.ExtractedPaths}}
                                 <hr>
-                                <p><strong>Extracted Paths ({{len $diff.ExtractedPaths}}):</strong></p>
-                                <ul class="list-group list-group-flush" style="font-size: 0.9em;">
+                                <div class="extracted-paths">
+                                    <h6><i class="fas fa-sitemap me-2"></i><strong>Extracted Paths ({{len $diff.ExtractedPaths}})</strong></h6>
                                     {{range $path := $diff.ExtractedPaths}}
-                                    <li class="list-group-item py-1">
-                                        <small><strong>Raw:</strong> <code style="word-break: break-all;">{{$path.ExtractedRawPath}}</code></small><br>
-                                        <small><strong>Absolute:</strong> <a href="{{$path.ExtractedAbsoluteURL}}" target="_blank" style="word-break: break-all;">{{$path.ExtractedAbsoluteURL}}</a></small><br>
-                                        <small><strong>Type:</strong> {{$path.Type}}</small><br>
+                                    <div class="path-item">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <small><strong><i class="fas fa-code me-1"></i>Raw:</strong></small><br>
+                                                <code class="bg-light px-2 py-1 rounded d-block">{{$path.ExtractedRawPath}}</code>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <small><strong><i class="fas fa-external-link-alt me-1"></i>Absolute:</strong></small><br>
+                                                <a href="{{$path.ExtractedAbsoluteURL}}" target="_blank" class="text-break">{{$path.ExtractedAbsoluteURL}}</a>
+                                            </div>
+                                        </div>
+                                        <div class="row mt-2">
+                                            <div class="col-md-6">
+                                                <small><strong><i class="fas fa-tag me-1"></i>Type:</strong></small>
+                                                <span class="badge bg-info ms-1">{{$path.Type}}</span>
+                                            </div>
+                                        </div>
                                         {{if $path.Context}}
-                                        <small><strong>Context:</strong></small>
-                                        <pre style="white-space: pre-wrap; word-break: break-all; background-color: #f8f9fa; padding: 5px; border-radius: 3px; max-height: 100px; overflow-y: auto;"><code>{{$path.Context}}</code></pre>
+                                        <div class="mt-2">
+                                            <small><strong><i class="fas fa-align-left me-1"></i>Context:</strong></small>
+                                            <pre class="bg-light p-2 rounded mt-1" style="max-height: 100px; overflow-y: auto; font-size: 0.8em;"><code>{{$path.Context}}</code></pre>
+                                        </div>
                                         {{end}}
-                                    </li>
+                                    </div>
                                     {{end}}
-                                </ul>
+                                </div>
+                                {{end}}
+
+                                {{if $diff.SecretFindings}}
+                                <hr>
+                                <div class="secret-section">
+                                    <h6><i class="fas fa-shield-alt me-2"></i><strong>Secret Detection Findings ({{len $diff.SecretFindings}})</strong></h6>
+                                    
+                                    {{/* Secret Statistics */}}
+                                    <div class="row mb-3">
+                                        <div class="col-md-3">
+                                            <div class="card border-danger secret-stats-card">
+                                                <div class="card-body text-center p-2">
+                                                    <i class="fas fa-exclamation-triangle text-danger mb-1"></i>
+                                                    <h6 class="card-title text-danger mb-1">High/Critical</h6>
+                                                    <h5 class="text-danger mb-0">{{$diff.SecretStats.HighSeverity}}</h5>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="card border-warning secret-stats-card">
+                                                <div class="card-body text-center p-2">
+                                                    <i class="fas fa-exclamation-circle text-warning mb-1"></i>
+                                                    <h6 class="card-title text-warning mb-1">Medium</h6>
+                                                    <h5 class="text-warning mb-0">{{$diff.SecretStats.MediumSeverity}}</h5>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="card border-info secret-stats-card">
+                                                <div class="card-body text-center p-2">
+                                                    <i class="fas fa-info-circle text-info mb-1"></i>
+                                                    <h6 class="card-title text-info mb-1">Low</h6>
+                                                    <h5 class="text-info mb-0">{{$diff.SecretStats.LowSeverity}}</h5>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="card border-secondary secret-stats-card">
+                                                <div class="card-body text-center p-2">
+                                                    <i class="fas fa-question-circle text-secondary mb-1"></i>
+                                                    <h6 class="card-title text-secondary mb-1">Unknown</h6>
+                                                    <h5 class="text-secondary mb-0">{{$diff.SecretStats.UnknownSeverity}}</h5>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {{/* Secret Findings Table */}}
+                                    <table class="table table-sm secret-table">
+                                        <thead>
+                                            <tr>
+                                                <th><i class="fas fa-tag me-1"></i>Rule ID</th>
+                                                <th><i class="fas fa-info me-1"></i>Description</th>
+                                                <th><i class="fas fa-exclamation-triangle me-1"></i>Severity</th>
+                                                <th><i class="fas fa-key me-1"></i>Secret</th>
+                                                <th><i class="fas fa-list-ol me-1"></i>Line</th>
+                                                <th><i class="fas fa-tools me-1"></i>Tool</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {{range $finding := $diff.SecretFindings}}
+                                            <tr class="{{if or (eq $finding.Severity "HIGH") (eq $finding.Severity "CRITICAL")}}table-danger{{else if eq $finding.Severity "MEDIUM"}}table-warning{{else if eq $finding.Severity "LOW"}}table-info{{else}}table-secondary{{end}}">
+                                                <td><code class="bg-light px-2 py-1 rounded">{{$finding.RuleID}}</code></td>
+                                                <td>{{$finding.Description}}</td>
+                                                <td>
+                                                    <span class="badge {{if or (eq $finding.Severity "HIGH") (eq $finding.Severity "CRITICAL")}}badge-danger{{else if eq $finding.Severity "MEDIUM"}}badge-warning{{else if eq $finding.Severity "LOW"}}badge-info{{else}}badge-secondary{{end}}">
+                                                        {{if or (eq $finding.Severity "HIGH") (eq $finding.Severity "CRITICAL")}}<i class="fas fa-exclamation-triangle me-1"></i>{{else if eq $finding.Severity "MEDIUM"}}
+                                                        <i class="fas fa-exclamation-circle me-1"></i>{{else if eq $finding.Severity "LOW"}}
+                                                        <i class="fas fa-info-circle me-1"></i>{{else}}
+                                                        <i class="fas fa-question-circle me-1"></i>{{end}}
+                                                        {{$finding.Severity}}
+                                                    </span>
+                                                </td>
+                                                <td class="font-monospace">
+                                                    {{if $finding.SecretText}}
+                                                        <code class="bg-dark text-light px-2 py-1 rounded">{{$finding.SecretText}}</code>
+                                                    {{else}}
+                                                        <span class="text-muted">-</span>
+                                                    {{end}}
+                                                </td>
+                                                <td>{{if $finding.LineNumber}}<span class="badge bg-secondary">{{$finding.LineNumber}}</span>{{else}}<span class="text-muted">-</span>{{end}}</td>
+                                                <td>{{if $finding.ToolName}}<span class="badge bg-primary">{{$finding.ToolName}}</span>{{else}}<span class="text-muted">-</span>{{end}}</td>
+                                            </tr>
+                                            {{end}}
+                                        </tbody>
+                                    </table>
+                                </div>
                                 {{end}}
 
                                 {{if $diff.FullContent}}
                                 <hr>
-                                <p><strong>Full New Content:</strong></p>
-                                <div class="diff-content" style="background-color: #e9ecef;"> <!-- Lighter background for full content -->
+                                <div class="full-content-section">
+                                    <h6><i class="fas fa-file-code me-2"></i><strong>Full New Content</strong></h6>
                                     <pre>{{ $diff.FullContent }}</pre>
                                 </div>
                                 {{end}}
@@ -143,24 +536,84 @@
                 {{end}}
             </div>
         {{else}}
-            <p class="no-diffs">No differences to report.</p>
+            <div class="no-diffs">
+                <i class="fas fa-search fa-3x mb-3"></i>
+                <p>No differences to report.</p>
+            </div>
         {{end}}
     </div>
 
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    
+    <script>
+        $(document).ready(function() {
+            // Add line numbers to diff content
+            function addLineNumbers() {
+                {{range $index, $diff := .DiffResults}}
+                {{if not $diff.ErrorMessage}}
+                {{if not $diff.IsIdentical}}
+                var diffContent = document.getElementById('diffContent{{$index}}');
+                var lineNumbers = document.getElementById('lineNumbers{{$index}}');
+                
+                if (diffContent && lineNumbers) {
+                    var content = diffContent.textContent || diffContent.innerText;
+                    
+                    // Handle different types of content
+                    var lines;
+                    if (content.includes('\n')) {
+                        // Multi-line content
+                        lines = content.split('\n');
+                    } else {
+                        // Single line content (like minified JS) - break into chunks for readability
+                        var chunkSize = 120; // Characters per line for display
+                        lines = [];
+                        for (var i = 0; i < content.length; i += chunkSize) {
+                            lines.push(content.substring(i, i + chunkSize));
+                        }
+                    }
+                    
+                    var lineNumbersText = '';
+                    for (var i = 1; i <= lines.length; i++) {
+                        lineNumbersText += i + '\n';
+                    }
+                    
+                    lineNumbers.textContent = lineNumbersText;
+                    
+                    // Update diff content to show line breaks for minified content
+                    if (!content.includes('\n') && content.length > 120) {
+                        var formattedContent = '';
+                        for (var i = 0; i < lines.length; i++) {
+                            formattedContent += lines[i];
+                            if (i < lines.length - 1) {
+                                formattedContent += '\n';
+                            }
+                        }
+                        diffContent.textContent = formattedContent;
+                    }
+                }
+                {{end}}
+                {{end}}
+                {{end}}
+            }
+            
+            // Call the function initially
+            addLineNumbers();
+            
+            // Re-call when accordion is opened
+            $('#diffsAccordion').on('shown.bs.collapse', function() {
+                setTimeout(addLineNumbers, 100);
+            });
+        });
+    </script>
+    
     {{if .EnableDataTables}}
     <script type="text/javascript" src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.min.js"></script>
     <script type="text/javascript" src="https://cdn.datatables.net/1.10.21/js/dataTables.bootstrap4.min.js"></script>
     <script>
         $(document).ready(function() {
-            // Initialize DataTable for any tables if needed, for example, if diffs were tabular
-            // For now, the accordion handles individual diffs.
-            // If you had a summary table:
-            // $('#diffSummaryTable').DataTable({
-            //     \"pageLength\": {{ .ItemsPerPage }}
-            // });
+            // Initialize DataTable for any tables if needed
         });
     </script>
     {{end}}

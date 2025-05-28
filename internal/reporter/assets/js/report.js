@@ -3,7 +3,7 @@
 $(document).ready(function () {
     const $resultsTable = $('#resultsTable');
     const $tableBody = $resultsTable.find('tbody');
-    let allRowsData = []; 
+    let allRowsData = [];
     if (typeof window.reportSettings !== 'undefined' && window.reportSettings.initialProbeResults) {
         allRowsData = window.reportSettings.initialProbeResults;
     }
@@ -22,7 +22,7 @@ $(document).ready(function () {
 
     let itemsPerPage = parseInt($itemsPerPageSelect.val()) || 10;
     let currentPage = 1;
-    let currentSortColumn = null; 
+    let currentSortColumn = null;
     let currentSortDirection = 'asc';
     let currentFilters = {
         // globalSearch: '', // Global search disabled
@@ -46,34 +46,40 @@ $(document).ready(function () {
     function renderTableRows(dataToRender) {
         $tableBody.empty();
         if (!dataToRender || dataToRender.length === 0) {
-            const colCount = $resultsTable.find('thead th').length || 11; // Adjusted colspan to 11 based on current headers
+            const colCount = $resultsTable.find('thead th').length || 9; // Updated to match actual template columns
             $tableBody.append(`<tr><td colspan="${colCount}" class="text-center">No results match your filters.</td></tr>`);
             return;
         }
 
-        $.each(dataToRender, function(index, pr) {
+        $.each(dataToRender, function (index, pr) {
             const originalIndex = allRowsData.indexOf(pr);
             const $row = $('<tr></tr>')
                 .addClass(pr.IsSuccess ? (pr.StatusCode ? `status-${pr.StatusCode}` : '') : 'table-danger')
                 .attr('data-result-index', originalIndex);
 
             // IMPORTANT: Keep this order exactly matching the <thead> in report.html.tmpl
+            // 1. Input URL
             $row.append($('<td></td>').addClass('truncate-url').attr('title', pr.InputURL).html(pr.InputURL ? `<a href="${pr.InputURL}" target="_blank">${truncateText(pr.InputURL, 50)}</a>` : '-'));
+            // 2. Final URL  
             $row.append($('<td></td>').addClass('truncate-url').attr('title', pr.FinalURL).html(pr.FinalURL ? `<a href="${pr.FinalURL}" target="_blank">${truncateText(pr.FinalURL, 50)}</a>` : '-'));
-            $row.append($('<td></td>').addClass(pr.diff_status ? `diff-status-${pr.diff_status.toLowerCase()}` : '').text(pr.diff_status || '-'));
-            $row.append($('<td></td>').text(pr.StatusCode || (pr.Error ? 'ERR' : '-')));
-            $row.append($('<td></td>').addClass('truncate-title').attr('title', pr.Title).text(truncateText(pr.Title, 70) || '-'));
-            
+            // 3. Diff Status
+            $row.append($('<td></td>').addClass('hide-on-mobile').html(pr.diff_status ? `<span class="diff-status-${pr.diff_status.toLowerCase()}">${pr.diff_status}</span>` : '-'));
+            // 4. Status Code
+            $row.append($('<td></td>').html(pr.StatusCode ? `<span class="${pr.StatusCode ? `status-${pr.StatusCode}` : ''}">${pr.StatusCode}</span>` : (pr.Error ? 'ERR' : '-')));
+            // 5. Title
+            $row.append($('<td></td>').addClass('truncate-title hide-on-small').attr('title', pr.Title).text(truncateText(pr.Title, 70) || '-'));
+            // 6. Technologies
             const techString = Array.isArray(pr.Technologies) ? pr.Technologies.join(', ') : '';
-            $row.append($('<td></td>').addClass('truncate-techs').attr('title', techString).text(truncateText(techString, 40) || '-'));
-            
-            $row.append($('<td></td>').text(pr.WebServer || '-'));
-            $row.append($('<td></td>').text(pr.ContentType || '-'));
-            $row.append($('<td></td>').text(pr.ContentLength !== undefined && pr.ContentLength !== null ? pr.ContentLength : '-'));
-            $row.append($('<td></td>').text(Array.isArray(pr.IPs) && pr.IPs.length > 0 ? pr.IPs.join(', ') : '-'));
-            
-            $row.append($('<td><button class="btn btn-sm btn-outline-info view-details-btn" data-bs-toggle="modal" data-bs-target="#detailsModal">View</button></td>'));
-            
+            const techHtml = Array.isArray(pr.Technologies) && pr.Technologies.length > 0 ?
+                pr.Technologies.map(tech => `<span class="tech-tag">${tech}</span>`).join('') : '-';
+            $row.append($('<td></td>').addClass('truncate-techs hide-on-medium').attr('title', techString).html(techHtml));
+            // 7. Web Server
+            $row.append($('<td></td>').addClass('hide-on-large').text(pr.WebServer || '-'));
+            // 8. Content Type
+            $row.append($('<td></td>').addClass('hide-on-mobile').text(pr.ContentType || '-'));
+            // 9. Details button
+            $row.append($('<td><button class="btn btn-sm btn-outline-primary view-details-btn" data-bs-toggle="modal" data-bs-target="#detailsModal"><i class="fas fa-eye me-1"></i>View</button></td>'));
+
             $tableBody.append($row);
         });
     }
@@ -136,7 +142,7 @@ $(document).ready(function () {
 
             valA = (valA === undefined || valA === null) ? '' : String(valA);
             valB = (valB === undefined || valB === null) ? '' : String(valB);
-            
+
             let numA = parseFloat(valA);
             let numB = parseFloat(valB);
 
@@ -162,12 +168,12 @@ $(document).ready(function () {
         const start = (page - 1) * itemsPerPage;
         const end = start + itemsPerPage;
         const paginatedItems = filteredAndSortedData.slice(start, end);
-        
+
         renderTableRows(paginatedItems);
         setupPaginationControls(filteredAndSortedData.length);
         updateResultsCount(filteredAndSortedData.length, allRowsData.length);
     }
-    
+
     function setupPaginationControls(totalItems) {
         $paginationControls.empty();
         const pageCount = Math.ceil(totalItems / itemsPerPage);
@@ -179,11 +185,11 @@ $(document).ready(function () {
             const $li = $('<li></li>').addClass('page-item');
             if (isActive) $li.addClass('active');
             if (isDisabled) $li.addClass('disabled');
-            
+
             const $a = $('<a></a>').addClass('page-link').attr('href', '#').text(text || pageNum);
             if (!isDisabled) {
-                $a.on('click', (e) => { 
-                    e.preventDefault(); 
+                $a.on('click', (e) => {
+                    e.preventDefault();
                     displayPage(pageNum);
                 });
             }
@@ -205,9 +211,9 @@ $(document).ready(function () {
             $ul.append(createPageLink(i, i, i === currentPage));
         }
 
-        if (endPage < pageCount -1 && endPage + 1 < pageCount) $ul.append($('<li></li>').addClass('page-item disabled').html('<span class="page-link">...</span>'));
+        if (endPage < pageCount - 1 && endPage + 1 < pageCount) $ul.append($('<li></li>').addClass('page-item disabled').html('<span class="page-link">...</span>'));
         if (endPage < pageCount) $ul.append(createPageLink(pageCount, pageCount));
-        
+
         $ul.append(createPageLink(currentPage + 1, 'Next', false, currentPage === pageCount));
         $paginationControls.append($ul);
     }
@@ -219,7 +225,7 @@ $(document).ready(function () {
             countText = `Filtered to ${filteredCount} (from ${totalInitialCount}) results`;
         }
         if (filteredCount > 0) {
-             countText += `, Page ${currentPage} of ${pageCount || 1}`;
+            countText += `, Page ${currentPage} of ${pageCount || 1}`;
         }
         if (filteredCount === 0 && totalInitialCount > 0) {
             countText = 'No results match filters.';
@@ -238,18 +244,18 @@ $(document).ready(function () {
 
     // --- Event Listeners ---
     // $globalSearchInput.on('input', function() { currentFilters.globalSearch = $(this).val(); processAndDisplayData(); }); // Global search disabled
-    $rootURLFilter.on('change', function() { currentFilters.rootURL = $(this).val(); processAndDisplayData(); });
-    $statusCodeFilter.on('change', function() { currentFilters.statusCode = $(this).val(); processAndDisplayData(); });
-    $contentTypeFilter.on('change', function() { currentFilters.contentType = $(this).val(); processAndDisplayData(); });
-    $techFilterInput.on('input', function() { currentFilters.tech = $(this).val(); processAndDisplayData(); });
+    $rootURLFilter.on('change', function () { currentFilters.rootURL = $(this).val(); processAndDisplayData(); });
+    $statusCodeFilter.on('change', function () { currentFilters.statusCode = $(this).val(); processAndDisplayData(); });
+    $contentTypeFilter.on('change', function () { currentFilters.contentType = $(this).val(); processAndDisplayData(); });
+    $techFilterInput.on('input', function () { currentFilters.tech = $(this).val(); processAndDisplayData(); });
     // $targetFilterInput.on('input', function() { currentFilters.target = $(this).val(); processAndDisplayData(); }); // This was likely a typo or old, RootURLFilter is used now
-    $urlStatusFilter.on('change', function() { currentFilters.urlStatus = $(this).val(); processAndDisplayData(); });
-    $itemsPerPageSelect.on('change', function() { 
+    $urlStatusFilter.on('change', function () { currentFilters.urlStatus = $(this).val(); processAndDisplayData(); });
+    $itemsPerPageSelect.on('change', function () {
         itemsPerPage = parseInt($(this).val()) || 10;
-        processAndDisplayData(); 
+        processAndDisplayData();
     });
 
-    $clearAllFiltersBtn.on('click', function() {
+    $clearAllFiltersBtn.on('click', function () {
         currentFilters = {
             rootURL: '',
             statusCode: '',
@@ -264,14 +270,14 @@ $(document).ready(function () {
         $techFilterInput.val('');
         $urlStatusFilter.val('');
         // $globalSearchInput.val(''); // If global search were enabled
-        
+
         processAndDisplayData();
     });
 
-    $resultsTable.find('thead th.sortable').on('click', function() {
+    $resultsTable.find('thead th.sortable').on('click', function () {
         const $th = $(this);
-        const sortKey = $th.data('sort-key'); 
-        
+        const sortKey = $th.data('sort-key');
+
         if (!sortKey) return;
 
         // Removed 'duration' from sortable keys
@@ -287,11 +293,11 @@ $(document).ready(function () {
 
         $resultsTable.find('thead th.sortable').removeClass('sort-asc sort-desc');
         $th.addClass(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
-        
+
         filteredAndSortedData = sortData(filteredAndSortedData, currentSortColumn, currentSortDirection);
-        displayPage(currentPage); 
+        displayPage(currentPage);
     });
-    
+
     // Target List Navigation - REMOVED
     /*
     $('.top-menu').on('click', 'a.nav-link', function(e) { 
@@ -308,7 +314,7 @@ $(document).ready(function () {
     const $modalDetailsContent = $('#modalDetailsContent');
     const $modalTitle = $('#detailsModal .modal-title');
 
-    $tableBody.on('click', '.view-details-btn', function() {
+    $tableBody.on('click', '.view-details-btn', function () {
         const $row = $(this).closest('tr');
         const originalDataIndex = parseInt($row.data('result-index'));
         const resultData = allRowsData[originalDataIndex];
@@ -325,12 +331,12 @@ $(document).ready(function () {
             detailsText += `Content Type: ${resultData.ContentType || '-'}\n`;
             detailsText += `Content Length: ${resultData.ContentLength !== undefined ? resultData.ContentLength : '-'}\n`;
             detailsText += `Timestamp: ${resultData.Timestamp || '-'}\n`;
-            detailsText += `\n`;
+            detailsText += "\n";
 
             detailsText += `IPs: ${(resultData.IPs || []).join(', ')}\n`;
-            detailsText += `\n`;
-            
-            detailsText += `Technologies: ${(Array.isArray(resultData.Technologies) ? resultData.Technologies.join(', ') : '' ) || '-'}\n\n`;
+            detailsText += "\n";
+
+            detailsText += `Technologies: ${(Array.isArray(resultData.Technologies) ? resultData.Technologies.join(', ') : '') || '-'}\n\n`;
 
             detailsText += "--- Headers ---\n";
             if (resultData.Headers && Object.keys(resultData.Headers).length > 0) {
@@ -341,7 +347,7 @@ $(document).ready(function () {
                 detailsText += "(No headers captured)\n";
             }
             detailsText += "\n--- Body Snippet (if available) ---\n";
-            detailsText += truncateText(resultData.Body, 500) || "(No body captured or body is empty)"; 
+            detailsText += truncateText(resultData.Body, 500) || "(No body captured or body is empty)";
 
             $modalTitle.text(`Details for: ${resultData.InputURL}`);
             $modalDetailsContent.text(detailsText);
@@ -355,7 +361,7 @@ $(document).ready(function () {
     // Initial data (allRowsData) is already populated from window.reportSettings
     // Populate dropdowns from Go template data (UniqueStatusCodes, etc.) is done by Go template itself.
     // This JS assumes those dropdowns are pre-filled.
-    
+
     // Initialize sorting (e.g., by Input URL asc)
     const $initialSortHeader = $resultsTable.find('thead th[data-sort-key="InputURL"]');
     if ($initialSortHeader.length) {
@@ -364,7 +370,7 @@ $(document).ready(function () {
         $initialSortHeader.addClass('sort-asc');
     }
 
-    processAndDisplayData(); 
+    processAndDisplayData();
 
     console.log("MonsterInc Report JS (jQuery) Loaded. Initial results: " + allRowsData.length);
 });
