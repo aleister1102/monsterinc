@@ -248,7 +248,7 @@ notification_config:
 
   # Automatically delete the generated HTML report file after a Discord notification for that report has been successfully sent.
   # This applies to notifications that include a report_path, like scan completion or diff reports.
-  # Default: false
+  # Default: true
   auto_delete_report_after_discord_notification: true
 
 # Logging configuration: Settings for application logging.

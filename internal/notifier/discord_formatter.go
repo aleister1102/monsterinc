@@ -316,7 +316,7 @@ func FormatInitialMonitoredURLsMessage(monitoredURLs []string, cfg config.Notifi
 	embed := models.DiscordEmbed{
 		Title:       ":pencil: Initial File Monitoring Targets",
 		Description: description,
-		Color:       0x00ff00, // Green
+		Color:       colorBlue, // Green
 		Timestamp:   time.Now().Format(time.RFC3339),
 		Footer: &models.DiscordEmbedFooter{
 			Text: "MonsterInc File Monitor",
@@ -370,9 +370,9 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 	}
 
 	embeds := []models.DiscordEmbed{{
-		Title:       ":warning: Aggregated File Changes Detected",
+		Title:       ":white_check_mark: Aggregated File Changes Detected",
 		Description: description,
-		Color:       0xffa500, // Orange
+		Color:       colorGreen, // Green
 		Timestamp:   time.Now().Format(time.RFC3339),
 		Footer: &models.DiscordEmbedFooter{
 			Text: "MonsterInc File Monitor",
