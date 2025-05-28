@@ -83,6 +83,23 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 	currentCrawlerCfg := *crawlerCfg // Shallow copy is usually fine for config structs
 	currentCrawlerCfg.SeedURLs = seedURLs
 
+	// Auto-add seed hostnames to allowed hostnames if enabled and seeds provided via parameter
+	if currentCrawlerCfg.AutoAddSeedHostnames && len(seedURLs) > 0 {
+		seedHostnames := crawler.ExtractHostnamesFromSeedURLs(seedURLs, so.logger)
+		if len(seedHostnames) > 0 {
+			currentCrawlerCfg.Scope.AllowedHostnames = crawler.MergeAllowedHostnames(
+				currentCrawlerCfg.Scope.AllowedHostnames,
+				seedHostnames,
+			)
+			so.logger.Info().
+				Strs("seed_hostnames", seedHostnames).
+				Strs("original_allowed_hostnames", crawlerCfg.Scope.AllowedHostnames).
+				Strs("final_allowed_hostnames", currentCrawlerCfg.Scope.AllowedHostnames).
+				Str("session_id", scanSessionID).
+				Msg("Orchestrator: Auto-added seed hostnames to allowed hostnames")
+		}
+	}
+
 	var discoveredURLs []string
 	var primaryRootTargetURL string
 

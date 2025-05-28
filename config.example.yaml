@@ -177,6 +177,13 @@ crawler_config:
   # Maximum content length in MB to download for a page.
   # Default: 2
   max_content_length_mb: 2
+  # Automatically add seed URL hostnames to allowed hostnames list.
+  # When enabled, hostnames extracted from seed URLs will be automatically
+  # added to the allowed_hostnames list in the scope configuration.
+  # This is useful to ensure the crawler can visit seed domains without
+  # manually specifying them in allowed_hostnames.
+  # Default: true
+  auto_add_seed_hostnames: true
 
 # Reporter configuration: Settings for generating HTML reports.
 reporter_config:
