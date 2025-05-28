@@ -222,6 +222,33 @@ func (s *MonitoringService) Start(initialURLs []string) error {
 func (s *MonitoringService) Stop() {
 	s.logger.Info().Msg("Attempting to stop MonitoringService...")
 
+	// Get current monitored URLs for notification before cleanup
+	currentMonitoredURLs := s.GetCurrentlyMonitoredURLs()
+
+	// Send any remaining aggregated changes and errors before stopping
+	s.logger.Info().Msg("Sending final aggregated changes and errors before stopping...")
+	s.sendAggregatedChanges()
+	s.sendAggregatedErrors()
+
+	// Send interrupted notification using scan completion format
+	if s.notificationHelper != nil && len(currentMonitoredURLs) > 0 {
+		s.logger.Info().Int("monitored_url_count", len(currentMonitoredURLs)).Msg("Sending monitor service interrupted notification...")
+
+		// Create ScanSummaryData for interrupted monitor service
+		interruptedSummary := models.ScanSummaryData{
+			ScanSessionID: time.Now().Format("20060102-150405-monitor"),
+			TargetSource:  "monitor_service",
+			Targets:       currentMonitoredURLs,
+			TotalTargets:  len(currentMonitoredURLs),
+			Status:        string(models.ScanStatusInterrupted),
+			ErrorMessages: []string{"Monitor service was stopped/interrupted"},
+			Component:     "MonitorService",
+		}
+
+		// Use a background context since serviceCtx might be cancelled
+		s.notificationHelper.SendScanCompletionNotification(context.Background(), interruptedSummary, notifier.MonitorServiceNotification)
+	}
+
 	// Stop the scheduler first
 	if s.scheduler != nil {
 		s.scheduler.Stop()
