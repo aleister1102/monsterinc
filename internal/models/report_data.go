@@ -69,6 +69,11 @@ type ReportPageData struct {
 
 	// Diffing summary data, map key is RootTargetURL
 	DiffSummaryData map[string]DiffSummaryEntry `json:"diff_summary_data"`
+
+	// Secret Detection Findings
+	SecretFindings     []SecretFinding `json:"secret_findings,omitempty"`
+	SecretFindingsJSON template.JS     `json:"-"` // JSON string of SecretFindings for JavaScript processing
+	SecretStats        SecretStats     `json:"secret_stats"`
 }
 
 // ReporterConfigForTemplate is a subset of reporter configurations relevant for the template.
@@ -138,8 +143,9 @@ func GetDefaultReportPageData() ReportPageData {
 		TableHeaders: []string{ // Default headers, can be customized
 			"Input URL", "Final URL", "Status", "Title", "Technologies", "Web Server", "Content Type", "Length", "IPs",
 		},
-		ItemsPerPage:     10,   // Default, should come from config
-		EnableDataTables: true, // Default, should come from config
+		ItemsPerPage:     10,            // Default, should come from config
+		EnableDataTables: true,          // Default, should come from config
+		SecretStats:      SecretStats{}, // Initialize empty secret stats
 	}
 }
 
@@ -149,6 +155,17 @@ type DiffSummaryEntry struct {
 	OldCount      int `json:"old_count"`
 	ExistingCount int `json:"existing_count"`
 	ChangedCount  int `json:"changed_count"` // Keep for future use
+}
+
+// SecretStats holds statistics about secret detection findings
+type SecretStats struct {
+	TotalFindings    int `json:"total_findings"`
+	HighSeverity     int `json:"high_severity"`
+	MediumSeverity   int `json:"medium_severity"`
+	LowSeverity      int `json:"low_severity"`
+	UnknownSeverity  int `json:"unknown_severity"`
+	UniqueRules      int `json:"unique_rules"`
+	UniqueSourceURLs int `json:"unique_source_urls"`
 }
 
 // DiffReportPageData holds all the data needed to render the diff_report.html.tmpl template.
@@ -180,6 +197,8 @@ type DiffResultDisplay struct {
 	Summary        string          `json:"summary,omitempty"`
 	FullContent    string          `json:"full_content,omitempty"`    // Added to display full new content
 	ExtractedPaths []ExtractedPath `json:"extracted_paths,omitempty"` // Added
+	SecretFindings []SecretFinding `json:"secret_findings,omitempty"` // Secret findings for this diff
+	SecretStats    SecretStats     `json:"secret_stats"`              // Statistics for secret findings
 }
 
 // GetDefaultDiffReportPageData initializes a DiffReportPageData with some default values.

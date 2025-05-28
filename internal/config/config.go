@@ -76,6 +76,39 @@ const (
 
 // --- Nested Configuration Structs ---
 
+// SecretsConfig defines the configuration for secret detection functionality.
+type SecretsConfig struct {
+	Enabled                    bool     `json:"enabled" yaml:"enabled"`
+	EnableTruffleHog           bool     `json:"enable_trufflehog" yaml:"enable_trufflehog"`
+	TruffleHogPath             string   `json:"trufflehog_path,omitempty" yaml:"trufflehog_path,omitempty" validate:"omitempty,filepath"`
+	EnableCustomRegex          bool     `json:"enable_custom_regex" yaml:"enable_custom_regex"`
+	CustomRegexPatternsFile    string   `json:"custom_regex_patterns_file,omitempty" yaml:"custom_regex_patterns_file,omitempty" validate:"omitempty,fileexists"`
+	MaxFileSizeToScanMB        int      `json:"max_file_size_to_scan_mb,omitempty" yaml:"max_file_size_to_scan_mb,omitempty" validate:"omitempty,min=0"`
+	NotifyOnHighSeverity       bool     `json:"notify_on_high_severity" yaml:"notify_on_high_severity"`
+	NotifyOnHighSeveritySecret bool     `json:"notify_on_high_severity_secret" yaml:"notify_on_high_severity_secret"`
+	DefaultRegexPatterns       []string `json:"default_regex_patterns,omitempty" yaml:"default_regex_patterns,omitempty"` // For internal use, not typically set in config file
+	TruffleHogMaxConcurrency   int      `json:"trufflehog_max_concurrency,omitempty" yaml:"trufflehog_max_concurrency,omitempty" validate:"omitempty,min=1"`
+	TruffleHogTimeoutSeconds   int      `json:"trufflehog_timeout_seconds,omitempty" yaml:"trufflehog_timeout_seconds,omitempty" validate:"omitempty,min=1"`
+	TruffleHogNoVerification   bool     `json:"trufflehog_no_verification" yaml:"trufflehog_no_verification"`
+}
+
+func NewDefaultSecretsConfig() SecretsConfig {
+	return SecretsConfig{
+		Enabled:                    false,        // Disabled by default
+		EnableTruffleHog:           true,         // Default to using TruffleHog if secrets scanning is enabled
+		TruffleHogPath:             "trufflehog", // Default path, assumes it's in PATH (for CLI mode, less relevant for lib)
+		EnableCustomRegex:          true,         // Default to using custom regexes if secrets scanning is enabled
+		CustomRegexPatternsFile:    "",           // No custom file by default
+		MaxFileSizeToScanMB:        5,            // Default max file size to scan is 5MB
+		NotifyOnHighSeverity:       true,         // Default to notifying on high severity findings
+		NotifyOnHighSeveritySecret: false,        // Default to false
+		DefaultRegexPatterns:       []string{},
+		TruffleHogMaxConcurrency:   5,    // Default concurrency for TruffleHog library scans
+		TruffleHogTimeoutSeconds:   60,   // Default timeout for TruffleHog library scans
+		TruffleHogNoVerification:   true, // Default to true (added)
+	}
+}
+
 type InputConfig struct {
 	InputURLs []string `json:"input_urls,omitempty" yaml:"input_urls,omitempty" validate:"omitempty,dive,url"`
 	InputFile string   `json:"input_file,omitempty" yaml:"input_file,omitempty" validate:"omitempty,fileexists"`
@@ -226,24 +259,27 @@ func NewDefaultStorageConfig() StorageConfig {
 }
 
 type NotificationConfig struct {
-	MonitorServiceDiscordWebhookURL string   `json:"monitor_service_discord_webhook_url,omitempty" yaml:"monitor_service_discord_webhook_url,omitempty" validate:"omitempty,url"`
-	ScanServiceDiscordWebhookURL    string   `json:"scan_service_discord_webhook_url,omitempty" yaml:"scan_service_discord_webhook_url,omitempty" validate:"omitempty,url"`
-	MentionRoleIDs                  []string `json:"mention_role_ids,omitempty" yaml:"mention_role_ids,omitempty"`
-	NotifyOnSuccess                 bool     `json:"notify_on_success" yaml:"notify_on_success"`
-	NotifyOnFailure                 bool     `json:"notify_on_failure" yaml:"notify_on_failure"`
-	NotifyOnScanStart               bool     `json:"notify_on_scan_start" yaml:"notify_on_scan_start"`
-	NotifyOnCriticalError           bool     `json:"notify_on_critical_error" yaml:"notify_on_critical_error"`
+	MonitorServiceDiscordWebhookURL          string   `json:"monitor_service_discord_webhook_url,omitempty" yaml:"monitor_service_discord_webhook_url,omitempty" validate:"omitempty,url"`
+	ScanServiceDiscordWebhookURL             string   `json:"scan_service_discord_webhook_url,omitempty" yaml:"scan_service_discord_webhook_url,omitempty" validate:"omitempty,url"`
+	MentionRoleIDs                           []string `json:"mention_role_ids,omitempty" yaml:"mention_role_ids,omitempty"`
+	NotifyOnSuccess                          bool     `json:"notify_on_success" yaml:"notify_on_success"`
+	NotifyOnFailure                          bool     `json:"notify_on_failure" yaml:"notify_on_failure"`
+	NotifyOnScanStart                        bool     `json:"notify_on_scan_start" yaml:"notify_on_scan_start"`
+	NotifyOnCriticalError                    bool     `json:"notify_on_critical_error" yaml:"notify_on_critical_error"`
+	NotifyOnHighSeverity                     bool     `json:"notify_on_high_severity_secret" yaml:"notify_on_high_severity_secret"`
+	AutoDeleteReportAfterDiscordNotification bool     `json:"auto_delete_report_after_discord_notification" yaml:"auto_delete_report_after_discord_notification"`
 }
 
 func NewDefaultNotificationConfig() NotificationConfig {
 	return NotificationConfig{
-		MonitorServiceDiscordWebhookURL: "",
-		ScanServiceDiscordWebhookURL:    "",
-		MentionRoleIDs:                  []string{},
-		NotifyOnSuccess:                 false,
-		NotifyOnFailure:                 true,
-		NotifyOnScanStart:               false,
-		NotifyOnCriticalError:           true,
+		MonitorServiceDiscordWebhookURL:          "",
+		ScanServiceDiscordWebhookURL:             "",
+		MentionRoleIDs:                           []string{},
+		NotifyOnSuccess:                          false,
+		NotifyOnFailure:                          true,
+		NotifyOnScanStart:                        false,
+		NotifyOnCriticalError:                    true,
+		AutoDeleteReportAfterDiscordNotification: false,
 	}
 }
 
@@ -375,6 +411,7 @@ type GlobalConfig struct {
 	NormalizerConfig     NormalizerConfig   `json:"normalizer_config,omitempty" yaml:"normalizer_config,omitempty"`
 	SchedulerConfig      SchedulerConfig    `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
 	ExtractorConfig      ExtractorConfig    `json:"extractor_config,omitempty" yaml:"extractor_config,omitempty"`
+	SecretsConfig        SecretsConfig      `json:"secrets_config,omitempty" yaml:"secrets_config,omitempty"`
 	Mode                 string             `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
 	DiffReporterConfig   DiffReporterConfig `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
 	PathExtractorDomains []string           `json:"path_extractor_domains,omitempty" yaml:"path_extractor_domains,omitempty" validate:"omitempty,dive,hostname_rfc1123"`
@@ -384,8 +421,8 @@ type GlobalConfig struct {
 // It's important to initialize all nested structs here.
 func NewDefaultGlobalConfig() *GlobalConfig {
 	return &GlobalConfig{
-		Mode:                 "onetime",
-		InputConfig:          InputConfig{}, // Assuming empty is default or handled by loader
+		Mode:                 "",
+		InputConfig:          InputConfig{InputURLs: []string{}, InputFile: ""},
 		HttpxRunnerConfig:    NewDefaultHTTPXRunnerConfig(),
 		CrawlerConfig:        NewDefaultCrawlerConfig(),
 		ReporterConfig:       NewDefaultReporterConfig(),
@@ -397,6 +434,7 @@ func NewDefaultGlobalConfig() *GlobalConfig {
 		NormalizerConfig:     NewDefaultNormalizerConfig(),
 		SchedulerConfig:      NewDefaultSchedulerConfig(),
 		ExtractorConfig:      NewDefaultExtractorConfig(),
+		SecretsConfig:        NewDefaultSecretsConfig(),
 		DiffReporterConfig:   NewDefaultDiffReporterConfig(),
 		PathExtractorDomains: []string{},
 	}

@@ -461,7 +461,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 
 	appLogger.Info().Msg("Executing scan workflow via orchestrator...")
 	startTime := time.Now()
-	probeResults, urlDiffResults, workflowErr := scanOrchestrator.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
+	probeResults, urlDiffResults, secretFindings, workflowErr := scanOrchestrator.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
 	scanDuration := time.Since(startTime)
 
 	if ctx.Err() == context.Canceled {
@@ -495,6 +495,11 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 		}
 	}
 
+	// Log secret findings summary
+	if len(secretFindings) > 0 {
+		appLogger.Info().Int("secret_findings_count", len(secretFindings)).Msg("Secret detection found findings during scan")
+	}
+
 	if workflowErr != nil {
 		summaryData.Status = string(models.ScanStatusFailed)
 		summaryData.ErrorMessages = []string{fmt.Sprintf("Scan workflow execution failed: %v", workflowErr)}
@@ -522,15 +527,23 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 		probeResultsPtr[i] = &probeResults[i]
 	}
 
-	if err := htmlReporter.GenerateReport(probeResultsPtr, urlDiffResults, reportPath); err != nil {
+	if err := htmlReporter.GenerateReport(probeResultsPtr, urlDiffResults, secretFindings, reportPath); err != nil {
 		summaryData.Status = string(models.ScanStatusFailed) // Or models.ScanStatusPartialComplete
 		summaryData.ErrorMessages = append(summaryData.ErrorMessages, fmt.Sprintf("Failed to generate HTML report: %v", err))
 		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification)
 		appLogger.Error().Err(err).Msg("Failed to generate HTML report")
 		return
 	}
-	appLogger.Info().Str("path", reportPath).Msg("HTML report generated successfully")
-	summaryData.ReportPath = reportPath
+
+	// Check if report file was actually created
+	if _, err := os.Stat(reportPath); os.IsNotExist(err) {
+		appLogger.Info().Str("path", reportPath).Msg("HTML report was skipped (no data to report)")
+		summaryData.ReportPath = "" // Clear report path since no file was created
+	} else {
+		appLogger.Info().Str("path", reportPath).Msg("HTML report generated successfully")
+		summaryData.ReportPath = reportPath
+	}
+
 	summaryData.Status = string(models.ScanStatusCompleted)
 
 	notificationHelper.SendScanCompletionNotification(ctx, summaryData, notifier.ScanServiceNotification)

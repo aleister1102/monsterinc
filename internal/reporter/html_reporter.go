@@ -101,7 +101,7 @@ func NewHtmlReporter(cfg *config.ReporterConfig, appLogger zerolog.Logger) (*Htm
 
 // prepareReportData populates the ReportPageData struct based on probe results and reporter config.
 // It now accepts a slice of pointers to ProbeResult.
-func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, urlDiffs map[string]models.URLDiffResult) (models.ReportPageData, error) {
+func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, urlDiffs map[string]models.URLDiffResult, secretFindings []models.SecretFinding) (models.ReportPageData, error) {
 	r.logger.Debug().Msg("Preparing report page data.")
 	pageData := models.GetDefaultReportPageData()
 	pageData.ReportTitle = r.config.ReportTitle
@@ -203,21 +203,35 @@ func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, url
 	pageData.ProbeResultsJSON = template.JS(resultsJSON)
 	r.logger.Debug().Int("total_results_for_json", len(pageData.ProbeResults)).Msg("ProbeResults marshalled to JSON for template.")
 
+	// Process secret findings
+	pageData.SecretFindings = secretFindings
+	pageData.SecretStats = r.calculateSecretStats(secretFindings)
+
+	// Marshal secret findings to JSON for JavaScript processing
+	secretFindingsJSON, err := json.Marshal(secretFindings)
+	if err != nil {
+		r.logger.Error().Err(err).Msg("Failed to marshal SecretFindings to JSON for template consumption.")
+		return pageData, fmt.Errorf("failed to marshal secret findings to JSON: %w", err)
+	}
+	pageData.SecretFindingsJSON = template.JS(secretFindingsJSON)
+	r.logger.Debug().Int("total_secret_findings_for_json", len(secretFindings)).Msg("SecretFindings marshalled to JSON for template.")
+
 	return pageData, nil
 }
 
 // GenerateReport generates an HTML report from the probe results and diff results.
 // outputPath is the desired path for the generated HTML file.
 // urlDiffs is a map where the key is RootTargetURL and value is its corresponding URLDiffResult.
+// secretFindings contains all secret detection findings to be included in the report.
 // It now accepts a slice of pointers to ProbeResult.
-func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, urlDiffs map[string]models.URLDiffResult, outputPath string) error {
-	if len(probeResults) == 0 && len(urlDiffs) == 0 && !r.config.GenerateEmptyReport {
-		r.logger.Info().Msg("No probe results or URL diffs to report, and GenerateEmptyReport is false. Skipping report generation.")
+func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, urlDiffs map[string]models.URLDiffResult, secretFindings []models.SecretFinding, outputPath string) error {
+	if len(probeResults) == 0 && len(urlDiffs) == 0 && len(secretFindings) == 0 && !r.config.GenerateEmptyReport {
+		r.logger.Info().Msg("No probe results, URL diffs, or secret findings to report, and GenerateEmptyReport is false. Skipping report generation.")
 		return nil
 	}
-	r.logger.Info().Int("probe_result_count", len(probeResults)).Int("url_diff_count", len(urlDiffs)).Str("output_path", outputPath).Msg("Generating HTML report.")
+	r.logger.Info().Int("probe_result_count", len(probeResults)).Int("url_diff_count", len(urlDiffs)).Int("secret_findings_count", len(secretFindings)).Str("output_path", outputPath).Msg("Generating HTML report.")
 
-	pageData, err := r.prepareReportData(probeResults, urlDiffs)
+	pageData, err := r.prepareReportData(probeResults, urlDiffs, secretFindings)
 	if err != nil {
 		r.logger.Error().Err(err).Msg("Error preparing report data during GenerateReport.")
 		return err
@@ -298,6 +312,42 @@ func (r *HtmlReporter) embedCustomAssets(pageData *models.ReportPageData) []erro
 	return errs
 }
 
+// calculateSecretStats calculates statistics from secret findings
+func (r *HtmlReporter) calculateSecretStats(secretFindings []models.SecretFinding) models.SecretStats {
+	stats := models.SecretStats{}
+	stats.TotalFindings = len(secretFindings)
+
+	uniqueRules := make(map[string]struct{})
+	uniqueSourceURLs := make(map[string]struct{})
+
+	for _, finding := range secretFindings {
+		// Count by severity
+		switch strings.ToLower(finding.Severity) {
+		case "high", "critical":
+			stats.HighSeverity++
+		case "medium", "moderate":
+			stats.MediumSeverity++
+		case "low":
+			stats.LowSeverity++
+		default:
+			stats.UnknownSeverity++
+		}
+
+		// Track unique rules and source URLs
+		if finding.RuleID != "" {
+			uniqueRules[finding.RuleID] = struct{}{}
+		}
+		if finding.SourceURL != "" {
+			uniqueSourceURLs[finding.SourceURL] = struct{}{}
+		}
+	}
+
+	stats.UniqueRules = len(uniqueRules)
+	stats.UniqueSourceURLs = len(uniqueSourceURLs)
+
+	return stats
+}
+
 // templateFunctions provides helper functions accessible within the HTML template.
 var templateFunctions = template.FuncMap{
 	"jsonMarshal": func(v interface{}) template.JS {
@@ -326,5 +376,50 @@ var templateFunctions = template.FuncMap{
 	},
 	"inc": func(i int) int {
 		return i + 1
+	},
+	"slice": func(s string, start int, end ...int) string {
+		if len(s) == 0 {
+			return s
+		}
+		if start < 0 {
+			start = len(s) + start
+		}
+		if start < 0 {
+			start = 0
+		}
+		if start >= len(s) {
+			return ""
+		}
+
+		if len(end) > 0 {
+			endIdx := end[0]
+			if endIdx < 0 {
+				endIdx = len(s) + endIdx
+			}
+			if endIdx > len(s) {
+				endIdx = len(s)
+			}
+			if endIdx <= start {
+				return ""
+			}
+			return s[start:endIdx]
+		}
+		return s[start:]
+	},
+	"eq": func(a, b interface{}) bool {
+		return a == b
+	},
+	"gt": func(a, b interface{}) bool {
+		switch av := a.(type) {
+		case int:
+			if bv, ok := b.(int); ok {
+				return av > bv
+			}
+		case string:
+			if bv, ok := b.(string); ok {
+				return len(av) > len(bv)
+			}
+		}
+		return false
 	},
 }

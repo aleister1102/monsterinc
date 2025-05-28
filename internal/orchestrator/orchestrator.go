@@ -10,6 +10,8 @@ import (
 	"monsterinc/internal/extractor"
 	"monsterinc/internal/httpxrunner"
 	"monsterinc/internal/models"
+	"monsterinc/internal/monitor"
+	"monsterinc/internal/secrets"
 	"monsterinc/internal/urlhandler"
 	"net/http"
 	"time"
@@ -20,11 +22,13 @@ import (
 
 // ScanOrchestrator handles the core logic of a scan workflow.
 type ScanOrchestrator struct {
-	globalConfig  *config.GlobalConfig
-	logger        zerolog.Logger
-	parquetReader *datastore.ParquetReader
-	parquetWriter *datastore.ParquetWriter
-	pathExtractor *extractor.PathExtractor
+	globalConfig   *config.GlobalConfig
+	logger         zerolog.Logger
+	parquetReader  *datastore.ParquetReader
+	parquetWriter  *datastore.ParquetWriter
+	pathExtractor  *extractor.PathExtractor
+	secretDetector *secrets.SecretDetectorService
+	fetcher        *monitor.Fetcher
 	// latestProbeResults map[string][]models.ProbeResult // Potentially for caching latest results per target
 }
 
@@ -34,6 +38,7 @@ func NewScanOrchestrator(
 	logger zerolog.Logger,
 	pqReader *datastore.ParquetReader,
 	pqWriter *datastore.ParquetWriter,
+	secDetector *secrets.SecretDetectorService,
 ) *ScanOrchestrator {
 	// Initialize PathExtractor with ExtractorConfig
 	// Ensure that the logger passed to PathExtractor is appropriately scoped if needed.
@@ -46,12 +51,20 @@ func NewScanOrchestrator(
 		return nil // Or handle error more gracefully if NewScanOrchestrator can return an error.
 	}
 
+	// Initialize Fetcher for body content fetching
+	httpClient := &http.Client{
+		Timeout: time.Duration(cfg.HttpxRunnerConfig.TimeoutSecs) * time.Second,
+	}
+	fetcherInstance := monitor.NewFetcher(httpClient, logger, &cfg.MonitorConfig)
+
 	return &ScanOrchestrator{
-		globalConfig:  cfg,
-		logger:        logger.With().Str("module", "ScanOrchestrator").Logger(),
-		parquetReader: pqReader,
-		parquetWriter: pqWriter,
-		pathExtractor: pathExtractorInstance, // Assign initialized PathExtractor
+		globalConfig:   cfg,
+		logger:         logger.With().Str("module", "ScanOrchestrator").Logger(),
+		parquetReader:  pqReader,
+		parquetWriter:  pqWriter,
+		pathExtractor:  pathExtractorInstance, // Assign initialized PathExtractor
+		secretDetector: secDetector,           // Assign SecretDetectorService
+		fetcher:        fetcherInstance,       // Assign Fetcher
 		// latestProbeResults: make(map[string][]models.ProbeResult),
 	}
 }
@@ -60,7 +73,8 @@ func NewScanOrchestrator(
 // seedURLs are the initial URLs to start crawling from.
 // scanSessionID is a unique identifier for this specific scan run, used for Parquet naming.
 // ctx is used for cancellation of long-running operations.
-func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []string, scanSessionID string) ([]models.ProbeResult, map[string]models.URLDiffResult, error) {
+// Returns: probeResults, urlDiffResults, secretFindings, error
+func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []string, scanSessionID string) ([]models.ProbeResult, map[string]models.URLDiffResult, []models.SecretFinding, error) {
 	// Configure crawler
 	crawlerCfg := &so.globalConfig.CrawlerConfig
 	// Important: Make a copy or ensure SeedURLs is set fresh for each call
@@ -85,7 +99,7 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 		select {
 		case <-ctx.Done():
 			so.logger.Info().Str("session_id", scanSessionID).Msg("Context cancelled before crawler start.")
-			return nil, nil, ctx.Err()
+			return nil, nil, nil, ctx.Err()
 		default:
 		}
 
@@ -93,7 +107,7 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 		crawlerInstance, err := crawler.NewCrawler(&currentCrawlerCfg, http.DefaultClient, so.logger)
 		if err != nil {
 			so.logger.Error().Err(err).Msg("Failed to initialize crawler")
-			return nil, nil, fmt.Errorf("orchestrator: failed to initialize crawler: %w", err)
+			return nil, nil, nil, fmt.Errorf("orchestrator: failed to initialize crawler: %w", err)
 		}
 
 		crawlerInstance.Start(ctx)
@@ -111,7 +125,7 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 		select {
 		case <-ctx.Done():
 			so.logger.Info().Str("session_id", scanSessionID).Msg("Context cancelled before HTTPX probing.")
-			return nil, nil, ctx.Err()
+			return nil, nil, nil, ctx.Err()
 		default:
 		}
 
@@ -145,7 +159,7 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 		probeRunner, err := httpxrunner.NewRunner(runnerCfg, primaryRootTargetURL, so.logger)
 		if err != nil {
 			so.logger.Error().Err(err).Str("session_id", scanSessionID).Msg("Failed to create HTTPX runner")
-			return nil, nil, fmt.Errorf("orchestrator: failed to create HTTPX runner for session %s: %w", scanSessionID, err)
+			return nil, nil, nil, fmt.Errorf("orchestrator: failed to create HTTPX runner for session %s: %w", scanSessionID, err)
 		}
 
 		if err := probeRunner.Run(ctx); err != nil { // Pass context to Run
@@ -153,7 +167,7 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 			// Continue processing with any results obtained, unless context was cancelled
 			if ctx.Err() == context.Canceled {
 				so.logger.Info().Str("session_id", scanSessionID).Msg("HTTPX probing cancelled.")
-				return allProbeResultsForCurrentScan, nil, ctx.Err() // Return partial results if any, and context error
+				return allProbeResultsForCurrentScan, nil, nil, ctx.Err() // Return partial results if any, and context error
 			}
 		}
 
@@ -161,7 +175,7 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 		select {
 		case <-ctx.Done():
 			so.logger.Info().Str("session_id", scanSessionID).Msg("Context cancelled after HTTPX probing.")
-			return allProbeResultsForCurrentScan, nil, ctx.Err() // Return partial results and context error
+			return allProbeResultsForCurrentScan, nil, nil, ctx.Err() // Return partial results and context error
 		default:
 		}
 
@@ -192,6 +206,80 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 		so.logger.Info().Str("session_id", scanSessionID).Msg("No URLs discovered by crawler or crawler skipped, skipping HTTPX probing.")
 	}
 	so.logger.Info().Int("count", len(allProbeResultsForCurrentScan)).Str("session_id", scanSessionID).Msg("Processed probe results from current scan")
+
+	// Run Secret Detection on probe results with body content
+	var allSecretFindings []models.SecretFinding
+	if so.secretDetector != nil && so.globalConfig.SecretsConfig.Enabled {
+		so.logger.Info().Str("session_id", scanSessionID).Msg("Starting secret detection on probe results")
+
+		for _, pr := range allProbeResultsForCurrentScan {
+			// Check for context cancellation during secret detection
+			select {
+			case <-ctx.Done():
+				so.logger.Info().Str("session_id", scanSessionID).Msg("Context cancelled during secret detection.")
+				return allProbeResultsForCurrentScan, nil, nil, ctx.Err()
+			default:
+			}
+
+			// Debug log for each probe result
+			so.logger.Debug().Str("url", pr.InputURL).Int("body_size", len(pr.Body)).Str("content_type", pr.ContentType).Bool("has_body", len(pr.Body) > 0).Msg("Checking probe result for secret detection")
+
+			var bodyContent []byte
+			var contentType string
+
+			// Use body from HTTPX if available, otherwise fetch using Fetcher
+			if len(pr.Body) > 0 {
+				bodyContent = []byte(pr.Body)
+				contentType = pr.ContentType
+				so.logger.Debug().Str("url", pr.InputURL).Int("body_size", len(pr.Body)).Msg("Using body content from HTTPX for secret detection")
+			} else if pr.StatusCode == 200 {
+				// Try to fetch body content using Fetcher for successful responses
+				so.logger.Debug().Str("url", pr.InputURL).Msg("No body from HTTPX, attempting to fetch using Fetcher")
+
+				fetchResult, err := so.fetcher.FetchFileContent(monitor.FetchFileContentInput{
+					URL: pr.InputURL,
+				})
+				if err != nil {
+					so.logger.Warn().Err(err).Str("url", pr.InputURL).Msg("Failed to fetch content using Fetcher for secret detection")
+					continue
+				}
+
+				if fetchResult.HTTPStatusCode == 200 && len(fetchResult.Content) > 0 {
+					bodyContent = fetchResult.Content
+					contentType = fetchResult.ContentType
+					so.logger.Debug().Str("url", pr.InputURL).Int("fetched_size", len(bodyContent)).Msg("Successfully fetched body content using Fetcher")
+				} else {
+					so.logger.Debug().Str("url", pr.InputURL).Int("status", fetchResult.HTTPStatusCode).Msg("Fetcher returned non-200 status or empty content")
+					continue
+				}
+			} else {
+				so.logger.Debug().Str("url", pr.InputURL).Int("status_code", pr.StatusCode).Msg("Skipping secret detection - no body content and non-200 status")
+				continue
+			}
+
+			// Scan content for secrets if we have body content
+			if len(bodyContent) > 0 {
+				so.logger.Debug().Str("url", pr.InputURL).Int("body_size", len(bodyContent)).Msg("Scanning content for secrets")
+
+				secretFindings, err := so.secretDetector.ScanContent(pr.InputURL, bodyContent, contentType)
+				if err != nil {
+					so.logger.Warn().Err(err).Str("url", pr.InputURL).Msg("Failed to scan content for secrets")
+					continue
+				}
+
+				if len(secretFindings) > 0 {
+					so.logger.Info().Str("url", pr.InputURL).Int("findings_count", len(secretFindings)).Msg("Found secrets in content")
+					allSecretFindings = append(allSecretFindings, secretFindings...)
+				} else {
+					so.logger.Debug().Str("url", pr.InputURL).Msg("No secrets found in content")
+				}
+			}
+		}
+
+		so.logger.Info().Int("total_secret_findings", len(allSecretFindings)).Str("session_id", scanSessionID).Msg("Secret detection completed")
+	} else {
+		so.logger.Debug().Str("session_id", scanSessionID).Msg("Secret detection disabled or not configured")
+	}
 
 	// Group results by root target
 	resultsByRootTarget := make(map[string][]models.ProbeResult)
@@ -224,7 +312,7 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 		case <-ctx.Done():
 			so.logger.Info().Str("root_target", rootTgt).Str("session_id", scanSessionID).Msg("Context cancelled during diff/store for target.")
 			// Return what has been processed so far along with the cancellation error
-			return allProbeResultsForCurrentScan, allURLDiffResults, ctx.Err()
+			return allProbeResultsForCurrentScan, allURLDiffResults, allSecretFindings, ctx.Err()
 		default:
 		}
 
@@ -265,7 +353,7 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 					// Decide if this error should cause the entire workflow to fail or just log and continue for this target
 					// If context was cancelled, the error will be ctx.Err() and should be propagated.
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-						return allProbeResultsForCurrentScan, allURLDiffResults, err // Propagate context error
+						return allProbeResultsForCurrentScan, allURLDiffResults, allSecretFindings, err // Propagate context error
 					}
 				}
 			} else {
@@ -278,7 +366,7 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 
 	so.logger.Info().Str("session_id", scanSessionID).Msg("Scan workflow finished.")
 	// Return all *original* probe results from this scan, and the diff results map
-	return allProbeResultsForCurrentScan, allURLDiffResults, nil
+	return allProbeResultsForCurrentScan, allURLDiffResults, allSecretFindings, nil
 }
 
 // CountStatuses is a helper to count URL statuses from a diff result.

@@ -41,6 +41,7 @@ func (cd *ContentDiffer) GenerateDiff(previousContent []byte, currentContent []b
 			ProcessingTimeMs: time.Since(startTime).Milliseconds(),
 			OldHash:          oldHash,
 			NewHash:          newHash,
+			SecretFindings:   []models.SecretFinding{}, // Initialize empty slice
 		}, nil
 	}
 
@@ -100,15 +101,16 @@ func (cd *ContentDiffer) GenerateDiff(previousContent []byte, currentContent []b
 	return &models.ContentDiffResult{
 			Timestamp:        time.Now().UnixMilli(),
 			ContentType:      contentType,
-			Diffs:            resultDiffs, // Use the converted []models.ContentDiff
+		Diffs:            resultDiffs,
 			LinesAdded:       linesAdded,
 			LinesDeleted:     linesDeleted,
+		LinesChanged:     0, // Not implemented yet
 			IsIdentical:      isIdentical,
 			ProcessingTimeMs: processingTimeMs,
 			OldHash:          oldHash,
 			NewHash:          newHash,
-		},
-		nil
+		SecretFindings:   []models.SecretFinding{}, // Initialize empty slice
+	}, nil
 	// If an error occurs during diffing (though dmp.DiffMain doesn't return one, future libraries might)
 	// return nil, fmt.Errorf("error generating diff: %w", err)
 }

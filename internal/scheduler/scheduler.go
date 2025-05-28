@@ -11,6 +11,7 @@ import (
 	"monsterinc/internal/notifier"
 	"monsterinc/internal/orchestrator"
 	"monsterinc/internal/reporter"
+	"monsterinc/internal/secrets"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +37,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new Scheduler instance
-func NewScheduler(cfg *config.GlobalConfig, urlFileOverride string, logger zerolog.Logger, notificationHelper *notifier.NotificationHelper) (*Scheduler, error) {
+func NewScheduler(cfg *config.GlobalConfig, urlFileOverride string, logger zerolog.Logger, notificationHelper *notifier.NotificationHelper, secretDetector *secrets.SecretDetectorService) (*Scheduler, error) {
 	moduleLogger := logger.With().Str("module", "Scheduler").Logger()
 
 	if cfg.SchedulerConfig.SQLiteDBPath == "" {
@@ -71,7 +72,7 @@ func NewScheduler(cfg *config.GlobalConfig, urlFileOverride string, logger zerol
 		// Continue with parquetWriter as nil, orchestrator should handle this.
 	}
 
-	scanOrchestrator := orchestrator.NewScanOrchestrator(cfg, logger, parquetReader, parquetWriter) // Use main logger for orchestrator
+	scanOrchestrator := orchestrator.NewScanOrchestrator(cfg, logger, parquetReader, parquetWriter, secretDetector)
 
 	return &Scheduler{
 		globalConfig:       cfg,
@@ -379,6 +380,7 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 	)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Scheduler: Failed to load targets for scan cycle.")
+		// summary.ErrorMessages should be populated by caller (runScanCycleWithRetries) if this error is returned
 		return summary, "ErrorDeterminingSource", fmt.Errorf("failed to load targets: %w", err)
 	}
 	if determinedTargetSource == "" { // Should ideally be set by TargetManager
@@ -391,7 +393,8 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 		summary.Status = string(models.ScanStatusNoTargets)
 		summary.ErrorMessages = []string{"No targets loaded for this scan cycle."}
 		// Do not return an error here, as it's a valid state (no targets)
-		// The notification will indicate no targets.
+		// The notification will indicate no targets. We will return summary and nil error.
+		// The caller (runScanCycleWithRetries) should handle this summary and not treat it as a retryable error.
 		return summary, determinedTargetSource, nil
 	}
 
@@ -437,7 +440,7 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 
 	s.logger.Info().Str("scan_id_log", logScanID).Int("num_targets", len(seedURLs)).Str("target_source", summary.TargetSource).Msg("Scheduler: Starting scan cycle execution.")
 
-	probeResults, urlDiffResults, workflowErr := s.scanOrchestrator.ExecuteScanWorkflow(ctx, seedURLs, summary.ScanSessionID)
+	probeResults, urlDiffResults, secretFindings, workflowErr := s.scanOrchestrator.ExecuteScanWorkflow(ctx, seedURLs, summary.ScanSessionID)
 	scanDuration := time.Since(startTime)
 	summary.ScanDuration = scanDuration
 
@@ -465,6 +468,11 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 		}
 	}
 
+	// Log secret findings summary
+	if len(secretFindings) > 0 {
+		s.logger.Info().Int("secret_findings_count", len(secretFindings)).Str("scan_id_log", logScanID).Msg("Secret detection found findings during scheduled scan")
+	}
+
 	var reportPath string
 	if workflowErr != nil {
 		s.logger.Error().Err(workflowErr).Str("scan_id_log", logScanID).Msg("Scheduler: Scan workflow execution failed.")
@@ -487,7 +495,7 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 		probeResultsPtr[i] = &probeResults[i]
 	}
 
-	err = s.generateReport(probeResultsPtr, urlDiffResults, reportPath)
+	err = s.generateReport(probeResultsPtr, urlDiffResults, secretFindings, reportPath)
 	if err != nil {
 		s.logger.Error().Err(err).Str("scan_id_log", logScanID).Msg("Scheduler: Failed to generate HTML report.")
 		if scanDBID > 0 {
@@ -497,8 +505,16 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Report generation failed: %v", err))
 		return summary, "", err
 	}
-	s.logger.Info().Str("scan_id_log", logScanID).Str("report_path", reportPath).Msg("Scheduler: HTML report generated successfully.")
-	summary.ReportPath = reportPath
+
+	// Check if report file was actually created
+	if _, err := os.Stat(reportPath); os.IsNotExist(err) {
+		s.logger.Info().Str("scan_id_log", logScanID).Str("report_path", reportPath).Msg("Scheduler: HTML report was skipped (no data to report).")
+		summary.ReportPath = "" // Clear report path since no file was created
+		reportPath = ""         // Also clear the return value
+	} else {
+		s.logger.Info().Str("scan_id_log", logScanID).Str("report_path", reportPath).Msg("Scheduler: HTML report generated successfully.")
+		summary.ReportPath = reportPath
+	}
 
 	// Record scan completion in DB
 	if scanDBID > 0 {
@@ -510,7 +526,7 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 }
 
 // generateReport generates a report from scan results
-func (s *Scheduler) generateReport(probeResults []*models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, reportPath string) error {
+func (s *Scheduler) generateReport(probeResults []*models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, secretFindings []models.SecretFinding, reportPath string) error {
 	// Initialize HTML reporter
 	htmlReporter, err := reporter.NewHtmlReporter(&s.globalConfig.ReporterConfig, s.logger)
 	if err != nil {
@@ -519,7 +535,7 @@ func (s *Scheduler) generateReport(probeResults []*models.ProbeResult, urlDiffRe
 
 	// Generate the report
 	// The htmlReporter.GenerateReport method now expects []*models.ProbeResult
-	if err := htmlReporter.GenerateReport(probeResults, urlDiffResults, reportPath); err != nil {
+	if err := htmlReporter.GenerateReport(probeResults, urlDiffResults, secretFindings, reportPath); err != nil {
 		return fmt.Errorf("failed to generate HTML report: %w", err)
 	}
 

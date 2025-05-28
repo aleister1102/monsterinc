@@ -97,6 +97,51 @@ func NewHtmlDiffReporter(_ *config.ReporterConfig, logger zerolog.Logger, histor
 		"replaceNewlinesWithBR": func(s string) template.HTML {
 			return template.HTML(strings.ReplaceAll(s, "\n", "<br>"))
 		},
+		"slice": func(s string, start int, end ...int) string {
+			if len(s) == 0 {
+				return s
+			}
+			if start < 0 {
+				start = len(s) + start
+			}
+			if start < 0 {
+				start = 0
+			}
+			if start >= len(s) {
+				return ""
+			}
+
+			if len(end) > 0 {
+				endIdx := end[0]
+				if endIdx < 0 {
+					endIdx = len(s) + endIdx
+				}
+				if endIdx > len(s) {
+					endIdx = len(s)
+				}
+				if endIdx <= start {
+					return ""
+				}
+				return s[start:endIdx]
+			}
+			return s[start:]
+		},
+		"eq": func(a, b interface{}) bool {
+			return a == b
+		},
+		"gt": func(a, b interface{}) bool {
+			switch av := a.(type) {
+			case int:
+				if bv, ok := b.(int); ok {
+					return av > bv
+				}
+			case string:
+				if bv, ok := b.(string); ok {
+					return len(av) > len(bv)
+				}
+			}
+			return false
+		},
 	}).ParseFS(templatesFS, "templates/diff_report.html.tmpl")
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse HTML diff template: %w", err)
@@ -168,6 +213,9 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, e
 			continue
 		}
 
+		// Calculate secret stats for this diff
+		secretStats := r.calculateSecretStats(diffResult.SecretFindings)
+
 		display := models.DiffResultDisplay{
 			URL:            url,
 			Timestamp:      time.UnixMilli(diffResult.Timestamp), // Convert back to time.Time for display
@@ -180,6 +228,8 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, e
 			IsIdentical:    diffResult.IsIdentical,
 			ErrorMessage:   diffResult.ErrorMessage,
 			ExtractedPaths: diffResult.ExtractedPaths,
+			SecretFindings: diffResult.SecretFindings, // Add secret findings
+			SecretStats:    secretStats,               // Add secret stats
 		}
 		diffResultsDisplay = append(diffResultsDisplay, display)
 	}
@@ -276,6 +326,8 @@ func (r *HtmlDiffReporter) GenerateSingleDiffReport(urlStr string, diffResult *m
 		ErrorMessage:   diffResult.ErrorMessage,
 		FullContent:    string(currentContent), // Add current content
 		ExtractedPaths: diffResult.ExtractedPaths,
+		SecretFindings: diffResult.SecretFindings,                         // Add secret findings
+		SecretStats:    r.calculateSecretStats(diffResult.SecretFindings), // Calculate secret stats
 	}
 
 	pageData := models.DiffReportPageData{
@@ -342,4 +394,40 @@ func createDiffSummary(diffs []models.ContentDiff) string {
 		return "No textual changes detected."
 	}
 	return fmt.Sprintf("%d insertions (+), %d deletions (-).", insertions, deletions)
+}
+
+// calculateSecretStats calculates statistics from secret findings
+func (r *HtmlDiffReporter) calculateSecretStats(secretFindings []models.SecretFinding) models.SecretStats {
+	stats := models.SecretStats{}
+	stats.TotalFindings = len(secretFindings)
+
+	uniqueRules := make(map[string]struct{})
+	uniqueSourceURLs := make(map[string]struct{})
+
+	for _, finding := range secretFindings {
+		// Count by severity
+		switch strings.ToLower(finding.Severity) {
+		case "high", "critical":
+			stats.HighSeverity++
+		case "medium", "moderate":
+			stats.MediumSeverity++
+		case "low":
+			stats.LowSeverity++
+		default:
+			stats.UnknownSeverity++
+		}
+
+		// Track unique rules and source URLs
+		if finding.RuleID != "" {
+			uniqueRules[finding.RuleID] = struct{}{}
+		}
+		if finding.SourceURL != "" {
+			uniqueSourceURLs[finding.SourceURL] = struct{}{}
+		}
+	}
+
+	stats.UniqueRules = len(uniqueRules)
+	stats.UniqueSourceURLs = len(uniqueSourceURLs)
+
+	return stats
 }

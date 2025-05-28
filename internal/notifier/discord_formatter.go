@@ -463,3 +463,98 @@ func FormatAggregatedMonitorErrorsMessage(errors []models.MonitorFetchErrorInfo,
 		AllowedMentions: &allowedMentions,
 	}
 }
+
+// FormatHighSeveritySecretNotification creates a Discord message payload for high-severity secret findings.
+func FormatHighSeveritySecretNotification(finding models.SecretFinding, cfg config.NotificationConfig) models.DiscordMessagePayload {
+	mentions := buildMentions(cfg.MentionRoleIDs)
+	messageContent := ""
+	if mentions != "" {
+		messageContent = mentions + "\n"
+	}
+
+	title := ":warning: High-Severity Secret Detected"
+	if finding.Severity == "CRITICAL" {
+		title = ":bangbang: Critical Secret Detected"
+	}
+
+	description := fmt.Sprintf("A %s severity secret has been detected during content scanning.", strings.ToLower(finding.Severity))
+
+	var fields []models.DiscordEmbedField
+
+	// Source URL field
+	fields = append(fields, models.DiscordEmbedField{
+		Name:   ":globe_with_meridians: Source URL",
+		Value:  truncateString(finding.SourceURL, 1000),
+		Inline: false,
+	})
+
+	// Rule and Description
+	fields = append(fields, models.DiscordEmbedField{
+		Name:   ":mag: Detection Rule",
+		Value:  fmt.Sprintf("**Rule ID**: `%s`\n**Description**: %s", finding.RuleID, truncateString(finding.Description, 800)),
+		Inline: false,
+	})
+
+	// Severity and Tool
+	toolInfo := "Unknown"
+	if finding.ToolName != "" {
+		toolInfo = finding.ToolName
+	}
+	fields = append(fields, models.DiscordEmbedField{
+		Name:   ":shield: Detection Details",
+		Value:  fmt.Sprintf("**Severity**: `%s`\n**Tool**: `%s`\n**Line**: %d", finding.Severity, toolInfo, finding.LineNumber),
+		Inline: true,
+	})
+
+	// Masked secret preview
+	maskedSecret := "***"
+	if finding.SecretText != "" {
+		if len(finding.SecretText) > 10 {
+			maskedSecret = finding.SecretText[:3] + "***" + finding.SecretText[len(finding.SecretText)-3:]
+		} else if len(finding.SecretText) > 2 {
+			maskedSecret = "***" + finding.SecretText[len(finding.SecretText)-2:]
+		}
+	}
+	fields = append(fields, models.DiscordEmbedField{
+		Name:   ":lock: Secret Preview (Masked)",
+		Value:  fmt.Sprintf("`%s`", maskedSecret),
+		Inline: true,
+	})
+
+	// Verification state if available
+	if finding.VerificationState != "" {
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   ":white_check_mark: Verification",
+			Value:  fmt.Sprintf("`%s`", finding.VerificationState),
+			Inline: true,
+		})
+	}
+
+	// Color based on severity
+	color := colorOrange // Default for high
+	if finding.Severity == "CRITICAL" {
+		color = colorRed
+	}
+
+	embed := models.DiscordEmbed{
+		Title:       title,
+		Description: description,
+		Color:       color,
+		Timestamp:   finding.Timestamp.Format(time.RFC3339),
+		Fields:      fields,
+		Footer: &models.DiscordEmbedFooter{
+			Text: "MonsterInc Secret Detection",
+		},
+	}
+
+	return models.DiscordMessagePayload{
+		Username:  monsterIncUsername,
+		AvatarURL: monsterIncIconURL,
+		Content:   messageContent,
+		Embeds:    []models.DiscordEmbed{embed},
+		AllowedMentions: &models.AllowedMentions{
+			Parse: []string{"roles"},
+			Roles: cfg.MentionRoleIDs,
+		},
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"monsterinc/internal/models"
 	"monsterinc/internal/notifier"
 	"monsterinc/internal/reporter"
+	"monsterinc/internal/secrets"
 	"net/http"
 	"strings"
 	sync "sync"
@@ -24,6 +25,7 @@ type MonitoringService struct {
 	extractorConfig    *config.ExtractorConfig
 	notificationCfg    *config.NotificationConfig
 	reporterConfig     *config.ReporterConfig
+	secretsConfig      *config.SecretsConfig
 	historyStore       models.FileHistoryStore
 	logger             zerolog.Logger
 	notificationHelper *notifier.NotificationHelper
@@ -34,6 +36,7 @@ type MonitoringService struct {
 	contentDiffer      *differ.ContentDiffer
 	htmlDiffReporter   *reporter.HtmlDiffReporter
 	pathExtractor      *extractor.PathExtractor
+	secretDetector     *secrets.SecretDetectorService
 
 	// For managing target URLs dynamically
 	monitorChan        chan string         // Channel to receive new URLs to monitor
@@ -62,10 +65,12 @@ func NewMonitoringService(
 	notificationCfg *config.NotificationConfig,
 	mainReporterCfg *config.ReporterConfig,
 	diffReporterCfg *config.DiffReporterConfig,
+	secretsCfg *config.SecretsConfig,
 	store models.FileHistoryStore,
 	baseLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	httpClient *http.Client,
+	secretDetector *secrets.SecretDetectorService,
 ) *MonitoringService {
 	serviceSpecificCtx, serviceSpecificCancel := context.WithCancel(context.Background())
 	instanceLogger := baseLogger.With().Str("component", "MonitoringService").Logger()
@@ -98,6 +103,7 @@ func NewMonitoringService(
 		extractorConfig:       extractorCfg,
 		notificationCfg:       notificationCfg,
 		reporterConfig:        mainReporterCfg,
+		secretsConfig:         secretsCfg,
 		historyStore:          store,
 		logger:                instanceLogger,
 		notificationHelper:    notificationHelper,
@@ -107,6 +113,7 @@ func NewMonitoringService(
 		contentDiffer:         contentDifferInstance,
 		htmlDiffReporter:      htmlDiffReporterInstance,
 		pathExtractor:         pathExtractorInstance,
+		secretDetector:        secretDetector,
 		monitorChan:           make(chan string, monitorCfg.MaxConcurrentChecks*2),
 		monitoredURLs:         make(map[string]struct{}),
 		monitoredURLsMutex:    sync.RWMutex{},
@@ -346,6 +353,34 @@ func (s *MonitoringService) checkURL(url string) {
 		return
 	}
 
+	// Perform secret detection if enabled and detector is available
+	var secretFindings []models.SecretFinding
+	if s.secretsConfig != nil && s.secretsConfig.Enabled && s.secretDetector != nil {
+		s.logger.Debug().Str("url", url).Msg("Performing secret detection on monitored content.")
+		// ScanContent will handle its own errors and notifications internally
+		detectedSecrets, secretScanErr := s.secretDetector.ScanContent(url, fetchResult.Content, fetchResult.ContentType)
+		if secretScanErr != nil {
+			// Log the error from secret scanning but don't necessarily stop the monitoring flow
+			s.logger.Error().Err(secretScanErr).Str("url", url).Msg("Secret detection for monitored content failed.")
+			// Optionally, add to aggregatedFetchErrors or a separate error aggregation for secrets
+			s.aggregatedFetchErrorsMutex.Lock()
+			s.aggregatedFetchErrors = append(s.aggregatedFetchErrors, models.MonitorFetchErrorInfo{
+				URL:        url,
+				Error:      "Secret scan: " + secretScanErr.Error(), // Prefix to distinguish
+				Source:     "secret_detection",
+				OccurredAt: time.Now(),
+			})
+			s.aggregatedFetchErrorsMutex.Unlock()
+		} else {
+			secretFindings = detectedSecrets
+			if len(secretFindings) > 0 {
+				s.logger.Info().Int("count", len(secretFindings)).Str("url", url).Msg("Secret findings detected in monitored content.")
+			} else {
+				s.logger.Debug().Str("url", url).Msg("Secret detection for monitored content completed with no findings.")
+			}
+		}
+	}
+
 	// 3. Compare with historical data
 	lastKnownRecord, err := s.historyStore.GetLastKnownRecord(url)
 	if err != nil {
@@ -384,16 +419,21 @@ func (s *MonitoringService) checkURL(url string) {
 			diffResult, diffErr = s.contentDiffer.GenerateDiff(previousContent, fetchResult.Content, fetchResult.ContentType, oldHash, processedUpdate.NewHash)
 			if diffErr != nil {
 				s.logger.Error().Err(diffErr).Str("url", url).Msg("Failed to generate content diff")
-			} else if diffResult != nil && !diffResult.IsIdentical {
-				s.logger.Info().Str("url", url).Bool("is_identical", diffResult.IsIdentical).Int("diff_count", len(diffResult.Diffs)).Msg("Content diff generated.")
-				// Generate HTML report for this specific diff
-				if s.htmlDiffReporter != nil {
-					reportPath, reportErr := s.htmlDiffReporter.GenerateSingleDiffReport(url, diffResult, oldHash, processedUpdate.NewHash, fetchResult.Content)
-					if reportErr != nil {
-						s.logger.Error().Err(reportErr).Str("url", url).Msg("Failed to generate single HTML diff report")
-					} else {
-						s.logger.Info().Str("url", url).Str("report_path", reportPath).Msg("Single HTML diff report created")
-						changeInfo.DiffReportPath = &reportPath // Store the path
+			} else if diffResult != nil {
+				// Add secret findings to the diff result
+				diffResult.SecretFindings = secretFindings
+
+				if !diffResult.IsIdentical {
+					s.logger.Info().Str("url", url).Bool("is_identical", diffResult.IsIdentical).Int("diff_count", len(diffResult.Diffs)).Int("secret_count", len(secretFindings)).Msg("Content diff generated with secret detection results.")
+					// Generate HTML report for this specific diff
+					if s.htmlDiffReporter != nil {
+						reportPath, reportErr := s.htmlDiffReporter.GenerateSingleDiffReport(url, diffResult, oldHash, processedUpdate.NewHash, fetchResult.Content)
+						if reportErr != nil {
+							s.logger.Error().Err(reportErr).Str("url", url).Msg("Failed to generate single HTML diff report")
+						} else {
+							s.logger.Info().Str("url", url).Str("report_path", reportPath).Msg("Single HTML diff report created")
+							changeInfo.DiffReportPath = &reportPath // Store the path
+						}
 					}
 				}
 			}
