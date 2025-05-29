@@ -2,9 +2,10 @@ package differ
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -79,13 +80,19 @@ func (cd *ContentDiffer) GenerateDiff(previousContent []byte, currentContent []b
 	}
 
 	// Determine if content is identical.
-	// A direct byte comparison is more reliable than just checking diffs array length,
-	// especially after semantic cleanup which might alter the diffs.
-	isIdentical := len(previousContent) == len(currentContent) && string(previousContent) == string(currentContent)
-	if !isIdentical && len(diffs) == 1 && diffs[0].Type == diffmatchpatch.DiffEqual {
-		// This case can happen if only whitespace/semantic changes are present after cleanup
-		// Or if the content is indeed identical. Double check by direct comparison.
-		isIdentical = true
+	// If hashes are different, content cannot be identical
+	isIdentical := false
+	if oldHash != "" && newHash != "" && oldHash != newHash {
+		isIdentical = false
+		cd.logger.Debug().Str("old_hash", oldHash).Str("new_hash", newHash).Msg("Content hashes differ, marking as not identical.")
+	} else {
+		// Fallback to content comparison if hashes are not available or same
+		isIdentical = len(previousContent) == len(currentContent) && string(previousContent) == string(currentContent)
+		if !isIdentical && len(diffs) == 1 && diffs[0].Type == diffmatchpatch.DiffEqual {
+			// This case can happen if only whitespace/semantic changes are present after cleanup
+			// Or if the content is indeed identical. Double check by direct comparison.
+			isIdentical = true
+		}
 	}
 
 	processingTimeMs := time.Since(startTime).Milliseconds()
@@ -99,16 +106,16 @@ func (cd *ContentDiffer) GenerateDiff(previousContent []byte, currentContent []b
 		Msg("Content diff generated")
 
 	return &models.ContentDiffResult{
-			Timestamp:        time.Now().UnixMilli(),
-			ContentType:      contentType,
+		Timestamp:        time.Now().UnixMilli(),
+		ContentType:      contentType,
 		Diffs:            resultDiffs,
-			LinesAdded:       linesAdded,
-			LinesDeleted:     linesDeleted,
+		LinesAdded:       linesAdded,
+		LinesDeleted:     linesDeleted,
 		LinesChanged:     0, // Not implemented yet
-			IsIdentical:      isIdentical,
-			ProcessingTimeMs: processingTimeMs,
-			OldHash:          oldHash,
-			NewHash:          newHash,
+		IsIdentical:      isIdentical,
+		ProcessingTimeMs: processingTimeMs,
+		OldHash:          oldHash,
+		NewHash:          newHash,
 		SecretFindings:   []models.SecretFinding{}, // Initialize empty slice
 	}, nil
 	// If an error occurs during diffing (though dmp.DiffMain doesn't return one, future libraries might)
