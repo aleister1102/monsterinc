@@ -15,6 +15,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"io/fs"
@@ -229,7 +230,7 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, e
 		summary := createDiffSummary(diffResult.Diffs)
 
 		// Calculate secret stats for this diff
-		secretStats := r.calculateSecretStats(diffResult.SecretFindings)
+		secretStats := notifier.CalculateSecretStats(diffResult.SecretFindings)
 
 		display := models.DiffResultDisplay{
 			URL:            url,
@@ -346,8 +347,8 @@ func (r *HtmlDiffReporter) GenerateSingleDiffReport(urlStr string, diffResult *m
 		ErrorMessage:   diffResult.ErrorMessage,
 		FullContent:    string(currentContent), // Add current content
 		ExtractedPaths: diffResult.ExtractedPaths,
-		SecretFindings: diffResult.SecretFindings,                         // Add secret findings
-		SecretStats:    r.calculateSecretStats(diffResult.SecretFindings), // Calculate secret stats
+		SecretFindings: diffResult.SecretFindings,                                // Add secret findings
+		SecretStats:    notifier.CalculateSecretStats(diffResult.SecretFindings), // Calculate secret stats
 	}
 
 	pageData := models.DiffReportPageData{
@@ -421,38 +422,4 @@ func createDiffSummary(diffs []models.ContentDiff) string {
 	return fmt.Sprintf("%d insertions (+), %d deletions (-).", insertions, deletions)
 }
 
-// calculateSecretStats calculates statistics from secret findings
-func (r *HtmlDiffReporter) calculateSecretStats(secretFindings []models.SecretFinding) models.SecretStats {
-	stats := models.SecretStats{}
-	stats.TotalFindings = len(secretFindings)
-
-	uniqueRules := make(map[string]struct{})
-	uniqueSourceURLs := make(map[string]struct{})
-
-	for _, finding := range secretFindings {
-		// Count by severity
-		switch strings.ToLower(finding.Severity) {
-		case "high", "critical":
-			stats.HighSeverity++
-		case "medium", "moderate":
-			stats.MediumSeverity++
-		case "low":
-			stats.LowSeverity++
-		default:
-			stats.UnknownSeverity++
-		}
-
-		// Track unique rules and source URLs
-		if finding.RuleID != "" {
-			uniqueRules[finding.RuleID] = struct{}{}
-		}
-		if finding.SourceURL != "" {
-			uniqueSourceURLs[finding.SourceURL] = struct{}{}
-		}
-	}
-
-	stats.UniqueRules = len(uniqueRules)
-	stats.UniqueSourceURLs = len(uniqueSourceURLs)
-
-	return stats
-}
+// templateFunctions provides helper functions accessible within the HTML template.
