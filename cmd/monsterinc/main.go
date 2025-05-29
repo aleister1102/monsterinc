@@ -154,8 +154,9 @@ func initializeServices(gCfg *config.GlobalConfig, zLogger zerolog.Logger, flags
 	}
 
 	var monitoringService *monitor.MonitoringService
-	if gCfg.MonitorConfig.Enabled && flags.monitorTargetFile != "" {
-		zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service is enabled and --monitor-target-file is provided. Initializing...")
+	// Only initialize and start monitoring if in automated mode, enabled in config, and target file provided.
+	if gCfg.Mode == "automated" && gCfg.MonitorConfig.Enabled && flags.monitorTargetFile != "" {
+		zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service is enabled, in automated mode, and --monitor-target-file is provided. Initializing...")
 		fileHistoryStore, fhStoreErr := datastore.NewParquetFileHistoryStore(&gCfg.StorageConfig, zLogger)
 		if fhStoreErr != nil {
 			zLogger.Error().Err(fhStoreErr).Msg("Failed to initialize ParquetFileHistoryStore for monitoring. Monitoring will be disabled.")
@@ -206,6 +207,8 @@ func initializeServices(gCfg *config.GlobalConfig, zLogger zerolog.Logger, flags
 			}
 			zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service initialized.")
 		}
+	} else if gCfg.Mode == "onetime" && gCfg.MonitorConfig.Enabled {
+		zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service is configured but will NOT run in onetime mode.")
 	} else if gCfg.MonitorConfig.Enabled && flags.monitorTargetFile == "" {
 		zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service is enabled but --monitor-target-file was not provided. Monitoring will be skipped.")
 	} else if !gCfg.MonitorConfig.Enabled {
@@ -219,72 +222,14 @@ func initializeServices(gCfg *config.GlobalConfig, zLogger zerolog.Logger, flags
 	return monitoringService, secretDetector, schedulerInstance, nil
 }
 
-func setupSignalHandling(ctx context.Context, cancel context.CancelFunc, gCfg *config.GlobalConfig, notificationHelper *notifier.NotificationHelper, monitoringService *monitor.MonitoringService, schedulerInstancePtr **scheduler.Scheduler, zLogger zerolog.Logger) {
+func setupSignalHandling(ctx context.Context, cancel context.CancelFunc, gCfg *config.GlobalConfig, notificationHelper *notifier.NotificationHelper, monitoringService *monitor.MonitoringService, zLogger zerolog.Logger) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		sig := <-sigChan
 		zLogger.Info().Str("signal", sig.String()).Msg("Received interrupt signal, initiating graceful shutdown...")
-		if notificationHelper != nil {
-			interruptionSummary := models.GetDefaultScanSummaryData()
-			interruptionSummary.ScanSessionID = fmt.Sprintf("%s_mode_interrupted_by_signal", gCfg.Mode)
-			interruptionSummary.TargetSource = "Signal Interrupt"
-			interruptionSummary.Status = string(models.ScanStatusInterrupted)
-			interruptionSummary.ErrorMessages = []string{fmt.Sprintf("Application (%s mode) interrupted by signal: %s", gCfg.Mode, sig.String())}
-			notificationCtx, notificationCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer notificationCancel()
-
-			var sendInterruptionNotification bool = false
-			var interruptionServiceType notifier.NotificationServiceType = notifier.ScanServiceNotification
-
-			// Dereference the pointer to get the actual *scheduler.Scheduler instance
-			currentSchedulerInstance := *schedulerInstancePtr
-
-			if gCfg.Mode == "automated" {
-				isMonitorActive := monitoringService != nil
-				isSchedulerActive := currentSchedulerInstance != nil // Use the dereferenced pointer
-
-				if isSchedulerActive {
-					interruptionServiceType = notifier.ScanServiceNotification
-					if gCfg.NotificationConfig.ScanServiceDiscordWebhookURL != "" {
-						sendInterruptionNotification = true
-					}
-				} else if isMonitorActive {
-					interruptionServiceType = notifier.MonitorServiceNotification
-					if gCfg.NotificationConfig.MonitorServiceDiscordWebhookURL != "" {
-						sendInterruptionNotification = true
-					}
-				} else {
-					zLogger.Info().Msg("Interruption in automated mode: Neither monitor nor scheduler was active. Notification will be skipped.")
-					sendInterruptionNotification = false
-				}
-			} else { // Onetime mode
-				isMonitorActive := monitoringService != nil
-
-				if isMonitorActive {
-					interruptionServiceType = notifier.MonitorServiceNotification
-					if gCfg.NotificationConfig.MonitorServiceDiscordWebhookURL != "" {
-						sendInterruptionNotification = true
-					}
-				} else {
-					interruptionServiceType = notifier.ScanServiceNotification
-					if gCfg.NotificationConfig.ScanServiceDiscordWebhookURL != "" {
-						sendInterruptionNotification = true
-					}
-				}
-			}
-
-			if sendInterruptionNotification {
-				notificationHelper.SendScanCompletionNotification(notificationCtx, interruptionSummary, interruptionServiceType)
-				zLogger.Info().Msg("Interruption notification sent.")
-			} else {
-				if !(gCfg.Mode == "automated" && monitoringService == nil && currentSchedulerInstance == nil) { // Use dereferenced pointer
-					zLogger.Info().Str("service_type_considered", string(interruptionServiceType)).Msg("Interruption notification skipped: Webhook not configured for the determined service type or no service deemed active for notification.")
-				}
-			}
-		}
-		cancel()
+		cancel() // Only cancel the main context. Services should listen to this context.
 	}()
 }
 
@@ -369,24 +314,36 @@ func runApplicationLogic(ctx context.Context, gCfg *config.GlobalConfig, flags a
 					}
 				}
 				zLogger.Info().Msg("Automated mode (with scheduler) completed or interrupted.")
+				// If scheduler was started and context is now canceled, call Stop() on scheduler for graceful shutdown and notification
+				if *schedulerInstancePtr != nil && ctx.Err() == context.Canceled {
+					zLogger.Info().Msg("Context cancelled, ensuring scheduler is stopped.")
+					(*schedulerInstancePtr).Stop() // Call Stop to trigger its cleanup and notification logic
+				}
 			}
 		}
-	} else {
+	} else { // Onetime mode
 		zLogger.Info().Msg("Running in onetime mode...")
 		runOnetimeScan(ctx, gCfg, mainScanURLFile, zLogger, notificationHelper, secretDetector)
-		if monitoringService != nil {
-			zLogger.Info().Msg("Onetime scan completed. Stopping monitoring service...")
-			monitoringService.Stop()
-		}
+		// Removed monitoringService.Stop() from here.
+		// It will be stopped by the deferred cancel() in main or by the signal handler via <-ctx.Done() in startMonitoringService's goroutine.
 	}
-	// No longer return schedulerInstance
 }
 
-func shutdownServices(monitoringService *monitor.MonitoringService, monitorWg *sync.WaitGroup, zLogger zerolog.Logger, ctx context.Context) {
+func shutdownServices(monitoringService *monitor.MonitoringService, scheduler *scheduler.Scheduler, monitorWg *sync.WaitGroup, zLogger zerolog.Logger, ctx context.Context) {
 	if monitoringService != nil {
 		zLogger.Info().Msg("Waiting for file monitoring service to shut down completely...")
-		monitorWg.Wait()
+		monitorWg.Wait() // This ensures its goroutine finishes, which includes calling its Stop()
 		zLogger.Info().Msg("File monitoring service has shut down.")
+	}
+
+	// Scheduler is stopped in runApplicationLogic if interrupted.
+	// If not interrupted, its main loop finishes and Stop() might have been called or not needed if already fully stopped.
+	// However, for a clean shutdown sequence, ensure Stop is called if it exists and hasn't been.
+	// This is more of a fallback or explicit finalization if not handled by interrupt logic.
+	if scheduler != nil {
+		zLogger.Info().Msg("Ensuring scheduler is stopped as part of final shutdown sequence...")
+		scheduler.Stop() // Call Stop here if not already stopped by interrupt logic in runApplicationLogic
+		zLogger.Info().Msg("Scheduler confirmed stopped in shutdownServices.")
 	}
 
 	if ctx.Err() == context.Canceled {
@@ -417,7 +374,19 @@ func main() {
 	}
 	notificationHelper := notifier.NewNotificationHelper(discordNotifier, gCfg.NotificationConfig, zLogger)
 
-	monitoringService, secretDetector, _, err := initializeServices(gCfg, zLogger, flags, notificationHelper)
+	// Check for invalid flag combination: -mt with onetime mode
+	if flags.monitorTargetFile != "" && gCfg.Mode == "onetime" {
+		// Use zLogger if available and initialized, otherwise fmt to stderr
+		errMsg := "Invalid combination: --monitor-targets (-mt) cannot be used with --mode onetime (-m onetime). File monitoring is only available in automated mode."
+		if zLogger.GetLevel() != zerolog.Disabled {
+			zLogger.Fatal().Str("monitor_target_file", flags.monitorTargetFile).Str("mode", gCfg.Mode).Msg(errMsg)
+		} else {
+			fmt.Fprintln(os.Stderr, "[FATAL] "+errMsg)
+		}
+		os.Exit(1)
+	}
+
+	monitoringService, secretDetector, schedulerInstance, err := initializeServices(gCfg, zLogger, flags, notificationHelper)
 	if err != nil {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize services")
 	}
@@ -425,18 +394,19 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var schedulerInstance *scheduler.Scheduler // Declare schedulerInstance for the signal handler
+	var monitorWg sync.WaitGroup
 
 	// Setup signal handling first, passing the address of schedulerInstance
-	setupSignalHandling(ctx, cancel, gCfg, notificationHelper, monitoringService, &schedulerInstance, zLogger)
+	// No longer passing schedulerInstance to setupSignalHandling as it should only cancel the context.
+	setupSignalHandling(ctx, cancel, gCfg, notificationHelper, monitoringService, zLogger)
+
+	// Start monitoring service early if enabled
+	startMonitoringService(ctx, monitoringService, flags.monitorTargetFile, gCfg, zLogger, &monitorWg)
 
 	// Now run application logic, which might populate schedulerInstance
 	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, secretDetector, monitoringService, &schedulerInstance)
 
-	var monitorWg sync.WaitGroup
-	startMonitoringService(ctx, monitoringService, flags.monitorTargetFile, gCfg, zLogger, &monitorWg)
-
-	shutdownServices(monitoringService, &monitorWg, zLogger, ctx)
+	shutdownServices(monitoringService, schedulerInstance, &monitorWg, zLogger, ctx)
 }
 
 func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileArgument string, appLogger zerolog.Logger, notificationHelper *notifier.NotificationHelper, secretDetector *secrets.SecretDetectorService) {
@@ -446,7 +416,8 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 	// Load seed URLs
 	seedURLs, targetSource := loadSeedURLs(gCfg, urlListFileArgument, appLogger, notificationHelper)
 	if len(seedURLs) == 0 {
-		return // Error already handled in loadSeedURLs
+		appLogger.Info().Msg("Onetime scan: No seed URLs loaded, scan will not run. Monitoring service (if active) will continue until application termination.")
+		return // Error already handled in loadSeedURLs, or no targets were specified.
 	}
 
 	// Send start notification
@@ -454,10 +425,52 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 
 	// Execute complete scan workflow
 	scanSessionID := time.Now().Format("20060102-150405")
-	summaryData, probeResults, urlDiffResults, secretFindings, workflowErr := scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, seedURLs, scanSessionID, targetSource)
+	// summaryData được khởi tạo ở đây để nếu ExecuteCompleteScanWorkflow bị ngắt sớm, chúng ta vẫn có các giá trị mặc định.
+	var summaryData models.ScanSummaryData = models.GetDefaultScanSummaryData()
+	var probeResults []models.ProbeResult
+	var urlDiffResults map[string]models.URLDiffResult
+	var secretFindings []models.SecretFinding
+	var workflowErr error
 
-	if ctx.Err() == context.Canceled {
+	summaryData, probeResults, urlDiffResults, secretFindings, workflowErr = scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, seedURLs, scanSessionID, targetSource)
+
+	// Ưu tiên kiểm tra lỗi từ workflow trước, sau đó mới đến context chung
+	if errors.Is(workflowErr, context.Canceled) || ctx.Err() == context.Canceled {
 		appLogger.Info().Msg("Onetime scan workflow interrupted.")
+		interruptionSummary := models.GetDefaultScanSummaryData()
+		interruptionSummary.ScanSessionID = scanSessionID
+		interruptionSummary.TargetSource = targetSource
+		interruptionSummary.Targets = seedURLs
+		interruptionSummary.TotalTargets = len(seedURLs)
+		interruptionSummary.Status = string(models.ScanStatusInterrupted)
+		interruptionSummary.ScanMode = "onetime"
+		interruptionSummary.ErrorMessages = []string{"Onetime scan interrupted by signal or context cancellation."}
+
+		// Nếu workflowErr không phải là context.Canceled (ví dụ, một lỗi khác xảy ra trước khi cancel được xử lý đầy đủ)
+		// hoặc nếu summaryData có vẻ đã được điền một phần, hãy cố gắng sử dụng nó.
+		if workflowErr != nil && !errors.Is(workflowErr, context.Canceled) {
+			interruptionSummary.ErrorMessages = append(interruptionSummary.ErrorMessages, fmt.Sprintf("Additional error during interruption: %v", workflowErr))
+		}
+
+		// Populate with any partial data if available from summaryData returned by ExecuteCompleteScanWorkflow
+		// Check a field like TargetSource which should be set if summaryData was meaningfully populated.
+		if summaryData.TargetSource != "" {
+			if summaryData.ProbeStats.TotalProbed > 0 || summaryData.ProbeStats.SuccessfulProbes > 0 || summaryData.ProbeStats.FailedProbes > 0 {
+				interruptionSummary.ProbeStats = summaryData.ProbeStats
+			}
+			if summaryData.DiffStats.New > 0 || summaryData.DiffStats.Old > 0 || summaryData.DiffStats.Existing > 0 {
+				interruptionSummary.DiffStats = summaryData.DiffStats
+			}
+			if summaryData.SecretStats.TotalFindings > 0 {
+				interruptionSummary.SecretStats = summaryData.SecretStats
+			}
+			// if summaryData.ScanDuration > 0 { // Duration might be very short if interrupted early
+			// 	interruptionSummary.ScanDuration = summaryData.ScanDuration
+			// }
+		}
+
+		appLogger.Info().Interface("interruption_summary", interruptionSummary).Msg("Attempting to send onetime scan interruption notification.")
+		notificationHelper.SendScanCompletionNotification(context.Background(), interruptionSummary, notifier.ScanServiceNotification)
 		return
 	}
 
@@ -466,7 +479,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 		appLogger.Info().Int("secret_findings_count", len(secretFindings)).Msg("Secret detection found findings during scan")
 	}
 
-	// Handle workflow errors
+	// Handle other workflow errors (nếu không phải là Canceled)
 	if workflowErr != nil {
 		handleWorkflowError(summaryData, workflowErr, "onetime", notificationHelper, appLogger)
 		return
@@ -476,6 +489,10 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 
 	// Generate and send completion notification
 	generateReportAndNotify(ctx, gCfg, summaryData, probeResults, urlDiffResults, secretFindings, scanSessionID, "onetime", notificationHelper, appLogger)
+
+	// Note: monitoringService.Stop() was removed from here.
+	// The monitoring service will be stopped when the main context is cancelled.
+	appLogger.Info().Msg("Onetime scan specific tasks finished. Monitoring service (if active) continues.")
 }
 
 func initializeScanOrchestrator(gCfg *config.GlobalConfig, appLogger zerolog.Logger, secretDetector *secrets.SecretDetectorService) *orchestrator.ScanOrchestrator {
@@ -540,22 +557,22 @@ func loadSeedURLs(gCfg *config.GlobalConfig, urlListFileArgument string, appLogg
 	// Final check for seed URLs
 	if len(seedURLs) == 0 {
 		noSeedsMsg := "No seed URLs provided or loaded for onetime scan. Please specify via -urlfile, or in input_config in the config file. Onetime scan will not run."
-		// This is not a critical error for the application to stop, but onetime scan won't run.
-		// Notification of "no seeds" might still be relevant if onetime mode was explicitly chosen.
-		appLogger.Warn().Msg(noSeedsMsg) // Changed from Error to Warn
+		appLogger.Warn().Msg(noSeedsMsg) // Keep the log
 
-		// Send a specific type of notification or a regular completion with status "NO_TARGETS"
-		noTargetsSummary := models.GetDefaultScanSummaryData()
-		noTargetsSummary.ScanMode = "onetime"
-		if onetimeTargetSource == "" {
-			noTargetsSummary.TargetSource = "NotProvided"
+		// Only send notification if onetimeTargetSource was set, implying an attempt to provide targets.
+		// If onetimeTargetSource is still "", it means no target source was specified by the user.
+		if onetimeTargetSource != "" {
+			noTargetsSummary := models.GetDefaultScanSummaryData()
+			noTargetsSummary.ScanMode = "onetime"
+			// Since onetimeTargetSource != "", it will be set correctly here.
+			noTargetsSummary.TargetSource = onetimeTargetSource
+			noTargetsSummary.Status = string(models.ScanStatusNoTargets)
+			noTargetsSummary.ErrorMessages = []string{noSeedsMsg}
+			notificationHelper.SendScanCompletionNotification(context.Background(), noTargetsSummary, notifier.ScanServiceNotification)
 		} else {
-			noTargetsSummary.TargetSource = onetimeTargetSource // Could be 'config_input_urls' if that was tried and empty
+			appLogger.Info().Msg("No targets specified for onetime scan via CLI or config. 'NO_TARGETS' notification will be skipped.")
 		}
-		noTargetsSummary.Status = string(models.ScanStatusNoTargets) // New status
-		noTargetsSummary.ErrorMessages = []string{noSeedsMsg}
-		notificationHelper.SendScanCompletionNotification(context.Background(), noTargetsSummary, notifier.ScanServiceNotification)
-		return nil, ""
+		return nil, "" // Still return, as no scan can run
 	}
 
 	return seedURLs, onetimeTargetSource

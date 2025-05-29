@@ -114,6 +114,17 @@ func (s *Scheduler) Start(ctx context.Context) error {
 			select {
 			case <-ctx.Done(): // Handle context cancellation (e.g., from main application shutdown)
 				s.logger.Info().Msg("Scheduler stopping due to context cancellation.")
+				// Send interruption notification HERE, before returning and before defer sets isRunning to false
+				if s.notificationHelper != nil {
+					interruptionSummary := models.GetDefaultScanSummaryData()
+					interruptionSummary.ScanSessionID = fmt.Sprintf("scheduler_interrupted_%s", time.Now().Format("20060102-150405"))
+					interruptionSummary.Status = string(models.ScanStatusInterrupted)
+					interruptionSummary.ScanMode = "automated"
+					interruptionSummary.ErrorMessages = []string{"Scheduler service was interrupted by context cancellation."}
+					interruptionSummary.TargetSource = "AutomatedScheduler"
+					s.logger.Info().Msg("Sending scheduler interruption notification from Start() due to context cancellation.")
+					s.notificationHelper.SendScanCompletionNotification(context.Background(), interruptionSummary, notifier.ScanServiceNotification)
+				}
 				return
 			case <-s.stopChan: // Handle explicit Stop() call
 				s.logger.Info().Msg("Scheduler stopping due to explicit Stop() call.")
@@ -140,6 +151,17 @@ func (s *Scheduler) Start(ctx context.Context) error {
 						return
 					case <-ctx.Done(): // Or stop if context is cancelled during sleep
 						s.logger.Info().Msg("Scheduler context cancelled during sleep period.")
+						// Send interruption notification HERE as well
+						if s.notificationHelper != nil {
+							interruptionSummary := models.GetDefaultScanSummaryData()
+							interruptionSummary.ScanSessionID = fmt.Sprintf("scheduler_interrupted_sleep_%s", time.Now().Format("20060102-150405"))
+							interruptionSummary.Status = string(models.ScanStatusInterrupted)
+							interruptionSummary.ScanMode = "automated"
+							interruptionSummary.ErrorMessages = []string{"Scheduler service was interrupted during sleep period by context cancellation."}
+							interruptionSummary.TargetSource = "AutomatedScheduler"
+							s.logger.Info().Msg("Sending scheduler interruption notification from Start() due to context cancellation during sleep.")
+							s.notificationHelper.SendScanCompletionNotification(context.Background(), interruptionSummary, notifier.ScanServiceNotification)
+						}
 						return
 					}
 				}
@@ -211,6 +233,29 @@ func (s *Scheduler) Stop() {
 	s.mu.Unlock()
 
 	s.logger.Info().Msg("Scheduler has been stopped and resources cleaned up.")
+
+	// Send interruption notification if the scheduler was stopped due to context cancellation (implying an interrupt)
+	// We need to check if s.isRunning was true before Stop was called, or rely on the context that Start received.
+	// However, Stop() itself doesn't have the original context. We assume if Stop() is called
+	// and the application is shutting down via interrupt, a notification is appropriate.
+	// A better way would be to pass the main context to Stop(), or check a flag set by Start()'s context handling.
+	// For now, we'll send it if NotificationHelper is available.
+	// if s.notificationHelper != nil { // MOVED THIS LOGIC TO Start() when ctx.Done() is caught
+	// 	// Construct a basic interruption summary
+	// 	// Getting detailed target info here is complex as scheduler might not have active scan details readily in Stop().
+	// 	interruptionSummary := models.GetDefaultScanSummaryData()
+	// 	interruptionSummary.ScanSessionID = fmt.Sprintf("scheduler_interrupted_%s", time.Now().Format("20060102-150405"))
+	// 	interruptionSummary.Status = string(models.ScanStatusInterrupted)
+	// 	interruptionSummary.ScanMode = "automated"
+	// 	interruptionSummary.ErrorMessages = []string{"Scheduler service was stopped/interrupted."}
+	// 	// Potentially, we could try to get the last known target source if that information is stored by the scheduler.
+	// 	// For now, keep it simple.
+	// 	interruptionSummary.TargetSource = "AutomatedScheduler"
+	//
+	// 	s.logger.Info().Msg("Sending scheduler interruption notification.")
+	// 	// Use a background context for this notification as the main one might be already cancelled.
+	// 	s.notificationHelper.SendScanCompletionNotification(context.Background(), interruptionSummary, notifier.ScanServiceNotification)
+	// }
 }
 
 // calculateNextScanTime determines when the next scan should run

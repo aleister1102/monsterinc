@@ -51,7 +51,8 @@ type MonitoringService struct {
 	aggregatedFetchErrors      []models.MonitorFetchErrorInfo
 	aggregatedFetchErrorsMutex sync.Mutex
 	aggregationTicker          *time.Ticker
-	doneChan                   chan struct{} // To stop the aggregation goroutine
+	aggregationWg              sync.WaitGroup // Added WaitGroup for aggregation worker
+	doneChan                   chan struct{}  // To stop the aggregation goroutine
 
 	// Service specific context for operations like notifications
 	serviceCtx        context.Context
@@ -132,6 +133,7 @@ func NewMonitoringService(
 	} else {
 		aggregationDuration := time.Duration(s.cfg.AggregationIntervalSeconds) * time.Second
 		s.aggregationTicker = time.NewTicker(aggregationDuration)
+		s.aggregationWg.Add(1) // Increment WaitGroup before starting worker
 		go s.aggregationWorker()
 		s.logger.Info().Dur("interval", aggregationDuration).Int("max_events", s.cfg.MaxAggregatedEvents).Msg("Aggregation worker started for monitor events.")
 	}
@@ -265,6 +267,7 @@ func (s *MonitoringService) Stop() {
 	}
 
 	// Safely close doneChan only once
+	s.logger.Debug().Msg("Attempting to close doneChan for aggregation worker...")
 	select {
 	case <-s.doneChan:
 		// Channel is already closed
@@ -275,10 +278,16 @@ func (s *MonitoringService) Stop() {
 		s.logger.Debug().Msg("doneChan closed successfully")
 	}
 
+	// Wait for the aggregation worker to finish its current tasks, including final sends
+	s.logger.Info().Msg("Waiting for aggregation worker to complete...")
+	s.aggregationWg.Wait()
+	s.logger.Info().Msg("Aggregation worker completed.")
+
 	s.logger.Info().Msg("MonitoringService stopped.")
 }
 
 func (s *MonitoringService) aggregationWorker() {
+	defer s.aggregationWg.Done() // Decrement WaitGroup when worker exits
 	defer s.logger.Info().Msg("Aggregation worker stopped.")
 	for {
 		select {
