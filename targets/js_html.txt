@@ -1,6 +1,0 @@
-http://insomnia1102.online:1337/temp.js
-http://001.myoas.net/./lib-jsbridge.js
-http://abd-demo.wanyol.com/env.js
-http://001.myoas.net/./vendor/vendor.dll.js
-http://2017aprilbvrv1njpg8njqccni43g.bvrv1njpg8njqccni44g.redirectme.netoppofind-kjihgfedcba98765432.2.0.oppofind.com/
-http://adsfs.oppomobile.com/mp/app/B/detail.html

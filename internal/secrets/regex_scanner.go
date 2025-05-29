@@ -183,7 +183,7 @@ func (s *RegexScanner) ScanWithRegexes(content []byte, sourceURL string) ([]mode
 					RuleID:            p.RuleID,
 					Description:       p.Description,
 					Severity:          p.Severity,
-					SecretText:        truncateSecret(secretText, 100), // Truncate for display/storage
+					SecretText:        secretText, // Store full secret without truncation
 					LineNumber:        lineNumber,
 					Timestamp:         time.Now(),
 					ToolName:          "RegexScanner",
@@ -242,14 +242,6 @@ func calculateShannonEntropy(data string) float64 {
 		entropy -= probability * math.Log2(probability)
 	}
 	return entropy
-}
-
-// truncateSecret limits the length of the reported secret.
-func truncateSecret(secret string, maxLength int) string {
-	if len(secret) > maxLength {
-		return secret[:maxLength] + "... (truncated)"
-	}
-	return secret
 }
 
 // loadMantraPatternsFromEmbedded loads regex patterns from a Mantra-style YAML file embedded in the binary.

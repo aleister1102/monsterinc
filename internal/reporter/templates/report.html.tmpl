@@ -394,6 +394,167 @@
         #itemsPerPageSelect {
             min-width: 80px !important; /* Ensure minimum width for the select box */
         }
+
+        /* Grouped Secret Findings Styles */
+        .secret-group-header {
+            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+            border: 1px solid #f1b0b7;
+            border-radius: 8px;
+            margin-bottom: 2px;
+            transition: all 0.3s ease;
+        }
+
+        .secret-group-header:hover {
+            background: linear-gradient(135deg, #f5c6cb, #f1b0b7);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(220, 53, 69, 0.15);
+        }
+
+        .secret-group-header .btn {
+            width: 100%;
+            text-align: left;
+            padding: 15px 20px;
+            border: none;
+            background: transparent;
+            color: #721c24;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .secret-group-header .btn:focus {
+            box-shadow: none;
+        }
+
+        .secret-group-url {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            word-break: break-all;
+        }
+
+        .secret-group-count {
+            background: #dc3545;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+
+        .secret-group-severity-badges {
+            display: inline-flex;
+            gap: 5px;
+            margin-left: 10px;
+        }
+
+        .secret-group-severity-badges .badge {
+            font-size: 0.7em;
+            padding: 2px 6px;
+        }
+
+        .secret-findings-table-container {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+        }
+
+        .secret-findings-table {
+            margin-bottom: 0;
+        }
+
+        .secret-findings-table thead th {
+            background: linear-gradient(135deg, #6c757d, #495057);
+            color: white;
+            border: none;
+            padding: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8em;
+            letter-spacing: 0.5px;
+        }
+
+        .secret-findings-table tbody td {
+            padding: 10px 12px;
+            vertical-align: middle;
+            border-bottom: 1px solid #f8f9fa;
+        }
+
+        .collapse-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .collapsed .collapse-icon {
+            transform: rotate(-90deg);
+        }
+
+        /* Secret text display with ellipsis */
+        .secret-text-cell {
+            max-width: 200px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            position: relative;
+            cursor: help;
+        }
+
+        .secret-text-display {
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: inline-block;
+            cursor: help;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background-color: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid #dee2e6;
+            transition: background-color 0.2s ease;
+        }
+
+        .secret-text-display:hover {
+            background-color: #e9ecef;
+            border-color: #adb5bd;
+        }
+
+        .dark-theme .secret-text-display {
+            background-color: #343a40;
+            color: #f8f9fa;
+            border-color: #495057;
+        }
+
+        .dark-theme .secret-text-display:hover {
+            background-color: #495057;
+            border-color: #6c757d;
+        }
+
+        /* Tooltip for full secret display */
+        .secret-tooltip {
+            position: absolute;
+            background: #000;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.8em;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-width: 400px;
+            z-index: 1050;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            display: none;
+            font-family: 'Courier New', monospace;
+        }
+
+        .secret-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #000 transparent transparent transparent;
+        }
     </style>
 </head>
 <body class="{{.Theme}}-theme">
@@ -585,54 +746,9 @@
                                 </div>
                             </div>
 
-                            {{/* Secret Findings Table */}}
-                            <div class="card">
-                                <div class="card-body p-0">
-                                    <table id="secretFindingsTable" class="table table-hover" style="width:100%">
-                                        <thead>
-                                            <tr>
-                                                <th><i class="fas fa-link me-1"></i>Source URL</th>
-                                                <th><i class="fas fa-tag me-1"></i>Rule ID</th>
-                                                <th><i class="fas fa-info me-1"></i>Description</th>
-                                                <th><i class="fas fa-exclamation-triangle me-1"></i>Severity</th>
-                                                <th><i class="fas fa-key me-1"></i>Secret</th>
-                                                <th><i class="fas fa-list-ol me-1"></i>Line</th>
-                                                <th><i class="fas fa-tools me-1"></i>Tool</th>
-                                                <th><i class="fas fa-clock me-1"></i>Timestamp</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {{range .SecretFindings}}
-                                            <tr class="{{if or (eq .Severity "HIGH") (eq .Severity "CRITICAL")}}table-danger{{else if eq .Severity "MEDIUM"}}table-warning{{else if eq .Severity "LOW"}}table-info{{else}}table-secondary{{end}}">
-                                                <td class="truncate-url" title="{{.SourceURL}}">
-                                                    <a href="{{.SourceURL}}" target="_blank">{{.SourceURL}}</a>
-                                                </td>
-                                                <td><code class="bg-light px-2 py-1 rounded">{{.RuleID}}</code></td>
-                                                <td class="truncate-description" title="{{.Description}}">{{.Description}}</td>
-                                                <td>
-                                                    <span class="badge {{if or (eq .Severity "HIGH") (eq .Severity "CRITICAL")}}bg-danger{{else if eq .Severity "MEDIUM"}}bg-warning{{else if eq .Severity "LOW"}}bg-info{{else}}bg-secondary{{end}}">
-                                                        {{if or (eq .Severity "HIGH") (eq .Severity "CRITICAL")}}<i class="fas fa-exclamation-triangle me-1"></i>{{else if eq .Severity "MEDIUM"}}
-                                                        <i class="fas fa-exclamation-circle me-1"></i>{{else if eq .Severity "LOW"}}
-                                                        <i class="fas fa-info-circle me-1"></i>{{else}}
-                                                        <i class="fas fa-question-circle me-1"></i>{{end}}
-                                                        {{.Severity}}
-                                                    </span>
-                                                </td>
-                                                <td class="font-monospace">
-                                                    {{if .SecretText}}
-                                                        <code class="bg-dark text-light px-2 py-1 rounded">{{.SecretText}}</code>
-                                                    {{else}}
-                                                        <span class="text-muted">-</span>
-                                                    {{end}}
-                                                </td>
-                                                <td>{{if .LineNumber}}<span class="badge bg-secondary">{{.LineNumber}}</span>{{else}}<span class="text-muted">-</span>{{end}}</td>
-                                                <td>{{if .ToolName}}<span class="badge bg-primary">{{.ToolName}}</span>{{else}}<span class="text-muted">-</span>{{end}}</td>
-                                                <td><small class="text-muted">{{formatTime .Timestamp "2006-01-02 15:04"}}</small></td>
-                                            </tr>
-                                            {{end}}
-                                        </tbody>
-                                    </table>
-                                </div>
+                            {{/* Grouped Secret Findings */}}
+                            <div id="secretFindingsAccordion">
+                                <!-- This will be populated by JavaScript -->
                             </div>
                         </div>
                     </div>
@@ -717,6 +833,355 @@
     <script>
         // Embedded Custom Report JS
         {{if .ReportJs}}{{.ReportJs}}{{end}}
+
+        // Initialize Secret Findings Accordion after page load
+        document.addEventListener('DOMContentLoaded', function() {
+            if (window.reportSettings && window.reportSettings.secretFindings) {
+                initializeSecretFindingsAccordion();
+            }
+        });
+
+        function initializeSecretFindingsAccordion() {
+            const secretFindings = window.reportSettings.secretFindings;
+            if (!secretFindings || secretFindings.length === 0) {
+                return;
+            }
+
+            // Debug: Log the first finding to see the structure
+            console.log('Secret findings structure:', secretFindings[0]);
+
+            // Group findings by source URL
+            const groupedFindings = {};
+            secretFindings.forEach(finding => {
+                // Use snake_case as defined in JSON tags
+                const sourceURL = finding.source_url || finding.SourceURL || finding.sourceURL || 
+                                 finding.source || finding.Source || 'Unknown Source';
+                if (!groupedFindings[sourceURL]) {
+                    groupedFindings[sourceURL] = [];
+                }
+                groupedFindings[sourceURL].push(finding);
+            });
+
+            // Debug: Log grouped findings
+            console.log('Grouped findings:', groupedFindings);
+
+            // Create accordion HTML
+            const accordionContainer = document.getElementById('secretFindingsAccordion');
+            if (!accordionContainer) return;
+
+            let accordionHTML = '';
+            let groupIndex = 0;
+
+            Object.keys(groupedFindings).sort().forEach(sourceURL => {
+                const findings = groupedFindings[sourceURL];
+                const groupId = `secretGroup${groupIndex}`;
+                const collapseId = `collapse${groupIndex}`;
+                
+                // Sort findings by severity within each group
+                findings.sort((a, b) => {
+                    const severityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 };
+                    const aSeverity = (a.severity || '').toUpperCase();
+                    const bSeverity = (b.severity || '').toUpperCase();
+                    
+                    const aOrder = severityOrder[aSeverity] !== undefined ? severityOrder[aSeverity] : 4;
+                    const bOrder = severityOrder[bSeverity] !== undefined ? severityOrder[bSeverity] : 4;
+                    
+                    return aOrder - bOrder;
+                });
+                
+                // Calculate severity stats for this group - use snake_case from JSON tags
+                const severityStats = {
+                    high: findings.filter(f => {
+                        const severity = f.severity || f.Severity || '';
+                        return severity === 'HIGH' || severity === 'CRITICAL';
+                    }).length,
+                    medium: findings.filter(f => {
+                        const severity = f.severity || f.Severity || '';
+                        return severity === 'MEDIUM';
+                    }).length,
+                    low: findings.filter(f => {
+                        const severity = f.severity || f.Severity || '';
+                        return severity === 'LOW';
+                    }).length,
+                    unknown: findings.filter(f => {
+                        const severity = f.severity || f.Severity || '';
+                        return !severity || !['HIGH', 'CRITICAL', 'MEDIUM', 'LOW'].includes(severity);
+                    }).length
+                };
+
+                // Create severity badges
+                let severityBadges = '';
+                if (severityStats.high > 0) {
+                    severityBadges += `<span class="badge bg-danger">${severityStats.high} High</span>`;
+                }
+                if (severityStats.medium > 0) {
+                    severityBadges += `<span class="badge bg-warning">${severityStats.medium} Medium</span>`;
+                }
+                if (severityStats.low > 0) {
+                    severityBadges += `<span class="badge bg-info">${severityStats.low} Low</span>`;
+                }
+                if (severityStats.unknown > 0) {
+                    severityBadges += `<span class="badge bg-secondary">${severityStats.unknown} Unknown</span>`;
+                }
+
+                accordionHTML += `
+                    <div class="mb-2">
+                        <div class="secret-group-header">
+                            <button class="btn collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}" 
+                                    aria-expanded="false" aria-controls="${collapseId}">
+                                <div class="d-flex align-items-center justify-content-between w-100">
+                                    <div class="d-flex align-items-center flex-grow-1">
+                                        <i class="fas fa-chevron-down collapse-icon me-3"></i>
+                                        <span class="secret-group-url me-auto">${escapeHtml(sourceURL)}</span>
+                                    </div>
+                                    <div class="d-flex align-items-center">
+                                        <span class="secret-group-count">${findings.length} secrets</span>
+                                        <div class="secret-group-severity-badges">
+                                            ${severityBadges}
+                                        </div>
+                                    </div>
+                                </div>
+                            </button>
+                        </div>
+                        <div id="${collapseId}" class="collapse" data-bs-parent="#secretFindingsAccordion">
+                            <div class="secret-findings-table-container">
+                                <table class="table table-hover secret-findings-table">
+                                    <thead>
+                                        <tr>
+                                            <th><i class="fas fa-tag me-1"></i>Rule ID</th>
+                                            <th><i class="fas fa-info me-1"></i>Description</th>
+                                            <th><i class="fas fa-exclamation-triangle me-1"></i>Severity</th>
+                                            <th><i class="fas fa-key me-1"></i>Secret</th>
+                                            <th><i class="fas fa-list-ol me-1"></i>Line</th>
+                                            <th><i class="fas fa-tools me-1"></i>Tool</th>
+                                            <th><i class="fas fa-clock me-1"></i>Timestamp</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                `;
+
+                findings.forEach(finding => {
+                    const severity = finding.severity || finding.Severity || '';
+                    const severityClass = getSeverityClass(severity);
+                    const severityIcon = getSeverityIcon(severity);
+                    const formattedTimestamp = formatTimestamp(finding.timestamp || finding.Timestamp);
+                    
+                    accordionHTML += `
+                        <tr class="${severityClass}">
+                            <td><code class="bg-light px-2 py-1 rounded">${escapeHtml(finding.rule_id || finding.RuleID || '')}</code></td>
+                            <td class="truncate-description" title="${escapeHtml(finding.description || finding.Description || '')}">${escapeHtml(finding.description || finding.Description || '')}</td>
+                            <td>
+                                <span class="badge ${getSeverityBadgeClass(severity)}">
+                                    ${severityIcon}
+                                    ${escapeHtml(severity || 'UNKNOWN')}
+                                </span>
+                            </td>
+                            <td class="secret-text-cell">
+                                ${(finding.secret_text || finding.SecretText) ? 
+                                    `<span class="secret-text-display" 
+                                           data-full-secret="${escapeHtml(finding.secret_text || finding.SecretText)}"
+                                           data-tooltip="secret">
+                                        ${escapeHtml(finding.secret_text || finding.SecretText)}
+                                    </span>` : 
+                                    '<span class="text-muted">-</span>'
+                                }
+                            </td>
+                            <td>${(finding.line_number || finding.LineNumber) ? `<span class="badge bg-secondary">${finding.line_number || finding.LineNumber}</span>` : '<span class="text-muted">-</span>'}</td>
+                            <td>${(finding.tool_name || finding.ToolName) ? `<span class="badge bg-primary">${escapeHtml(finding.tool_name || finding.ToolName)}</span>` : '<span class="text-muted">-</span>'}</td>
+                            <td><small class="text-muted">${formattedTimestamp}</small></td>
+                        </tr>
+                    `;
+                });
+
+                accordionHTML += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                groupIndex++;
+            });
+
+            accordionContainer.innerHTML = accordionHTML;
+        }
+
+        function getSeverityClass(severity) {
+            if (!severity) return 'table-secondary';
+            const sev = severity.toUpperCase();
+            if (sev === 'HIGH' || sev === 'CRITICAL') return 'table-danger';
+            if (sev === 'MEDIUM') return 'table-warning';
+            if (sev === 'LOW') return 'table-info';
+            return 'table-secondary';
+        }
+
+        function getSeverityBadgeClass(severity) {
+            if (!severity) return 'bg-secondary';
+            const sev = severity.toUpperCase();
+            if (sev === 'HIGH' || sev === 'CRITICAL') return 'bg-danger';
+            if (sev === 'MEDIUM') return 'bg-warning';
+            if (sev === 'LOW') return 'bg-info';
+            return 'bg-secondary';
+        }
+
+        function getSeverityIcon(severity) {
+            if (!severity) return '<i class="fas fa-question-circle me-1"></i>';
+            const sev = severity.toUpperCase();
+            if (sev === 'HIGH' || sev === 'CRITICAL') return '<i class="fas fa-exclamation-triangle me-1"></i>';
+            if (sev === 'MEDIUM') return '<i class="fas fa-exclamation-circle me-1"></i>';
+            if (sev === 'LOW') return '<i class="fas fa-info-circle me-1"></i>';
+            return '<i class="fas fa-question-circle me-1"></i>';
+        }
+
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return '-';
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleString('en-GB', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (e) {
+                return timestamp;
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Add tooltip functionality
+        function createTooltip() {
+            const tooltip = document.createElement('div');
+            tooltip.id = 'secret-tooltip';
+            tooltip.style.cssText = `
+                position: absolute;
+                background: #2c3e50;
+                color: white;
+                padding: 8px 12px;
+                border-radius: 4px;
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                font-size: 11px;
+                max-width: 400px;
+                word-break: break-all;
+                white-space: pre-wrap;
+                z-index: 10000;
+                pointer-events: none;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+                border: 1px solid #34495e;
+                opacity: 0;
+                transition: opacity 0.2s ease;
+            `;
+            document.body.appendChild(tooltip);
+            return tooltip;
+        }
+
+        let tooltip = null;
+
+        function showTooltip(element, event) {
+            const fullText = element.getAttribute('data-full-secret');
+            console.log('showTooltip called with:', fullText);
+            console.log('Text length:', fullText ? fullText.length : 'null');
+            
+            if (!fullText || fullText.length <= 20) {
+                console.log('Not showing tooltip - text too short or missing');
+                return;
+            }
+
+            if (!tooltip) {
+                console.log('Creating new tooltip');
+                tooltip = createTooltip();
+            }
+
+            console.log('Showing tooltip with text:', fullText.substring(0, 100) + '...');
+            tooltip.textContent = fullText;
+            tooltip.style.display = 'block';
+            tooltip.style.opacity = '1';
+            
+            // Position tooltip
+            const rect = element.getBoundingClientRect();
+            
+            let left = event.pageX + 15;
+            let top = event.pageY - 10;
+            
+            // Wait for tooltip to be rendered to get accurate dimensions
+            setTimeout(() => {
+                const tooltipRect = tooltip.getBoundingClientRect();
+                
+                // Adjust if tooltip would go off screen
+                if (left + tooltipRect.width > window.innerWidth) {
+                    left = event.pageX - tooltipRect.width - 15;
+                }
+                if (top - tooltipRect.height < 0) {
+                    top = event.pageY + 25;
+                }
+                
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = top + 'px';
+                
+                console.log('Tooltip positioned at:', left, top);
+            }, 10);
+        }
+
+        function hideTooltip() {
+            if (tooltip) {
+                tooltip.style.opacity = '0';
+                setTimeout(() => {
+                    if (tooltip) tooltip.style.display = 'none';
+                }, 200);
+            }
+        }
+
+        function moveTooltip(event) {
+            if (tooltip && tooltip.style.opacity === '1') {
+                const tooltipRect = tooltip.getBoundingClientRect();
+                
+                let left = event.pageX + 10;
+                let top = event.pageY - 10;
+                
+                if (left + tooltipRect.width > window.innerWidth) {
+                    left = event.pageX - tooltipRect.width - 10;
+                }
+                if (top - tooltipRect.height < 0) {
+                    top = event.pageY + 20;
+                }
+                
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = top + 'px';
+            }
+        }
+
+        // Event delegation for tooltips
+        document.addEventListener('mouseover', function(e) {
+            const element = e.target.closest('.secret-text-display');
+            if (element) {
+                console.log('Hovering over secret element:', element);
+                console.log('Full secret data:', element.getAttribute('data-full-secret'));
+                showTooltip(element, e);
+            }
+        });
+
+        document.addEventListener('mouseout', function(e) {
+            const element = e.target.closest('.secret-text-display');
+            if (element) {
+                console.log('Mouse out from secret element');
+                hideTooltip();
+            }
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            const element = e.target.closest('.secret-text-display');
+            if (element && tooltip && tooltip.style.opacity === '1') {
+                moveTooltip(e);
+            }
+        });
     </script>
 </body>
 </html> 
