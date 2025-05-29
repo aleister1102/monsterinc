@@ -3,13 +3,14 @@ package secrets
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
-	"sort"
-	"strings"
-	"time"
 
 	"github.com/rs/zerolog"
 )
@@ -64,35 +65,33 @@ func (s *SecretDetectorService) ScanContent(sourceURL string, content []byte, co
 		return nil, fmt.Errorf("content size %d bytes exceeds max limit of %d MB for secret scanning", len(content), s.secretsConfig.MaxFileSizeToScanMB)
 	}
 
-	// Call TruffleHog adapter if s.secretsConfig.EnableTruffleHog (Task 2 & 4.1)
-	if s.secretsConfig.Enabled && s.secretsConfig.EnableTruffleHog && s.trufflehogAdapter != nil {
-		s.logger.Debug().Str("sourceURL", sourceURL).Msg("TruffleHog scanning enabled, starting scan")
-		truffleStartTime := time.Now()
-
-		truffleFindings, err := s.trufflehogAdapter.ScanWithTruffleHog(content, sourceURL) // Using sourceURL as filenameHint for now
-		truffleDuration := time.Since(truffleStartTime)
+	// Scan with TruffleHog if enabled
+	if s.secretsConfig.EnableTruffleHog && s.trufflehogAdapter != nil {
+		start := time.Now()
+		truffleHogFindings, err := s.trufflehogAdapter.ScanWithTruffleHog(content, sourceURL)
+		duration := time.Since(start)
 
 		if err != nil {
-			s.logger.Error().Err(err).Str("sourceURL", sourceURL).Dur("duration", truffleDuration).Msg("TruffleHog scan failed")
-			// Decide if this error should halt all further scanning or just be logged.
-			// For now, we log it and continue to custom regex scanning if enabled.
-		} else {
-			if len(truffleFindings) > 0 {
-				s.logger.Info().Int("count", len(truffleFindings)).Str("sourceURL", sourceURL).Dur("duration", truffleDuration).Msg("TruffleHog scan completed with findings")
-				allFindings = append(allFindings, truffleFindings...)
+			// Check if it's an updater-related error - less critical
+			errStr := err.Error()
+			isUpdaterError := strings.Contains(errStr, "updater failed") ||
+				strings.Contains(errStr, "cmd") ||
+				strings.Contains(errStr, "cannot move binary")
 
-				// Log severity breakdown for TruffleHog findings
-				severityCount := make(map[string]int)
-				for _, finding := range truffleFindings {
-					severityCount[finding.Severity]++
-				}
-				s.logger.Debug().Interface("severity_breakdown", severityCount).Str("tool", "TruffleHog").Msg("TruffleHog findings severity breakdown")
+			if isUpdaterError {
+				s.logger.Warn().Err(err).Str("sourceURL", sourceURL).Dur("duration", duration).
+					Msg("TruffleHog scan failed due to updater issues, continuing with regex scanning only")
+				// Continue without TruffleHog findings, don't fail the entire scan
 			} else {
-				s.logger.Debug().Str("sourceURL", sourceURL).Dur("duration", truffleDuration).Msg("TruffleHog scan completed with no findings")
+				s.logger.Error().Err(err).Str("sourceURL", sourceURL).Dur("duration", duration).
+					Msg("TruffleHog scan failed")
+				// For other errors, still continue but log as error
 			}
+		} else {
+			s.logger.Info().Int("findings", len(truffleHogFindings)).Str("sourceURL", sourceURL).
+				Dur("duration", duration).Msg("TruffleHog scan completed")
+			allFindings = append(allFindings, truffleHogFindings...)
 		}
-	} else {
-		s.logger.Debug().Bool("secrets_enabled", s.secretsConfig.Enabled).Bool("trufflehog_enabled", s.secretsConfig.EnableTruffleHog).Bool("adapter_available", s.trufflehogAdapter != nil).Msg("TruffleHog scanning is disabled or adapter not initialized")
 	}
 
 	// Call custom regex scanner if s.secretsConfig.EnableCustomRegex (Task 3 & 4.1)
@@ -232,4 +231,3 @@ func (s *SecretDetectorService) deduplicateFindings(findings []models.SecretFind
 	}
 	return uniqueFindings
 }
- 

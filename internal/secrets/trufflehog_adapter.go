@@ -6,12 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/models"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
 
 	"github.com/rs/zerolog"
 )
@@ -92,9 +93,10 @@ func (a *TruffleHogAdapter) ScanWithTruffleHog(content []byte, filenameHint stri
 	// Using "filesystem" source to scan the temporary file.
 	// --json flag for JSONL output.
 	// --no-verification to skip live verification (can be slow and noisy).
+	// --no-update to disable auto-updater which can cause PATH issues on Windows.
 	// We could add --fail to exit with specific code if secrets are found, but parsing output is more robust.
 	// Consider --include-detectors or --exclude-detectors if needed from config.
-	cmdArgs := []string{"filesystem", tmpFile.Name(), "--json"}
+	cmdArgs := []string{"filesystem", tmpFile.Name(), "--json", "--no-update"}
 	if a.config.TruffleHogNoVerification {
 		cmdArgs = append(cmdArgs, "--no-verification")
 	}
@@ -104,6 +106,15 @@ func (a *TruffleHogAdapter) ScanWithTruffleHog(content []byte, filenameHint stri
 
 	cmd := exec.CommandContext(ctx, a.config.TruffleHogPath, cmdArgs...)
 	a.logger.Debug().Str("command", cmd.String()).Msg("Executing TruffleHog CLI command")
+
+	// Set up environment to ensure Windows system commands are available
+	cmd.Env = os.Environ()
+	// Add common Windows system paths to ensure cmd.exe is available
+	systemPath := os.Getenv("PATH")
+	windowsPaths := ";C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem"
+	if !strings.Contains(systemPath, "C:\\Windows\\System32") {
+		cmd.Env = append(cmd.Env, "PATH="+systemPath+windowsPaths)
+	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf
@@ -120,19 +131,36 @@ func (a *TruffleHogAdapter) ScanWithTruffleHog(content []byte, filenameHint stri
 	// Or it might exit with 1 for general errors.
 	// We primarily rely on parsing stdout for findings. Stderr is for errors.
 	if err != nil {
-		// Log stderr for debugging, even if we don't return it directly as the primary error
-		// unless stdout is empty.
-		a.logger.Warn().Err(err).Str("trufflehog_stderr", stderrBuf.String()).Str("trufflehog_stdout_snippet", firstNLines(stdoutBuf.String(), 5)).Msg("TruffleHog command finished with error")
+		stderrStr := stderrBuf.String()
+
+		// Check if it's an updater-related error (non-critical for scanning)
+		isUpdaterError := strings.Contains(stderrStr, "trufflehog updater") ||
+			strings.Contains(stderrStr, "cannot move binary") ||
+			strings.Contains(stderrStr, "cmd\": executable file not found")
+
+		if isUpdaterError {
+			a.logger.Warn().Err(err).Str("trufflehog_stderr", stderrStr).Msg("TruffleHog updater failed, but continuing with scan")
+			// Don't return error for updater issues if we have stdout to parse
+		} else {
+			// Log stderr for debugging, even if we don't return it directly as the primary error
+			// unless stdout is empty.
+			a.logger.Warn().Err(err).Str("trufflehog_stderr", stderrStr).Str("trufflehog_stdout_snippet", firstNLines(stdoutBuf.String(), 5)).Msg("TruffleHog command finished with error")
+		}
+
 		// If there's an error AND no stdout, it's a more severe execution problem.
 		if stdoutBuf.Len() == 0 {
-			return nil, fmt.Errorf("TruffleHog command failed: %w. Stderr: %s", err, stderrBuf.String())
+			if isUpdaterError {
+				a.logger.Error().Msg("TruffleHog updater failed and no scan output produced. Consider updating TruffleHog manually or fixing PATH issues.")
+				return nil, fmt.Errorf("TruffleHog updater failed and no scan output produced. Error: %w. Consider updating TruffleHog manually or adding 'cmd' to PATH", err)
+			}
+			return nil, fmt.Errorf("TruffleHog command failed: %w. Stderr: %s", err, stderrStr)
 		}
 		// If there's stdout, it might contain findings despite the exit code, so proceed to parse.
 	}
 
 	var findings []models.SecretFinding
 	scanner := bufio.NewScanner(&stdoutBuf)
-lineNumberInOutput := 0
+	lineNumberInOutput := 0
 	for scanner.Scan() {
 		lineNumberInOutput++
 		line := scanner.Bytes()
@@ -160,7 +188,7 @@ lineNumberInOutput := 0
 			RuleID:            thFinding.DetectorName,
 			Description:       fmt.Sprintf("TruffleHog: %s (Rule: %s)", thFinding.DetectorName, thFinding.RuleName),
 			Severity:          mapTruffleHogSeverity(thFinding.Verified, thFinding.DetectorName, thFinding.RuleName),
-			SecretText:        truncateSecret(thFinding.Raw, 100), // Truncate long secrets
+			SecretText:        thFinding.Raw, // Store full secret without truncation
 			LineNumber:        secretLineNumber,
 			Timestamp:         time.Now(),
 			ToolName:          "TruffleHog",
