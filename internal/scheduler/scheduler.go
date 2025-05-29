@@ -226,18 +226,6 @@ func (s *Scheduler) calculateNextScanTime() (time.Time, error) {
 		return time.Time{}, err
 	}
 
-	// If lastScanTime is nil but no error (e.g. GetLastScanTime returned nil, nil for a valid scenario like an interrupted scan being the latest)
-	// This case should ideally be handled by GetLastScanTime returning sql.ErrNoRows or a specific error.
-	// Given the current GetLastScanTime logic, it returns sql.ErrNoRows if the time is NULL or no completed scan is found.
-	// So the errors.Is(err, sql.ErrNoRows) above should cover this.
-	// If, for some reason, lastScanTime could be nil without an error, that would be handled here:
-	/*
-		if lastScanTime == nil {
-			s.logger.Info().Msg("Last scan time is nil (e.g., last scan was interrupted). Scheduling next scan immediately.")
-			return time.Now(), nil
-		}
-	*/
-
 	// Calculate next scan time based on interval
 	intervalDuration := time.Duration(s.globalConfig.SchedulerConfig.CycleMinutes) * time.Minute
 	nextScanTime := lastScanTime.Add(intervalDuration)
@@ -277,6 +265,7 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 		// Initialize summary for this attempt
 		scanSummary = models.GetDefaultScanSummaryData() // Reset for each attempt, but keep some fields if needed
 		scanSummary.ScanSessionID = currentScanSessionID
+		scanSummary.ScanMode = "automated"
 		scanSummary.TargetSource = initialTargetSource // Use consistently determined target source
 		scanSummary.RetriesAttempted = attempt
 
@@ -321,6 +310,7 @@ func (s *Scheduler) runScanCycleWithRetries(ctx context.Context) {
 		scanSummary.TotalTargets = currentAttemptSummary.TotalTargets
 		scanSummary.ProbeStats = currentAttemptSummary.ProbeStats
 		scanSummary.DiffStats = currentAttemptSummary.DiffStats
+		scanSummary.SecretStats = currentAttemptSummary.SecretStats
 		scanSummary.ScanDuration = currentAttemptSummary.ScanDuration
 		scanSummary.ErrorMessages = append(scanSummary.ErrorMessages, currentAttemptSummary.ErrorMessages...) // Append new errors
 		scanSummary.ReportPath = reportGeneratedPath                                                          // This might change if report is generated on later attempt
@@ -370,6 +360,7 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 	startTime := time.Now()
 	summary := models.GetDefaultScanSummaryData()
 	summary.ScanSessionID = scanSessionID
+	summary.ScanMode = "automated"
 	summary.TargetSource = predeterminedTargetSource // Use the source determined at the start of the retry cycle
 
 	// Load targets using TargetManager. We use predeterminedTargetSource for consistency in reporting,
@@ -408,7 +399,7 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 	summary.Targets = targetStringsForSummary
 	summary.TotalTargets = len(targets)
 
-	seedURLs := make([]string, len(targets))
+	seedURLs := make([]string, 0, len(targets))
 	for _, target := range targets {
 		seedURLs = append(seedURLs, target.OriginalURL)
 	}
@@ -441,33 +432,12 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 
 	s.logger.Info().Str("scan_id_log", logScanID).Int("num_targets", len(seedURLs)).Str("target_source", summary.TargetSource).Msg("Scheduler: Starting scan cycle execution.")
 
-	probeResults, urlDiffResults, secretFindings, workflowErr := s.scanOrchestrator.ExecuteScanWorkflow(ctx, seedURLs, summary.ScanSessionID)
-	scanDuration := time.Since(startTime)
-	summary.ScanDuration = scanDuration
+	// Use the complete scan workflow from orchestrator
+	summaryData, probeResults, urlDiffResults, secretFindings, workflowErr := s.scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, seedURLs, summary.ScanSessionID, summary.TargetSource)
 
-	// Populate stats for summary
-	if probeResults != nil {
-		summary.ProbeStats.DiscoverableItems = len(probeResults)
-		for _, pr := range probeResults {
-			// Consider a probe successful if it has no error and status code is not a client/server error (>=400)
-			// Or if it has a redirect status code (3xx)
-			if pr.Error == "" && (pr.StatusCode < 400 || (pr.StatusCode >= 300 && pr.StatusCode < 400)) {
-				summary.ProbeStats.SuccessfulProbes++
-			} else {
-				summary.ProbeStats.FailedProbes++
-			}
-		}
-	}
-
-	// Populate DiffStats from urlDiffResults
-	if urlDiffResults != nil {
-		for _, diffResult := range urlDiffResults { // urlDiffResults is a map[string]models.URLDiffResult
-			summary.DiffStats.New += diffResult.New
-			summary.DiffStats.Old += diffResult.Old
-			summary.DiffStats.Existing += diffResult.Existing
-			// Note: diffResult.Changed is not currently populated by the differ
-		}
-	}
+	// Update summary with the returned data (which includes calculated stats)
+	summary = summaryData
+	summary.ScanDuration = time.Since(startTime)
 
 	// Log secret findings summary
 	if len(secretFindings) > 0 {
@@ -521,6 +491,9 @@ func (s *Scheduler) runScanCycle(ctx context.Context, scanSessionID string, pred
 	if scanDBID > 0 {
 		s.db.UpdateScanCompletion(scanDBID, time.Now(), "COMPLETED", "", summary.DiffStats.New, summary.DiffStats.Old, summary.DiffStats.Existing, reportPath)
 	}
+
+	// Send scan completion notification with secret stats (USER'S ADDED LINE - ASSUMING IT'S ACTIVE FOR THIS DEBUGGING)
+	// s.notificationHelper.SendScanCompletionNotification(context.Background(), summary, notifier.ScanServiceNotification) // THIS LINE IS REMOVED/COMMENTED OUT
 
 	summary.Status = string(models.ScanStatusCompleted)
 	return summary, reportPath, nil
