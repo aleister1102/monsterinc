@@ -11,19 +11,59 @@ import (
 )
 
 const (
-	maxTargetsInMessage       = 10
-	maxDescriptionLength      = 4096 // Discord embed description limit
-	maxFieldValueLength       = 1024 // Discord embed field value limit
-	maxFields                 = 25   // Discord embed field limit
-	colorGreen                = 0x2ECC71
-	colorRed                  = 0xE74C3C
-	colorBlue                 = 0x3498DB
-	colorOrange               = 0xE67E22
+	maxTargetsInMessage  = 10
+	maxDescriptionLength = 4096 // Discord embed description limit
+	maxFieldValueLength  = 1024 // Discord embed field value limit
+	maxFields            = 25   // Discord embed field limit
+
+	// Standardized Color Scheme
+	colorSuccess       = 0x2ECC71 // Green - for successful operations
+	colorError         = 0xE74C3C // Red - for errors and failures
+	colorInfo          = 0x3498DB // Blue - for informational messages
+	colorWarning       = 0xF39C12 // Orange - for warnings and partial failures
+	colorCritical      = 0x8E44AD // Purple - for critical alerts
+	colorNeutral       = 0x95A5A6 // Grey - for neutral/unknown status
+	colorSecurityAlert = 0xE91E63 // Pink - for security-related alerts
+
+	// Legacy color constants (deprecated - use standardized colors above)
+	colorGreen  = colorSuccess
+	colorRed    = colorError
+	colorBlue   = colorInfo
+	colorOrange = colorWarning
+
+	// Standardized Timestamp Formats
+	timestampFormatDiscord  = time.RFC3339          // ISO 8601 format for Discord embed timestamps
+	timestampFormatReadable = time.RFC1123          // Human-readable format for field values
+	timestampFormatShort    = "2006-01-02 15:04:05" // Short format for compact display
+
 	monsterIncIconURL         = "" // Placeholder icon - User should provide a publicly accessible URL to their favicon.ico or other desired avatar.
 	monsterIncUsername        = "MonsterInc"
 	defaultScanCompleteTitle  = ":white_check_mark: Scan Complete"
 	defaultScanStartTitle     = ":rocket: Scan Started"
 	defaultCriticalErrorTitle = ":x: Critical Error"
+
+	// Standard field names for consistency across all Discord messages
+	fieldNameSessionID     = ":id: Session ID"
+	fieldNameStatus        = ":traffic_light: Status"
+	fieldNameDuration      = ":stopwatch: Duration"
+	fieldNameTargets       = ":dart: Targets"
+	fieldNameProbeStats    = ":mag: Probe Statistics"
+	fieldNameDiffStats     = ":arrows_counterclockwise: Diff Statistics"
+	fieldNameRetries       = ":hourglass_flowing_sand: Retries"
+	fieldNameErrors        = ":exclamation: Errors"
+	fieldNameReport        = ":page_facing_up: Report"
+	fieldNameSourceURL     = ":globe_with_meridians: Source URL"
+	fieldNameDetectionRule = ":mag: Detection Rule"
+	fieldNameSecurityInfo  = ":shield: Security Details"
+	fieldNameSecretPreview = ":lock: Secret Preview (Masked)"
+	fieldNameVerification  = ":white_check_mark: Verification"
+	fieldNameErrorDetails  = ":warning: Error Details"
+
+	// Standardized Footer Information
+	footerTextScanning     = "MonsterInc Scanning Platform"
+	footerTextMonitoring   = "MonsterInc File Monitor"
+	footerTextSecrets      = "MonsterInc Secret Detection"
+	footerTextSystemAlerts = "MonsterInc System Alert"
 )
 
 func buildMentions(roleIDs []string) string {
@@ -75,11 +115,9 @@ func FormatScanStartMessage(summary models.ScanSummaryData, cfg config.Notificat
 	embed := models.DiscordEmbed{
 		Title:       title,
 		Description: description,
-		Color:       0x3498DB, // Blue
-		Timestamp:   time.Now().Format(time.RFC3339),
-		Footer: &models.DiscordEmbedFooter{
-			Text: "MonsterInc Scanning Platform",
-		},
+		Color:       colorInfo, // Blue for informational scan start messages
+		Timestamp:   time.Now().Format(timestampFormatDiscord),
+		Footer:      createStandardFooter(footerTextScanning),
 	}
 
 	return models.DiscordMessagePayload{
@@ -109,23 +147,23 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 	switch models.ScanStatus(summary.Status) {
 	case models.ScanStatusCompleted:
 		title = fmt.Sprintf(":white_check_mark: Scan Completed: %s", summary.TargetSource)
-		color = 0x2ECC71 // Green
+		color = colorSuccess // Green for successful completion
 		statusEmoji = ":white_check_mark:"
 	case models.ScanStatusFailed:
 		title = fmt.Sprintf(":x: Scan Failed: %s", summary.TargetSource)
-		color = 0xE74C3C // Red
+		color = colorError // Red for failures
 		statusEmoji = ":x:"
 	case models.ScanStatusPartialComplete:
 		title = fmt.Sprintf(":warning: Scan Partially Completed: %s", summary.TargetSource)
-		color = 0xF39C12 // Orange
+		color = colorWarning // Orange for partial completion
 		statusEmoji = ":warning:"
 	case models.ScanStatusInterrupted:
 		title = fmt.Sprintf(":octagonal_sign: Scan Interrupted: %s", summary.TargetSource)
-		color = 0x95A5A6 // Grey
+		color = colorNeutral // Grey for interruptions
 		statusEmoji = ":octagonal_sign:"
 	default:
 		title = fmt.Sprintf(":question: Scan Status Unknown: %s", summary.TargetSource)
-		color = 0x7F8C8D // Grey
+		color = colorNeutral // Grey for unknown status
 		statusEmoji = ":question:"
 	}
 
@@ -140,7 +178,7 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 
 	if summary.ProbeStats.DiscoverableItems > 0 || summary.ProbeStats.SuccessfulProbes > 0 || summary.ProbeStats.FailedProbes > 0 {
 		fields = append(fields, models.DiscordEmbedField{
-			Name:   ":mag: Probe Stats",
+			Name:   fieldNameProbeStats,
 			Value:  fmt.Sprintf("Discoverable: %d | Successful: %d | Failed: %d", summary.ProbeStats.DiscoverableItems, summary.ProbeStats.SuccessfulProbes, summary.ProbeStats.FailedProbes),
 			Inline: false,
 		})
@@ -148,7 +186,7 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 
 	if summary.DiffStats.New > 0 || summary.DiffStats.Old > 0 || summary.DiffStats.Existing > 0 {
 		fields = append(fields, models.DiscordEmbedField{
-			Name:   ":arrows_counterclockwise: Diff Stats",
+			Name:   fieldNameDiffStats,
 			Value:  fmt.Sprintf("New: %d | Old: %d | Existing: %d", summary.DiffStats.New, summary.DiffStats.Old, summary.DiffStats.Existing),
 			Inline: false,
 		})
@@ -156,7 +194,7 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 
 	if summary.RetriesAttempted > 0 && (models.ScanStatus(summary.Status) == models.ScanStatusFailed || models.ScanStatus(summary.Status) == models.ScanStatusPartialComplete) {
 		fields = append(fields, models.DiscordEmbedField{
-			Name:   ":hourglass_flowing_sand: Retries",
+			Name:   fieldNameRetries,
 			Value:  fmt.Sprintf("This scan failed after %d retry attempt(s).", summary.RetriesAttempted),
 			Inline: false,
 		})
@@ -171,7 +209,7 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 			}
 		}
 		fields = append(fields, models.DiscordEmbedField{
-			Name:   ":exclamation: Errors",
+			Name:   fieldNameErrors,
 			Value:  truncateString(errorMsg, 1000), // Truncate overall error message block
 			Inline: false,
 		})
@@ -181,7 +219,7 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 		// The actual file attachment is handled by DiscordNotifier.SendNotification
 		// This field just informs the user that a report is available.
 		fields = append(fields, models.DiscordEmbedField{
-			Name:   ":page_facing_up: Report",
+			Name:   fieldNameReport,
 			Value:  "Report attached.", // Or provide a link if it's uploaded elsewhere
 			Inline: false,
 		})
@@ -191,11 +229,9 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 		Title:       title,
 		Description: description,
 		Color:       color,
-		Timestamp:   time.Now().Format(time.RFC3339),
+		Timestamp:   time.Now().Format(timestampFormatDiscord),
 		Fields:      fields,
-		Footer: &models.DiscordEmbedFooter{
-			Text: "MonsterInc Scan",
-		},
+		Footer:      createStandardFooter(footerTextScanning),
 	}
 
 	// Add Target URLs field if available
@@ -211,14 +247,14 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 		}
 
 		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
-			Name:   "Scanned Target URLs",
+			Name:   fieldNameTargets,
 			Value:  targetURLsString.String(),
 			Inline: false,
 		})
 	} else if summary.TargetSource != "" {
 		// Fallback to TargetSource if Targets list is empty but source is known
 		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
-			Name:   "Target Source",
+			Name:   fieldNameTargets,
 			Value:  fmt.Sprintf("`%s` (No individual URLs listed in summary)", summary.TargetSource),
 			Inline: false,
 		})
@@ -269,7 +305,7 @@ func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.Notif
 			}
 		}
 		fields = append(fields, models.DiscordEmbedField{
-			Name:   "Error Details",
+			Name:   fieldNameErrorDetails,
 			Value:  truncateString(errorMsg, 1000), // Truncate overall error message block
 			Inline: false,
 		})
@@ -278,12 +314,10 @@ func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.Notif
 	embed := models.DiscordEmbed{
 		Title:       title,
 		Description: description,
-		Color:       0xDD2E44, // Darker Red
-		Timestamp:   time.Now().Format(time.RFC3339),
+		Color:       colorCritical, // Purple for critical system alerts
+		Timestamp:   time.Now().Format(timestampFormatDiscord),
 		Fields:      fields,
-		Footer: &models.DiscordEmbedFooter{
-			Text: "MonsterInc System Alert",
-		},
+		Footer:      createStandardFooter(footerTextSystemAlerts),
 	}
 
 	return models.DiscordMessagePayload{
@@ -298,29 +332,49 @@ func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.Notif
 	}
 }
 
+// FormatInitialMonitoredURLsMessage creates a Discord message payload for initial monitored URLs.
 func FormatInitialMonitoredURLsMessage(monitoredURLs []string, cfg config.NotificationConfig) models.DiscordMessagePayload {
 	allowedMentions := models.AllowedMentions{
 		Parse: []string{"roles"}, // Mention roles if specified in config
 		Roles: cfg.MentionRoleIDs,
 	}
 
-	description := "Monitoring the following URLs for changes:\n\n"
+	title := ":pencil: Initial File Monitoring Started"
+	description := fmt.Sprintf("**Total URLs**: %d now being monitored for changes", len(monitoredURLs))
+
+	var fields []models.DiscordEmbedField
+
+	// Add targets field using standardized field name
+	var targetURLsString strings.Builder
+	maxURLsToShow := 10 // Show up to 10 URLs directly in the message
 	for i, url := range monitoredURLs {
-		description += fmt.Sprintf("%d. %s\n", i+1, url)
-		if len(description) > 3800 { // Keep under Discord's limit
-			description += fmt.Sprintf("\n...and %d more URLs.", len(monitoredURLs)-(i+1))
+		if i >= maxURLsToShow {
+			targetURLsString.WriteString(fmt.Sprintf("\n... and %d more URLs.", len(monitoredURLs)-maxURLsToShow))
 			break
 		}
+		targetURLsString.WriteString(fmt.Sprintf("• %s\n", truncateString(url, 150)))
 	}
 
+	fields = append(fields, models.DiscordEmbedField{
+		Name:   fieldNameTargets,
+		Value:  targetURLsString.String(),
+		Inline: false,
+	})
+
+	// Add status field
+	fields = append(fields, models.DiscordEmbedField{
+		Name:   fieldNameStatus,
+		Value:  ":white_check_mark: Active Monitoring",
+		Inline: true,
+	})
+
 	embed := models.DiscordEmbed{
-		Title:       ":pencil: Initial File Monitoring Targets",
+		Title:       title,
 		Description: description,
-		Color:       colorBlue, // Green
-		Timestamp:   time.Now().Format(time.RFC3339),
-		Footer: &models.DiscordEmbedFooter{
-			Text: "MonsterInc File Monitor",
-		},
+		Color:       colorInfo, // Blue
+		Timestamp:   time.Now().Format(timestampFormatDiscord),
+		Fields:      fields,
+		Footer:      createStandardFooter(footerTextMonitoring),
 	}
 
 	return models.DiscordMessagePayload{
@@ -331,6 +385,7 @@ func FormatInitialMonitoredURLsMessage(monitoredURLs []string, cfg config.Notifi
 	}
 }
 
+// FormatAggregatedFileChangesMessage creates a Discord message payload for aggregated file changes.
 func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg config.NotificationConfig) models.DiscordMessagePayload {
 	if len(changes) == 0 {
 		return models.DiscordMessagePayload{}
@@ -341,118 +396,127 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 		Roles: cfg.MentionRoleIDs,
 	}
 
-	description := "Multiple file changes detected:\n\n"
-	maxLength := 3800 // Discord embed description limit is 4096, leave some room
+	title := fmt.Sprintf(":white_check_mark: %d File Change(s) Detected", len(changes))
+	description := fmt.Sprintf("**Total Changes**: %d", len(changes))
 
-	for i, change := range changes {
-		changeEntry := fmt.Sprintf("**%d. URL:** %s\n   - **Content Type:** `%s`\n   - **Time:** %s\n   - **New Hash:** `%s`\n   - **Old Hash:** `%s`\n",
-			i+1,
-			change.URL,
-			change.ContentType,
-			change.ChangeTime.Format(time.RFC1123),
-			change.NewHash,
-			change.OldHash,
-		)
-		if change.DiffReportPath != nil && *change.DiffReportPath != "" {
-			// Note: Discord messages don't directly support local file links.
-			// This path is for user reference if they have access to the filesystem where reports are stored.
-			// Alternatively, if reports are uploaded to a web-accessible location, that URL could be put here.
-			baseName := filepath.Base(*change.DiffReportPath)
-			changeEntry += fmt.Sprintf("   - **Diff Report:** `%s` (details available in generated report)\n", baseName)
-		}
-		changeEntry += "\n"
+	var fields []models.DiscordEmbedField
 
-		if len(description)+len(changeEntry) > maxLength {
-			description += fmt.Sprintf("...and %d more changes.", len(changes)-i)
-			break
-		}
-		description += changeEntry
+	// Add summary field if multiple changes
+	if len(changes) > 1 {
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   ":chart_with_upwards_trend: Summary",
+			Value:  fmt.Sprintf("Found **%d** file changes across monitored URLs", len(changes)),
+			Inline: false,
+		})
 	}
 
-	embeds := []models.DiscordEmbed{{
-		Title:       ":white_check_mark: Aggregated File Changes Detected",
+	// Add individual change fields (limit to prevent Discord embed limits)
+	maxChangesToShow := 5
+	for i, change := range changes {
+		if i >= maxChangesToShow {
+			fields = append(fields, models.DiscordEmbedField{
+				Name:   ":page_facing_up: Additional Changes",
+				Value:  fmt.Sprintf("... and **%d** more changes not shown here", len(changes)-maxChangesToShow),
+				Inline: false,
+			})
+			break
+		}
+
+		changeTitle := fmt.Sprintf(":file_folder: Change #%d", i+1)
+		changeValue := fmt.Sprintf("**URL**: %s\n**Content Type**: `%s`\n**Time**: %s",
+			truncateString(change.URL, 150),
+			change.ContentType,
+			change.ChangeTime.Format(timestampFormatReadable))
+
+		if change.NewHash != "" && change.OldHash != "" {
+			changeValue += fmt.Sprintf("\n**Hash Change**: `%s` → `%s`",
+				truncateString(change.OldHash, 8),
+				truncateString(change.NewHash, 8))
+		}
+
+		if change.DiffReportPath != nil && *change.DiffReportPath != "" {
+			baseName := filepath.Base(*change.DiffReportPath)
+			changeValue += fmt.Sprintf("\n**Report**: `%s`", baseName)
+		}
+
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   changeTitle,
+			Value:  changeValue,
+			Inline: false,
+		})
+	}
+
+	embed := models.DiscordEmbed{
+		Title:       title,
 		Description: description,
-		Color:       colorGreen, // Green
-		Timestamp:   time.Now().Format(time.RFC3339),
-		Footer: &models.DiscordEmbedFooter{
-			Text: "MonsterInc File Monitor",
-		},
-	}}
+		Color:       colorSuccess, // Green
+		Timestamp:   time.Now().Format(timestampFormatDiscord),
+		Fields:      fields,
+		Footer:      createStandardFooter(footerTextMonitoring),
+	}
 
 	return models.DiscordMessagePayload{
 		Username:        monsterIncUsername,
 		AvatarURL:       monsterIncIconURL,
-		Embeds:          embeds,
+		Embeds:          []models.DiscordEmbed{embed},
 		AllowedMentions: &allowedMentions,
 	}
 }
 
-// func FormatMonitorFetchErrorMessage(url string, fetchError error, cfg config.NotificationConfig) models.DiscordMessagePayload {
-// 	allowedMentions := models.AllowedMentions{
-// 		Parse: []string{"roles"}, // Mention roles if specified in config
-// 		Roles: cfg.MentionRoleIDs,
-// 	}
-
-// 	title := ":x: Monitor: File Fetch Error"
-// 	description := fmt.Sprintf("An error occurred while trying to fetch the monitored file: **%s**", url)
-
-// 	embed := models.DiscordEmbed{
-// 		Title:       title,
-// 		Description: description,
-// 		Color:       0xff0000, // Red for error
-// 		Timestamp:   time.Now().Format(time.RFC3339),
-// 		Fields: []models.DiscordEmbedField{
-// 			{
-// 				Name:   "Error Details",
-// 				Value:  truncateString(fetchError.Error(), 1000),
-// 				Inline: false,
-// 			},
-// 		},
-// 		Footer: &models.DiscordEmbedFooter{
-// 			Text: "MonsterInc File Monitor",
-// 		},
-// 	}
-
-// 	return models.DiscordMessagePayload{
-// 		Embeds:          []models.DiscordEmbed{embed},
-// 		AllowedMentions: &allowedMentions,
-// 	}
-// }
-
+// FormatAggregatedMonitorErrorsMessage creates a Discord message payload for aggregated monitor errors.
 func FormatAggregatedMonitorErrorsMessage(errors []models.MonitorFetchErrorInfo, cfg config.NotificationConfig) models.DiscordMessagePayload {
 	allowedMentions := models.AllowedMentions{
 		Parse: []string{"roles"}, // Mention roles if specified in config
 		Roles: cfg.MentionRoleIDs,
 	}
 
-	title := fmt.Sprintf(":x: Monitor: %d Fetch/Process Error(s) Detected", len(errors))
-	var descriptionBuilder strings.Builder
-	descriptionBuilder.WriteString(fmt.Sprintf("Found **%d** error(s) during file monitoring operations:\n", len(errors)))
+	title := fmt.Sprintf(":x: %d Monitor Error(s) Detected", len(errors))
+	description := fmt.Sprintf("**Total Errors**: %d during file monitoring operations", len(errors))
 
+	var fields []models.DiscordEmbedField
+
+	// Add summary field for multiple errors
+	if len(errors) > 1 {
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   ":warning: Error Summary",
+			Value:  fmt.Sprintf("Found **%d** errors across monitored operations", len(errors)),
+			Inline: false,
+		})
+	}
+
+	// Add individual error fields (limit to prevent Discord embed limits)
+	maxErrorsToShow := 5
 	for i, errInfo := range errors {
-		if i > 0 {
-			descriptionBuilder.WriteString("\n")
-		}
-		descriptionBuilder.WriteString(fmt.Sprintf("• **URL**: %s\n  **Source**: `%s`\n  **Error**: `%s`\n  **Time**: %s\n",
-			errInfo.URL,
-			errInfo.Source,
-			truncateString(errInfo.Error, 200), // Truncate individual error message if too long
-			errInfo.OccurredAt.Format(time.RFC1123)))
-		// Limit the number of detailed errors in the message to avoid exceeding Discord limits
-		if i >= 4 && len(errors) > 5 { // Show first 4, then a summary if more than 5 total
-			descriptionBuilder.WriteString(fmt.Sprintf("\n...and %d more errors.", len(errors)-(i+1)))
+		if i >= maxErrorsToShow {
+			fields = append(fields, models.DiscordEmbedField{
+				Name:   ":page_facing_up: Additional Errors",
+				Value:  fmt.Sprintf("... and **%d** more errors not shown here", len(errors)-maxErrorsToShow),
+				Inline: false,
+			})
 			break
 		}
+
+		errorTitle := fmt.Sprintf(":exclamation: Error #%d", i+1)
+		errorValue := fmt.Sprintf("**URL**: %s\n**Source**: `%s`\n**Time**: %s\n**Error**: %s",
+			truncateString(errInfo.URL, 150),
+			errInfo.Source,
+			errInfo.OccurredAt.Format(timestampFormatReadable),
+			truncateString(errInfo.Error, 300))
+
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   errorTitle,
+			Value:  errorValue,
+			Inline: false,
+		})
 	}
 
 	embed := models.DiscordEmbed{
 		Title:       title,
-		Description: truncateString(descriptionBuilder.String(), 4000), // Max description length
-		Color:       0xffa500,                                          // Orange for warning/multiple errors
-		Timestamp:   time.Now().Format(time.RFC3339),
-		Footer: &models.DiscordEmbedFooter{
-			Text: "MonsterInc File Monitor",
-		},
+		Description: description,
+		Color:       colorWarning, // Orange for warning/multiple errors
+		Timestamp:   time.Now().Format(timestampFormatDiscord),
+		Fields:      fields,
+		Footer:      createStandardFooter(footerTextMonitoring),
 	}
 
 	return models.DiscordMessagePayload{
@@ -483,14 +547,14 @@ func FormatHighSeveritySecretNotification(finding models.SecretFinding, cfg conf
 
 	// Source URL field
 	fields = append(fields, models.DiscordEmbedField{
-		Name:   ":globe_with_meridians: Source URL",
+		Name:   fieldNameSourceURL,
 		Value:  truncateString(finding.SourceURL, 1000),
 		Inline: false,
 	})
 
 	// Rule and Description
 	fields = append(fields, models.DiscordEmbedField{
-		Name:   ":mag: Detection Rule",
+		Name:   fieldNameDetectionRule,
 		Value:  fmt.Sprintf("**Rule ID**: `%s`\n**Description**: %s", finding.RuleID, truncateString(finding.Description, 800)),
 		Inline: false,
 	})
@@ -501,7 +565,7 @@ func FormatHighSeveritySecretNotification(finding models.SecretFinding, cfg conf
 		toolInfo = finding.ToolName
 	}
 	fields = append(fields, models.DiscordEmbedField{
-		Name:   ":shield: Detection Details",
+		Name:   fieldNameSecurityInfo,
 		Value:  fmt.Sprintf("**Severity**: `%s`\n**Tool**: `%s`\n**Line**: %d", finding.Severity, toolInfo, finding.LineNumber),
 		Inline: true,
 	})
@@ -516,7 +580,7 @@ func FormatHighSeveritySecretNotification(finding models.SecretFinding, cfg conf
 		}
 	}
 	fields = append(fields, models.DiscordEmbedField{
-		Name:   ":lock: Secret Preview (Masked)",
+		Name:   fieldNameSecretPreview,
 		Value:  fmt.Sprintf("`%s`", maskedSecret),
 		Inline: true,
 	})
@@ -524,27 +588,25 @@ func FormatHighSeveritySecretNotification(finding models.SecretFinding, cfg conf
 	// Verification state if available
 	if finding.VerificationState != "" {
 		fields = append(fields, models.DiscordEmbedField{
-			Name:   ":white_check_mark: Verification",
+			Name:   fieldNameVerification,
 			Value:  fmt.Sprintf("`%s`", finding.VerificationState),
 			Inline: true,
 		})
 	}
 
-	// Color based on severity
-	color := colorOrange // Default for high
+	// Color based on severity - use standardized colors
+	embedColor := colorSecurityAlert // Pink for security alerts
 	if finding.Severity == "CRITICAL" {
-		color = colorRed
+		embedColor = colorCritical // Purple for critical alerts
 	}
 
 	embed := models.DiscordEmbed{
 		Title:       title,
 		Description: description,
-		Color:       color,
-		Timestamp:   finding.Timestamp.Format(time.RFC3339),
+		Color:       embedColor,
+		Timestamp:   finding.Timestamp.Format(timestampFormatDiscord),
 		Fields:      fields,
-		Footer: &models.DiscordEmbedFooter{
-			Text: "MonsterInc Secret Detection",
-		},
+		Footer:      createStandardFooter(footerTextSecrets),
 	}
 
 	return models.DiscordMessagePayload{
@@ -557,4 +619,98 @@ func FormatHighSeveritySecretNotification(finding models.SecretFinding, cfg conf
 			Roles: cfg.MentionRoleIDs,
 		},
 	}
+}
+
+// createStandardFooter creates a standardized footer with optional version info
+func createStandardFooter(baseText string) *models.DiscordEmbedFooter {
+	return &models.DiscordEmbedFooter{
+		Text: baseText,
+		// IconURL: monsterIncIconURL, // Uncomment if you want footer icon
+	}
+}
+
+// createStatusField creates a standardized status field with emoji and text
+func createStatusField(status string, emoji string, inline bool) models.DiscordEmbedField {
+	return models.DiscordEmbedField{
+		Name:   fieldNameStatus,
+		Value:  fmt.Sprintf("%s %s", emoji, status),
+		Inline: inline,
+	}
+}
+
+// createURLField creates a standardized URL field with truncation
+func createURLField(fieldName, url string, maxLength int, inline bool) models.DiscordEmbedField {
+	return models.DiscordEmbedField{
+		Name:   fieldName,
+		Value:  truncateString(url, maxLength),
+		Inline: inline,
+	}
+}
+
+// createErrorField creates a standardized error field with proper formatting
+func createErrorField(errors []string, maxErrorsToShow int) models.DiscordEmbedField {
+	if len(errors) == 0 {
+		return models.DiscordEmbedField{}
+	}
+
+	var errorMsg strings.Builder
+	for i, e := range errors {
+		if i >= maxErrorsToShow {
+			errorMsg.WriteString(fmt.Sprintf("\n... and %d more errors", len(errors)-maxErrorsToShow))
+			break
+		}
+		if i > 0 {
+			errorMsg.WriteString("\n")
+		}
+		errorMsg.WriteString(fmt.Sprintf("• %s", truncateString(e, 200)))
+	}
+
+	return models.DiscordEmbedField{
+		Name:   fieldNameErrors,
+		Value:  truncateString(errorMsg.String(), maxFieldValueLength),
+		Inline: false,
+	}
+}
+
+// createTimestampField creates a standardized timestamp field
+func createTimestampField(fieldName string, timestamp time.Time, inline bool) models.DiscordEmbedField {
+	return models.DiscordEmbedField{
+		Name:   fieldName,
+		Value:  timestamp.Format(timestampFormatReadable),
+		Inline: inline,
+	}
+}
+
+// createCountField creates a standardized count field with formatting
+func createCountField(fieldName string, count int, unit string, inline bool) models.DiscordEmbedField {
+	value := fmt.Sprintf("**%d** %s", count, unit)
+	return models.DiscordEmbedField{
+		Name:   fieldName,
+		Value:  value,
+		Inline: inline,
+	}
+}
+
+// createStandardWebhookPayload creates a standardized Discord webhook payload with consistent username and avatar
+func createStandardWebhookPayload(embed models.DiscordEmbed, cfg config.NotificationConfig, content string) models.DiscordMessagePayload {
+	return models.DiscordMessagePayload{
+		Username:  monsterIncUsername,
+		AvatarURL: monsterIncIconURL,
+		Content:   content,
+		Embeds:    []models.DiscordEmbed{embed},
+		AllowedMentions: &models.AllowedMentions{
+			Parse: []string{"roles"},
+			Roles: cfg.MentionRoleIDs,
+		},
+	}
+}
+
+// createWebhookPayloadWithMentions creates a webhook payload with mentions built from config
+func createWebhookPayloadWithMentions(embed models.DiscordEmbed, cfg config.NotificationConfig) models.DiscordMessagePayload {
+	mentions := buildMentions(cfg.MentionRoleIDs)
+	content := ""
+	if mentions != "" {
+		content = mentions + "\n"
+	}
+	return createStandardWebhookPayload(embed, cfg, content)
 }
