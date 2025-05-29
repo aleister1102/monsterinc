@@ -185,3 +185,24 @@ func (s *ParquetSecretsStore) readSecretsFromFile(filePath string) ([]models.Sec
 	s.logger.Debug().Int("count", len(records)).Str("file", filePath).Msg("Successfully read existing secrets.")
 	return records, nil
 }
+
+// deduplicateSecrets removes duplicate secret findings based on key fields
+func (s *ParquetSecretsStore) deduplicateSecrets(findings []models.SecretFinding) []models.SecretFinding {
+	// Simple deduplication based on SourceURL, RuleID, and SecretText
+	seen := make(map[string]bool)
+	var deduplicated []models.SecretFinding
+
+	for _, finding := range findings {
+		key := fmt.Sprintf("%s-%s-%s", finding.SourceURL, finding.RuleID, finding.SecretText)
+		if !seen[key] {
+			seen[key] = true
+			deduplicated = append(deduplicated, finding)
+		}
+	}
+
+	if len(deduplicated) != len(findings) {
+		s.logger.Info().Int("original", len(findings)).Int("deduplicated", len(deduplicated)).Msg("Removed duplicate secret findings")
+	}
+
+	return deduplicated
+}
