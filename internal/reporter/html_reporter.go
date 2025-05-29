@@ -15,6 +15,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/notifier"
 
 	"github.com/rs/zerolog"
 )
@@ -205,7 +206,7 @@ func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, url
 
 	// Process secret findings
 	pageData.SecretFindings = secretFindings
-	pageData.SecretStats = r.calculateSecretStats(secretFindings)
+	pageData.SecretStats = notifier.CalculateSecretStats(secretFindings)
 
 	// Marshal secret findings to JSON for JavaScript processing
 	secretFindingsJSON, err := json.Marshal(secretFindings)
@@ -310,42 +311,6 @@ func (r *HtmlReporter) embedCustomAssets(pageData *models.ReportPageData) []erro
 	}
 
 	return errs
-}
-
-// calculateSecretStats calculates statistics from secret findings
-func (r *HtmlReporter) calculateSecretStats(secretFindings []models.SecretFinding) models.SecretStats {
-	stats := models.SecretStats{}
-	stats.TotalFindings = len(secretFindings)
-
-	uniqueRules := make(map[string]struct{})
-	uniqueSourceURLs := make(map[string]struct{})
-
-	for _, finding := range secretFindings {
-		// Count by severity
-		switch strings.ToLower(finding.Severity) {
-		case "high", "critical":
-			stats.HighSeverity++
-		case "medium", "moderate":
-			stats.MediumSeverity++
-		case "low":
-			stats.LowSeverity++
-		default:
-			stats.UnknownSeverity++
-		}
-
-		// Track unique rules and source URLs
-		if finding.RuleID != "" {
-			uniqueRules[finding.RuleID] = struct{}{}
-		}
-		if finding.SourceURL != "" {
-			uniqueSourceURLs[finding.SourceURL] = struct{}{}
-		}
-	}
-
-	stats.UniqueRules = len(uniqueRules)
-	stats.UniqueSourceURLs = len(uniqueSourceURLs)
-
-	return stats
 }
 
 // templateFunctions provides helper functions accessible within the HTML template.

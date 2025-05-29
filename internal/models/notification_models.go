@@ -69,10 +69,12 @@ type DiscordEmbedField struct {
 type ScanSummaryData struct {
 	ScanSessionID    string        // Unique identifier for the scan session (e.g., YYYYMMDD-HHMMSS timestamp)
 	TargetSource     string        // The source of the targets (e.g., file path, "config_input_urls")
+	ScanMode         string        // Mode of the scan (e.g., "onetime", "automated")
 	Targets          []string      // List of original target URLs/identifiers
 	TotalTargets     int           // Total number of targets processed or attempted
 	ProbeStats       ProbeStats    // Statistics from the probing phase
 	DiffStats        DiffStats     // Statistics from the diffing phase (New, Old, Existing)
+	SecretStats      SecretStats   // Statistics from secret detection
 	ScanDuration     time.Duration // Total duration of the scan
 	ReportPath       string        // Filesystem path to the generated report (used by notifier to attach)
 	Status           string        // Overall status: "COMPLETED", "FAILED", "STARTED", "INTERRUPTED", "PARTIAL_COMPLETE"
@@ -103,8 +105,10 @@ type FileChangeInfo struct {
 	OldHash        string
 	NewHash        string
 	ContentType    string
-	ChangeTime     time.Time // Time the change was detected
-	DiffReportPath *string   // Path to the generated HTML diff report for this specific change
+	ChangeTime     time.Time       // Time the change was detected
+	DiffReportPath *string         // Path to the generated HTML diff report for this specific change
+	ExtractedPaths []ExtractedPath // Paths extracted from the content (for JS files)
+	SecretFindings []SecretFinding // Secret findings detected in the content
 }
 
 // MonitorFetchErrorInfo holds information about an error encountered during file fetching or processing.
@@ -133,9 +137,22 @@ const (
 // GetDefaultScanSummaryData initializes a ScanSummaryData with default/empty values.
 func GetDefaultScanSummaryData() ScanSummaryData {
 	return ScanSummaryData{
-		ProbeStats: ProbeStats{},
-		DiffStats:  DiffStats{},
-		Status:     string(ScanStatusUnknown), // Default to unknown status
-		// ScanSessionID and TargetSource will be set explicitly
+		ScanSessionID: "",
+		TargetSource:  "Unknown",
+		ScanMode:      "Unknown",
+		Targets:       []string{},
+		TotalTargets:  0,
+		ProbeStats:    ProbeStats{},
+		DiffStats:     DiffStats{},
+		SecretStats:   SecretStats{},
+		Status:        string(ScanStatusUnknown), // Default to unknown status
 	}
+}
+
+// MonitorAggregatedStats holds aggregated statistics for monitor service notifications.
+type MonitorAggregatedStats struct {
+	TotalChanges      int // Total number of file changes
+	TotalPaths        int // Total number of extracted paths
+	TotalSecrets      int // Total number of secret findings
+	HighSeverityCount int // Number of high/critical severity secrets
 }

@@ -2,7 +2,6 @@ package notifier
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -101,15 +100,25 @@ func FormatScanStartMessage(summary models.ScanSummaryData, cfg config.Notificat
 		summary.ScanSessionID,
 		summary.TotalTargets)
 
-	if len(summary.Targets) > 0 && len(summary.Targets) <= 5 { // Show a few targets if the list is small
+	if summary.ScanMode != "" && summary.ScanMode != "Unknown" {
+		description += fmt.Sprintf("\n**Mode**: `%s`", summary.ScanMode)
+	}
+
+	if len(summary.Targets) > 0 {
 		description += "\n**Sample Targets**:\n"
-		for i, t := range summary.Targets {
-			if i < 5 {
+		shownTargets := 0
+		for _, t := range summary.Targets {
+			if t == "" { // Skip empty target lines
+				continue
+			}
+			if shownTargets < 5 {
 				description += fmt.Sprintf("- %s\n", truncateString(t, 100))
+				shownTargets++
+			} else {
+				description += fmt.Sprintf("(And %d more targets...)", len(summary.Targets)-shownTargets)
+				break
 			}
 		}
-	} else if len(summary.Targets) > 5 {
-		description += fmt.Sprintf("\n(And %d more targets...)", len(summary.Targets)-5)
 	}
 
 	embed := models.DiscordEmbed{
@@ -174,6 +183,10 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 		formatDuration(summary.ScanDuration),
 		summary.TotalTargets)
 
+	if summary.ScanMode != "" && summary.ScanMode != "Unknown" {
+		description += fmt.Sprintf("\n**Mode**: `%s`", summary.ScanMode)
+	}
+
 	var fields []models.DiscordEmbedField
 
 	if summary.ProbeStats.DiscoverableItems > 0 || summary.ProbeStats.SuccessfulProbes > 0 || summary.ProbeStats.FailedProbes > 0 {
@@ -188,6 +201,26 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 		fields = append(fields, models.DiscordEmbedField{
 			Name:   fieldNameDiffStats,
 			Value:  fmt.Sprintf("New: %d | Old: %d | Existing: %d", summary.DiffStats.New, summary.DiffStats.Old, summary.DiffStats.Existing),
+			Inline: false,
+		})
+	}
+
+	// Add secret detection statistics if any secrets were found
+	if summary.SecretStats.TotalFindings > 0 {
+		secretValue := fmt.Sprintf("Total: %d", summary.SecretStats.TotalFindings)
+		if summary.SecretStats.HighSeverity > 0 {
+			secretValue += fmt.Sprintf(" | High: %d", summary.SecretStats.HighSeverity)
+		}
+		if summary.SecretStats.MediumSeverity > 0 {
+			secretValue += fmt.Sprintf(" | Medium: %d", summary.SecretStats.MediumSeverity)
+		}
+		if summary.SecretStats.LowSeverity > 0 {
+			secretValue += fmt.Sprintf(" | Low: %d", summary.SecretStats.LowSeverity)
+		}
+
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   ":lock: Secret Detection",
+			Value:  secretValue,
 			Inline: false,
 		})
 	}
@@ -238,19 +271,30 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 	if len(summary.Targets) > 0 {
 		var targetURLsString strings.Builder
 		maxTargetsToShow := 10 // Show up to 10 URLs directly in the message
-		for i, target := range summary.Targets {
-			if i >= maxTargetsToShow {
-				targetURLsString.WriteString(fmt.Sprintf("\n... and %d more.", len(summary.Targets)-maxTargetsToShow))
+		shownTargets := 0
+		validTargetsCount := 0
+		for _, target := range summary.Targets {
+			if target == "" { // Skip empty target lines
+				continue
+			}
+			validTargetsCount++
+			if shownTargets >= maxTargetsToShow {
+				targetURLsString.WriteString(fmt.Sprintf("\n... and %d more.", validTargetsCount-shownTargets))
 				break
 			}
 			targetURLsString.WriteString(fmt.Sprintf("- %s\n", truncateString(target, 100)))
+			shownTargets++
 		}
 
-		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
-			Name:   fieldNameTargets,
-			Value:  targetURLsString.String(),
-			Inline: false,
-		})
+		if targetURLsString.Len() > 0 {
+			// Trim trailing newline if any, to prevent extra blank lines
+			finalTargetString := strings.TrimRight(targetURLsString.String(), "\n")
+			embed.Fields = append(embed.Fields, models.DiscordEmbedField{
+				Name:   fieldNameTargets,
+				Value:  finalTargetString,
+				Inline: false,
+			})
+		}
 	} else if summary.TargetSource != "" {
 		// Fallback to TargetSource if Targets list is empty but source is known
 		embed.Fields = append(embed.Fields, models.DiscordEmbedField{
@@ -357,7 +401,7 @@ func FormatInitialMonitoredURLsMessage(monitoredURLs []string, cfg config.Notifi
 
 	fields = append(fields, models.DiscordEmbedField{
 		Name:   fieldNameTargets,
-		Value:  targetURLsString.String(),
+		Value:  strings.TrimRight(targetURLsString.String(), "\n"),
 		Inline: false,
 	})
 
@@ -391,58 +435,46 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 		return models.DiscordMessagePayload{}
 	}
 
+	// Calculate aggregated statistics
+	stats := calculateMonitorAggregatedStats(changes)
+
 	allowedMentions := models.AllowedMentions{
 		Parse: []string{"roles"},
 		Roles: cfg.MentionRoleIDs,
 	}
 
-	title := fmt.Sprintf(":white_check_mark: %d File Change(s) Detected", len(changes))
-	description := fmt.Sprintf("**Total Changes**: %d", len(changes))
+	title := fmt.Sprintf(":file_folder: %d File Change(s) Detected (Monitor)", stats.TotalChanges) // Added (Monitor)
+	description := fmt.Sprintf("**Total Changes**: %d", stats.TotalChanges)
 
 	var fields []models.DiscordEmbedField
 
-	// Add summary field if multiple changes
-	if len(changes) > 1 {
+	// Add aggregated statistics
+	fields = append(fields, models.DiscordEmbedField{
+		Name:   ":chart_with_upwards_trend: Summary",
+		Value:  fmt.Sprintf("**Changes**: %d\n**Extracted Paths**: %d\n**Secret Findings**: %d", stats.TotalChanges, stats.TotalPaths, stats.TotalSecrets),
+		Inline: false,
+	})
+
+	// Add high severity secrets if any
+	if stats.HighSeverityCount > 0 {
 		fields = append(fields, models.DiscordEmbedField{
-			Name:   ":chart_with_upwards_trend: Summary",
-			Value:  fmt.Sprintf("Found **%d** file changes across monitored URLs", len(changes)),
+			Name:   ":warning: High Severity Secrets",
+			Value:  fmt.Sprintf("**%d** high/critical severity secrets detected", stats.HighSeverityCount),
 			Inline: false,
 		})
 	}
 
-	// Add individual change fields (limit to prevent Discord embed limits)
-	maxChangesToShow := 5
-	for i, change := range changes {
-		if i >= maxChangesToShow {
-			fields = append(fields, models.DiscordEmbedField{
-				Name:   ":page_facing_up: Additional Changes",
-				Value:  fmt.Sprintf("... and **%d** more changes not shown here", len(changes)-maxChangesToShow),
-				Inline: false,
-			})
-			break
+	// Add content type breakdown
+	contentTypeBreakdown := calculateContentTypeBreakdown(changes)
+	if len(contentTypeBreakdown) > 0 {
+		var contentTypeText strings.Builder
+		for contentType, count := range contentTypeBreakdown {
+			contentTypeText.WriteString(fmt.Sprintf("**%s**: %d\n", contentType, count))
 		}
-
-		changeTitle := fmt.Sprintf(":file_folder: Change #%d", i+1)
-		changeValue := fmt.Sprintf("**URL**: %s\n**Content Type**: `%s`\n**Time**: %s",
-			truncateString(change.URL, 150),
-			change.ContentType,
-			change.ChangeTime.Format(timestampFormatReadable))
-
-		if change.NewHash != "" && change.OldHash != "" {
-			changeValue += fmt.Sprintf("\n**Hash Change**: `%s` → `%s`",
-				truncateString(change.OldHash, 8),
-				truncateString(change.NewHash, 8))
-		}
-
-		if change.DiffReportPath != nil && *change.DiffReportPath != "" {
-			baseName := filepath.Base(*change.DiffReportPath)
-			changeValue += fmt.Sprintf("\n**Report**: `%s`", baseName)
-		}
-
 		fields = append(fields, models.DiscordEmbedField{
-			Name:   changeTitle,
-			Value:  changeValue,
-			Inline: false,
+			Name:   ":file_folder: Content Types",
+			Value:  strings.TrimRight(contentTypeText.String(), "\n"),
+			Inline: true,
 		})
 	}
 
@@ -470,7 +502,7 @@ func FormatAggregatedMonitorErrorsMessage(errors []models.MonitorFetchErrorInfo,
 		Roles: cfg.MentionRoleIDs,
 	}
 
-	title := fmt.Sprintf(":x: %d Monitor Error(s) Detected", len(errors))
+	title := fmt.Sprintf(":x: %d Monitor Error(s) Detected (Monitor)", len(errors)) // Added (Monitor)
 	description := fmt.Sprintf("**Total Errors**: %d during file monitoring operations", len(errors))
 
 	var fields []models.DiscordEmbedField
@@ -707,10 +739,87 @@ func createStandardWebhookPayload(embed models.DiscordEmbed, cfg config.Notifica
 
 // createWebhookPayloadWithMentions creates a webhook payload with mentions built from config
 func createWebhookPayloadWithMentions(embed models.DiscordEmbed, cfg config.NotificationConfig) models.DiscordMessagePayload {
-	mentions := buildMentions(cfg.MentionRoleIDs)
-	content := ""
-	if mentions != "" {
-		content = mentions + "\n"
+	return models.DiscordMessagePayload{
+		Username:  monsterIncUsername,
+		AvatarURL: monsterIncIconURL,
+		Content:   buildMentions(cfg.MentionRoleIDs),
+		Embeds:    []models.DiscordEmbed{embed},
+		AllowedMentions: &models.AllowedMentions{
+			Parse: []string{"roles"},
+			Roles: cfg.MentionRoleIDs,
+		},
 	}
-	return createStandardWebhookPayload(embed, cfg, content)
+}
+
+// calculateMonitorAggregatedStats calculates aggregated statistics from file changes
+func calculateMonitorAggregatedStats(changes []models.FileChangeInfo) models.MonitorAggregatedStats {
+	stats := models.MonitorAggregatedStats{
+		TotalChanges: len(changes),
+	}
+
+	// Calculate total paths and secrets from the changes
+	for _, change := range changes {
+		stats.TotalPaths += len(change.ExtractedPaths)
+		stats.TotalSecrets += len(change.SecretFindings)
+
+		// Count high severity secrets
+		for _, secret := range change.SecretFindings {
+			if strings.ToLower(secret.Severity) == "high" || strings.ToLower(secret.Severity) == "critical" {
+				stats.HighSeverityCount++
+			}
+		}
+	}
+
+	return stats
+}
+
+// calculateContentTypeBreakdown creates a breakdown of changes by content type
+func calculateContentTypeBreakdown(changes []models.FileChangeInfo) map[string]int {
+	breakdown := make(map[string]int)
+
+	for _, change := range changes {
+		contentType := change.ContentType
+		if contentType == "" {
+			contentType = "unknown"
+		}
+		breakdown[contentType]++
+	}
+
+	return breakdown
+}
+
+// CalculateSecretStats calculates statistics from secret findings
+func CalculateSecretStats(secretFindings []models.SecretFinding) models.SecretStats {
+	stats := models.SecretStats{}
+	stats.TotalFindings = len(secretFindings)
+
+	uniqueRules := make(map[string]struct{})
+	uniqueSourceURLs := make(map[string]struct{})
+
+	for _, finding := range secretFindings {
+		// Count by severity
+		switch strings.ToLower(finding.Severity) {
+		case "high", "critical":
+			stats.HighSeverity++
+		case "medium", "moderate":
+			stats.MediumSeverity++
+		case "low":
+			stats.LowSeverity++
+		default:
+			stats.UnknownSeverity++
+		}
+
+		// Track unique rules and source URLs
+		if finding.RuleID != "" {
+			uniqueRules[finding.RuleID] = struct{}{}
+		}
+		if finding.SourceURL != "" {
+			uniqueSourceURLs[finding.SourceURL] = struct{}{}
+		}
+	}
+
+	stats.UniqueRules = len(uniqueRules)
+	stats.UniqueSourceURLs = len(uniqueSourceURLs)
+
+	return stats
 }

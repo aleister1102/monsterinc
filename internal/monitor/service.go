@@ -263,12 +263,17 @@ func (s *MonitoringService) Stop() {
 	if s.aggregationTicker != nil {
 		s.aggregationTicker.Stop()
 	}
-	close(s.doneChan) // Signal aggregation worker to stop
 
-	// Close monitorChan if not already closed, to unblock any potential senders if necessary,
-	// though context cancellation should be the primary mechanism.
-	// Be careful with closing channels if multiple goroutines might write to it.
-	// For now, assuming context handles shutdown of the monitorChan listener.
+	// Safely close doneChan only once
+	select {
+	case <-s.doneChan:
+		// Channel is already closed
+		s.logger.Debug().Msg("doneChan was already closed")
+	default:
+		// Channel is open, safe to close
+		close(s.doneChan)
+		s.logger.Debug().Msg("doneChan closed successfully")
+	}
 
 	s.logger.Info().Msg("MonitoringService stopped.")
 }
@@ -478,15 +483,26 @@ func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models
 	if processedUpdate.NewHash != oldHash {
 		s.logger.Info().Str("url", url).Str("old_hash", oldHash).Str("new_hash", processedUpdate.NewHash).Msg("Change detected")
 
+		// Extract paths if it's a JS file and pathExtractor is available
+		var extractedPaths []models.ExtractedPath
+		if s.pathExtractor != nil && (strings.Contains(processedUpdate.ContentType, "javascript") || strings.HasSuffix(url, ".js")) {
+			paths, err := s.pathExtractor.ExtractPaths(url, fetchResult.Content, fetchResult.ContentType)
+			if err != nil {
+				s.logger.Error().Err(err).Str("url", url).Msg("Failed to extract paths from JS content during change detection")
+			} else {
+				extractedPaths = paths
+				s.logger.Debug().Str("url", url).Int("path_count", len(extractedPaths)).Msg("Extracted paths from changed JS content")
+			}
+		}
+
 		changeInfo = &models.FileChangeInfo{
-			URL:         url,
-			OldHash:     oldHash,
-			NewHash:     processedUpdate.NewHash,
-			ContentType: processedUpdate.ContentType,
-			ChangeTime:  processedUpdate.FetchedAt,
-			// Status and StatusMessage are not part of FileChangeInfo by default.
-			// These would need to be added to the struct if intended for use.
-			// For now, this information will be logged or handled locally if needed.
+			URL:            url,
+			OldHash:        oldHash,
+			NewHash:        processedUpdate.NewHash,
+			ContentType:    processedUpdate.ContentType,
+			ChangeTime:     processedUpdate.FetchedAt,
+			ExtractedPaths: extractedPaths,
+			SecretFindings: secretFindings,
 		}
 
 		// Generate diff if ContentDiffer is available and content needs to be stored for diffing
