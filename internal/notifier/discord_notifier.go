@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"time"
 
-	// "monsterinc/internal/config" // No longer needed directly by DiscordNotifier for WebhookURL
-	"monsterinc/internal/models"
+	// "github.com/aleister1102/monsterinc/internal/config" // No longer needed directly by DiscordNotifier for WebhookURL
+	"github.com/aleister1102/monsterinc/internal/models"
 
 	"github.com/rs/zerolog"
 )

@@ -1,7 +1,7 @@
 package httpxrunner
 
 import (
-	"monsterinc/internal/models" // Import models package
+	"github.com/aleister1102/monsterinc/internal/models" // Import models package
 	"time"
 )
 

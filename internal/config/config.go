@@ -206,6 +206,7 @@ type CrawlerConfig struct {
 	ExcludedHostRegex     []string           `json:"excluded_host_regex,omitempty" yaml:"excluded_host_regex,omitempty"`
 	Scope                 CrawlerScopeConfig `json:"scope,omitempty" yaml:"scope,omitempty"`
 	MaxContentLengthMB    int                `json:"max_content_length_mb,omitempty" yaml:"max_content_length_mb,omitempty"`
+	AutoAddSeedHostnames  bool               `json:"auto_add_seed_hostnames" yaml:"auto_add_seed_hostnames"`
 }
 
 func NewDefaultCrawlerConfig() CrawlerConfig {
@@ -219,6 +220,7 @@ func NewDefaultCrawlerConfig() CrawlerConfig {
 		IncludeSubdomains:     DefaultCrawlerIncludeSubdomains,
 		Scope:                 NewDefaultCrawlerScopeConfig(),
 		MaxContentLengthMB:    2,
+		AutoAddSeedHostnames:  false,
 	}
 }
 

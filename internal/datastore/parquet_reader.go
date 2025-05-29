@@ -3,9 +3,9 @@ package datastore
 import (
 	"fmt"
 	"io"
-	"monsterinc/internal/config"
-	"monsterinc/internal/models"
-	"monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"os"
 	"path/filepath"
 	"time"

@@ -3,16 +3,16 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"monsterinc/internal/config"
-	"monsterinc/internal/crawler"
-	"monsterinc/internal/datastore"
-	"monsterinc/internal/differ"
-	"monsterinc/internal/extractor"
-	"monsterinc/internal/httpxrunner"
-	"monsterinc/internal/models"
-	"monsterinc/internal/monitor"
-	"monsterinc/internal/secrets"
-	"monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/crawler"
+	"github.com/aleister1102/monsterinc/internal/datastore"
+	"github.com/aleister1102/monsterinc/internal/differ"
+	"github.com/aleister1102/monsterinc/internal/extractor"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
+	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/monitor"
+	"github.com/aleister1102/monsterinc/internal/secrets"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"net/http"
 	"time"
 
@@ -82,6 +82,23 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 	// or if multiple orchestrators run with modified global configs.
 	currentCrawlerCfg := *crawlerCfg // Shallow copy is usually fine for config structs
 	currentCrawlerCfg.SeedURLs = seedURLs
+
+	// Auto-add seed hostnames to allowed hostnames if enabled and seeds provided via parameter
+	if currentCrawlerCfg.AutoAddSeedHostnames && len(seedURLs) > 0 {
+		seedHostnames := crawler.ExtractHostnamesFromSeedURLs(seedURLs, so.logger)
+		if len(seedHostnames) > 0 {
+			currentCrawlerCfg.Scope.AllowedHostnames = crawler.MergeAllowedHostnames(
+				currentCrawlerCfg.Scope.AllowedHostnames,
+				seedHostnames,
+			)
+			so.logger.Info().
+				Strs("seed_hostnames", seedHostnames).
+				Strs("original_allowed_hostnames", crawlerCfg.Scope.AllowedHostnames).
+				Strs("final_allowed_hostnames", currentCrawlerCfg.Scope.AllowedHostnames).
+				Str("session_id", scanSessionID).
+				Msg("Orchestrator: Auto-added seed hostnames to allowed hostnames")
+		}
+	}
 
 	var discoveredURLs []string
 	var primaryRootTargetURL string

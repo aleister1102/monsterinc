@@ -2,7 +2,7 @@ package monitor
 
 import (
 	"context"
-	"monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/config"
 	"sync"
 	"time"
 
