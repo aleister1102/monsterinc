@@ -791,35 +791,96 @@ func calculateContentTypeBreakdown(changes []models.FileChangeInfo) map[string]i
 // CalculateSecretStats calculates statistics from secret findings
 func CalculateSecretStats(secretFindings []models.SecretFinding) models.SecretStats {
 	stats := models.SecretStats{}
-	stats.TotalFindings = len(secretFindings)
+	ruleIDs := make(map[string]struct{})
+	sourceURLs := make(map[string]struct{})
 
-	uniqueRules := make(map[string]struct{})
-	uniqueSourceURLs := make(map[string]struct{})
-
-	for _, finding := range secretFindings {
-		// Count by severity
-		switch strings.ToLower(finding.Severity) {
-		case "high", "critical":
+	for _, sf := range secretFindings {
+		stats.TotalFindings++
+		switch strings.ToLower(sf.Severity) {
+		case "critical", "high":
 			stats.HighSeverity++
-		case "medium", "moderate":
+		case "medium":
 			stats.MediumSeverity++
 		case "low":
 			stats.LowSeverity++
 		default:
 			stats.UnknownSeverity++
 		}
-
-		// Track unique rules and source URLs
-		if finding.RuleID != "" {
-			uniqueRules[finding.RuleID] = struct{}{}
+		if sf.RuleID != "" {
+			ruleIDs[sf.RuleID] = struct{}{}
 		}
-		if finding.SourceURL != "" {
-			uniqueSourceURLs[finding.SourceURL] = struct{}{}
+		if sf.SourceURL != "" {
+			sourceURLs[sf.SourceURL] = struct{}{}
 		}
 	}
-
-	stats.UniqueRules = len(uniqueRules)
-	stats.UniqueSourceURLs = len(uniqueSourceURLs)
-
+	stats.UniqueRules = len(ruleIDs)
+	stats.UniqueSourceURLs = len(sourceURLs)
 	return stats
+}
+
+// FormatMonitorCycleCompleteMessage creates a Discord message payload for monitor cycle completion.
+func FormatMonitorCycleCompleteMessage(data models.MonitorCycleCompleteData, cfg config.NotificationConfig) models.DiscordMessagePayload {
+	mentions := buildMentions(cfg.MentionRoleIDs)
+	messageContent := ""
+	if mentions != "" {
+		messageContent = mentions + "\n"
+	}
+
+	title := ":checkered_flag: Monitor Cycle Complete"
+	description := fmt.Sprintf("A full monitoring cycle has completed at **%s**.\nTotal URLs Monitored: **%d**.",
+		data.Timestamp.Format(timestampFormatReadable),
+		data.TotalMonitored)
+
+	var fields []models.DiscordEmbedField
+
+	if len(data.ChangedURLs) > 0 {
+		changedURLsStr := ""
+		for i, u := range data.ChangedURLs {
+			if i < 10 { // Show up to 10 changed URLs
+				changedURLsStr += fmt.Sprintf("- `%s`\n", truncateString(u, 100))
+			} else {
+				changedURLsStr += fmt.Sprintf("...and %d more.", len(data.ChangedURLs)-10)
+				break
+			}
+		}
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   fmt.Sprintf(":warning: Detected Changes (%d)", len(data.ChangedURLs)),
+			Value:  changedURLsStr,
+			Inline: false,
+		})
+	} else {
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   ":shield: Detected Changes",
+			Value:  "No changes detected in this cycle.",
+			Inline: false,
+		})
+	}
+
+	if data.ReportPath != "" {
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   ":page_facing_up: Aggregated Report",
+			Value:  "An aggregated diff report for all monitored URLs is available.", // Link will be in the attachment
+			Inline: false,
+		})
+	}
+
+	embed := models.DiscordEmbed{
+		Title:       title,
+		Description: description,
+		Color:       colorInfo, // Blue for informational cycle completion
+		Fields:      fields,
+		Timestamp:   data.Timestamp.Format(timestampFormatDiscord),
+		Footer:      createStandardFooter(footerTextMonitoring),
+	}
+
+	return models.DiscordMessagePayload{
+		Username:  monsterIncUsername,
+		AvatarURL: monsterIncIconURL,
+		Content:   messageContent,
+		Embeds:    []models.DiscordEmbed{embed},
+		AllowedMentions: &models.AllowedMentions{
+			Parse: []string{"roles"},
+			Roles: cfg.MentionRoleIDs,
+		},
+	}
 }

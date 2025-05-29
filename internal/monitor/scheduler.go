@@ -10,6 +10,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// monitorJob wraps a URL and a WaitGroup for a specific monitoring cycle.
+type monitorJob struct {
+	URL     string
+	CycleWG *sync.WaitGroup
+}
+
 // Scheduler manages the periodic checking of URLs for the MonitoringService.
 type Scheduler struct {
 	logger  zerolog.Logger
@@ -18,7 +24,7 @@ type Scheduler struct {
 
 	ctx        context.Context
 	cancelFunc context.CancelFunc
-	workerChan chan string
+	workerChan chan monitorJob // Changed to chan monitorJob
 	wg         sync.WaitGroup
 	active     bool
 	mu         sync.Mutex // To protect access to 'active' field
@@ -58,28 +64,36 @@ func (s *Scheduler) Start() error {
 		numWorkers = 1
 		s.logger.Warn().Int("configured_workers", s.cfg.MaxConcurrentChecks).Msg("MaxConcurrentChecks is not configured or invalid, defaulting to 1 worker.")
 	}
-	s.workerChan = make(chan string, numWorkers) // Buffer size can be numWorkers or a bit more
+	s.workerChan = make(chan monitorJob, numWorkers) // Buffer size can be numWorkers or a bit more
 
 	s.logger.Info().Int("num_workers", numWorkers).Msg("Starting monitor workers")
 	for i := 0; i < numWorkers; i++ {
 		s.wg.Add(1)
 		go s.worker(i)
-		s.logger.Info().Int("worker_id", i).Msg("Monitoring worker started")
+		// s.logger.Info().Int("worker_id", i).Msg("Monitoring worker started") // Logged inside worker now
 	}
-	s.logger.Info().Int("num_workers", numWorkers).Msg("MonitorScheduler started successfully with workers.")
+	// s.logger.Info().Int("num_workers", numWorkers).Msg("MonitorScheduler started successfully with workers.") // Logged after initial checks
 
-	// Initial population of workerChan with all currently monitored URLs
-	// This ensures an immediate first check for all targets.
 	initialURLs := s.service.GetCurrentlyMonitoredURLs()
 	s.logger.Info().Int("count", len(initialURLs)).Msg("Performing initial check for monitored URLs.")
-	for _, url := range initialURLs {
-		select {
-		case s.workerChan <- url:
-		case <-s.ctx.Done():
-			s.logger.Info().Msg("Context cancelled during initial URL population for workers.")
-			return nil // Stop if context is cancelled
+	if len(initialURLs) > 0 {
+		var initialCycleWG sync.WaitGroup
+		initialCycleWG.Add(len(initialURLs))
+		for _, url := range initialURLs {
+			job := monitorJob{URL: url, CycleWG: &initialCycleWG}
+			select {
+			case s.workerChan <- job:
+			case <-s.ctx.Done():
+				s.logger.Info().Str("url", url).Msg("Context cancelled during initial URL job submission.")
+				initialCycleWG.Done() // Ensure WG is decremented if job not sent
+			}
 		}
+		initialCycleWG.Wait() // Wait for all initial checks to complete
+		s.logger.Info().Msg("Initial checks for monitored URLs completed.")
+		s.service.TriggerCycleEndReport() // Trigger report after initial checks
 	}
+
+	s.logger.Info().Int("num_workers", numWorkers).Msg("MonitorScheduler started successfully with workers and initial checks complete.")
 
 	var ticker *time.Ticker
 	if s.cfg.CheckIntervalSeconds <= 0 {
@@ -93,7 +107,17 @@ func (s *Scheduler) Start() error {
 		defer func() {
 			ticker.Stop()
 			close(s.workerChan) // Signal workers to stop
-			s.wg.Wait()         // Wait for all workers to finish
+			s.wg.Wait()         // Wait for all worker goroutines to finish
+
+			// Final report on shutdown if context was not cancelled before this point.
+			// If context was cancelled, TriggerCycleEndReport might have already run due to earlier logic
+			// or it might be redundant/report on incomplete data.
+			// Consider the state of changedURLsInCycle if service was abruptly stopped.
+			if s.ctx.Err() == nil { // Only trigger if not already shutting down due to cancellation that might have pre-empted the last tick's report
+				s.logger.Info().Msg("Scheduler shutting down. Triggering final cycle end report.")
+				s.service.TriggerCycleEndReport()
+			}
+
 			s.mu.Lock()
 			s.active = false
 			s.mu.Unlock()
@@ -103,18 +127,39 @@ func (s *Scheduler) Start() error {
 		for {
 			select {
 			case <-s.ctx.Done():
+				s.logger.Info().Msg("MonitorScheduler context cancelled, main loop stopping.")
 				return
 			case <-ticker.C:
 				s.logger.Debug().Msg("Monitor tick. Distributing checks to workers...")
-				targetsToCheck := s.service.GetCurrentlyMonitoredURLs() // Get URLs from service
+				targetsToCheck := s.service.GetCurrentlyMonitoredURLs()
 				s.logger.Debug().Int("count", len(targetsToCheck)).Msgf("Number of targets to check this cycle: %d", len(targetsToCheck))
-				for _, url := range targetsToCheck {
-					select {
-					case s.workerChan <- url:
-					case <-s.ctx.Done():
-						s.logger.Info().Msg("Context cancelled during job distribution to workers.")
-						return
+
+				if len(targetsToCheck) > 0 {
+					var currentCycleWG sync.WaitGroup
+					currentCycleWG.Add(len(targetsToCheck))
+
+					for _, url := range targetsToCheck {
+						job := monitorJob{URL: url, CycleWG: &currentCycleWG}
+						select {
+						case s.workerChan <- job:
+						case <-s.ctx.Done():
+							s.logger.Info().Str("url", url).Msg("Context cancelled during job submission for current cycle.")
+							currentCycleWG.Done() // Decrement if job won't be processed by a worker
+						}
 					}
+					currentCycleWG.Wait() // Wait for all checkURL calls in this cycle to complete
+
+					if s.ctx.Err() == nil { // Check context again before triggering report
+						s.logger.Info().Int("targets_processed", len(targetsToCheck)).Msg("All checks for the current monitor cycle completed. Triggering report.")
+						s.service.TriggerCycleEndReport()
+					} else {
+						s.logger.Info().Msg("Context cancelled during monitor cycle processing, report not triggered by this tick.")
+					}
+				} else {
+					s.logger.Debug().Msg("No targets to check in this monitor cycle. Triggering report to clear state.")
+					// Still trigger report to clear changedURLsInCycle and handle potential state issues
+					// if URLs were removed, etc.
+					s.service.TriggerCycleEndReport()
 				}
 			}
 		}
@@ -127,16 +172,22 @@ func (s *Scheduler) Start() error {
 func (s *Scheduler) worker(id int) {
 	defer s.wg.Done()
 	s.logger.Info().Int("worker_id", id).Msg("Monitoring worker started")
-	for url := range s.workerChan {
+	for job := range s.workerChan { // Now receives monitorJob
 		select {
 		case <-s.ctx.Done():
-			s.logger.Info().Int("worker_id", id).Msg("Context cancelled, worker stopping.")
+			s.logger.Info().Int("worker_id", id).Str("url", job.URL).Msg("Context cancelled, worker stopping before processing URL.")
+			if job.CycleWG != nil { // Ensure WG is decremented if worker is stopping mid-assignment
+				job.CycleWG.Done()
+			}
 			return
 		default:
 			// Proceed to check URL
 		}
-		s.logger.Debug().Int("worker_id", id).Str("url", url).Msg("Worker processing URL")
-		s.service.checkURL(url) // Call checkURL on the service instance
+		s.logger.Debug().Int("worker_id", id).Str("url", job.URL).Msg("Worker processing URL")
+		s.service.checkURL(job.URL) // Call checkURL on the service instance
+		if job.CycleWG != nil {
+			job.CycleWG.Done() // Signal completion for this job in its cycle
+		}
 	}
 	s.logger.Info().Int("worker_id", id).Msg("Monitoring worker stopped as channel closed.")
 }
