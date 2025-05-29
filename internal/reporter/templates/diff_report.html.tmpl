@@ -319,9 +319,60 @@
             max-height: 400px;
             overflow-y: auto;
         }
+
+        /* To Top Button */
+        #toTopBtn {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            right: 30px;
+            z-index: 99;
+            font-size: 18px;
+            border: none;
+            outline: none;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            padding: 15px;
+            border-radius: 50%; /* Makes it circular */
+            width: 50px;
+            height: 50px;
+            text-align: center;
+            line-height: 20px; /* Adjust for icon centering */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        #toTopBtn:hover {
+            background-color: #0056b3;
+        }
+
+        /* Pagination Styling */
+        .pagination-controls {
+            margin-top: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .pagination-controls .page-link {
+             border-radius: 8px; /* Rounded corners for page links */
+        }
+         .pagination-controls .page-item.active .page-link {
+            background-color: #007bff;
+            border-color: #007bff;
+        }
+        .items-per-page-selector {
+            margin-left: 20px;
+        }
+        .items-per-page-selector select {
+            border-radius: 8px;
+        }
+
     </style>
 </head>
 <body>
+    <button id="toTopBtn" title="Go to top"><i class="fas fa-arrow-up"></i></button>
+
     <div class="report-container">
         <div class="report-header">
         {{if eq .ReportType "aggregated"}}
@@ -366,9 +417,12 @@
         <hr>
 
         {{if .DiffResults}}
+            <div class="pagination-container-top">
+                <!-- Pagination controls will be injected here by JavaScript -->
+            </div>
             <div id="diffsAccordion">
                 {{range $index, $diff := .DiffResults}}
-                <div class="card">
+                <div class="card accordion-item" data-index="{{$index}}">
                     <div class="card-header" id="heading{{$index}}">
                         <h5 class="mb-0">
                             <button class="btn btn-link" data-toggle="collapse" data-target="#collapse{{$index}}" aria-expanded="{{if eq $index 0}}true{{else}}false{{end}}" aria-controls="collapse{{$index}}">
@@ -393,6 +447,9 @@
                                     {{end}}
                                 {{end}}
                                 <!-- END: Additional Summary Info -->
+                            </button>
+                            <button class="btn btn-sm btn-outline-light copy-url-btn" data-url="{{$diff.URL}}" title="Copy URL" style="position: absolute; right: 50px; top: 50%; transform: translateY(-50%);">
+                                <i class="fas fa-copy"></i>
                             </button>
                         </h5>
                     </div>
@@ -567,9 +624,12 @@
                 <p>No differences to report.</p>
             </div>
         {{end}}
+        <div class="pagination-container-bottom">
+            <!-- Pagination controls will be injected here by JavaScript -->
+        </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
     
@@ -631,6 +691,172 @@
             $('#diffsAccordion').on('shown.bs.collapse', function() {
                 setTimeout(addLineNumbers, 100);
             });
+
+            // "To Top" Button
+            var toTopBtn = document.getElementById("toTopBtn");
+            window.onscroll = function() {
+                if (document.body.scrollTop > 200 || document.documentElement.scrollTop > 200) {
+                    toTopBtn.style.display = "block";
+                } else {
+                    toTopBtn.style.display = "none";
+                }
+            };
+            toTopBtn.onclick = function() {
+                $('html, body').animate({scrollTop:0}, 'smooth');
+            };
+
+            // Client-side Pagination for Accordion Items
+            var accordionItems = $('.accordion-item');
+            var itemsPerPage = 10; // Default items per page
+            var currentPage = 1;
+            var totalItems = accordionItems.length;
+            var totalPages = Math.ceil(totalItems / itemsPerPage);
+
+            function createPaginationControls(containerSelector) {
+                var paginationHtml = '';
+                if (totalPages > 1) {
+                    paginationHtml += '<nav aria-label="Page navigation" class="pagination-controls">';
+                    paginationHtml += '<ul class="pagination justify-content-center">';
+                    
+                    // Previous button
+                    paginationHtml += '<li class="page-item ' + (currentPage === 1 ? 'disabled' : '') + '">';
+                    paginationHtml += '<a class="page-link prev-page" href="#" aria-label="Previous"><span aria-hidden="true">&laquo;</span></a></li>';
+                    
+                    // Page numbers
+                    let startPage = Math.max(1, currentPage - 2);
+                    let endPage = Math.min(totalPages, currentPage + 2);
+
+                    if (startPage > 1) {
+                        paginationHtml += '<li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>';
+                        if (startPage > 2) {
+                             paginationHtml += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+                        }
+                    }
+
+                    for (let i = startPage; i <= endPage; i++) {
+                        paginationHtml += '<li class="page-item ' + (i === currentPage ? 'active' : '') + '">';
+                        paginationHtml += '<a class="page-link" href="#" data-page="' + i + '">' + i + '</a></li>';
+                    }
+
+                     if (endPage < totalPages) {
+                        if (endPage < totalPages - 1) {
+                           paginationHtml += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+                        }
+                        paginationHtml += '<li class="page-item"><a class="page-link" href="#" data-page="' + totalPages + '">' + totalPages + '</a></li>';
+                    }
+                    
+                    // Next button
+                    paginationHtml += '<li class="page-item ' + (currentPage === totalPages ? 'disabled' : '') + '">';
+                    paginationHtml += '<a class="page-link next-page" href="#" aria-label="Next"><span aria-hidden="true">&raquo;</span></a></li>';
+                    
+                    paginationHtml += '</ul>';
+
+                    // Items per page selector
+                    paginationHtml += '<div class="items-per-page-selector form-inline">';
+                    paginationHtml += '<label for="itemsPerPageSelect" class="mr-2">Items:</label>';
+                    paginationHtml += '<select class="form-control form-control-sm" id="itemsPerPageSelect">';
+                    [5, 10, 25, 50, 100].forEach(function(val) {
+                        paginationHtml += '<option value="' + val + '"' + (val === itemsPerPage ? ' selected' : '') + '>' + val + '</option>';
+                    });
+                    paginationHtml += '</select>';
+                    paginationHtml += '</div>';
+                    paginationHtml += '</nav>';
+                }
+                $(containerSelector).html(paginationHtml);
+            }
+
+            function showPage(page) {
+                currentPage = page;
+                var startIndex = (page - 1) * itemsPerPage;
+                var endIndex = startIndex + itemsPerPage;
+
+                accordionItems.hide();
+                accordionItems.slice(startIndex, endIndex).show();
+                
+                // Make the first item on the new page visible if it's collapsed
+                // and it's the only item from the previous "first visible" logic
+                if (accordionItems.slice(startIndex, endIndex).length > 0) {
+                    var firstItemOnPage = accordionItems.slice(startIndex, endIndex).first();
+                    if (firstItemOnPage.find('.collapse').not('.show')) {
+                         // This logic might be too aggressive if users intentionally collapse items.
+                         // For now, we ensure the first item of the page is shown by default if pages change.
+                         // Consider if this behavior is always desired.
+                         // $(accordionItems.find('.collapse.show')).removeClass('show');
+                         // firstItemOnPage.find('.collapse').addClass('show');
+                    }
+                }
+
+
+                createPaginationControls('.pagination-container-top');
+                createPaginationControls('.pagination-container-bottom');
+                
+                // Scroll to the top of the accordion container
+                if ($('#diffsAccordion').length) {
+                    $('html, body').animate({
+                        scrollTop: $("#diffsAccordion").offset().top - 70 // 70px offset for navbar or headers
+                    }, 'smooth');
+                }
+                addLineNumbers(); // Recalculate line numbers for newly shown items
+            }
+
+            if (totalItems > 0) {
+                showPage(1); // Initial display
+            } else {
+                 $('.pagination-container-top').empty();
+                 $('.pagination-container-bottom').empty();
+            }
+
+
+            // Event delegation for pagination links
+            $(document).on('click', '.pagination-container-top a.page-link, .pagination-container-bottom a.page-link', function(e) {
+                e.preventDefault();
+                var $this = $(this);
+                if ($this.parent().hasClass('disabled') || $this.parent().hasClass('active')) {
+                    return;
+                }
+
+                var targetPage;
+                if ($this.hasClass('prev-page')) {
+                    targetPage = currentPage - 1;
+                } else if ($this.hasClass('next-page')) {
+                    targetPage = currentPage + 1;
+                } else {
+                    targetPage = parseInt($this.data('page'));
+                }
+                
+                if (targetPage >= 1 && targetPage <= totalPages) {
+                    showPage(targetPage);
+                }
+            });
+            
+            $(document).on('change', '.items-per-page-selector select', function() {
+                itemsPerPage = parseInt($(this).val());
+                totalPages = Math.ceil(totalItems / itemsPerPage);
+                if (currentPage > totalPages) {
+                    currentPage = totalPages;
+                }
+                if(currentPage < 1 && totalPages > 0) {
+                    currentPage = 1;
+                }
+                showPage(currentPage || 1);
+            });
+
+            // Copy URL button
+            $(document).on('click', '.copy-url-btn', function() {
+                var urlToCopy = $(this).data('url');
+                navigator.clipboard.writeText(urlToCopy).then(function() {
+                    // Optional: Show a success message or change button appearance
+                    var originalText = $(this).html();
+                    $(this).html('<i class="fas fa-check"></i> Copied!');
+                    setTimeout(function(btn, text){
+                        $(btn).html(text);
+                    }, 2000, this, originalText);
+                }.bind(this), function(err) {
+                    console.error('Failed to copy URL: ', err);
+                    // Optional: Show an error message
+                });
+            });
+
         });
     </script>
     

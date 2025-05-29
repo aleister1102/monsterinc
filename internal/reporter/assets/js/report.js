@@ -75,9 +75,7 @@ $(document).ready(function () {
             const techHtml = Array.isArray(pr.Technologies) && pr.Technologies.length > 0 ?
                 pr.Technologies.map(tech => `<span class="tech-tag">${tech}</span>`).join('') : '-';
             $row.append($('<td></td>').addClass('truncate-techs hide-on-medium').attr('title', techString).html(techHtml));
-            // 7. Web Server
-            $row.append($('<td></td>').addClass('hide-on-large').text(pr.WebServer || '-'));
-            // 8. Content Type
+            // 7. Content Type
             $row.append($('<td></td>').addClass('hide-on-mobile').text(pr.ContentType || '-'));
             // 9. Details button
             $row.append($('<td><button class="btn btn-sm btn-outline-primary view-details-btn" data-bs-toggle="modal" data-bs-target="#detailsModal"><i class="fas fa-eye me-1"></i>View</button></td>'));
@@ -107,7 +105,7 @@ $(document).ready(function () {
                     (pr.InputURL && pr.InputURL.toLowerCase().includes(globalSearchTerm)) ||
                     (pr.FinalURL && pr.FinalURL.toLowerCase().includes(globalSearchTerm)) ||
                     (pr.Title && pr.Title.toLowerCase().includes(globalSearchTerm)) ||
-                    (pr.WebServer && pr.WebServer.toLowerCase().includes(globalSearchTerm)) ||
+        
                     (pr.ContentType && pr.ContentType.toLowerCase().includes(globalSearchTerm)) ||
                     (Array.isArray(pr.Technologies) && pr.Technologies.join(', ').toLowerCase().includes(globalSearchTerm)) ||
                     (Array.isArray(pr.IPs) && pr.IPs.join(', ').toLowerCase().includes(globalSearchTerm)) ||
@@ -285,7 +283,7 @@ $(document).ready(function () {
         if (!sortKey) return;
 
         // Removed 'duration' from sortable keys
-        const validSortKeys = ['InputURL', 'FinalURL', 'DiffStatus', 'StatusCode', 'Title', 'WebServer', 'ContentType', 'ContentLength'];
+        const validSortKeys = ['InputURL', 'FinalURL', 'DiffStatus', 'StatusCode', 'Title', 'ContentType', 'ContentLength'];
         if (!validSortKeys.includes(sortKey)) return;
 
         if (currentSortColumn === sortKey) {
@@ -331,7 +329,7 @@ $(document).ready(function () {
             detailsText += `Method: ${resultData.Method || '-'}\n`;
             detailsText += `Status Code: ${resultData.StatusCode || '-'}\n`;
             detailsText += `Title: ${resultData.Title || '-'}\n`;
-            detailsText += `Web Server: ${resultData.WebServer || '-'}\n`;
+    
             detailsText += `Content Type: ${resultData.ContentType || '-'}\n`;
             detailsText += `Content Length: ${resultData.ContentLength !== undefined ? resultData.ContentLength : '-'}\n`;
             detailsText += `Timestamp: ${resultData.Timestamp || '-'}\n`;
@@ -384,4 +382,4 @@ if (typeof ReportData === 'undefined') {
     var ReportData = {
         itemsPerPage: 25 // Default if not injected by Go template
     };
-} 
+}
