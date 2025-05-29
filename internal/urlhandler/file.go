@@ -1,12 +1,9 @@
 package urlhandler
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
-
-	// "log" // Standard log replaced by zerolog
-	"os"
+	"monsterinc/internal/common"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -22,64 +19,75 @@ var (
 
 // ReadURLsFromFile reads a file line by line, normalizes each line as a URL,
 // and returns a slice of valid, normalized URLs.
-// Task 2.1: Implement file reading logic.
-// Task 2.2: Implement error handling for file operations.
-// Task 2.3: Implement logging for file processing.
 func ReadURLsFromFile(filePath string, logger zerolog.Logger) ([]string, error) {
 	fileLogger := logger.With().Str("filePath", filePath).Logger()
 
-	info, err := os.Stat(filePath)
-	if os.IsNotExist(err) {
-		fileLogger.Error().Err(err).Msg("Input file not found")
+	// Use common file manager for file operations
+	fileManager := common.NewFileManager(fileLogger)
+
+	// Check if file exists and get info
+	if !fileManager.FileExists(filePath) {
+		fileLogger.Error().Msg("Input file not found")
 		return nil, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
 	}
+
+	info, err := fileManager.GetFileInfo(filePath)
 	if err != nil {
-		fileLogger.Error().Err(err).Msg("Error checking file stat")
+		fileLogger.Error().Err(err).Msg("Error getting file info")
 		return nil, fmt.Errorf("error checking file %s: %v", filePath, err)
 	}
-	if info.IsDir() {
+
+	if info.IsDir {
 		fileLogger.Error().Msg("Input path is a directory, not a file")
 		return nil, fmt.Errorf("input path is a directory, not a file: %s", filePath)
 	}
 
-	file, err := os.Open(filePath)
-	if err != nil {
-		if os.IsPermission(err) {
-			fileLogger.Error().Err(err).Msg("Permission denied reading input file")
-			return nil, fmt.Errorf("%w: %s", ErrFilePermission, filePath)
-		}
-		fileLogger.Error().Err(err).Msg("Error opening input file")
-		return nil, fmt.Errorf("%w: %s (cause: %v)", ErrReadingFile, filePath, err)
-	}
-	defer file.Close()
-
-	if info.Size() == 0 {
+	if info.Size == 0 {
 		fileLogger.Warn().Msg("Input file is empty (0 bytes)")
 		return nil, fmt.Errorf("%w: %s (size is 0)", ErrFileEmpty, filePath)
 	}
 
-	var normalizedURLs []string
-	scanner := bufio.NewScanner(file)
+	// Read file lines using common file utilities
+	readOptions := common.DefaultFileReadOptions()
+	readOptions.LineBased = true
+	readOptions.TrimLines = true
+	readOptions.SkipEmpty = true
 
-	totalLinesRead := 0
+	lines, err := fileManager.ReadLines(filePath, readOptions)
+	if err != nil {
+		// Check for specific error types
+		if errors.Is(err, common.ErrNotFound) {
+			fileLogger.Error().Err(err).Msg("Input file not found")
+			return nil, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
+		}
+
+		// Check if it's a permission error by examining the error message
+		if strings.Contains(err.Error(), "permission denied") {
+			fileLogger.Error().Err(err).Msg("Permission denied reading input file")
+			return nil, fmt.Errorf("%w: %s", ErrFilePermission, filePath)
+		}
+
+		fileLogger.Error().Err(err).Msg("Error reading input file")
+		return nil, fmt.Errorf("%w: %s (cause: %v)", ErrReadingFile, filePath, err)
+	}
+
+	var normalizedURLs []string
+	totalLinesRead := len(lines)
 	successfullyNormalizedCount := 0
 	skippedCount := 0
 	hasValidURL := false
 
-	fileLogger.Info().Msg("Starting processing of file")
+	fileLogger.Debug().Int("total_lines", totalLinesRead).Msg("Starting processing of file")
 
-	for scanner.Scan() {
-		totalLinesRead++
-		line := strings.TrimSpace(scanner.Text())
-
+	for lineNumber, line := range lines {
 		if line == "" {
-			fileLogger.Debug().Int("lineNumber", totalLinesRead).Msg("Skipping empty line")
+			fileLogger.Debug().Int("lineNumber", lineNumber+1).Msg("Skipping empty line")
 			continue
 		}
 
 		normalizedURL, normErr := NormalizeURL(line) // Assuming NormalizeURL doesn't need a logger or handles its own
 		if normErr != nil {
-			fileLogger.Warn().Err(normErr).Int("lineNumber", totalLinesRead).Str("originalURL", line).Msg("Error normalizing URL, skipping")
+			fileLogger.Warn().Err(normErr).Int("lineNumber", lineNumber+1).Str("originalURL", line).Msg("Error normalizing URL, skipping")
 			skippedCount++
 			continue
 		}
@@ -88,12 +96,7 @@ func ReadURLsFromFile(filePath string, logger zerolog.Logger) ([]string, error) 
 		hasValidURL = true
 	}
 
-	if scanErr := scanner.Err(); scanErr != nil {
-		fileLogger.Error().Err(scanErr).Msg("Error during scanning of file")
-		return nil, fmt.Errorf("%w: %s (scan error: %v)", ErrReadingFile, filePath, scanErr)
-	}
-
-	fileLogger.Info().
+	fileLogger.Debug().
 		Int("totalLinesRead", totalLinesRead).
 		Int("normalizedCount", successfullyNormalizedCount).
 		Int("skippedCount", skippedCount).
