@@ -53,103 +53,74 @@ func NewSecretDetectorService(
 // ScanContent scans the provided content for secrets using configured detection methods.
 // It returns a slice of SecretFinding and any error encountered.
 func (s *SecretDetectorService) ScanContent(sourceURL string, content []byte, contentType string) ([]models.SecretFinding, error) {
-	s.logger.Info().Str("sourceURL", sourceURL).Str("contentType", contentType).Int("contentLength", len(content)).Msg("Starting secret detection scan")
+	s.logger.Debug().Str("sourceURL", sourceURL).Str("contentType", contentType).Int("contentLength", len(content)).Msg("Starting secret detection scan")
 
 	var allFindings []models.SecretFinding
 	scanStartTime := time.Now()
 
-	// Implement file size check based on s.secretsConfig.MaxFileSizeToScanMB (Task 7.1)
-	if s.secretsConfig.MaxFileSizeToScanMB > 0 && len(content) > s.secretsConfig.MaxFileSizeToScanMB*1024*1024 {
-		s.logger.Warn().Str("sourceURL", sourceURL).Int("contentLength", len(content)).Int("maxSizeMB", s.secretsConfig.MaxFileSizeToScanMB).Msg("Content exceeds max file size for secret scanning, skipping.")
-		return nil, fmt.Errorf("content size %d bytes exceeds max limit of %d MB for secret scanning", len(content), s.secretsConfig.MaxFileSizeToScanMB)
+	// Check file size limit
+	if s.secretsConfig.MaxFileSizeToScanMB > 0 {
+		fileSizeMB := float64(len(content)) / (1024 * 1024)
+		if fileSizeMB > float64(s.secretsConfig.MaxFileSizeToScanMB) {
+			s.logger.Warn().Float64("file_size_mb", fileSizeMB).Int("max_size_mb", s.secretsConfig.MaxFileSizeToScanMB).Str("source_url", sourceURL).Msg("File too large for secret scanning, skipping")
+			return nil, nil
+		}
 	}
 
-	// Call TruffleHog adapter if s.secretsConfig.EnableTruffleHog (Task 2 & 4.1)
-	if s.secretsConfig.Enabled && s.secretsConfig.EnableTruffleHog && s.trufflehogAdapter != nil {
-		s.logger.Debug().Str("sourceURL", sourceURL).Msg("TruffleHog scanning enabled, starting scan")
-		truffleStartTime := time.Now()
-
-		truffleFindings, err := s.trufflehogAdapter.ScanWithTruffleHog(content, sourceURL) // Using sourceURL as filenameHint for now
-		truffleDuration := time.Since(truffleStartTime)
+	// Run TruffleHog detection if enabled
+	if s.secretsConfig.EnableTruffleHog && s.trufflehogAdapter != nil {
+		s.logger.Debug().Str("source_url", sourceURL).Msg("Running TruffleHog secret detection")
+		startTime := time.Now()
+		truffleFindings, err := s.trufflehogAdapter.ScanWithTruffleHog(content, sourceURL)
+		s.logger.Debug().Dur("duration", time.Since(startTime)).Int("findings", len(truffleFindings)).Str("source_url", sourceURL).Msg("TruffleHog scan completed")
 
 		if err != nil {
-			s.logger.Error().Err(err).Str("sourceURL", sourceURL).Dur("duration", truffleDuration).Msg("TruffleHog scan failed")
-			// Decide if this error should halt all further scanning or just be logged.
-			// For now, we log it and continue to custom regex scanning if enabled.
+			s.logger.Error().Err(err).Str("source_url", sourceURL).Msg("TruffleHog scan failed")
+			// Continue with other detection methods despite TruffleHog failure
 		} else {
-			if len(truffleFindings) > 0 {
-				s.logger.Info().Int("count", len(truffleFindings)).Str("sourceURL", sourceURL).Dur("duration", truffleDuration).Msg("TruffleHog scan completed with findings")
-				allFindings = append(allFindings, truffleFindings...)
-
-				// Log severity breakdown for TruffleHog findings
-				severityCount := make(map[string]int)
-				for _, finding := range truffleFindings {
-					severityCount[finding.Severity]++
-				}
-				s.logger.Debug().Interface("severity_breakdown", severityCount).Str("tool", "TruffleHog").Msg("TruffleHog findings severity breakdown")
-			} else {
-				s.logger.Debug().Str("sourceURL", sourceURL).Dur("duration", truffleDuration).Msg("TruffleHog scan completed with no findings")
-			}
+			allFindings = append(allFindings, truffleFindings...)
 		}
 	} else {
-		s.logger.Debug().Bool("secrets_enabled", s.secretsConfig.Enabled).Bool("trufflehog_enabled", s.secretsConfig.EnableTruffleHog).Bool("adapter_available", s.trufflehogAdapter != nil).Msg("TruffleHog scanning is disabled or adapter not initialized")
+		s.logger.Debug().Str("source_url", sourceURL).Msg("TruffleHog detection disabled or not available")
 	}
 
-	// Call custom regex scanner if s.secretsConfig.EnableCustomRegex (Task 3 & 4.1)
-	if s.secretsConfig.Enabled && s.secretsConfig.EnableCustomRegex && s.regexScanner != nil {
-		s.logger.Debug().Str("sourceURL", sourceURL).Msg("Custom regex scanning enabled, starting scan")
-		regexStartTime := time.Now()
-
+	// Run custom regex scanning if enabled
+	if s.secretsConfig.EnableCustomRegex && s.regexScanner != nil {
+		s.logger.Debug().Str("source_url", sourceURL).Msg("Running custom regex secret detection")
+		startTime := time.Now()
 		regexFindings, err := s.regexScanner.ScanWithRegexes(content, sourceURL)
-		regexDuration := time.Since(regexStartTime)
+		s.logger.Debug().Dur("duration", time.Since(startTime)).Int("findings", len(regexFindings)).Str("source_url", sourceURL).Msg("Custom regex scan completed")
 
 		if err != nil {
-			s.logger.Error().Err(err).Str("sourceURL", sourceURL).Dur("duration", regexDuration).Msg("Custom regex scan failed")
+			s.logger.Error().Err(err).Str("source_url", sourceURL).Msg("Custom regex scan failed")
+			// Continue despite regex scan failure
 		} else {
-			if len(regexFindings) > 0 {
-				s.logger.Info().Int("count", len(regexFindings)).Str("sourceURL", sourceURL).Dur("duration", regexDuration).Msg("Custom regex scan completed with findings")
-				allFindings = append(allFindings, regexFindings...)
-
-				// Log severity breakdown for regex findings
-				severityCount := make(map[string]int)
-				ruleCount := make(map[string]int)
-				for _, finding := range regexFindings {
-					severityCount[finding.Severity]++
-					ruleCount[finding.RuleID]++
-				}
-				s.logger.Debug().Interface("severity_breakdown", severityCount).Interface("rule_breakdown", ruleCount).Str("tool", "CustomRegex").Msg("Custom regex findings breakdown")
-			} else {
-				s.logger.Debug().Str("sourceURL", sourceURL).Dur("duration", regexDuration).Msg("Custom regex scan completed with no findings")
-			}
+			allFindings = append(allFindings, regexFindings...)
 		}
 	} else {
-		s.logger.Debug().Bool("secrets_enabled", s.secretsConfig.Enabled).Bool("regex_enabled", s.secretsConfig.EnableCustomRegex).Bool("scanner_available", s.regexScanner != nil).Msg("Custom regex scanning is disabled or scanner not initialized")
+		s.logger.Debug().Str("source_url", sourceURL).Msg("Custom regex detection disabled or not available")
 	}
 
-	// Combine and deduplicate findings (Task 4.1)
-	deduplicationStartTime := time.Now()
+	// Deduplicate findings
 	deduplicatedFindings := s.deduplicateFindings(allFindings)
-	deduplicationDuration := time.Since(deduplicationStartTime)
+	s.logger.Debug().Int("original_count", len(allFindings)).Int("deduplicated_count", len(deduplicatedFindings)).Str("source_url", sourceURL).Msg("Secret findings deduplicated")
 
-	s.logger.Debug().Int("original_count", len(allFindings)).Int("deduplicated_count", len(deduplicatedFindings)).Dur("deduplication_duration", deduplicationDuration).Msg("Finished deduplicating findings")
-
-	// Store findings using s.secretsStore (Task 4.3)
-	if s.secretsStore != nil && len(deduplicatedFindings) > 0 {
-		storeStartTime := time.Now()
-		if err := s.secretsStore.StoreSecretFindings(deduplicatedFindings); err != nil {
-			storeDuration := time.Since(storeStartTime)
-			s.logger.Error().Err(err).Dur("duration", storeDuration).Msg("Failed to store secret findings")
-			// Depending on policy, this might be a critical error or just logged.
-			// For now, we log it and the scan itself is still considered "successful" in terms of detection.
-		} else {
-			storeDuration := time.Since(storeStartTime)
-			s.logger.Info().Int("count", len(deduplicatedFindings)).Dur("duration", storeDuration).Msg("Successfully stored secret findings")
+	// Store findings
+	if len(deduplicatedFindings) > 0 {
+		err := s.secretsStore.StoreSecretFindings(deduplicatedFindings)
+		if err != nil {
+			s.logger.Error().Err(err).Str("source_url", sourceURL).Msg("Failed to store secret findings")
+			return deduplicatedFindings, fmt.Errorf("failed to store secret findings: %w", err)
 		}
-	} else if len(deduplicatedFindings) > 0 {
-		s.logger.Warn().Msg("SecretsStore is not initialized, cannot store findings")
+		s.logger.Info().Int("count", len(deduplicatedFindings)).Str("source_url", sourceURL).Msg("Secret findings stored successfully")
 	}
 
-	// TODO: Send notification for high-severity secrets if s.secretsConfig.NotifyOnHighSeveritySecret (Task 5.3)
+	// TODO: Send notification for high-severity secrets if configured
+	for _, finding := range deduplicatedFindings {
+		if s.secretsConfig.NotifyOnHighSeveritySecret && (finding.Severity == "HIGH" || finding.Severity == "CRITICAL") {
+			s.logger.Info().Str("severity", finding.Severity).Str("rule_id", finding.RuleID).Str("source_url", sourceURL).Msg("High-severity secret detected - notification should be sent")
+		}
+	}
 
 	totalScanDuration := time.Since(scanStartTime)
 	if len(deduplicatedFindings) > 0 {
@@ -232,4 +203,3 @@ func (s *SecretDetectorService) deduplicateFindings(findings []models.SecretFind
 	}
 	return uniqueFindings
 }
- 

@@ -38,27 +38,38 @@ func NewRegexScanner(cfg *config.SecretsConfig, logger zerolog.Logger) (*RegexSc
 		return nil, fmt.Errorf("failed to load default regex patterns: %w", err)
 	}
 	scanner.patterns = append(scanner.patterns, defaultPatterns...)
-	scanner.logger.Info().Int("count", len(defaultPatterns)).Msg("Loaded default regex patterns")
+	scanner.logger.Debug().Int("count", len(defaultPatterns)).Msg("Loaded default regex patterns")
 
-	// Load custom patterns from file if specified
+	// Load custom regex patterns from file if specified
 	if cfg.CustomRegexPatternsFile != "" {
-		customPatterns, err := loadCustomPatternsFromFile(cfg.CustomRegexPatternsFile, scanner.logger)
-		if err != nil {
-			scanner.logger.Error().Err(err).Str("file", cfg.CustomRegexPatternsFile).Msg("Failed to load custom patterns from file")
-			return nil, fmt.Errorf("failed to load custom patterns: %w", err)
-		}
-		scanner.patterns = append(scanner.patterns, customPatterns...)
-		scanner.logger.Info().Int("count", len(customPatterns)).Str("file", cfg.CustomRegexPatternsFile).Msg("Loaded custom regex patterns from file")
-	} else {
-		// Load Mantra patterns as fallback if no custom patterns file is specified
-		mantraPatterns, err := loadMantraPatternsFromFile("internal/secrets/patterns.yaml", scanner.logger)
-		if err != nil {
-			scanner.logger.Warn().Err(err).Msg("Failed to load Mantra patterns, continuing with default patterns only")
-		} else {
-			scanner.patterns = append(scanner.patterns, mantraPatterns...)
-			scanner.logger.Info().Int("count", len(mantraPatterns)).Msg("Loaded Mantra regex patterns")
+		customPatterns, customErr := loadCustomPatternsFromFile(cfg.CustomRegexPatternsFile, scanner.logger)
+		if customErr != nil {
+			scanner.logger.Error().Err(customErr).Str("file", cfg.CustomRegexPatternsFile).Msg("Failed to load custom regex patterns")
+		} else if len(customPatterns) > 0 {
+			scanner.patterns = append(scanner.patterns, customPatterns...)
+			scanner.logger.Debug().Int("count", len(customPatterns)).Str("file", cfg.CustomRegexPatternsFile).Msg("Loaded custom regex patterns from file")
 		}
 	}
+
+	// Load Mantra patterns
+	mantraPatterns, mantraErr := loadMantraPatternsFromFile("internal/secrets/patterns.yaml", scanner.logger)
+	if mantraErr != nil {
+		scanner.logger.Error().Err(mantraErr).Msg("Failed to load Mantra patterns")
+	} else if len(mantraPatterns) > 0 {
+		scanner.patterns = append(scanner.patterns, mantraPatterns...)
+		scanner.logger.Debug().Int("count", len(mantraPatterns)).Msg("Loaded Mantra regex patterns")
+	}
+
+	// TODO: Load additional patterns from config - compilePatterns function needs to be implemented
+	// if len(cfg.DefaultRegexPatterns) > 0 {
+	//     configPatterns, configErr := compilePatterns(cfg.DefaultRegexPatterns, scanner.logger)
+	//     if configErr != nil {
+	//         scanner.logger.Error().Err(configErr).Msg("Failed to compile config regex patterns")
+	//     } else {
+	//         scanner.patterns = append(scanner.patterns, configPatterns...)
+	//         scanner.logger.Debug().Int("count", len(configPatterns)).Msg("Loaded config regex patterns")
+	//     }
+	// }
 
 	// Compile all patterns
 	for i := range scanner.patterns {
@@ -70,40 +81,33 @@ func NewRegexScanner(cfg *config.SecretsConfig, logger zerolog.Logger) (*RegexSc
 		scanner.patterns[i].Compiled = compiled
 	}
 
-	scanner.logger.Info().Int("total_patterns", len(scanner.patterns)).Msg("RegexScanner initialized successfully")
+	scanner.logger.Debug().Int("total_patterns", len(scanner.patterns)).Msg("RegexScanner initialized successfully")
 	return scanner, nil
 }
 
 // loadCustomPatternsFromFile loads regex patterns from a YAML or JSON file.
-func loadCustomPatternsFromFile(filePath string, log zerolog.Logger) ([]RegexPattern, error) {
-	log.Info().Str("file", filePath).Msg("Loading custom regex patterns from file")
+func loadCustomPatternsFromFile(filePath string, logger zerolog.Logger) ([]RegexPattern, error) {
+	logger.Debug().Str("file", filePath).Msg("Loading custom regex patterns from file")
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read custom patterns file %s: %w", filePath, err)
 	}
 
 	var customPatterns []RegexPattern
-	// Attempt to unmarshal as YAML first, then JSON as a fallback (or use file extension to decide)
 	err = yaml.Unmarshal(data, &customPatterns)
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to unmarshal custom patterns as YAML, trying JSON")
-		// err = json.Unmarshal(data, &customPatterns) // Ensure json import if using this
-		// if err != nil {
-		// 	return nil, fmt.Errorf("failed to unmarshal custom patterns file %s as YAML or JSON: %w", filePath, err)
-		// }
-		// For simplicity, only YAML is shown fully implemented here. Add JSON if needed.
 		return nil, fmt.Errorf("failed to unmarshal custom patterns file %s as YAML: %w", filePath, err)
 	}
 
 	// Compile loaded custom patterns
 	for i := range customPatterns {
 		if customPatterns[i].Pattern == "" {
-			log.Warn().Str("rule_id", customPatterns[i].RuleID).Msg("Custom pattern has empty regex, skipping")
+			logger.Warn().Str("rule_id", customPatterns[i].RuleID).Msg("Custom pattern has empty regex, skipping")
 			continue // Skip invalid pattern
 		}
 		compiledRegex, err := compileRegex(customPatterns[i].Pattern) // Using existing compileRegex helper
 		if err != nil {
-			log.Error().Err(err).Str("rule_id", customPatterns[i].RuleID).Str("pattern", customPatterns[i].Pattern).Msg("Failed to compile custom regex pattern, skipping")
+			logger.Error().Err(err).Str("rule_id", customPatterns[i].RuleID).Str("pattern", customPatterns[i].Pattern).Msg("Failed to compile custom regex pattern, skipping")
 			continue // Skip invalid pattern
 		}
 		customPatterns[i].Compiled = compiledRegex
@@ -116,13 +120,13 @@ func loadCustomPatternsFromFile(filePath string, log zerolog.Logger) ([]RegexPat
 		}
 	}
 
-	log.Info().Int("loaded_count", len(validPatterns)).Str("file", filePath).Msg("Successfully loaded and compiled custom patterns")
+	logger.Debug().Int("loaded_count", len(validPatterns)).Str("file", filePath).Msg("Successfully loaded and compiled custom patterns")
 	return validPatterns, nil
 }
 
 // ScanWithRegexes scans the given content using the configured regex patterns.
 func (s *RegexScanner) ScanWithRegexes(content []byte, sourceURL string) ([]models.SecretFinding, error) {
-	s.logger.Info().Str("sourceURL", sourceURL).Int("contentLength", len(content)).Int("patternCount", len(s.patterns)).Msg("Scanning content with custom regexes")
+	s.logger.Debug().Str("sourceURL", sourceURL).Int("contentLength", len(content)).Int("patternCount", len(s.patterns)).Msg("Scanning content with custom regexes")
 	var findings []models.SecretFinding
 	lineNumber := 0
 
@@ -208,7 +212,7 @@ func (s *RegexScanner) ScanWithRegexes(content []byte, sourceURL string) ([]mode
 	}
 
 	if len(findings) > 0 {
-		s.logger.Info().Int("count", len(findings)).Str("sourceURL", sourceURL).Msg("Custom regex scanner found secrets")
+		s.logger.Debug().Int("count", len(findings)).Str("sourceURL", sourceURL).Msg("Custom regex scanner found secrets")
 	}
 
 	return findings, nil
