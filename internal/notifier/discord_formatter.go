@@ -478,6 +478,28 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 		})
 	}
 
+	// Add Changed URLs field
+	if len(changes) > 0 {
+		var changedURLsText strings.Builder
+		urlsToShow := 0
+		maxURLsInMessage := 5 // Keep this list relatively short for readability
+		for _, change := range changes {
+			if urlsToShow >= maxURLsInMessage {
+				changedURLsText.WriteString(fmt.Sprintf("... and %d more.", len(changes)-urlsToShow))
+				break
+			}
+			changedURLsText.WriteString(fmt.Sprintf("- `%s`\n", truncateString(change.URL, 100)))
+			urlsToShow++
+		}
+		if changedURLsText.Len() > 0 {
+			fields = append(fields, models.DiscordEmbedField{
+				Name:   ":link: Changed URLs",
+				Value:  strings.TrimRight(changedURLsText.String(), "\n"),
+				Inline: false,
+			})
+		}
+	}
+
 	embed := models.DiscordEmbed{
 		Title:       title,
 		Description: description,
@@ -832,30 +854,10 @@ func FormatMonitorCycleCompleteMessage(data models.MonitorCycleCompleteData, cfg
 		data.TotalMonitored)
 
 	var fields []models.DiscordEmbedField
+	fields = append(fields, createTimestampField("Cycle Completed", data.Timestamp, true))
+	fields = append(fields, createCountField("Total Monitored", data.TotalMonitored, "URLs", true))
 
-	if len(data.ChangedURLs) > 0 {
-		changedURLsStr := ""
-		for i, u := range data.ChangedURLs {
-			if i < 10 { // Show up to 10 changed URLs
-				changedURLsStr += fmt.Sprintf("- `%s`\n", truncateString(u, 100))
-			} else {
-				changedURLsStr += fmt.Sprintf("...and %d more.", len(data.ChangedURLs)-10)
-				break
-			}
-		}
-		fields = append(fields, models.DiscordEmbedField{
-			Name:   fmt.Sprintf(":warning: Detected Changes (%d)", len(data.ChangedURLs)),
-			Value:  changedURLsStr,
-			Inline: false,
-		})
-	} else {
-		fields = append(fields, models.DiscordEmbedField{
-			Name:   ":shield: Detected Changes",
-			Value:  "No changes detected in this cycle.",
-			Inline: false,
-		})
-	}
-
+	// Link to the aggregated report if available
 	if data.ReportPath != "" {
 		fields = append(fields, models.DiscordEmbedField{
 			Name:   ":page_facing_up: Aggregated Report",
