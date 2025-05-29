@@ -372,9 +372,27 @@
                     <div class="card-header" id="heading{{$index}}">
                         <h5 class="mb-0">
                             <button class="btn btn-link" data-toggle="collapse" data-target="#collapse{{$index}}" aria-expanded="{{if eq $index 0}}true{{else}}false{{end}}" aria-controls="collapse{{$index}}">
-                                <i class="fas fa-globe mr-2"></i>{{ $diff.URL }} 
-                                <span class="badge bg-secondary ms-2">{{ $diff.ContentType }}</span>
+                                <i class="fas fa-globe mr-2"></i>{{ $diff.URL }}
+                                <span class="badge badge-secondary ms-2">{{ $diff.ContentType }}</span>
                                 <small class="ms-2 text-light">{{ $diff.Timestamp.Format "2006-01-02 15:04:05" }}</small>
+                                <!-- START: Additional Summary Info -->
+                                {{if not $diff.IsIdentical}}
+                                    {{if $diff.Summary}}
+                                        <span class="ml-2 badge badge-pill badge-warning"><i class="fas fa-exchange-alt mr-1"></i> {{ $diff.Summary }}</span>
+                                    {{end}}
+                                    {{if $diff.ExtractedPaths}}
+                                        <span class="ml-2 badge badge-pill badge-info"><i class="fas fa-sitemap mr-1"></i> {{len $diff.ExtractedPaths}} {{if eq (len $diff.ExtractedPaths) 1}}path{{else}}paths{{end}}</span>
+                                    {{end}}
+                                    {{if $diff.SecretFindings}}
+                                        <span class="ml-2 badge badge-pill {{if gt $diff.SecretStats.HighSeverity 0}}badge-danger{{else if gt $diff.SecretStats.MediumSeverity 0}}badge-warning{{else if gt $diff.SecretStats.LowSeverity 0}}badge-info{{else}}badge-secondary{{end}}">
+                                            <i class="fas fa-shield-alt mr-1"></i> {{len $diff.SecretFindings}} {{if eq (len $diff.SecretFindings) 1}}secret{{else}}secrets{{end}}
+                                            {{if gt $diff.SecretStats.HighSeverity 0}}
+                                                ({{$diff.SecretStats.HighSeverity}} H)
+                                            {{end}}
+                                        </span>
+                                    {{end}}
+                                {{end}}
+                                <!-- END: Additional Summary Info -->
                             </button>
                         </h5>
                     </div>
