@@ -25,17 +25,18 @@ import (
 // 	// ContextText string // Optional: text content of the link, or surrounding text
 // }
 
-// tagsToExtract defines which HTML tags and attributes to check for URLs.
-// Task 3.1: Define tags and attributes for URL extraction.
-var tagsToExtract = map[string]string{
-	"a":      "href",
-	"link":   "href",   // For stylesheets, favicons, etc.
-	"script": "src",    // For JavaScript files
-	"img":    "src",    // For images
-	"iframe": "src",    // For embedded frames
-	"form":   "action", // For form submission URLs
-	"object": "data",   // For embedded objects
-	"embed":  "src",    // For embedded content
+var assetExtractors = []struct {
+	Tag       string
+	Attribute string
+}{
+	{"a", "href"},
+	{"link", "href"},   // For stylesheets, favicons, etc.
+	{"script", "src"},  // For JavaScript files
+	{"img", "src"},     // For images
+	{"iframe", "src"},  // For embedded frames
+	{"form", "action"}, // For form submission URLs
+	{"object", "data"}, // For embedded objects
+	{"embed", "src"},   // For embedded content
 }
 
 // ExtractAssetsFromHTML parses HTML content and extracts various assets like links, scripts, styles, images.
@@ -105,25 +106,25 @@ func ExtractAssetsFromHTML(htmlContent []byte, basePageURL *url.URL, crawlerInst
 		}
 	}
 
-	for tag, attribute := range tagsToExtract {
-		doc.Find(tag).Each(func(i int, s *goquery.Selection) {
+	for _, extractor := range assetExtractors {
+		doc.Find(extractor.Tag).Each(func(i int, s *goquery.Selection) {
 			// Determine AssetType based on tag - this can be more sophisticated
 			var assetType models.AssetType
-			switch tag {
+			switch extractor.Tag {
 			case "a", "link": // Treat 'link' also as a general link or stylesheet
 				// For 'link' tags, could check 'rel' attribute for 'stylesheet' to be more specific
 				if s.AttrOr("rel", "") == "stylesheet" {
 					assetType = models.AssetTypeStyle
 				} else {
-					assetType = models.AssetType(tag) // Or a more generic AssetTypeLink
+					assetType = models.AssetType(extractor.Tag) // Or a more generic AssetTypeLink
 				}
 			case "script", "img", "iframe", "form", "object", "embed":
-				assetType = models.AssetType(tag)
+				assetType = models.AssetType(extractor.Tag)
 			default:
-				crawlerInstance.logger.Warn().Str("tag", tag).Msg("Unknown tag type for asset extraction, using tag name as type.")
-				assetType = models.AssetType(tag) // Fallback
+				crawlerInstance.logger.Warn().Str("tag", extractor.Tag).Msg("Unknown tag type for asset extraction, using tag name as type.")
+				assetType = models.AssetType(extractor.Tag) // Fallback
 			}
-			extractFunc(i, s, assetType, attribute)
+			extractFunc(i, s, assetType, extractor.Attribute)
 		})
 	}
 	return assets

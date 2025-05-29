@@ -3,8 +3,9 @@ package monitor
 import (
 	"crypto/sha256"
 	"fmt"
-	"github.com/aleister1102/monsterinc/internal/models" // Assuming MonitoredFileUpdate is here
 	"time"
+
+	"github.com/aleister1102/monsterinc/internal/models" // Assuming MonitoredFileUpdate is here
 
 	"github.com/rs/zerolog"
 )

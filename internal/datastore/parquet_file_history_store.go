@@ -56,14 +56,14 @@ func NewParquetFileHistoryStore(cfg *config.StorageConfig, logger zerolog.Logger
 // getHistoryFilePath returns the path to the Parquet file for a specific URL.
 // It now creates a directory structure based on the URL's host.
 func (pfs *ParquetFileHistoryStore) getHistoryFilePath(recordURL string) (string, error) {
-	parsedURL, err := url.Parse(recordURL)
+	hostname, err := urlhandler.ExtractHostname(recordURL)
 	if err != nil {
-		pfs.logger.Error().Err(err).Str("url", recordURL).Msg("Failed to parse URL for history file path")
-		return "", fmt.Errorf("parsing URL '%s': %w", recordURL, err)
+		pfs.logger.Error().Err(err).Str("url", recordURL).Msg("Failed to extract hostname for history file path")
+		return "", fmt.Errorf("extracting hostname from URL '%s': %w", recordURL, err)
 	}
-	host := parsedURL.Host
-	sanitizedHost := strings.ReplaceAll(host, ":", "_") // Sanitize host for directory name
-	sanitizedHost = strings.ReplaceAll(sanitizedHost, " ", "_")
+
+	// Sanitize hostname for directory name (urlhandler.ExtractHostname already normalizes to lowercase)
+	sanitizedHost := urlhandler.SanitizeFilename(hostname)
 
 	// Base path for all monitor data: <storageConfig.ParquetBasePath>/monitor/<sanitizedHost>/current_history.parquet
 	urlSpecificDir := filepath.Join(pfs.storageConfig.ParquetBasePath, monitorDataDir, sanitizedHost)
@@ -150,35 +150,13 @@ func readFileHistoryRecords(filePath string, logger zerolog.Logger) ([]models.Fi
 	return records, nil
 }
 
-// StoreFileRecord stores a new version of a monitored file.
-func (pfs *ParquetFileHistoryStore) StoreFileRecord(record models.FileHistoryRecord) error {
-	historyFilePath, err := pfs.getHistoryFilePath(record.URL)
+// createParquetFile creates a new parquet file for writing with proper compression settings
+func (pfs *ParquetFileHistoryStore) createParquetFile(filePath string) (*os.File, parquet.WriterOption, error) {
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
-		return err // Error already logged in getHistoryFilePath
+		pfs.logger.Error().Err(err).Str("path", filePath).Msg("Failed to open/create history file for writing")
+		return nil, nil, fmt.Errorf("opening/creating history file '%s': %w", filePath, err)
 	}
-
-	pfs.logger.Info().Str("url", record.URL).Str("path", historyFilePath).Msg("Storing file record")
-
-	existingRecords, err := readFileHistoryRecords(historyFilePath, pfs.logger)
-	if err != nil && !os.IsNotExist(err) {
-		// Log error but attempt to overwrite if it's not a simple "not found" error
-		pfs.logger.Error().Err(err).Str("path", historyFilePath).Msg("Error reading existing history file, will attempt to overwrite")
-		existingRecords = []models.FileHistoryRecord{} // Reset to ensure we write a new file
-	} else if os.IsNotExist(err) {
-		pfs.logger.Info().Str("path", historyFilePath).Msg("History file does not exist, creating new one.")
-		existingRecords = []models.FileHistoryRecord{}
-	}
-
-	// Always append the new record
-	allRecords := append(existingRecords, record)
-
-	// Write all records back (effectively appending by rewriting)
-	file, err := os.OpenFile(historyFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		pfs.logger.Error().Err(err).Str("path", historyFilePath).Msg("Failed to open/create history file for writing")
-		return fmt.Errorf("opening/creating history file '%s': %w", historyFilePath, err)
-	}
-	defer file.Close()
 
 	// Get the compression codec from config string
 	var compressionOption parquet.WriterOption = parquet.Compression(&parquet.Uncompressed) // Default to Uncompressed
@@ -198,7 +176,13 @@ func (pfs *ParquetFileHistoryStore) StoreFileRecord(record models.FileHistoryRec
 		pfs.logger.Warn().Str("codec", pfs.storageConfig.CompressionCodec).Msg("Unsupported compression codec string, defaulting to Uncompressed")
 	}
 
+	return file, compressionOption, nil
+}
+
+// writeParquetData writes all records to the parquet file
+func (pfs *ParquetFileHistoryStore) writeParquetData(file *os.File, compressionOption parquet.WriterOption, allRecords []models.FileHistoryRecord) error {
 	writer := parquet.NewWriter(file, parquet.SchemaOf(models.FileHistoryRecord{}), compressionOption)
+
 	for _, rec := range allRecords {
 		if err := writer.Write(rec); err != nil {
 			pfs.logger.Error().Err(err).Str("url", rec.URL).Msg("Failed to write record to Parquet file")
@@ -207,9 +191,57 @@ func (pfs *ParquetFileHistoryStore) StoreFileRecord(record models.FileHistoryRec
 	}
 
 	if err := writer.Close(); err != nil {
-		pfs.logger.Error().Err(err).Str("path", historyFilePath).Msg("Failed to close Parquet writer")
-		return fmt.Errorf("closing Parquet writer for '%s': %w", historyFilePath, err)
+		pfs.logger.Error().Err(err).Msg("Failed to close Parquet writer")
+		return fmt.Errorf("closing Parquet writer: %w", err)
 	}
+
+	return nil
+}
+
+// loadExistingRecords loads existing records from the history file
+func (pfs *ParquetFileHistoryStore) loadExistingRecords(historyFilePath string) ([]models.FileHistoryRecord, error) {
+	existingRecords, err := readFileHistoryRecords(historyFilePath, pfs.logger)
+	if err != nil && !os.IsNotExist(err) {
+		// Log error but attempt to overwrite if it's not a simple "not found" error
+		pfs.logger.Error().Err(err).Str("path", historyFilePath).Msg("Error reading existing history file, will attempt to overwrite")
+		return []models.FileHistoryRecord{}, nil // Reset to ensure we write a new file
+	} else if os.IsNotExist(err) {
+		pfs.logger.Info().Str("path", historyFilePath).Msg("History file does not exist, creating new one.")
+		return []models.FileHistoryRecord{}, nil
+	}
+	return existingRecords, nil
+}
+
+// StoreFileRecord stores a new version of a monitored file.
+func (pfs *ParquetFileHistoryStore) StoreFileRecord(record models.FileHistoryRecord) error {
+	historyFilePath, err := pfs.getHistoryFilePath(record.URL)
+	if err != nil {
+		return err // Error already logged in getHistoryFilePath
+	}
+
+	pfs.logger.Info().Str("url", record.URL).Str("path", historyFilePath).Msg("Storing file record")
+
+	// Load existing records
+	existingRecords, err := pfs.loadExistingRecords(historyFilePath)
+	if err != nil {
+		return err
+	}
+
+	// Always append the new record
+	allRecords := append(existingRecords, record)
+
+	// Create parquet file for writing
+	file, compressionOption, err := pfs.createParquetFile(historyFilePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Write all records to the file
+	if err := pfs.writeParquetData(file, compressionOption, allRecords); err != nil {
+		return fmt.Errorf("writing parquet data to '%s': %w", historyFilePath, err)
+	}
+
 	pfs.logger.Info().Str("url", record.URL).Int("total_records", len(allRecords)).Msg("Successfully stored/updated file history record.")
 	return nil
 }
@@ -325,14 +357,37 @@ func (pfs *ParquetFileHistoryStore) validateSchemaCompatibility() error {
 	return nil
 }
 
-// GetAllRecordsWithDiff retrieves all records that have a non-empty DiffResultJSON field
-// from all current_history.parquet files within the monitor data directory.
-func (pfs *ParquetFileHistoryStore) GetAllRecordsWithDiff() ([]*models.FileHistoryRecord, error) {
-	pfs.logger.Debug().Msg("Attempting to get all records with diffs.")
-	allDiffRecords := make([]*models.FileHistoryRecord, 0)
+// scanHistoryFile scans a single history file for records with diffs
+func (pfs *ParquetFileHistoryStore) scanHistoryFile(filePath string) ([]*models.FileHistoryRecord, error) {
+	pfs.logger.Debug().Str("file_path", filePath).Msg("Found history file, attempting to read records with diffs.")
 
-	monitorBaseDir := filepath.Join(pfs.storageConfig.ParquetBasePath, monitorDataDir)
-	pfs.logger.Info().Str("monitor_dir", monitorBaseDir).Msg("Scanning for history files with diffs.")
+	// Check if this path is directly inside a host directory (e.g., monitor/example.com/current_history.parquet)
+	// or deeper (archive), we only want the "current" ones outside archive for this specific method.
+	parentDir := filepath.Dir(filePath)
+	if filepath.Base(parentDir) == fileHistoryArchiveSubDir {
+		pfs.logger.Debug().Str("file_path", filePath).Msg("Skipping archived history file.")
+		return nil, nil
+	}
+
+	records, readErr := pfs.readRecordsFromFile(filePath)
+	if readErr != nil {
+		pfs.logger.Error().Err(readErr).Str("file", filePath).Msg("Failed to read records from history file")
+		return nil, nil // Continue to the next file
+	}
+
+	diffRecords := make([]*models.FileHistoryRecord, 0)
+	for _, rec := range records {
+		if rec.DiffResultJSON != nil && *rec.DiffResultJSON != "" && *rec.DiffResultJSON != "null" {
+			diffRecords = append(diffRecords, rec)
+		}
+	}
+
+	return diffRecords, nil
+}
+
+// walkDirectoryForDiffs walks through the monitor directory to find history files with diffs
+func (pfs *ParquetFileHistoryStore) walkDirectoryForDiffs(monitorBaseDir string) ([]*models.FileHistoryRecord, error) {
+	allDiffRecords := make([]*models.FileHistoryRecord, 0)
 
 	// Walk through the monitorBaseDir to find all host-specific directories
 	// then look for current_history.parquet in each.
@@ -349,25 +404,12 @@ func (pfs *ParquetFileHistoryStore) GetAllRecordsWithDiff() ([]*models.FileHisto
 
 		// We are looking for current_history.parquet files
 		if !d.IsDir() && d.Name() == fileHistoryCurrentFile {
-			pfs.logger.Debug().Str("file_path", path).Msg("Found history file, attempting to read records with diffs.")
-			// Check if this path is directly inside a host directory (e.g., monitor/example.com/current_history.parquet)
-			// or deeper (archive), we only want the "current" ones outside archive for this specific method.
-			parentDir := filepath.Dir(path)
-			if filepath.Base(parentDir) == fileHistoryArchiveSubDir {
-				pfs.logger.Debug().Str("file_path", path).Msg("Skipping archived history file.")
-				return nil
+			diffRecords, scanErr := pfs.scanHistoryFile(path)
+			if scanErr != nil {
+				return nil // Error already logged in scanHistoryFile
 			}
-
-			records, readErr := pfs.readRecordsFromFile(path)
-			if readErr != nil {
-				pfs.logger.Error().Err(readErr).Str("file", path).Msg("Failed to read records from history file")
-				return nil // Continue to the next file
-			}
-
-			for _, rec := range records {
-				if rec.DiffResultJSON != nil && *rec.DiffResultJSON != "" && *rec.DiffResultJSON != "null" {
-					allDiffRecords = append(allDiffRecords, rec)
-				}
+			if diffRecords != nil {
+				allDiffRecords = append(allDiffRecords, diffRecords...)
 			}
 		}
 		return nil
@@ -377,6 +419,22 @@ func (pfs *ParquetFileHistoryStore) GetAllRecordsWithDiff() ([]*models.FileHisto
 		// This error is from filepath.WalkDir itself (e.g., root dir not accessible)
 		pfs.logger.Error().Err(err).Str("base_dir", monitorBaseDir).Msg("Failed to walk history directories to get records with diffs")
 		return nil, fmt.Errorf("failed to walk history directories: %w", err)
+	}
+
+	return allDiffRecords, nil
+}
+
+// GetAllRecordsWithDiff retrieves all records that have a non-empty DiffResultJSON field
+// from all current_history.parquet files within the monitor data directory.
+func (pfs *ParquetFileHistoryStore) GetAllRecordsWithDiff() ([]*models.FileHistoryRecord, error) {
+	pfs.logger.Debug().Msg("Attempting to get all records with diffs.")
+
+	monitorBaseDir := filepath.Join(pfs.storageConfig.ParquetBasePath, monitorDataDir)
+	pfs.logger.Info().Str("monitor_dir", monitorBaseDir).Msg("Scanning for history files with diffs.")
+
+	allDiffRecords, err := pfs.walkDirectoryForDiffs(monitorBaseDir)
+	if err != nil {
+		return nil, err
 	}
 
 	pfs.logger.Info().Int("count", len(allDiffRecords)).Msg("Successfully retrieved all records with diffs.")
@@ -438,9 +496,8 @@ func (pfs *ParquetFileHistoryStore) GetHostnamesWithHistory() ([]string, error) 
 	return hostnames, nil
 }
 
-// GetAllLatestDiffResultsForURLs retrieves the latest diff result for each of the specified URLs.
-func (pfs *ParquetFileHistoryStore) GetAllLatestDiffResultsForURLs(urls []string) (map[string]*models.ContentDiffResult, error) {
-	results := make(map[string]*models.ContentDiffResult)
+// groupURLsByHost groups URLs by their hostname for optimized processing
+func (pfs *ParquetFileHistoryStore) groupURLsByHost(urls []string) map[string]string {
 	urlHostMap := make(map[string]string) // To optimize file reads, group URLs by host
 
 	for _, u := range urls {
@@ -453,12 +510,61 @@ func (pfs *ParquetFileHistoryStore) GetAllLatestDiffResultsForURLs(urls []string
 		urlHostMap[u] = host
 	}
 
+	return urlHostMap
+}
+
+// processHostRecordsForDiffs processes host records to find the latest diff for each URL
+func (pfs *ParquetFileHistoryStore) processHostRecordsForDiffs(hostRecords []models.FileHistoryRecord, targetURLs []string) map[string]*models.ContentDiffResult {
+	results := make(map[string]*models.ContentDiffResult)
+
+	// Find the latest record for each specific URL that has a diff
+	for _, targetURL := range targetURLs {
+		for _, record := range hostRecords {
+			if record.URL == targetURL && record.DiffResultJSON != nil {
+				var diffResult models.ContentDiffResult
+				if err := json.Unmarshal([]byte(*record.DiffResultJSON), &diffResult); err != nil {
+					pfs.logger.Error().Err(err).Str("url", targetURL).Msg("Failed to unmarshal DiffResultJSON for latest diff.")
+					// Store an error or skip? For now, skip.
+					break // Move to the next URL for this host
+				}
+
+				// Unmarshal ExtractedPathsJSON if available
+				if record.ExtractedPathsJSON != nil && *record.ExtractedPathsJSON != "" {
+					var extractedPaths []models.ExtractedPath
+					if err := json.Unmarshal([]byte(*record.ExtractedPathsJSON), &extractedPaths); err != nil {
+						pfs.logger.Error().Err(err).Str("url", targetURL).Msg("Failed to unmarshal ExtractedPathsJSON for latest diff.")
+						// Do not assign to diffResult.ExtractedPaths if unmarshaling fails, it will remain nil or empty
+					} else {
+						diffResult.ExtractedPaths = extractedPaths
+					}
+				}
+
+				results[targetURL] = &diffResult
+				break // Found the latest for this URL
+			}
+		}
+	}
+
+	return results
+}
+
+// GetAllLatestDiffResultsForURLs retrieves the latest diff result for each of the specified URLs.
+func (pfs *ParquetFileHistoryStore) GetAllLatestDiffResultsForURLs(urls []string) (map[string]*models.ContentDiffResult, error) {
+	results := make(map[string]*models.ContentDiffResult)
+	urlHostMap := pfs.groupURLsByHost(urls)
+
 	// Process URLs grouped by host to minimize file reads
 	processedHosts := make(map[string]struct{})
+	hostURLMap := make(map[string][]string) // Group URLs by host for processing
+
+	// Build reverse mapping: host -> URLs
 	for u, host := range urlHostMap {
+		hostURLMap[host] = append(hostURLMap[host], u)
+	}
+
+	for host, urlsForHost := range hostURLMap {
 		if _, processed := processedHosts[host]; processed {
-			// Already read this host's file, try to find the URL in existing results if logic was different
-			// For this specific function, we fetch per URL, so this check is more for future optimization awareness
+			continue // Already processed this host
 		}
 
 		// Get all records for the host, which are sorted newest first by readFileHistoryRecords
@@ -470,32 +576,13 @@ func (pfs *ParquetFileHistoryStore) GetAllLatestDiffResultsForURLs(urls []string
 
 		processedHosts[host] = struct{}{}
 
-		// Find the latest record for the specific URL that has a diff
-		for _, record := range hostRecords {
-			if record.URL == u && record.DiffResultJSON != nil {
-				var diffResult models.ContentDiffResult
-				if err := json.Unmarshal([]byte(*record.DiffResultJSON), &diffResult); err != nil {
-					pfs.logger.Error().Err(err).Str("url", u).Msg("Failed to unmarshal DiffResultJSON for latest diff.")
-					// Store an error or skip? For now, skip.
-					break // Move to the next URL for this host
-				}
-
-				// Unmarshal ExtractedPathsJSON if available
-				if record.ExtractedPathsJSON != nil && *record.ExtractedPathsJSON != "" {
-					var extractedPaths []models.ExtractedPath
-					if err := json.Unmarshal([]byte(*record.ExtractedPathsJSON), &extractedPaths); err != nil {
-						pfs.logger.Error().Err(err).Str("url", u).Msg("Failed to unmarshal ExtractedPathsJSON for latest diff.")
-						// Do not assign to diffResult.ExtractedPaths if unmarshaling fails, it will remain nil or empty
-					} else {
-						diffResult.ExtractedPaths = extractedPaths
-					}
-				}
-
-				results[u] = &diffResult
-				break // Found the latest for this URL
-			}
+		// Process records for all URLs of this host
+		hostResults := pfs.processHostRecordsForDiffs(hostRecords, urlsForHost)
+		for url, diffResult := range hostResults {
+			results[url] = diffResult
 		}
 	}
+
 	return results, nil
 }
 

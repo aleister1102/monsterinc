@@ -1,8 +1,9 @@
 package httpxrunner
 
 import (
-	"github.com/aleister1102/monsterinc/internal/models" // Import models package
 	"time"
+
+	"github.com/aleister1102/monsterinc/internal/models" // Import models package
 )
 
 // ProbeResult is now defined in internal/models/probe_result.go

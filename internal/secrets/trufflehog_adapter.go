@@ -32,8 +32,6 @@ func NewTruffleHogAdapter(cfg *config.SecretsConfig, log zerolog.Logger) *Truffl
 }
 
 // TruffleHogFindingV3 defines the structure for a single finding from TruffleHog v3 JSONL output.
-// This needs to match the actual fields output by `trufflehog filesystem --json`.
-// Fields are based on typical TruffleHog v3 output. Adjust if your version differs.
 type TruffleHogFindingV3 struct {
 	SourceMetadata struct {
 		Data struct {
@@ -68,7 +66,7 @@ type TruffleHogFindingV3 struct {
 
 // ScanWithTruffleHog executes TruffleHog CLI and parses its JSONL output.
 func (a *TruffleHogAdapter) ScanWithTruffleHog(content []byte, filenameHint string) ([]models.SecretFinding, error) {
-	a.logger.Info().Str("filenameHint", filenameHint).Int("content_length", len(content)).Msg("Scanning with TruffleHog CLI")
+	a.logger.Debug().Str("filenameHint", filenameHint).Int("content_length", len(content)).Msg("Scanning with TruffleHog CLI")
 
 	if a.config.TruffleHogPath == "" {
 		return nil, fmt.Errorf("TruffleHog path is not configured")
@@ -90,72 +88,28 @@ func (a *TruffleHogAdapter) ScanWithTruffleHog(content []byte, filenameHint stri
 	}
 
 	// Prepare TruffleHog command
-	// Using "filesystem" source to scan the temporary file.
-	// --json flag for JSONL output.
-	// --no-verification to skip live verification (can be slow and noisy).
-	// --no-update to disable auto-updater which can cause PATH issues on Windows.
-	// We could add --fail to exit with specific code if secrets are found, but parsing output is more robust.
-	// Consider --include-detectors or --exclude-detectors if needed from config.
-	cmdArgs := []string{"filesystem", tmpFile.Name(), "--json", "--no-update"}
+	cmd := exec.Command(a.config.TruffleHogPath, "filesystem", tmpFile.Name(), "--json")
+
 	if a.config.TruffleHogNoVerification {
-		cmdArgs = append(cmdArgs, "--no-verification")
+		cmd.Args = append(cmd.Args, "--no-verification")
 	}
+
+	a.logger.Debug().Str("command", cmd.String()).Msg("Executing TruffleHog")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(a.config.TruffleHogTimeoutSeconds)*time.Second)
 	defer cancel()
-
-	cmd := exec.CommandContext(ctx, a.config.TruffleHogPath, cmdArgs...)
-	a.logger.Debug().Str("command", cmd.String()).Msg("Executing TruffleHog CLI command")
-
-	// Set up environment to ensure Windows system commands are available
-	cmd.Env = os.Environ()
-	// Add common Windows system paths to ensure cmd.exe is available
-	systemPath := os.Getenv("PATH")
-	windowsPaths := ";C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem"
-	if !strings.Contains(systemPath, "C:\\Windows\\System32") {
-		cmd.Env = append(cmd.Env, "PATH="+systemPath+windowsPaths)
-	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 
 	err = cmd.Run()
-
-	if ctx.Err() == context.DeadlineExceeded {
-		a.logger.Error().Str("trufflehog_stderr", stderrBuf.String()).Msg("TruffleHog command timed out")
-		return nil, fmt.Errorf("TruffleHog command timed out after %d seconds", a.config.TruffleHogTimeoutSeconds)
-	}
-
-	// TruffleHog exits with specific codes, e.g., 0 if no secrets, 183 if secrets found (when --fail is not used consistently).
-	// Or it might exit with 1 for general errors.
-	// We primarily rely on parsing stdout for findings. Stderr is for errors.
 	if err != nil {
-		stderrStr := stderrBuf.String()
-
-		// Check if it's an updater-related error (non-critical for scanning)
-		isUpdaterError := strings.Contains(stderrStr, "trufflehog updater") ||
-			strings.Contains(stderrStr, "cannot move binary") ||
-			strings.Contains(stderrStr, "cmd\": executable file not found")
-
-		if isUpdaterError {
-			a.logger.Warn().Err(err).Str("trufflehog_stderr", stderrStr).Msg("TruffleHog updater failed, but continuing with scan")
-			// Don't return error for updater issues if we have stdout to parse
-		} else {
-			// Log stderr for debugging, even if we don't return it directly as the primary error
-			// unless stdout is empty.
-			a.logger.Warn().Err(err).Str("trufflehog_stderr", stderrStr).Str("trufflehog_stdout_snippet", firstNLines(stdoutBuf.String(), 5)).Msg("TruffleHog command finished with error")
+		// Check if it's a timeout or other context error
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("trufflehog scan timed out after %d seconds", a.config.TruffleHogTimeoutSeconds)
 		}
-
-		// If there's an error AND no stdout, it's a more severe execution problem.
-		if stdoutBuf.Len() == 0 {
-			if isUpdaterError {
-				a.logger.Error().Msg("TruffleHog updater failed and no scan output produced. Consider updating TruffleHog manually or fixing PATH issues.")
-				return nil, fmt.Errorf("TruffleHog updater failed and no scan output produced. Error: %w. Consider updating TruffleHog manually or adding 'cmd' to PATH", err)
-			}
-			return nil, fmt.Errorf("TruffleHog command failed: %w. Stderr: %s", err, stderrStr)
-		}
-		// If there's stdout, it might contain findings despite the exit code, so proceed to parse.
+		a.logger.Warn().Err(err).Str("stderr", stderrBuf.String()).Msg("TruffleHog command failed, but will still parse stdout")
 	}
 
 	var findings []models.SecretFinding
@@ -218,7 +172,7 @@ func (a *TruffleHogAdapter) ScanWithTruffleHog(content []byte, filenameHint stri
 		return findings, fmt.Errorf("error reading TruffleHog stdout: %w", err)
 	}
 
-	a.logger.Info().Int("findings_count", len(findings)).Msg("TruffleHog CLI scan complete.")
+	a.logger.Debug().Int("findings_count", len(findings)).Msg("TruffleHog CLI scan complete.")
 	return findings, nil
 }
 

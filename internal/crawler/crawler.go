@@ -35,8 +35,8 @@ type Crawler struct {
 	totalVisited     int // Approximate count of pages gocolly responded to via OnResponse
 	totalErrors      int // Count of errors from OnError
 	crawlStartTime   time.Time
-	Scope            *ScopeSettings // Task 2.1: Add scope settings
-	RespectRobotsTxt bool           // Task 2.3: Store robots.txt preference
+	Scope            *ScopeSettings // Scope settings for URL filtering
+	RespectRobotsTxt bool           // robots.txt preference
 	maxContentLength int64
 	headTimeout      time.Duration
 	logger           zerolog.Logger
@@ -138,12 +138,6 @@ func (cr *Crawler) handleResponse(r *colly.Response) {
 }
 
 // NewCrawler initializes a new Crawler based on the provided configuration.
-// Task 1.1: Implement crawler initialization.
-// Task 1.2: Initialize structures for URL de-duplication.
-// Task 1.3: Enhance initialization logging & basic operational logging.
-// Task 2.2: Update NewCrawler to accept path regexes for ScopeSettings.
-// Task 2.3: Add RespectRobotsTxt parameter to NewCrawler
-// Task 4.x: Modify NewCrawler to accept CrawlerConfig
 func NewCrawler(cfg *config.CrawlerConfig, httpClient *http.Client, appLogger zerolog.Logger) (*Crawler, error) {
 	moduleLogger := appLogger.With().Str("module", "Crawler").Logger()
 
@@ -205,15 +199,27 @@ func NewCrawler(cfg *config.CrawlerConfig, httpClient *http.Client, appLogger ze
 	}
 
 	// Initialize ScopeSettings with the logger
-	scopeSettings := NewScopeSettings(
+	var rootURLHostname string
+	if len(cfg.SeedURLs) > 0 {
+		if parsed, err := url.Parse(cfg.SeedURLs[0]); err == nil {
+			rootURLHostname = parsed.Hostname()
+		}
+	}
+
+	scopeSettings, err := NewScopeSettings(
+		rootURLHostname,
 		finalAllowedHostnames,
-		cfg.Scope.AllowedSubdomains,
 		cfg.Scope.DisallowedHostnames,
+		cfg.Scope.AllowedSubdomains,
 		cfg.Scope.DisallowedSubdomains,
-		cfg.Scope.AllowedPathRegexes,    // Task 2.2
-		cfg.Scope.DisallowedPathRegexes, // Task 2.2
+		cfg.Scope.AllowedPathRegexes,    // TODO
+		cfg.Scope.DisallowedPathRegexes, // TODO
 		moduleLogger,                    // Pass the moduleLogger to ScopeSettings
 	)
+	if err != nil {
+		moduleLogger.Error().Err(err).Msg("Failed to initialize scope settings")
+		return nil, err
+	}
 
 	collector, err := configureCollyCollector(cfg, crawlerTimeoutDuration, userAgent)
 	if err != nil {
@@ -273,7 +279,6 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 		return
 	}
 
-	// Task 2.1: Check scope before proceeding
 	if cr.Scope != nil {
 		isAllowed, scopeErr := cr.Scope.IsURLAllowed(normalizedAbsURL)
 		if scopeErr != nil {

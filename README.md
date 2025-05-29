@@ -1,64 +1,74 @@
 # MonsterInc
 
-MonsterInc is a command-line interface (CLI) tool written in Go, specialized for gathering information from websites, performing HTTP/HTTPS probing, and generating detailed reports.
+MonsterInc là một công cụ CLI (Command-Line Interface) được viết bằng Go, chuyên dụng cho việc thu thập thông tin từ các website, thực hiện HTTP/HTTPS probing, giám sát thay đổi nội dung, phát hiện secrets và tạo báo cáo chi tiết.
 
-## Key Features
+## Tính năng chính
 
 ### 🕷️ Web Crawling
-- Collect URLs from websites starting from one or more seed URLs
-- Control crawl scope (allowed/disallowed hostnames, subdomains, path regexes)
-- Customize User-Agent, timeout, depth, number of threads
-- Can respect or ignore `robots.txt`
-- Check `Content-Length` before crawling to avoid downloading large files
+- Thu thập URLs từ websites bắt đầu từ một hoặc nhiều seed URLs
+- Kiểm soát phạm vi crawl (hostnames được phép/không được phép, subdomains, path regexes)
+- Tùy chỉnh User-Agent, timeout, độ sâu, số luồng
+- Có thể tuân thủ hoặc bỏ qua `robots.txt`
+- Kiểm tra `Content-Length` trước khi crawl để tránh tải file lớn
 
 ### 🔍 HTTP/HTTPS Probing
-- Uses ProjectDiscovery's `httpx` library
-- Extract diverse information: status code, content type, content length, title, web server, headers, IPs, CNAMEs, ASN, TLS information, technologies used
-- Customize HTTP method, request URIs, headers, proxy, timeout, retries
+- Sử dụng thư viện `httpx` của ProjectDiscovery
+- Trích xuất thông tin đa dạng: status code, content type, content length, title, web server, headers, IPs, CNAMEs, ASN, thông tin TLS, công nghệ sử dụng
+- Tùy chỉnh HTTP method, request URIs, headers, proxy, timeout, retries
 
 ### 📊 HTML Reporting
-- Generate interactive HTML reports from probing results
-- Display results in table format with search, filter, and sort capabilities
-- Embed custom CSS/JS for good user interface and experience
-- Use Bootstrap (via CDN) for basic styling
+- Tạo báo cáo HTML tương tác từ kết quả probing
+- Hiển thị kết quả dạng bảng với khả năng tìm kiếm, lọc và sắp xếp
+- Nhúng CSS/JS tùy chỉnh cho giao diện người dùng tốt
+- Sử dụng Bootstrap và DataTables cho styling và tương tác
 
 ### 💾 Parquet Storage
-- Write probing results to Parquet files for later data analysis
-- Support compression codecs: ZSTD (default), SNAPPY, GZIP, UNCOMPRESSED
-- Save files in directory structure organized by date and target
+- Ghi kết quả probing vào file Parquet để phân tích dữ liệu sau này
+- Hỗ trợ các codec nén: ZSTD (mặc định), SNAPPY, GZIP, UNCOMPRESSED
+- Lưu file theo cấu trúc thư mục được tổ chức theo ngày và target
 
 ### ⚙️ Flexible Configuration
-- Manage configuration via YAML file (`config.yaml` preferred) or JSON (`config.json`)
-- Support command-line parameters
+- Quản lý cấu hình qua file YAML (`config.yaml` ưu tiên) hoặc JSON (`config.json`)
+- Hỗ trợ tham số command-line
+- Hot-reload configuration với file watching
 
 ### 🔄 Periodic Scanning (Automated Mode)
-- Allow scheduling of recurring scans with configurable intervals
-- Reload target lists at the beginning of each scan cycle
-- Maintain scan history in SQLite database
-- Send notifications (e.g., via Discord) on scan start, success, and failure
-- Include retry logic for failed scans
+- Cho phép lập lịch quét định kỳ với khoảng thời gian có thể cấu hình
+- Tải lại danh sách target ở đầu mỗi chu kỳ quét
+- Duy trì lịch sử quét trong cơ sở dữ liệu SQLite
+- Gửi thông báo (ví dụ: qua Discord) khi bắt đầu quét, thành công và thất bại
+- Bao gồm logic retry cho các lần quét thất bại
 
 ### 📁 File Monitoring
-- Monitor JS/HTML file changes in real-time
-- Detect content changes and generate diff reports
-- Support aggregated notifications
+- Giám sát thay đổi file JS/HTML trong thời gian thực
+- Phát hiện thay đổi nội dung và tạo báo cáo diff
+- Hỗ trợ thông báo tổng hợp
+- Sử dụng ETag và Last-Modified headers cho conditional requests
 
 ### 🔐 Secret Detection
-- Integrate TruffleHog for secret detection
-- Support custom regex patterns
-- Automatic notifications for high severity secrets
+- Tích hợp TruffleHog cho phát hiện secrets
+- Hỗ trợ custom regex patterns từ Mantra project
+- Thông báo tự động cho secrets độ nghiêm trọng cao
+- Lưu trữ findings trong Parquet format
 
 ### 🔗 Path Extraction
-- Extract paths/URLs from JS/HTML content
-- Use jsluice library for JS analysis
-- Support custom regex patterns
+- Trích xuất paths/URLs từ nội dung JS/HTML
+- Sử dụng thư viện jsluice cho phân tích JS
+- Hỗ trợ custom regex patterns
+- Phát hiện API endpoints và sensitive paths
 
-## Installation
+### 📈 Diff Analysis
+- So sánh kết quả quét hiện tại với dữ liệu lịch sử
+- Phân loại URLs: New, Existing, Old
+- Tạo báo cáo diff chi tiết cho thay đổi nội dung
+- Hỗ trợ beautification cho HTML/JS trong diff reports
 
-### System Requirements
-- Go version 1.23.1 or newer
+## Cài đặt
 
-### Install from Source
+### Yêu cầu hệ thống
+- Go version 1.23.1 hoặc mới hơn
+
+### Cài đặt từ Source
 
 1. Clone repository:
 ```bash
@@ -66,7 +76,7 @@ git clone https://github.com/aleister1102/monsterinc.git
 cd monsterinc
 ```
 
-2. Build application:
+2. Build ứng dụng:
 ```bash
 # Windows
 go build -o monsterinc.exe ./cmd/monsterinc
@@ -75,161 +85,186 @@ go build -o monsterinc.exe ./cmd/monsterinc
 go build -o monsterinc ./cmd/monsterinc
 ```
 
-### Install from GitHub Releases
+### Cài đặt từ GitHub Releases
 
 1. Download appropriate binary from [GitHub Releases](https://github.com/aleister1102/monsterinc/releases)
 2. Extract and place in system PATH
 
-### Install via Go install
+### Cài đặt via Go install
 
 ```bash
 go install github.com/aleister1102/monsterinc/cmd/monsterinc@latest
 ```
 
-## Usage
+## Sử dụng
 
-### Basic Syntax
+### Cú pháp cơ bản
 
 ```bash
 ./monsterinc --mode <onetime|automated> [options]
 ```
 
-### Main Command-Line Parameters
+### Tham số Command-Line chính
 
-#### Required Parameters
-- `--mode <onetime|automated>`: (Required) Execution mode
-  - `onetime`: Run once and exit
-  - `automated`: Run continuously on schedule
+#### Tham số bắt buộc
+- `--mode <onetime|automated>`: (Bắt buộc) Chế độ thực thi
+  - `onetime`: Chạy một lần và thoát
+  - `automated`: Chạy liên tục theo lịch trình
 
-#### Optional Parameters
-- `--scan-targets, -st <path>`: Path to file containing seed URLs list
-- `--monitor-targets, -mt <path>`: File containing URLs to monitor (automated mode only)
-- `--globalconfig, -gc <path>`: Path to configuration file
+#### Tham số tùy chọn
+- `--scan-targets, -st <path>`: Đường dẫn đến file chứa danh sách seed URLs
+- `--monitor-targets, -mt <path>`: File chứa URLs để giám sát (chỉ cho automated mode)
+- `--globalconfig, -gc <path>`: Đường dẫn đến file cấu hình
 
-### Usage Examples
+### Ví dụ sử dụng
 
 ```bash
-# Run once with URLs list from file
+# Chạy một lần với danh sách URLs từ file
 ./monsterinc --mode onetime --scan-targets targets.txt
 
-# Run automatically with monitoring
+# Chạy tự động với giám sát
 ./monsterinc --mode automated --monitor-targets monitor_targets.txt
 
-# Use custom configuration file
+# Sử dụng file cấu hình tùy chỉnh
 ./monsterinc --mode onetime --globalconfig custom_config.yaml --scan-targets targets.txt
 
-# Run automated mode with both scan and monitor
+# Chạy automated mode với cả scan và monitor
 ./monsterinc --mode automated --scan-targets scan_targets.txt --monitor-targets monitor_targets.txt
 ```
 
-## Configuration
+## Cấu hình
 
-### Configuration File
+### File cấu hình
 
-Application searches for configuration files in order:
-1. `config.yaml` (preferred)
-2. `config.json` (fallback)
+Ứng dụng tìm kiếm file cấu hình theo thứ tự:
+1. `config.yaml` (ưu tiên)
+2. `config.json` (dự phòng)
 
-Copy `config.example.yaml` to `config.yaml` and edit as needed:
+Copy `config.example.yaml` thành `config.yaml` và chỉnh sửa theo nhu cầu:
 
 ```bash
 cp config.example.yaml config.yaml
 ```
 
-### Main Configuration Sections
+### Các section cấu hình chính
 
-- **input_config**: Target URLs source configuration
-- **httpx_runner_config**: Settings for httpx probing
-- **crawler_config**: Web crawling configuration
-- **reporter_config**: HTML report generation settings
-- **storage_config**: Parquet storage configuration
-- **notification_config**: Discord notification settings
-- **monitor_config**: File monitoring configuration
-- **secrets_config**: Secret detection settings
-- **scheduler_config**: Automated mode configuration
+- **input_config**: Cấu hình nguồn target URLs
+- **httpx_runner_config**: Cài đặt cho httpx probing
+- **crawler_config**: Cấu hình web crawling
+- **reporter_config**: Cài đặt tạo báo cáo HTML
+- **storage_config**: Cấu hình lưu trữ Parquet
+- **notification_config**: Cài đặt thông báo Discord
+- **monitor_config**: Cấu hình giám sát file
+- **secrets_config**: Cài đặt phát hiện secret
+- **scheduler_config**: Cấu hình automated mode
+- **extractor_config**: Cài đặt trích xuất path
+- **diff_config**: Cấu hình so sánh dữ liệu
+- **log_config**: Cấu hình logging
 
-## Directory Structure
+## Cấu trúc thư mục
 
 ```
 monsterinc/
 ├── cmd/
-│   └── monsterinc/             # Application entry point
-├── internal/                   # Internal application logic
-│   ├── config/                # Configuration management
-│   ├── crawler/               # Web crawling module
-│   ├── datastore/             # Data storage module (Parquet)
-│   ├── differ/                # Difference comparison module
-│   ├── extractor/             # Path extraction module
-│   ├── httpxrunner/           # httpx wrapper
-│   ├── logger/                # Logging module
-│   ├── models/                # Data structure definitions
-│   ├── monitor/               # File monitoring module
-│   ├── notifier/              # Notification module
-│   ├── orchestrator/          # Workflow orchestration
-│   ├── reporter/              # HTML report generation
-│   ├── scheduler/             # Automated scan scheduling
-│   ├── secrets/               # Secret detection
-│   └── urlhandler/            # URL handling and normalization
-├── reports/                   # HTML reports directory
-├── database/                  # Database and Parquet files directory
-├── tasks/                     # PRD files and task lists
-├── config.example.yaml        # Sample configuration file
-└── README.md                  # This file
+│   └── monsterinc/             # Điểm vào ứng dụng
+├── internal/                   # Logic ứng dụng nội bộ
+│   ├── common/                # Utilities và patterns chung
+│   ├── config/                # Quản lý cấu hình
+│   ├── crawler/               # Module web crawling
+│   ├── datastore/             # Module lưu trữ dữ liệu (Parquet)
+│   ├── differ/                # Module so sánh thay đổi
+│   ├── extractor/             # Module trích xuất path
+│   ├── httpxrunner/           # Wrapper httpx
+│   ├── logger/                # Module logging
+│   ├── models/                # Định nghĩa cấu trúc dữ liệu
+│   ├── monitor/               # Module giám sát file
+│   ├── notifier/              # Module thông báo
+│   ├── orchestrator/          # Điều phối workflow
+│   ├── reporter/              # Tạo báo cáo HTML
+│   ├── scheduler/             # Lập lịch quét tự động
+│   ├── secrets/               # Phát hiện secret
+│   └── urlhandler/            # Xử lý và chuẩn hóa URL
+├── reports/                   # Thư mục báo cáo HTML
+│   ├── scan/                  # Báo cáo scan
+│   └── diff/                  # Báo cáo diff
+├── database/                  # Database và file Parquet
+│   ├── scan/                  # Dữ liệu scan
+│   ├── monitor/               # Dữ liệu monitor
+│   ├── scheduler/             # SQLite database cho scheduler
+│   └── secrets/               # Secret findings
+├── target/                    # File target lists
+├── tasks/                     # File PRD và task lists
+├── config.example.yaml        # File cấu hình mẫu
+└── README.md                  # File này
 ```
 
-## Workflow Operation
+## Workflow hoạt động
 
 ### Onetime Mode
-1. **Initialization**: Load configuration, initialize logger and notification
-2. **Target Acquisition**: Determine seed URLs from file or config
-3. **Crawling**: Collect URLs from seed URLs
-4. **Probing**: Perform HTTP/HTTPS probing with httpx
-5. **Diffing**: Compare with historical data from Parquet
-6. **Secret Detection**: Scan content for secrets (if enabled)
-7. **Path Extraction**: Extract paths from JS/HTML content
-8. **Storage**: Save results to Parquet files
-9. **Reporting**: Generate HTML report
-10. **Notification**: Send completion notification
+1. **Khởi tạo**: Load cấu hình, khởi tạo logger và notification
+2. **Thu thập Target**: Xác định seed URLs từ file hoặc config
+3. **Crawling**: Thu thập URLs từ seed URLs
+4. **Probing**: Thực hiện HTTP/HTTPS probing với httpx
+5. **Diffing**: So sánh với dữ liệu lịch sử từ Parquet
+6. **Secret Detection**: Quét nội dung tìm secrets (nếu được bật)
+7. **Path Extraction**: Trích xuất paths từ nội dung JS/HTML
+8. **Storage**: Lưu kết quả vào file Parquet
+9. **Reporting**: Tạo báo cáo HTML
+10. **Notification**: Gửi thông báo hoàn thành
 
 ### Automated Mode
-1. **Scheduler**: Calculate next scan time based on configuration
-2. **Target Reloading**: Reload targets for each cycle
-3. **Scan Execution**: Execute workflow like onetime mode
-4. **History Management**: Save scan history to SQLite
-5. **Retry Logic**: Retry if scan fails
-6. **File Monitoring**: Monitor JS/HTML file changes (if enabled)
+1. **Scheduler**: Tính toán thời gian quét tiếp theo dựa trên cấu hình
+2. **Target Reloading**: Tải lại targets cho mỗi chu kỳ
+3. **Scan Execution**: Thực thi workflow như onetime mode
+4. **History Management**: Lưu lịch sử quét vào SQLite
+5. **Retry Logic**: Retry nếu quét thất bại
+6. **File Monitoring**: Giám sát thay đổi file JS/HTML (nếu được bật)
 
-## Logging and Notifications
+## Database Schema
 
-- Use `zerolog` for structured logging
-- Support Discord notifications for:
-  - Scan lifecycle events
-  - File change notifications
-  - Critical errors
-  - High severity secrets
+### Parquet Files
+- **scan data**: `database/scan/<hostname>/data.parquet`
+- **file history**: `database/monitor/<hostname>/file_history.parquet`
+- **secrets**: `database/secrets/findings.parquet`
 
-## Main Dependencies
+### SQLite Database
+- **scan_history**: Lưu trữ lịch sử quét trong automated mode
+- Columns: scan_session_id, target_source, num_targets, scan_start_time, scan_end_time, status, report_file_path, diff_new, diff_old, diff_existing
+
+## Logging và Thông báo
+
+- Sử dụng `zerolog` cho structured logging
+- Hỗ trợ thông báo Discord cho:
+  - Sự kiện lifecycle quét
+  - Thông báo thay đổi file
+  - Lỗi nghiêm trọng
+  - Secrets độ nghiêm trọng cao
+  - Báo cáo diff tổng hợp
+
+## Dependencies chính
 
 - [colly](https://github.com/gocolly/colly) - Web crawling
 - [httpx](https://github.com/projectdiscovery/httpx) - HTTP probing
-- [parquet-go](https://github.com/parquet-go/parquet-go) - Parquet file handling
+- [parquet-go](https://github.com/parquet-go/parquet-go) - Xử lý file Parquet
 - [zerolog](https://github.com/rs/zerolog) - Structured logging
-- [jsluice](https://github.com/BishopFox/jsluice) - JavaScript analysis
+- [jsluice](https://github.com/BishopFox/jsluice) - Phân tích JavaScript
 - [sqlite](https://modernc.org/sqlite) - SQLite database (CGO-free)
+- [trufflehog](https://github.com/trufflesecurity/trufflehog) - Secret detection
+- [fsnotify](https://github.com/fsnotify/fsnotify) - File system watching
 
-## Contributing
+## Đóng góp
 
 1. Fork repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Create Pull Request
+2. Tạo feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit thay đổi (`git commit -m 'feat: add amazing feature'`)
+4. Push lên branch (`git push origin feature/amazing-feature`)
+5. Tạo Pull Request
 
 ## License
 
-This project is distributed under the MIT License. See `LICENSE` file for more details.
+Project này được phân phối dưới MIT License. Xem file `LICENSE` để biết thêm chi tiết.
 
-## Support
+## Hỗ trợ
 
 - Create [GitHub Issue](https://github.com/aleister1102/monsterinc/issues) to report bugs or suggest features
 - See [Wiki](./WIKI.md) for more details about project structure and operation 

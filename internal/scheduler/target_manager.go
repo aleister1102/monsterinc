@@ -3,11 +3,12 @@ package scheduler
 import (
 	// "bufio" // No longer needed if urlhandler.ReadURLsFromFile is used
 	"fmt"
+
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	// "os" // No longer needed if urlhandler.ReadURLsFromFile is used
-	"path/filepath"
+
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -36,34 +37,27 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfi
 	var err error
 
 	if inputFileOption != "" {
-		tm.logger.Info().Str("file", inputFileOption).Msg("Using URL file from command line argument.")
+		tm.logger.Debug().Str("file", inputFileOption).Msg("Using URL file from command line argument.")
 		rawURLs, err = tm.loadURLsFromFile(inputFileOption)
-		if err != nil {
-			return nil, filepath.Base(inputFileOption), fmt.Errorf("failed to load URLs from command line file '%s': %w", inputFileOption, err)
-		}
-		determinedSource = filepath.Base(inputFileOption)
+		determinedSource = inputFileOption
 	} else if len(inputConfigUrls) > 0 {
-		tm.logger.Info().Int("count", len(inputConfigUrls)).Msg("Using input_urls from configuration.")
+		tm.logger.Debug().Int("count", len(inputConfigUrls)).Msg("Using input_urls from configuration.")
 		rawURLs = inputConfigUrls
-		determinedSource = "config_input_urls"
+		determinedSource = "config.input_urls"
 	} else if cfgInputFile != "" {
-		tm.logger.Info().Str("file", cfgInputFile).Msg("Using input_file from configuration.")
+		tm.logger.Debug().Str("file", cfgInputFile).Msg("Using input_file from configuration.")
 		rawURLs, err = tm.loadURLsFromFile(cfgInputFile)
-		if err != nil {
-			return nil, filepath.Base(cfgInputFile), fmt.Errorf("failed to load URLs from config file '%s': %w", cfgInputFile, err)
-		}
-		determinedSource = filepath.Base(cfgInputFile)
+		determinedSource = cfgInputFile
 	} else {
-		tm.logger.Info().Msg("No URL input source provided (command line or config). Returning empty target list.")
-		return []models.Target{}, "NoTargetsProvided", nil // Not an error, just no targets
+		tm.logger.Debug().Msg("No URL input source provided (command line or config). Returning empty target list.")
+		return []models.Target{}, "no_input", nil
 	}
 
-	if len(rawURLs) == 0 {
-		tm.logger.Warn().Str("source", determinedSource).Msg("URL input source was empty. Returning empty target list.")
-		return []models.Target{}, determinedSource, nil // Not an error, source was just empty
+	if err != nil {
+		return nil, determinedSource, fmt.Errorf("failed to load URLs from %s: %w", determinedSource, err)
 	}
 
-	tm.logger.Info().Int("raw_url_count", len(rawURLs)).Str("source", determinedSource).Msg("Loaded raw URLs.")
+	tm.logger.Debug().Int("raw_url_count", len(rawURLs)).Str("source", determinedSource).Msg("Loaded raw URLs.")
 
 	// Filter out empty URLs and normalize
 	var validTargets []models.Target
