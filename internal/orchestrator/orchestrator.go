@@ -16,6 +16,7 @@ import (
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/monitor"
+	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/secrets"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
@@ -119,20 +120,56 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 	return allProbeResultsForCurrentScan, allURLDiffResults, allSecretFindings, nil
 }
 
-// CountStatuses is a helper to count URL statuses from a diff result.
-// func CountStatuses(diffResult *models.URLDiffResult, status models.URLStatus) int { // Removed: Moved to models.URLDiffResult method
-// 	if diffResult == nil {
-// 		return 0
-// 	}
-// 	count := 0
-// 	for _, r := range diffResult.Results { // Iterate over .Results (slice)
-// 		// Access URLStatus from the embedded ProbeResult
-// 		if r.ProbeResult.URLStatus == string(status) { // Compare with string representation of the target status
-// 			count++
-// 		}
-// 	}
-// 	return count
-// }
+// ExecuteCompleteScanWorkflow executes the complete scan workflow and returns summary data
+func (so *ScanOrchestrator) ExecuteCompleteScanWorkflow(ctx context.Context, seedURLs []string, scanSessionID string, targetSource string) (models.ScanSummaryData, []models.ProbeResult, map[string]models.URLDiffResult, []models.SecretFinding, error) {
+	startTime := time.Now()
+
+	// Execute the scan workflow
+	probeResults, urlDiffResults, secretFindings, workflowErr := so.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
+	scanDuration := time.Since(startTime)
+
+	// Build summary data
+	summaryData := models.GetDefaultScanSummaryData()
+	summaryData.ScanSessionID = scanSessionID
+	summaryData.TargetSource = targetSource
+	summaryData.Targets = seedURLs
+	summaryData.TotalTargets = len(seedURLs)
+	summaryData.ScanDuration = scanDuration
+
+	// Populate probe stats
+	if probeResults != nil {
+		summaryData.ProbeStats.DiscoverableItems = len(probeResults)
+		for _, pr := range probeResults {
+			if pr.Error == "" && (pr.StatusCode < 400 || (pr.StatusCode >= 300 && pr.StatusCode < 400)) {
+				summaryData.ProbeStats.SuccessfulProbes++
+			} else {
+				summaryData.ProbeStats.FailedProbes++
+			}
+		}
+	}
+
+	// Populate diff stats
+	if urlDiffResults != nil {
+		for _, diffResult := range urlDiffResults {
+			summaryData.DiffStats.New += diffResult.New
+			summaryData.DiffStats.Old += diffResult.Old
+			summaryData.DiffStats.Existing += diffResult.Existing
+		}
+	}
+
+	// Calculate secret statistics
+	summaryData.SecretStats = notifier.CalculateSecretStats(secretFindings)
+
+	// Handle workflow errors
+	if workflowErr != nil {
+		summaryData.Status = string(models.ScanStatusFailed)
+		summaryData.ErrorMessages = []string{fmt.Sprintf("Scan workflow execution failed: %v", workflowErr)}
+		return summaryData, probeResults, urlDiffResults, secretFindings, workflowErr
+	}
+
+	summaryData.Status = string(models.ScanStatusCompleted)
+	return summaryData, probeResults, urlDiffResults, secretFindings, nil
+}
 
 // prepareScanConfiguration prepares crawler configuration for the scan
 func (so *ScanOrchestrator) prepareScanConfiguration(seedURLs []string, scanSessionID string) (*config.CrawlerConfig, string, error) {
