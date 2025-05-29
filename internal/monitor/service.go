@@ -532,7 +532,10 @@ func (s *MonitoringService) storeURLRecord(url string, processedUpdate *models.M
 		} else {
 			jsonStr := string(diffBytes)
 			diffJSON = &jsonStr
+			s.logger.Debug().Str("url", url).Bool("is_identical", diffResult.IsIdentical).Int("diff_count", len(diffResult.Diffs)).Str("old_hash", diffResult.OldHash).Str("new_hash", diffResult.NewHash).Msg("Serialized diff result for storage.")
 		}
+	} else if diffResult != nil {
+		s.logger.Debug().Str("url", url).Bool("is_identical", diffResult.IsIdentical).Msg("Diff result exists but is identical, not storing diff data.")
 	}
 
 	// Determine if a record should be stored in history.
@@ -542,6 +545,8 @@ func (s *MonitoringService) storeURLRecord(url string, processedUpdate *models.M
 		(lastKnownRecord == nil || (diffResult != nil && !diffResult.IsIdentical))
 
 	if shouldStoreRecord {
+		s.logger.Debug().Str("url", url).Bool("has_diff_json", diffJSON != nil).Msg("Storing file record with diff data.")
+
 		storeRecord := models.FileHistoryRecord{
 			URL:            url,
 			Timestamp:      processedUpdate.FetchedAt.UnixMilli(),

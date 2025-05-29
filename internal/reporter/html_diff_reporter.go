@@ -199,7 +199,7 @@ func copyEmbedDir(efs embed.FS, srcDir, destDir string) error {
 // GenerateDiffReport generates a single HTML report page containing diffs for multiple URLs.
 // It now fetches only the latest diff for currently monitored URLs.
 func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, error) {
-	r.logger.Info().Strs("monitored_urls", monitoredURLs).Msg("Generating aggregated HTML diff report for monitored URLs.")
+	r.logger.Info().Strs("monitored_urls", monitoredURLs).Int("monitored_count", len(monitoredURLs)).Msg("Generating aggregated HTML diff report for monitored URLs.")
 
 	if r.historyStore == nil {
 		r.logger.Error().Msg("HistoryStore is not available in HtmlDiffReporter. Cannot generate aggregated diff report.")
@@ -212,12 +212,21 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, e
 		return "", fmt.Errorf("failed to get latest diff results: %w", err)
 	}
 
+	r.logger.Info().Int("diff_results_retrieved", len(latestDiffsMap)).Int("monitored_urls_requested", len(monitoredURLs)).Msg("Retrieved latest diff results from history store.")
+
+	// Process the diff results into displayable format
 	var diffResultsDisplay []models.DiffResultDisplay
 	for url, diffResult := range latestDiffsMap {
-		if diffResult == nil || diffResult.IsIdentical {
-			r.logger.Debug().Str("url", url).Msg("Skipping URL in aggregated report as diff is nil or identical.")
+		if diffResult == nil {
 			continue
 		}
+
+		if diffResult.IsIdentical {
+			continue
+		}
+
+		// Calculate summary
+		summary := createDiffSummary(diffResult.Diffs)
 
 		// Calculate secret stats for this diff
 		secretStats := r.calculateSecretStats(diffResult.SecretFindings)
@@ -228,7 +237,7 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, e
 			ContentType:    diffResult.ContentType,
 			OldHash:        diffResult.OldHash,
 			NewHash:        diffResult.NewHash,
-			Summary:        createDiffSummary(diffResult.Diffs),
+			Summary:        summary,
 			DiffHTML:       r.generateDiffHTML(diffResult.Diffs),
 			Diffs:          diffResult.Diffs, // Keep raw diffs if needed by template or other logic
 			IsIdentical:    diffResult.IsIdentical,
@@ -279,7 +288,6 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, e
 	// Set favicon base64 data
 	if len(faviconICODiff) > 0 {
 		pageData.FaviconBase64 = base64.StdEncoding.EncodeToString(faviconICODiff)
-		r.logger.Debug().Int("favicon_size", len(faviconICODiff)).Msg("Set favicon base64 for aggregated diff report.")
 	}
 
 	// Execute the main template
@@ -353,7 +361,6 @@ func (r *HtmlDiffReporter) GenerateSingleDiffReport(urlStr string, diffResult *m
 	// Set favicon base64 data
 	if len(faviconICODiff) > 0 {
 		pageData.FaviconBase64 = base64.StdEncoding.EncodeToString(faviconICODiff)
-		r.logger.Debug().Int("favicon_size", len(faviconICODiff)).Msg("Set favicon base64 for single diff report.")
 	}
 
 	if err := r.template.ExecuteTemplate(file, "diff_report.html.tmpl", pageData); err != nil {

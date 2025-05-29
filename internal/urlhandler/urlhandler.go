@@ -233,6 +233,39 @@ func ExtractHostname(urlString string) (string, error) {
 	return strings.ToLower(strings.TrimSpace(hostname)), nil
 }
 
+// ExtractHostnameWithPort extracts hostname:port from a URL string
+// For URLs without explicit port, it returns hostname:default_port (80 for http, 443 for https)
+func ExtractHostnameWithPort(urlString string) (string, error) {
+	if strings.TrimSpace(urlString) == "" {
+		return "", fmt.Errorf("URL string is empty")
+	}
+
+	parsedURL, err := url.Parse(urlString)
+	if err != nil {
+		return "", fmt.Errorf("could not parse URL '%s': %w", urlString, err)
+	}
+
+	hostname := parsedURL.Hostname()
+	if hostname == "" {
+		return "", fmt.Errorf("URL has no hostname component: %s", urlString)
+	}
+
+	port := parsedURL.Port()
+	if port == "" {
+		// Use default ports for common schemes
+		switch strings.ToLower(parsedURL.Scheme) {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		default:
+			port = "80" // Default fallback
+		}
+	}
+
+	return strings.ToLower(strings.TrimSpace(hostname)) + ":" + port, nil
+}
+
 // ExtractHostnamesFromURLs extracts unique hostnames from a list of URLs
 func ExtractHostnamesFromURLs(urls []string) ([]string, map[string]error) {
 	hostnameSet := make(map[string]bool)
@@ -343,4 +376,27 @@ func HasValidScheme(urlString string) bool {
 
 	scheme := strings.ToLower(parsedURL.Scheme)
 	return scheme == "http" || scheme == "https"
+}
+
+// SanitizeHostnamePort creates a safe filename string from hostname:port format.
+// It specifically handles the colon character by replacing it with an underscore.
+// This allows for easier reversal compared to the general SanitizeFilename function.
+func SanitizeHostnamePort(hostnamePort string) string {
+	// Simply replace colon with underscore for hostname:port format
+	// This preserves the structure and allows for easy reversal
+	return strings.ReplaceAll(hostnamePort, ":", "_")
+}
+
+// RestoreHostnamePort converts a sanitized hostname_port back to hostname:port format.
+// This assumes the input was sanitized using SanitizeHostnamePort.
+func RestoreHostnamePort(sanitizedHostnamePort string) string {
+	// Find the last underscore, which should be the port separator
+	lastUnderscore := strings.LastIndex(sanitizedHostnamePort, "_")
+	if lastUnderscore == -1 {
+		// No underscore found, return as-is (shouldn't happen with valid input)
+		return sanitizedHostnamePort
+	}
+
+	// Replace the last underscore with colon to restore hostname:port format
+	return sanitizedHostnamePort[:lastUnderscore] + ":" + sanitizedHostnamePort[lastUnderscore+1:]
 }
