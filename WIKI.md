@@ -15,29 +15,32 @@
 
 ## Project Overview
 
-MonsterInc is a comprehensive web reconnaissance and monitoring tool designed for security researchers and penetration testers. It combines web crawling, HTTP probing, content monitoring, and secret detection into a unified platform.
+MonsterInc là một công cụ reconnaissance và monitoring web toàn diện được thiết kế cho security researchers và penetration testers. Nó kết hợp web crawling, HTTP probing, content monitoring, secret detection và path extraction thành một platform thống nhất.
 
 ### Core Capabilities
 
-- **Web Discovery**: Automated crawling and URL discovery from seed targets
-- **HTTP Analysis**: Comprehensive HTTP/HTTPS probing with technology detection
-- **Content Monitoring**: Track changes in web files (HTML, JS, CSS)
-- **Secret Detection**: Identify exposed secrets and sensitive information
-- **Diff Analysis**: Compare scan results over time to identify changes
-- **Automated Reporting**: Generate detailed HTML reports with visualizations
-- **Discord Notifications**: Real-time alerts for findings and changes
+- **Web Discovery**: Automated crawling và URL discovery từ seed targets
+- **HTTP Analysis**: Comprehensive HTTP/HTTPS probing với technology detection
+- **Content Monitoring**: Theo dõi thay đổi trong web files (HTML, JS, CSS) với conditional requests
+- **Secret Detection**: Phát hiện exposed secrets và sensitive information sử dụng TruffleHog và regex patterns
+- **Path Extraction**: Trích xuất API endpoints và paths từ JS/HTML content sử dụng jsluice
+- **Diff Analysis**: So sánh scan results theo thời gian để phát hiện thay đổi
+- **Automated Reporting**: Tạo detailed HTML reports với visualizations và diff views
+- **Discord Notifications**: Real-time alerts cho findings và changes
+- **Parquet Storage**: Efficient columnar storage cho large datasets
 
 ### Execution Modes
 
 #### Onetime Mode
 - Single scan execution
-- Immediate results and reporting
-- Suitable for ad-hoc reconnaissance
+- Immediate results và reporting
+- Suitable cho ad-hoc reconnaissance
 
 #### Automated Mode
-- Continuous monitoring with scheduled scans
-- Change detection and alerting
+- Continuous monitoring với scheduled scans
+- Change detection và alerting
 - Long-term target surveillance
+- File monitoring với aggregated notifications
 
 ## Architecture
 
@@ -75,157 +78,240 @@ MonsterInc is a comprehensive web reconnaissance and monitoring tool designed fo
 ┌───────▼───────┐    ┌─────────▼─────────┐    ┌────────▼────────┐
 │    Differ     │    │     Reporter      │    │    Notifier     │
 │ (Change Det.) │    │  (HTML Reports)   │    │ (Discord Alerts)│
+│               │    │   (Diff Reports)  │    │                 │
+└───────┬───────┘    └─────────┬─────────┘    └────────┬────────┘
+        │                      │                       │
+┌───────▼───────┐    ┌─────────▼─────────┐    ┌────────▼────────┐
+│   Secrets     │    │    Extractor      │    │    Scheduler    │
+│  (Detection)  │    │ (Path Extraction) │    │  (Automation)   │
 └───────────────┘    └───────────────────┘    └─────────────────┘
 ```
 
 ### Component Interaction
 
-1. **CLI Interface** parses arguments and loads configuration
-2. **Orchestrator** coordinates the entire workflow
-3. **Crawler** discovers URLs from seed targets
-4. **HTTPx Runner** probes discovered URLs for detailed information
-5. **Datastore** persists results in Parquet format
-6. **Differ** compares current results with historical data
-7. **Monitor** tracks specific files for changes
-8. **Reporter** generates HTML reports
+1. **CLI Interface** parses arguments và loads configuration
+2. **Orchestrator** coordinates toàn bộ workflow
+3. **Crawler** discovers URLs từ seed targets
+4. **HTTPx Runner** probes discovered URLs cho detailed information
+5. **Datastore** persists results trong Parquet format
+6. **Differ** compares current results với historical data
+7. **Monitor** tracks specific files cho changes với conditional requests
+8. **Reporter** generates HTML reports và diff reports
 9. **Notifier** sends Discord notifications
+10. **Secrets** detects sensitive information sử dụng TruffleHog và regex
+11. **Extractor** extracts paths và API endpoints từ content
+12. **Scheduler** manages automated scans và retry logic
 
 ## Module Details
 
 ### cmd/monsterinc
 **Purpose**: Main application entry point
-- Command-line argument parsing
-- Configuration loading and validation
+- Command-line argument parsing với flag support
+- Configuration loading và validation
 - Mode selection (onetime vs automated)
-- Graceful shutdown handling
+- Graceful shutdown handling với context cancellation
+- Global initialization của services
 
-**main.go**: The main application file that handles:
-- Command-line argument parsing
-- Configuration loading and validation
-- Mode selection and execution
-- Graceful shutdown handling
-- Global initialization of services
-
-#### Command-Line Arguments
-
-**Required Arguments**
-- `--mode <onetime|automated>`: Execution mode
-
-**Optional Arguments**
-- `--scan-targets, -st <path>`: Path to file containing seed URLs
-- `--monitor-targets, -mt <path>`: File containing URLs to monitor (automated mode)
-- `--globalconfig, -gc <path>`: Path to configuration file (default: config.yaml)
-
-#### Execution Modes
-
-**Onetime Mode**: Executes a single scan cycle and exits:
-1. Load targets from file or configuration
-2. Execute complete scan workflow
-3. Generate report and send notifications
-4. Exit
-
-**Automated Mode**: Runs continuously with scheduled scans:
-1. Initialize scheduler and monitoring services
-2. Execute scan cycles at configured intervals
-3. Handle retries for failed scans
-4. Maintain scan history in SQLite database
-5. Optional file monitoring for real-time change detection
+### internal/common
+**Purpose**: Shared utilities và patterns
+- **constructor_patterns.go**: Standardized service construction patterns
+- **context_utils.go**: Context management utilities với cancellation support
+- **errors.go**: Custom error types và error handling patterns
+- **file_utils.go**: File operations với safety checks
+- **http_client.go**: HTTP client factory và configuration
+- **interfaces.go**: Common interfaces cho dependency injection
+- **notification_utils.go**: Notification building và formatting utilities
+- **service_lifecycle.go**: Service lifecycle management patterns
+- **workflow_patterns.go**: Workflow execution patterns
 
 ### internal/config
 **Purpose**: Configuration management
+- **config.go**: Configuration structures với default values
+- **loader.go**: Configuration file discovery và loading
+- **validator.go**: Configuration validation rules
+- **manager.go**: Hot-reload configuration management với file watching
 - YAML/JSON configuration loading
-- Validation with custom rules
-- Default value management
 - Environment variable support
+- Validation với custom rules
 
 ### internal/crawler
-**Purpose**: Web crawling and URL discovery
-- Colly-based web crawling
+**Purpose**: Web crawling và URL discovery
+- **crawler.go**: Main crawler implementation sử dụng Colly
+- **scope.go**: Crawling scope management với hostname/path filtering
+- **asset.go**: Asset extraction từ HTML content
+- Colly-based web crawling với rate limiting
 - Scope management (hostnames, paths, regexes)
-- Asset extraction (JS, CSS, images)
 - Robots.txt compliance
-- Rate limiting and concurrency control
+- Content length checks
 
 ### internal/httpxrunner
 **Purpose**: HTTP/HTTPS probing
-- ProjectDiscovery httpx integration
-- Technology detection
+- **runner.go**: ProjectDiscovery httpx integration
+- **result.go**: Result processing utilities
+- Technology detection với comprehensive fingerprinting
 - TLS information extraction
-- Response analysis
-- Concurrent probing with rate limiting
+- Response analysis với detailed metadata
+- Concurrent probing với rate limiting
+- Proxy support
 
 ### internal/datastore
-**Purpose**: Data persistence
-- Parquet file storage
-- Compression (ZSTD, GZIP, SNAPPY)
-- Schema management
-- Efficient querying
-- File history tracking
+**Purpose**: Data persistence sử dụng Parquet
+- **parquet_writer.go**: Efficient Parquet file writing với compression
+- **parquet_reader.go**: Parquet file reading với query optimization
+- **parquet_file_history_store.go**: File history storage cho monitoring
+- **secrets_store.go**: Secrets storage trong Parquet format
+- Columnar format cho efficient storage và querying
+- Multiple compression algorithms (ZSTD, GZIP, SNAPPY)
+- Schema evolution support
+- Batch processing
 
 ### internal/differ
-**Purpose**: Change detection
-- URL diff analysis
-- Content change detection
-- Status comparison
+**Purpose**: Change detection và comparison
+- **url_differ.go**: URL comparison logic với status tracking
+- **content_differ.go**: Content diff generation với beautification
+- URL diff analysis (New, Existing, Old)
+- Content change detection với detailed diffs
 - Historical data analysis
+- Diff report generation
 
 ### internal/monitor
-**Purpose**: File monitoring
-- Periodic file checking
+**Purpose**: File monitoring trong real-time
+- **service.go**: Main monitoring service với lifecycle management
+- **fetcher.go**: HTTP fetching với conditional requests (ETag, Last-Modified)
+- **processor.go**: Content processing và change detection
+- **scheduler.go**: Periodic checking scheduler
+- Conditional GET requests sử dụng ETag và Last-Modified
 - Content hash comparison
-- Change notification
-- Aggregated reporting
+- Change notification với aggregation
+- File type filtering
 
 ### internal/notifier
 **Purpose**: Notification system
-- Discord webhook integration
-- Message formatting
-- Role mentions
-- Notification aggregation
+- **discord_notifier.go**: Discord webhook integration
+- **discord_formatter.go**: Message formatting với rich embeds
+- **notification_helper.go**: High-level notification service
+- Discord webhook integration với rich formatting
+- Role mentions cho critical findings
+- Notification aggregation để reduce spam
+- HTML report attachment
 
 ### internal/reporter
 **Purpose**: Report generation
-- HTML report creation
-- DataTables integration
-- Asset embedding
-- Diff visualization
+- **html_reporter.go**: Main HTML report generation
+- **html_diff_reporter.go**: Diff report generation với syntax highlighting
+- **templates/**: HTML templates cho reports
+- **assets/**: CSS, JS, và images cho reports
+- HTML report creation với DataTables integration
+- Asset embedding cho self-contained reports
+- Diff visualization với syntax highlighting
+- Multi-target navigation
 
 ### internal/secrets
 **Purpose**: Secret detection
-- Regex pattern matching
-- TruffleHog integration
-- Custom pattern support
-- Confidence scoring
+- **detector_service.go**: Main secret detection service
+- **regex_scanner.go**: Custom regex pattern scanning
+- **trufflehog_adapter.go**: TruffleHog integration
+- **patterns.go**: Default regex patterns
+- **patterns.yaml**: Mantra-style pattern definitions
+- TruffleHog integration cho comprehensive detection
+- Custom regex patterns từ Mantra project
+- Confidence scoring và verification
+- Parquet storage cho findings
+
+### internal/extractor
+**Purpose**: Path extraction từ content
+- **path_extractor.go**: Main path extraction logic
+- jsluice library integration cho JS analysis
+- Custom regex patterns cho additional detection
+- API endpoint discovery
+- Relative URL resolution
+
+### internal/scheduler
+**Purpose**: Automated scan scheduling
+- **scheduler.go**: Main scheduling logic với retry mechanisms
+- **db.go**: SQLite database management
+- **target_manager.go**: Target loading và selection
+- SQLite database cho scan history
+- Retry logic cho failed scans
+- Target reloading cho each cycle
+- Notification integration
+
+### internal/logger
+**Purpose**: Structured logging
+- **logger.go**: Logger initialization và configuration
+- zerolog integration với structured JSON logging
+- Configurable log levels và formats
+- File rotation support
+- Multi-writer support
+
+### internal/models
+**Purpose**: Data structure definitions
+- **probe_result.go**: HTTP probing results
+- **file_history.go**: File monitoring history
+- **secret_finding.go**: Secret detection findings
+- **extracted_path.go**: Path extraction results
+- **content_diff.go**: Content diff structures
+- **report_data.go**: Report rendering data
+- **parquet_schema.go**: Parquet schema definitions
+- **notification_models.go**: Discord notification structures
+
+### internal/urlhandler
+**Purpose**: URL processing và normalization
+- **urlhandler.go**: URL validation và normalization
+- **file.go**: File-based URL loading
+- Comprehensive URL normalization
+- Domain và subdomain validation
+- Relative URL resolution
+- File-based URL loading với error handling
 
 ## Data Flow
 
 ### Onetime Scan Flow
 
 ```
-1. Parse CLI arguments
-2. Load and validate configuration
-3. Initialize components (crawler, httpx, etc.)
-4. Crawl seed URLs to discover endpoints
-5. Probe discovered URLs with httpx
-6. Store results in Parquet files
-7. Compare with historical data (if exists)
-8. Generate HTML reports
-9. Send Discord notifications
-10. Cleanup and exit
+1. Parse CLI arguments với flag validation
+2. Load và validate configuration từ YAML/JSON
+3. Initialize components (crawler, httpx, monitor, secrets, extractor)
+4. Load target URLs từ file hoặc config
+5. Crawl seed URLs để discover endpoints
+6. Probe discovered URLs với httpx
+7. Extract paths từ JS/HTML content
+8. Scan content cho secrets
+9. Store results trong Parquet files
+10. Compare với historical data (nếu exists)
+11. Generate HTML reports và diff reports
+12. Send Discord notifications với attachments
+13. Cleanup và exit
 ```
 
 ### Automated Mode Flow
 
 ```
-1. Parse CLI arguments
-2. Load and validate configuration
-3. Initialize scheduler and monitor services
+1. Parse CLI arguments và load configuration
+2. Initialize scheduler và monitor services
+3. Setup SQLite database cho scan history
 4. Start periodic scan cycles:
-   a. Execute onetime scan workflow
-   b. Monitor specific files for changes
-   c. Aggregate notifications
-   d. Wait for next cycle
-5. Continue until interrupted
+   a. Load targets từ files
+   b. Execute onetime scan workflow
+   c. Store scan history trong SQLite
+   d. Monitor specific files cho changes
+   e. Generate aggregated notifications
+   f. Wait cho next cycle với configurable interval
+5. Handle graceful shutdown với context cancellation
+```
+
+### File Monitoring Flow
+
+```
+1. Load monitored URLs từ target files
+2. Fetch content sử dụng conditional requests
+3. Compare content hashes với stored history
+4. Detect changes và generate diffs
+5. Extract paths từ changed content
+6. Scan cho secrets trong changed content
+7. Store change history trong Parquet
+8. Generate diff reports với syntax highlighting
+9. Send aggregated notifications
 ```
 
 ### Data Processing Pipeline
@@ -233,9 +319,11 @@ MonsterInc is a comprehensive web reconnaissance and monitoring tool designed fo
 ```
 Seed URLs → Crawler → Discovered URLs → HTTPx → Probe Results
                                                       ↓
-Historical Data ← Parquet Storage ← Result Processing
-                                                      ↓
-Diff Analysis → Change Detection → Notifications + Reports
+Path Extractor ← Content Analysis ← Historical Data ← Parquet Storage
+       ↓                                                     ↓
+Extracted Paths → Secret Scanner → Secret Findings → Notifications
+                         ↓
+Diff Analysis → Change Detection → Diff Reports → Discord Alerts
 ```
 
 ## Configuration System
@@ -248,23 +336,25 @@ Diff Analysis → Change Detection → Notifications + Reports
 
 ### Configuration Sections
 
-- **Input**: Target URLs and input files
-- **Crawler**: Web crawling parameters
-- **HTTPx**: HTTP probing configuration
-- **Storage**: Parquet storage settings
-- **Monitor**: File monitoring configuration
-- **Secrets**: Secret detection settings
-- **Notifications**: Discord webhook settings
-- **Logging**: Log level and format
-- **Scheduler**: Automated mode settings
+- **Input**: Target URLs và input files
+- **Crawler**: Web crawling parameters với scope settings
+- **HTTPx**: HTTP probing configuration với proxy support
+- **Storage**: Parquet storage settings với compression options
+- **Monitor**: File monitoring configuration với conditional requests
+- **Secrets**: Secret detection settings với TruffleHog và regex config
+- **Extractor**: Path extraction configuration với custom regexes
+- **Notifications**: Discord webhook settings với role mentions
+- **Logging**: Log level và format configuration
+- **Scheduler**: Automated mode settings với retry logic
+- **Reporter**: HTML report generation settings
+- **Diff**: Content diff settings với beautification options
 
-### Configuration Validation
+### Hot-Reload Configuration
 
-- Required field validation
-- Type checking
-- Range validation
-- Custom validators for specific fields
-- Detailed error reporting
+- File watching với fsnotify
+- Automatic configuration reload
+- Validation trước khi applying changes
+- Graceful handling của configuration errors
 
 ## Storage and Persistence
 
@@ -272,196 +362,232 @@ Diff Analysis → Change Detection → Notifications + Reports
 
 ```
 database/
-├── <target1>/
-│   ├── data.parquet          # Consolidated scan results
-│   └── file_history.parquet  # File change history
-├── <target2>/
-│   ├── data.parquet
-│   └── file_history.parquet
-└── secrets/
-    └── findings.parquet      # Secret detection results
+├── scan/
+│   └── <hostname>/
+│       └── data.parquet              # Consolidated scan results
+├── monitor/
+│   └── <hostname>/
+│       └── file_history.parquet     # File change history
+├── secrets/
+│   └── findings.parquet             # Secret detection results
+└── scheduler/
+    └── scheduler_history.db         # SQLite for scan history
 ```
 
 ### Data Models
 
 #### ProbeResult
-- URL and HTTP response information
-- Technology detection results
-- TLS/SSL information
-- DNS resolution data
-- Timing and error information
+- URL và HTTP response information
+- Technology detection results với detailed fingerprinting
+- TLS/SSL information với certificate details
+- DNS resolution data với ASN information
+- Timing và error information
+- Diff status (New, Existing, Old)
 
-#### MonitoredFile
-- File URL and content hash
-- Change timestamps
-- Content snapshots
-- Size and type information
+#### FileHistoryRecord
+- File URL và content hash
+- Change timestamps với millisecond precision
+- Content snapshots với optional full content storage
+- ETag và Last-Modified headers
+- Diff results trong JSON format
+- Extracted paths trong JSON format
 
 #### SecretFinding
-- Secret type and value
-- Confidence score
-- Location information
-- Context and metadata
+- Secret type và value với truncation
+- Confidence score từ detection tools
+- Location information với line numbers
+- Context và metadata
+- Verification state
+- Tool name (TruffleHog, RegexScanner)
+
+#### ExtractedPath
+- Source URL và extracted raw path
+- Resolved absolute URL
+- Context information (HTML attribute, JS string literal)
+- Discovery timestamp
+- Path type classification
 
 ### Storage Benefits
 
-- **Compression**: Efficient storage with ZSTD compression
-- **Querying**: Fast columnar queries
-- **Schema Evolution**: Support for schema changes
-- **Interoperability**: Standard Parquet format
+- **Compression**: Efficient storage với ZSTD compression
+- **Querying**: Fast columnar queries với predicate pushdown
+- **Schema Evolution**: Support cho schema changes over time
+- **Interoperability**: Standard Parquet format cho external tools
+- **Partitioning**: Data organized by hostname cho efficient access
 
 ## Notification System
 
 ### Discord Integration
 
-- **Webhook Support**: Send messages to Discord channels
-- **Rich Formatting**: Embedded messages with colors and fields
-- **Role Mentions**: Notify specific roles for critical findings
-- **Aggregation**: Batch notifications to reduce spam
+- **Webhook Support**: Send messages đến Discord channels
+- **Rich Formatting**: Embedded messages với colors, fields, và timestamps
+- **Role Mentions**: Notify specific roles cho critical findings
+- **Aggregation**: Batch notifications để reduce spam
+- **File Attachments**: HTML reports attached đến notifications
 
 ### Notification Types
 
-- **Scan Start/Complete**: Workflow status updates
-- **New Findings**: Newly discovered URLs or technologies
-- **Changes Detected**: Content or status changes
-- **Secrets Found**: Detected sensitive information
-- **Errors**: Critical errors and failures
+- **Scan Start/Complete**: Workflow status updates với timing information
+- **New Findings**: Newly discovered URLs hoặc technologies
+- **Changes Detected**: Content hoặc status changes với diff summaries
+- **Secrets Found**: Detected sensitive information với severity levels
+- **Monitor Alerts**: File changes với aggregated summaries
+- **Errors**: Critical errors và failures với context
 
 ### Message Formatting
 
-- **Color Coding**: Different colors for different message types
+- **Color Coding**: Different colors cho different message types
 - **Structured Fields**: Organized information display
-- **Timestamps**: All messages include timestamps
-- **Links**: Direct links to reports and findings
+- **Timestamps**: All messages include ISO8601 timestamps
+- **Links**: Direct links đến reports và findings
+- **Embed Limits**: Respect Discord's embed limits với pagination
 
 ## Development Guidelines
 
 ### Code Organization
 
-- **Package Structure**: Logical separation of concerns
-- **Interface Design**: Clear interfaces between components
-- **Error Handling**: Comprehensive error handling and logging
-- **Testing**: Unit tests for critical functionality
+- **Package Structure**: Logical separation của concerns
+- **Interface Design**: Clear interfaces giữa components
+- **Error Handling**: Comprehensive error handling với custom types
+- **Testing**: Unit tests cho critical functionality
+- **Documentation**: Comprehensive code documentation với examples
 
 ### Coding Standards
 
 - **Go Conventions**: Follow standard Go conventions
-- **Documentation**: Comprehensive code documentation
-- **Logging**: Structured logging with zerolog
-- **Configuration**: Externalized configuration
+- **Constructor Patterns**: Standardized New* functions với validation
+- **Service Lifecycle**: Consistent service startup/shutdown patterns
+- **Configuration**: Externalized configuration với validation
+- **Context Usage**: Proper context propagation cho cancellation
 
 ### Adding New Features
 
-1. **Design**: Plan the feature and its integration points
-2. **Implementation**: Implement with proper error handling
-3. **Testing**: Add unit and integration tests
-4. **Documentation**: Update README and wiki
-5. **Configuration**: Add configuration options if needed
+1. **Design**: Plan feature và integration points
+2. **Implementation**: Implement với proper error handling
+3. **Testing**: Add unit và integration tests
+4. **Documentation**: Update README và wiki
+5. **Configuration**: Add configuration options nếu needed
+6. **Package Documentation**: Update package-specific documentation
 
 ### Performance Considerations
 
-- **Concurrency**: Use goroutines for parallel processing
-- **Memory Management**: Efficient memory usage
+- **Concurrency**: Use goroutines cho parallel processing
+- **Memory Management**: Efficient memory usage với pooling
 - **Rate Limiting**: Respect target server limits
 - **Caching**: Cache frequently accessed data
+- **Batch Processing**: Process data trong batches
 
 ## Troubleshooting
 
 ### Common Issues
 
 #### High Memory Usage
-- **Cause**: Large result sets or inefficient processing
-- **Solution**: Reduce concurrency, implement batching
+- **Cause**: Large result sets hoặc inefficient processing
+- **Solution**: Reduce concurrency, implement batching, use streaming
 
 #### Network Timeouts
-- **Cause**: Slow targets or network issues
-- **Solution**: Increase timeouts, reduce concurrency
+- **Cause**: Slow targets hoặc network issues
+- **Solution**: Increase timeouts, reduce concurrency, use retries
 
 #### Storage Issues
-- **Cause**: Disk space or permission problems
-- **Solution**: Check disk space, verify permissions
+- **Cause**: Disk space hoặc permission problems
+- **Solution**: Check disk space, verify permissions, implement cleanup
 
 #### Configuration Errors
 - **Cause**: Invalid configuration values
-- **Solution**: Validate configuration, check examples
+- **Solution**: Validate configuration, check examples, review logs
+
+#### Discord Notification Failures
+- **Cause**: Invalid webhook URLs hoặc rate limiting
+- **Solution**: Verify webhook URLs, implement backoff, use aggregation
 
 ### Debugging Tips
 
-1. **Enable Debug Logging**: Set log level to debug
+1. **Enable Debug Logging**: Set log level đến debug
 2. **Check Configuration**: Validate all configuration values
-3. **Monitor Resources**: Watch CPU, memory, and network usage
-4. **Test Components**: Test individual components in isolation
-5. **Review Logs**: Examine logs for error patterns
+3. **Monitor Resources**: Watch CPU, memory, và network usage
+4. **Test Components**: Test individual components trong isolation
+5. **Review Logs**: Examine logs cho error patterns
+6. **Database Inspection**: Check Parquet files và SQLite database
 
 ### Performance Optimization
 
-1. **Tune Concurrency**: Adjust thread counts for optimal performance
+1. **Tune Concurrency**: Adjust thread counts cho optimal performance
 2. **Optimize Timeouts**: Balance speed vs completeness
 3. **Use Appropriate Compression**: Choose compression based on use case
 4. **Monitor Metrics**: Track performance metrics over time
+5. **Implement Caching**: Cache expensive operations
+6. **Batch Operations**: Group operations cho efficiency
 
 ### Error Recovery
 
-1. **Graceful Degradation**: Continue operation when possible
-2. **Retry Logic**: Implement retries for transient errors
-3. **State Recovery**: Recover from partial failures
+1. **Graceful Degradation**: Continue operation khi possible
+2. **Retry Logic**: Implement retries cho transient errors
+3. **State Recovery**: Recover từ partial failures
 4. **Backup Strategies**: Maintain data backups
+5. **Circuit Breakers**: Implement circuit breakers cho external services
 
 ## Security Considerations
 
 ### Target Interaction
 - **Rate Limiting**: Avoid overwhelming target servers
 - **User-Agent**: Use appropriate user-agent strings
-- **Robots.txt**: Respect robots.txt when appropriate
+- **Robots.txt**: Respect robots.txt khi appropriate
+- **Conditional Requests**: Use ETag và Last-Modified cho efficiency
 
 ### Data Handling
-- **Sensitive Data**: Handle secrets and sensitive information carefully
-- **Storage Security**: Secure storage of collected data
+- **Sensitive Data**: Handle secrets và sensitive information carefully
+- **Storage Security**: Secure storage của collected data
 - **Access Control**: Implement appropriate access controls
+- **Data Retention**: Implement data retention policies
 
 ### Network Security
-- **Proxy Support**: Route traffic through proxies when needed
+- **Proxy Support**: Route traffic through proxies khi needed
 - **TLS Verification**: Proper TLS certificate handling
 - **DNS Security**: Secure DNS resolution
+- **Input Validation**: Validate all inputs cho security
 
 ## Future Enhancements
 
 ### Planned Features
-- **API Interface**: REST API for programmatic access
+- **API Interface**: REST API cho programmatic access
 - **Web UI**: Web-based user interface
 - **Plugin System**: Extensible plugin architecture
 - **Advanced Analytics**: Enhanced data analysis capabilities
+- **ML Integration**: Machine learning cho pattern detection
 
 ### Scalability Improvements
-- **Distributed Processing**: Support for distributed scanning
+- **Distributed Processing**: Support cho distributed scanning
 - **Database Backend**: Optional database storage
 - **Cloud Integration**: Cloud platform integration
-- **Container Support**: Docker and Kubernetes support
+- **Container Support**: Docker và Kubernetes support
+- **Horizontal Scaling**: Scale across multiple instances
 
 ### Integration Enhancements
-- **SIEM Integration**: Security Information and Event Management
-- **Threat Intelligence**: Integration with threat intelligence feeds
-- **Vulnerability Scanning**: Integration with vulnerability scanners
-- **Compliance Reporting**: Compliance and audit reporting
+- **SIEM Integration**: Security Information và Event Management
+- **Threat Intelligence**: Integration với threat intelligence feeds
+- **Vulnerability Scanning**: Integration với vulnerability scanners
+- **Compliance Reporting**: Compliance và audit reporting
+- **Automation Tools**: Integration với automation platforms
 
 ## Package Documentation
 
 ### cmd/monsterinc Package
 
-This package contains the main entry point for the MonsterInc application.
+Package chứa main entry point cho MonsterInc application.
 
 #### Overview
 
-The `cmd/monsterinc` package provides the command-line interface and orchestrates the execution of different operational modes (onetime and automated).
+`cmd/monsterinc` package provides command-line interface và orchestrates execution của different operational modes.
 
 #### Files
 
-**main.go**: The main application file that handles:
-- Command-line argument parsing
-- Configuration loading and validation
-- Mode selection and execution
-- Graceful shutdown handling
-- Global initialization of services
+**main.go**: Main application file handling:
+- Command-line argument parsing với comprehensive flag support
+- Configuration loading và validation với error handling
+- Mode selection và execution với proper lifecycle management
+- Graceful shutdown handling với context cancellation
+- Global initialization của services với dependency injection
 
 #### Command-Line Arguments
 
@@ -469,336 +595,95 @@ The `cmd/monsterinc` package provides the command-line interface and orchestrate
 - `--mode <onetime|automated>`: Execution mode
 
 **Optional Arguments**
-- `--scan-targets, -st <path>`: Path to file containing seed URLs
-- `--monitor-targets, -mt <path>`: File containing URLs to monitor (automated mode)
-- `--globalconfig, -gc <path>`: Path to configuration file (default: config.yaml)
+- `--scan-targets, -st <path>`: Path đến file containing seed URLs
+- `--monitor-targets, -mt <path>`: File containing URLs để monitor
+- `--globalconfig, -gc <path>`: Path đến configuration file
 
 #### Execution Modes
 
-**Onetime Mode**: Executes a single scan cycle and exits:
-1. Load targets from file or configuration
+**Onetime Mode**: Single scan cycle:
+1. Load targets từ file hoặc configuration
 2. Execute complete scan workflow
-3. Generate report and send notifications
-4. Exit
+3. Generate reports và send notifications
+4. Exit gracefully
 
-**Automated Mode**: Runs continuously with scheduled scans:
-1. Initialize scheduler and monitoring services
+**Automated Mode**: Continuous operation:
+1. Initialize scheduler và monitoring services
 2. Execute scan cycles at configured intervals
-3. Handle retries for failed scans
-4. Maintain scan history in SQLite database
-5. Optional file monitoring for real-time change detection
+3. Handle retries cho failed scans
+4. Maintain scan history trong SQLite database
+5. Monitor files cho real-time changes
+
+### internal/common Package
+
+Package chứa shared utilities và patterns được sử dụng throughout application.
+
+#### Key Modules
+
+**constructor_patterns.go**: Standardized service construction
+**context_utils.go**: Context management với cancellation
+**errors.go**: Custom error types và handling
+**file_utils.go**: Safe file operations
+**http_client.go**: HTTP client factory
+**service_lifecycle.go**: Service lifecycle management
+**workflow_patterns.go**: Workflow execution patterns
 
 ### internal/config Package
 
-This package handles configuration management for the MonsterInc application, including loading, validation, and default value management.
+Handles configuration management cho MonsterInc application.
 
-#### Overview
+#### Features
 
-The config package provides a centralized configuration system that supports YAML and JSON formats with comprehensive validation and default values.
-
-#### Files
-
-**config.go**: Contains all configuration structures and their default constructors
-**loader.go**: Handles configuration file discovery and loading
-**validator.go**: Provides configuration validation
-
-#### Configuration Structure
-
-The configuration is organized into logical sections:
-- **InputConfig**: Target URLs and input files
-- **CrawlerConfig**: Web crawling parameters
-- **HttpxRunnerConfig**: HTTP probing settings
-- **ReporterConfig**: HTML report generation
-- **StorageConfig**: Parquet storage configuration
-- **NotificationConfig**: Discord notifications
-- **MonitorConfig**: File monitoring settings
-- **SecretsConfig**: Secret detection configuration
-- **SchedulerConfig**: Automated mode settings
-- **LogConfig**: Logging configuration
-
-#### Configuration Loading
-
-The configuration loader searches for files in this order:
-1. Path specified by `--globalconfig` flag
-2. `config.yaml` in current directory
-3. `config.json` in current directory
-
-### internal/crawler Package
-
-This package provides web crawling functionality for discovering URLs from seed targets using the Colly framework.
-
-#### Overview
-
-The crawler package implements intelligent web crawling with configurable scope, rate limiting, and content filtering. It discovers URLs, extracts assets, and respects crawling boundaries.
-
-#### Files
-
-**crawler.go**: Main crawler implementation
-**scope.go**: Crawling scope management
-**asset.go**: Asset extraction from HTML content
-
-#### Key Features
-
-**Intelligent Crawling**:
-- Depth control with configurable maximum crawl depth
-- Concurrent processing with multi-threaded crawling
-- Content filtering to skip large files
-- Optional robots.txt compliance
-- Configurable request timeouts
-
-**Scope Management**:
-- Hostname filtering (allow/disallow specific hostnames)
-- Subdomain control (include/exclude subdomains)
-- Path regex pattern-based filtering
-- Comprehensive URL validation
-
-**Asset Discovery**:
-- JavaScript file extraction (.js files)
-- CSS stylesheet extraction (.css files)
-- Image URL extraction including srcset
-- Link extraction from anchor tags
-- Relative URL resolution to absolute URLs
-
-### internal/httpxrunner Package
-
-This package provides a Go wrapper around ProjectDiscovery's httpx tool for HTTP/HTTPS probing and information extraction.
-
-#### Overview
-
-The httpxrunner package integrates the powerful httpx library to perform comprehensive HTTP analysis, including technology detection, TLS information extraction, and response analysis.
-
-#### Files
-
-**runner.go**: Main httpx wrapper implementation
-**result.go**: Result processing utilities
-
-#### Key Features
-
-**HTTP/HTTPS Probing**:
-- Multiple HTTP methods support (GET, POST, HEAD, etc.)
-- Custom headers and proxy support
-- Configurable redirect handling
-- Rate limiting to avoid overwhelming targets
-
-**Information Extraction**:
-- Technology detection (identify web technologies and frameworks)
-- TLS analysis (extract TLS version, cipher, certificate information)
-- Response headers capture and analysis
-- Status codes and redirect tracking
-- Content analysis (type, length, body)
-
-**Network Information**:
-- IP resolution and capture
-- CNAME record extraction
-- ASN information identification
-- Comprehensive DNS information gathering
+- YAML và JSON format support
+- Hot-reload với file watching
+- Comprehensive validation
+- Default value management
+- Environment variable override support
 
 ### internal/datastore Package
 
-This package provides data storage and persistence functionality using Apache Parquet format for efficient storage and querying of scan results.
-
-#### Overview
-
-The datastore package implements a comprehensive data storage solution using Parquet files for storing probe results, file history, and secrets. It provides efficient compression, fast querying, and schema evolution capabilities.
-
-#### Files
-
-**parquet_writer.go**: Parquet file writing functionality
-**parquet_reader.go**: Parquet file reading functionality
-**parquet_file_history_store.go**: File history storage implementation
-**secrets_store.go**: Secrets storage implementation
+Provides data storage và persistence functionality sử dụng Apache Parquet.
 
 #### Key Features
 
-**Parquet Storage**:
-- Columnar format for efficient storage and querying
-- Multiple compression algorithms (ZSTD, GZIP, SNAPPY)
-- Schema evolution support for changes over time
-- Strong typing with Go struct mapping
-- Batch processing for efficient reads and writes
+- **Parquet Storage**: Columnar format với compression
+- **Schema Evolution**: Support cho changes over time
+- **Efficient Querying**: Fast lookups với metadata
+- **Data Partitioning**: Organized by hostname
+- **Deduplication**: Prevent duplicate records
 
-**Data Management**:
-- Data partitioning by date, target, or other dimensions
-- Fast lookups using Parquet metadata
-- Deduplication to prevent duplicate records
-- Data versioning to track changes over time
+### internal/monitor Package
 
-**Performance Optimization**:
-- Lazy loading (load data only when needed)
-- Predicate pushdown (filter data at storage level)
-- Parallel processing for concurrent reads and writes
-- Efficient memory usage for large datasets
-
-### internal/differ Package
-
-This package is responsible for comparing current scan results against historical data to identify new, existing, and old URLs.
-
-#### Core Component
-
-**url_differ.go**: Defines the `UrlDiffer` struct and its methods:
-- `NewUrlDiffer()`: Constructor that takes a `datastore.ParquetReader` and logger
-- `Compare()`: Main method for performing URL comparison
-
-#### Logic Overview
-
-1. **Fetch Historical Data**: Uses `ParquetReader` to load all probe results from the target's `data.parquet` file
-2. **Map Creation**: Creates maps for efficient lookup of current and historical probe results
-3. **Comparison & Status Assignment**:
-   - **Existing URLs**: URLs found in both current and historical data
-   - **New URLs**: URLs found only in current scan
-   - **Old URLs**: URLs found only in historical data
-4. **Result Aggregation**: Populates `URLDiffResult` structure with all diffed URLs and summary counts
-
-### internal/logger Package
-
-The `logger` package is responsible for initializing and configuring the application-wide logger using the `zerolog` library.
+Implements file monitoring functionality với real-time change detection.
 
 #### Features
 
-- **Structured Logging**: Utilizes `zerolog` for fast, structured JSON logging
-- **Configurable Log Levels**: Supports standard log levels (debug, info, warn, error, fatal, panic)
-- **Configurable Output Formats**:
-  - `console`: Human-readable, colorized output for development
-  - `json`: Machine-readable JSON output for log aggregation
-  - `text`: Plain text output without color codes
-- **File Logging**: Optionally logs to a specified file
-- **Log Rotation**: Implements log rotation for file-based logging
-- **Multi-Writer Support**: Can log to both console and file simultaneously
-- **Standard Log Redirection**: Redirects Go's standard `log` package output to `zerolog`
+- **Conditional Requests**: ETag và Last-Modified support
+- **Content Hashing**: Efficient change detection
+- **Aggregated Notifications**: Reduce notification spam
+- **File Type Filtering**: Monitor specific file types
+- **Diff Generation**: Detailed change reports
 
-### internal/models Package
+### internal/secrets Package
 
-This package defines various data structures used throughout the MonsterInc application, particularly for representing scan results, configuration, and reporting data.
-
-#### Core Data Structures
-
-**ProbeResult**: Represents detailed findings for a single probed URL including:
-- Basic info: `InputURL`, `Method`, `Timestamp`, `Duration`, `Error`, `RootTargetURL`
-- HTTP response: `StatusCode`, `ContentLength`, `ContentType`, `Headers`, `Body`, `Title`, `WebServer`
-- Redirect info: `FinalURL`
-- DNS info: `IPs`, `CNAMEs`, `ASN`, `ASNOrg`
-- Technology detection: `Technologies` slice
-- TLS info: `TLSVersion`, `TLSCipher`, `TLSCertIssuer`, `TLSCertExpiry`
-
-**ParquetProbeResult**: Defines the schema for data stored in Parquet files with optional pointers to handle missing data gracefully
-
-**ReportPageData**: Holds all data necessary for rendering HTML reports including probe results, statistics, and configuration
-
-**URLDiffResult**, **DiffedURL**, **URLStatus**: Central structures for URL diffing feature
-
-### internal/notifier Package
-
-This package is responsible for sending notifications to various services based on scan events and application status.
-
-#### Core Components
-
-**discord_notifier.go**: Contains the `DiscordNotifier` struct for direct Discord webhook API communication
-**discord_formatter.go**: Provides functions to format scan data into Discord message payloads
-**notification_helper.go**: Higher-level service that simplifies sending specific notification types
-
-#### Key Features
-
-- Send notifications for scan start, completion, and critical errors
-- Support for Discord webhooks with rich formatting
-- Configurable notification settings
-- HTML report attachment to Discord messages
-- Graceful handling of missing webhook URLs
-- Structured logging for notification attempts
-
-### internal/orchestrator Package
-
-The `orchestrator` package is responsible for managing the overall scan workflow and coordinating various modules.
-
-#### Key Responsibilities
-
-- **Workflow Execution**: Manages the sequence of operations for a scan
-- **Module Initialization**: Initializes and uses other internal modules
-- **Data Flow Management**: Passes data between modules
-- **Configuration Handling**: Uses `config.GlobalConfig` to configure modules
-- **Logging**: Integrates with the application's `zerolog` logger
-
-#### Main Workflow
-
-The primary method `ExecuteScanWorkflow()` performs these steps:
-1. **Crawler Phase**: Discovers URLs from seed targets (optional)
-2. **HTTPX Runner Phase**: Executes HTTP/S probes on discovered URLs
-3. **URL Differ Phase**: Compares current results against historical data
-4. **Parquet Writer Phase**: Writes collected results to Parquet files
-5. **Return Results**: Returns probe results and diff results
-
-### internal/reporter Package
-
-This package is responsible for generating reports from scan results, currently focusing on HTML reports.
-
-#### Components
-
-**HtmlReporter**: Main component for HTML report generation
-- `NewHtmlReporter()`: Constructor for `HtmlReporter`
-- `GenerateReport()`: Main method for generating HTML reports
+Implements secret detection functionality.
 
 #### Features
 
-- **HTML Report Generation**: Creates self-contained HTML files
-- **Interactive UI**: Includes global search, filtering, sorting, and pagination
-- **Customizable**: Configurable report title and items per page
-- **Asset Embedding**: Custom CSS and JavaScript embedded in HTML
-- **Multi-target Support**: Navigation sidebar for multiple root targets
-- **Modal Views**: Detailed information display for each probe result
+- **TruffleHog Integration**: Comprehensive secret detection
+- **Custom Regex Patterns**: Mantra-style patterns
+- **Confidence Scoring**: Reliability assessment
+- **Verification**: Attempt to verify findings
+- **Parquet Storage**: Efficient findings storage
 
-### internal/scheduler Package
+### internal/extractor Package
 
-The `scheduler` package is responsible for managing and orchestrating periodic (automated) scan operations within MonsterInc.
-
-#### Key Responsibilities
-
-1. **Task Scheduling & Main Loop**: Manages the main application loop in automated mode
-2. **Scan Cycle Management**: Initiates and manages scan cycle lifecycle
-3. **State and History Persistence**: Uses SQLite database for scan history
-4. **Error Handling and Retries**: Implements retry mechanism for failed scans
-5. **Notifications**: Integrates with notification system for scan events
-
-#### Core Components
-
-**scheduler.go**: Defines the `Scheduler` struct and main scheduling logic
-**db.go**: Manages SQLite database connection and schema
-**target_manager.go**: Handles loading and selection of target URLs
-
-#### Database Schema
-
-The `scan_history` table stores:
-- `scan_session_id`: Unique ID for scan session
-- `target_source`: Source of targets
-- `num_targets`: Number of targets
-- `scan_start_time` / `scan_end_time`: Timing information
-- `status`: Scan status (STARTED, COMPLETED, FAILED, etc.)
-- `report_file_path`: Path to generated HTML report
-- `diff_new` / `diff_old` / `diff_existing`: Diff statistics
-
-### internal/urlhandler Package
-
-Package `urlhandler` provides utilities for processing, normalizing, and validating URLs, as well as reading URLs from files.
-
-#### Core Functions
-
-**URL Validation and Normalization**:
-- `NormalizeURL()`: Takes a raw URL string and applies normalization rules
-- `ValidateURL()`: Validates a single URL string
-- `IsValidURL()`: Convenience function to quickly check URL validity
-- `NormalizeURLs()`: Normalizes a slice of URL strings
-- `ValidateURLs()`: Validates a slice of URL strings
-
-**File Operations**:
-- `ReadURLsFromFile()`: Reads URLs from a specified file, one URL per line
-
-**Utility Functions**:
-- `GetBaseURL()`: Extracts the base URL from a given URL string
-- `IsDomainOrSubdomain()`: Checks domain/subdomain relationships
-- `ResolveURL()`: Resolves relative URLs against a base URL
+Implements path extraction từ web content.
 
 #### Features
 
-- Comprehensive URL normalization (scheme addition, case conversion, fragment removal)
-- File-based URL loading with error handling
-- Domain and subdomain validation
-- Relative URL resolution
-- Detailed error reporting with custom error types 
+- **jsluice Integration**: JavaScript analysis
+- **Custom Regex Patterns**: Additional detection methods
+- **API Endpoint Discovery**: Identify potential endpoints
+- **URL Resolution**: Convert relative đến absolute URLs
+- **Context Preservation**: Maintain discovery context 
