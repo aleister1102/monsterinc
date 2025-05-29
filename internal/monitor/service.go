@@ -80,7 +80,7 @@ func NewMonitoringService(
 	contentDifferInstance := differ.NewContentDiffer(instanceLogger, diffReporterCfg)
 
 	// Initialize PathExtractor using the passed extractorCfg
-	pathExtractorInstance, err := extractor.NewPathExtractor(instanceLogger, *extractorCfg)
+	pathExtractorInstance, err := extractor.NewPathExtractor(*extractorCfg, instanceLogger)
 	if err != nil {
 		instanceLogger.Error().Err(err).Msg("Failed to initialize PathExtractor for MonitoringService. Path extraction from JS may not work.")
 		pathExtractorInstance = nil
@@ -124,7 +124,7 @@ func NewMonitoringService(
 		serviceCancelFunc:     serviceSpecificCancel,
 	}
 
-	s.scheduler = NewScheduler(baseLogger, monitorCfg, s)
+	s.scheduler = NewScheduler(monitorCfg, baseLogger, s)
 
 	if s.cfg.AggregationIntervalSeconds <= 0 {
 		s.logger.Warn().Int("interval_seconds", s.cfg.AggregationIntervalSeconds).Msg("Monitor aggregation interval is not configured or invalid. Aggregation worker will not start.")
@@ -366,17 +366,8 @@ func (s *MonitoringService) checkURL(url string) {
 	}
 
 	// 2. Process content (e.g., get hash)
-	processedUpdate, err := s.processor.ProcessContent(url, fetchResult.Content, fetchResult.ContentType)
+	processedUpdate, err := s.processURLContent(url, fetchResult.Content, fetchResult.ContentType)
 	if err != nil {
-		s.logger.Error().Err(err).Str("url", url).Msg("Failed to process file content")
-		s.aggregatedFetchErrorsMutex.Lock()
-		s.aggregatedFetchErrors = append(s.aggregatedFetchErrors, models.MonitorFetchErrorInfo{
-			URL:        url,
-			Error:      err.Error(),
-			Source:     "process",
-			OccurredAt: time.Now(),
-		})
-		s.aggregatedFetchErrorsMutex.Unlock()
 		return
 	}
 
@@ -409,6 +400,63 @@ func (s *MonitoringService) checkURL(url string) {
 	}
 
 	// 3. Compare with historical data
+	changeInfo, diffResult, err := s.detectURLChanges(url, processedUpdate, fetchResult, secretFindings)
+	if err != nil {
+		return
+	}
+
+	// 4. Store new record if changed (content or status)
+	if err := s.storeURLRecord(url, processedUpdate, fetchResult, diffResult); err != nil {
+		return
+	}
+
+	// Determine if a notification-worthy event occurred.
+	// This happens if the content is actually different.
+	// Other status changes (like URL becoming reachable/unreachable) are handled by general error aggregation or not at all by this specific logic.
+	triggerNotificationForContentChange := diffResult != nil && !diffResult.IsIdentical
+
+	if triggerNotificationForContentChange {
+		// Add to fileChangeEvents for notification.
+		// FileChangeInfo currently doesn't have 'DiffStored' or complex 'Status' fields.
+		// The notification formatter will interpret based on OldHash vs NewHash for "change".
+		s.fileChangeEventsMutex.Lock()
+		s.fileChangeEvents = append(s.fileChangeEvents, *changeInfo) // changeInfo contains OldHash, NewHash etc.
+		s.fileChangeEventsMutex.Unlock()
+
+		// Limit the size of aggregated events to prevent memory exhaustion
+		if len(s.fileChangeEvents) > s.cfg.MaxAggregatedEvents*2 { // A bit of buffer
+			s.logger.Warn().Int("current_size", len(s.fileChangeEvents)).Int("max_size", s.cfg.MaxAggregatedEvents).Msg("File change event buffer is very large, forcing flush.")
+			s.sendAggregatedChanges() // Force send if buffer grows too large
+		}
+	}
+
+	s.logger.Debug().Str("url", url).Msg("Finished checking URL.")
+}
+
+// processURLContent processes the fetched content and returns processed update
+func (s *MonitoringService) processURLContent(url string, content []byte, contentType string) (*models.MonitoredFileUpdate, error) {
+	s.logger.Debug().Str("url", url).Msg("Processing URL content")
+
+	processedUpdate, err := s.processor.ProcessContent(url, content, contentType)
+	if err != nil {
+		s.logger.Error().Err(err).Str("url", url).Msg("Failed to process file content")
+		s.aggregatedFetchErrorsMutex.Lock()
+		s.aggregatedFetchErrors = append(s.aggregatedFetchErrors, models.MonitorFetchErrorInfo{
+			URL:        url,
+			Error:      err.Error(),
+			Source:     "process",
+			OccurredAt: time.Now(),
+		})
+		s.aggregatedFetchErrorsMutex.Unlock()
+		return nil, err
+	}
+
+	return processedUpdate, nil
+}
+
+// detectURLChanges compares current content with historical data and detects changes
+func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models.MonitoredFileUpdate, fetchResult *FetchFileContentResult, secretFindings []models.SecretFinding) (*models.FileChangeInfo, *models.ContentDiffResult, error) {
+	// Compare with historical data
 	lastKnownRecord, err := s.historyStore.GetLastKnownRecord(url)
 	if err != nil {
 		s.logger.Warn().Err(err).Str("url", url).Msg("Could not get last known record for comparison. Assuming new or first check.")
@@ -424,11 +472,12 @@ func (s *MonitoringService) checkURL(url string) {
 
 	// Initialize diffResult to nil to ensure it's defined
 	var diffResult *models.ContentDiffResult
+	var changeInfo *models.FileChangeInfo
 
 	if processedUpdate.NewHash != oldHash {
 		s.logger.Info().Str("url", url).Str("old_hash", oldHash).Str("new_hash", processedUpdate.NewHash).Msg("Change detected")
 
-		changeInfo := models.FileChangeInfo{
+		changeInfo = &models.FileChangeInfo{
 			URL:         url,
 			OldHash:     oldHash,
 			NewHash:     processedUpdate.NewHash,
@@ -438,7 +487,6 @@ func (s *MonitoringService) checkURL(url string) {
 			// These would need to be added to the struct if intended for use.
 			// For now, this information will be logged or handled locally if needed.
 		}
-		// fileChangeEventsMutex is locked later when actually adding to the slice.
 
 		// Generate diff if ContentDiffer is available and content needs to be stored for diffing
 		if s.contentDiffer != nil && s.cfg.StoreFullContentOnChange {
@@ -465,98 +513,81 @@ func (s *MonitoringService) checkURL(url string) {
 				}
 			}
 		}
-
-		// 4. Store new record if changed (content or status)
-		var diffJSON *string
-		if diffResult != nil && !diffResult.IsIdentical { // Serialize diff result if available and not identical
-			diffBytes, jsonMarshalErr := json.Marshal(diffResult) // Renamed err to jsonMarshalErr
-			if jsonMarshalErr != nil {
-				s.logger.Error().Err(jsonMarshalErr).Str("url", url).Msg("Failed to marshal diff result to JSON")
-			} else {
-				jsonStr := string(diffBytes)
-				diffJSON = &jsonStr
-			}
-		}
-
-		// Determine if a record should be stored in history.
-		// This happens if StoreFullContentOnChange is true AND it's a new URL OR content has actually changed.
-		shouldStoreRecord := s.cfg.StoreFullContentOnChange &&
-			(lastKnownRecord == nil || (diffResult != nil && !diffResult.IsIdentical))
-
-		if shouldStoreRecord {
-			storeRecord := models.FileHistoryRecord{
-				URL:            url,
-				Timestamp:      processedUpdate.FetchedAt.UnixMilli(),
-				Hash:           processedUpdate.NewHash,
-				ContentType:    processedUpdate.ContentType,
-				ETag:           fetchResult.ETag,
-				LastModified:   fetchResult.LastModified,
-				DiffResultJSON: diffJSON, // Store the marshalled diff
-			}
-			if s.cfg.StoreFullContentOnChange { // Ensure content is stored if configured
-				storeRecord.Content = fetchResult.Content
-			}
-
-			// Extract paths if it's a JS file and pathExtractor is available
-			if s.pathExtractor != nil && (strings.Contains(storeRecord.ContentType, "javascript") || strings.HasSuffix(url, ".js")) {
-				extractedPaths, err := s.pathExtractor.ExtractPaths(url, storeRecord.Content, storeRecord.ContentType)
-				if err != nil {
-					s.logger.Error().Err(err).Str("url", url).Msg("Failed to extract paths from JS content during monitoring check")
-					// Do not fail the whole checkURL, just log the error
-				} else if len(extractedPaths) > 0 {
-					s.logger.Debug().Str("url", url).Int("path_count", len(extractedPaths)).Msg("Extracted paths from JS content")
-					pathsJSON, jsonErr := json.Marshal(extractedPaths)
-					if jsonErr != nil {
-						s.logger.Error().Err(jsonErr).Str("url", url).Msg("Failed to marshal extracted paths to JSON")
-					} else {
-						jsonStr := string(pathsJSON)
-						storeRecord.ExtractedPathsJSON = &jsonStr
-						s.logger.Info().Str("url", url).Int("path_count", len(extractedPaths)).Msg("Extracted paths from JS content and will store with history record")
-					}
-				}
-			}
-
-			if errStore := s.historyStore.StoreFileRecord(storeRecord); errStore != nil {
-				s.logger.Error().Err(errStore).Str("url", url).Msg("Failed to store updated file record in history")
-				s.aggregatedFetchErrorsMutex.Lock()
-				s.aggregatedFetchErrors = append(s.aggregatedFetchErrors, models.MonitorFetchErrorInfo{
-					URL:        url,
-					Error:      errStore.Error(),
-					Source:     "store_history",
-					OccurredAt: time.Now(),
-				})
-				s.aggregatedFetchErrorsMutex.Unlock()
-			}
-		}
-
-		// Determine if a notification-worthy event occurred.
-		// This happens if the content is actually different.
-		// Other status changes (like URL becoming reachable/unreachable) are handled by general error aggregation or not at all by this specific logic.
-		triggerNotificationForContentChange := diffResult != nil && !diffResult.IsIdentical
-
-		if triggerNotificationForContentChange {
-			// Add to fileChangeEvents for notification.
-			// FileChangeInfo currently doesn't have 'DiffStored' or complex 'Status' fields.
-			// The notification formatter will interpret based on OldHash vs NewHash for "change".
-			s.fileChangeEventsMutex.Lock()
-			s.fileChangeEvents = append(s.fileChangeEvents, changeInfo) // changeInfo contains OldHash, NewHash etc.
-			s.fileChangeEventsMutex.Unlock()
-
-			// Limit the size of aggregated events to prevent memory exhaustion
-			if len(s.fileChangeEvents) > s.cfg.MaxAggregatedEvents*2 { // A bit of buffer
-				s.logger.Warn().Int("current_size", len(s.fileChangeEvents)).Int("max_size", s.cfg.MaxAggregatedEvents).Msg("File change event buffer is very large, forcing flush.")
-				s.sendAggregatedChanges() // Force send if buffer grows too large
-			}
-		}
-
 	} else {
 		s.logger.Debug().Str("url", url).Msg("No change detected (hash is identical)")
-		// If no hash change, we generally don't store a new record unless it's the very first time
-		// or if we need to update 'last_checked' for URLs not changing (currently not implemented this way).
-		// The current logic correctly skips storing if hash is same and lastKnownRecord existed.
 	}
 
-	s.logger.Debug().Str("url", url).Msg("Finished checking URL.")
+	return changeInfo, diffResult, nil
+}
+
+// storeURLRecord stores the URL record if content has changed
+func (s *MonitoringService) storeURLRecord(url string, processedUpdate *models.MonitoredFileUpdate, fetchResult *FetchFileContentResult, diffResult *models.ContentDiffResult) error {
+	// Store new record if changed (content or status)
+	var diffJSON *string
+	if diffResult != nil && !diffResult.IsIdentical { // Serialize diff result if available and not identical
+		diffBytes, jsonMarshalErr := json.Marshal(diffResult) // Renamed err to jsonMarshalErr
+		if jsonMarshalErr != nil {
+			s.logger.Error().Err(jsonMarshalErr).Str("url", url).Msg("Failed to marshal diff result to JSON")
+		} else {
+			jsonStr := string(diffBytes)
+			diffJSON = &jsonStr
+		}
+	}
+
+	// Determine if a record should be stored in history.
+	// This happens if StoreFullContentOnChange is true AND it's a new URL OR content has actually changed.
+	lastKnownRecord, _ := s.historyStore.GetLastKnownRecord(url)
+	shouldStoreRecord := s.cfg.StoreFullContentOnChange &&
+		(lastKnownRecord == nil || (diffResult != nil && !diffResult.IsIdentical))
+
+	if shouldStoreRecord {
+		storeRecord := models.FileHistoryRecord{
+			URL:            url,
+			Timestamp:      processedUpdate.FetchedAt.UnixMilli(),
+			Hash:           processedUpdate.NewHash,
+			ContentType:    processedUpdate.ContentType,
+			ETag:           fetchResult.ETag,
+			LastModified:   fetchResult.LastModified,
+			DiffResultJSON: diffJSON, // Store the marshalled diff
+		}
+		if s.cfg.StoreFullContentOnChange { // Ensure content is stored if configured
+			storeRecord.Content = fetchResult.Content
+		}
+
+		// Extract paths if it's a JS file and pathExtractor is available
+		if s.pathExtractor != nil && (strings.Contains(storeRecord.ContentType, "javascript") || strings.HasSuffix(url, ".js")) {
+			extractedPaths, err := s.pathExtractor.ExtractPaths(url, storeRecord.Content, storeRecord.ContentType)
+			if err != nil {
+				s.logger.Error().Err(err).Str("url", url).Msg("Failed to extract paths from JS content during monitoring check")
+				// Do not fail the whole checkURL, just log the error
+			} else if len(extractedPaths) > 0 {
+				s.logger.Debug().Str("url", url).Int("path_count", len(extractedPaths)).Msg("Extracted paths from JS content")
+				pathsJSON, jsonErr := json.Marshal(extractedPaths)
+				if jsonErr != nil {
+					s.logger.Error().Err(jsonErr).Str("url", url).Msg("Failed to marshal extracted paths to JSON")
+				} else {
+					jsonStr := string(pathsJSON)
+					storeRecord.ExtractedPathsJSON = &jsonStr
+					s.logger.Info().Str("url", url).Int("path_count", len(extractedPaths)).Msg("Extracted paths from JS content and will store with history record")
+				}
+			}
+		}
+
+		if errStore := s.historyStore.StoreFileRecord(storeRecord); errStore != nil {
+			s.logger.Error().Err(errStore).Str("url", url).Msg("Failed to store updated file record in history")
+			s.aggregatedFetchErrorsMutex.Lock()
+			s.aggregatedFetchErrors = append(s.aggregatedFetchErrors, models.MonitorFetchErrorInfo{
+				URL:        url,
+				Error:      errStore.Error(),
+				Source:     "store_history",
+				OccurredAt: time.Now(),
+			})
+			s.aggregatedFetchErrorsMutex.Unlock()
+			return errStore
+		}
+	}
+
+	return nil
 }
 
 // SanitizeFilenameForMonitoring is removed as it's causing a linter error and its usage isn't apparent here.
