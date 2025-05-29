@@ -333,20 +333,31 @@ func (s *MonitoringService) sendAggregatedChanges() {
 
 func (s *MonitoringService) sendAggregatedErrors() {
 	s.aggregatedFetchErrorsMutex.Lock()
+	defer s.aggregatedFetchErrorsMutex.Unlock()
+
 	if len(s.aggregatedFetchErrors) == 0 {
-		s.aggregatedFetchErrorsMutex.Unlock()
+		s.logger.Debug().Msg("No aggregated fetch/process errors to send.")
 		return
 	}
 
-	errorsToSend := make([]models.MonitorFetchErrorInfo, len(s.aggregatedFetchErrors))
-	copy(errorsToSend, s.aggregatedFetchErrors)
-	s.aggregatedFetchErrors = make([]models.MonitorFetchErrorInfo, 0) // Clear the slice
-	s.aggregatedFetchErrorsMutex.Unlock()
-
-	if len(errorsToSend) > 0 {
-		s.logger.Info().Int("count", len(errorsToSend)).Msg("Sending aggregated monitor error notifications.")
-		s.notificationHelper.SendAggregatedMonitorErrorsNotification(s.serviceCtx, errorsToSend)
+	// Log the errors, but do not send a Discord notification for them by default.
+	// Discord notifications for these types of errors can be very noisy.
+	// Critical errors or interruptions will still trigger notifications elsewhere.
+	s.logger.Warn().Int("count", len(s.aggregatedFetchErrors)).Msg("Aggregated monitor fetch/process errors occurred.")
+	for i, errInfo := range s.aggregatedFetchErrors {
+		s.logger.Warn().Int("index", i+1).Str("url", errInfo.URL).Str("source", errInfo.Source).Str("error", errInfo.Error).Time("occurred_at", errInfo.OccurredAt).Msg("Aggregated monitor error detail")
 	}
+
+	// Commenting out the notification sending part:
+	/*
+		s.logger.Info().Int("count", len(s.aggregatedFetchErrors)).Msg("Sending aggregated monitor error notifications.")
+		if s.notificationHelper != nil {
+			s.notificationHelper.SendAggregatedMonitorErrorsNotification(s.serviceCtx, s.aggregatedFetchErrors)
+		}
+	*/
+
+	s.aggregatedFetchErrors = []models.MonitorFetchErrorInfo{} // Clear the list
+	s.logger.Info().Msg("Aggregated monitor error list cleared after logging.")
 }
 
 // checkURL performs the actual check for a single URL. Called by the scheduler's workers.
