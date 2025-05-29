@@ -25,14 +25,14 @@ MonsterInc is a command-line interface (CLI) tool written in Go, specialized for
 ### 💾 Parquet Storage
 - Write probing results to Parquet files for later data analysis
 - Support compression codecs: ZSTD (default), SNAPPY, GZIP, UNCOMPRESSED
-- Save files in directory structure `ParquetBasePath/YYYYMMDD/scan_results_*.parquet`
+- Save files in directory structure organized by date and target
 
 ### ⚙️ Flexible Configuration
 - Manage configuration via YAML file (`config.yaml` preferred) or JSON (`config.json`)
 - Support command-line parameters
 
 ### 🔄 Periodic Scanning (Automated Mode)
-- Allow scheduling of recurring scans (e.g., daily)
+- Allow scheduling of recurring scans with configurable intervals
 - Reload target lists at the beginning of each scan cycle
 - Maintain scan history in SQLite database
 - Send notifications (e.g., via Discord) on scan start, success, and failure
@@ -56,13 +56,13 @@ MonsterInc is a command-line interface (CLI) tool written in Go, specialized for
 ## Installation
 
 ### System Requirements
-- Go version 1.23.0 or newer
+- Go version 1.23.1 or newer
 
 ### Install from Source
 
 1. Clone repository:
 ```bash
-git clone https://github.com/your-username/monsterinc.git
+git clone https://github.com/aleister1102/monsterinc.git
 cd monsterinc
 ```
 
@@ -77,13 +77,13 @@ go build -o monsterinc ./cmd/monsterinc
 
 ### Install from GitHub Releases
 
-1. Download appropriate binary from [GitHub Releases](https://github.com/your-username/monsterinc/releases)
+1. Download appropriate binary from [GitHub Releases](https://github.com/aleister1102/monsterinc/releases)
 2. Extract and place in system PATH
 
 ### Install via Go install
 
 ```bash
-go install github.com/your-username/monsterinc/cmd/monsterinc@latest
+go install github.com/aleister1102/monsterinc/cmd/monsterinc@latest
 ```
 
 ## Usage
@@ -96,27 +96,30 @@ go install github.com/your-username/monsterinc/cmd/monsterinc@latest
 
 ### Main Command-Line Parameters
 
+#### Required Parameters
 - `--mode <onetime|automated>`: (Required) Execution mode
   - `onetime`: Run once and exit
   - `automated`: Run continuously on schedule
-- `-u, --urlfile <path>`: Path to file containing seed URLs list
-- `--mtf, --monitor-target-file <path>`: File containing URLs to monitor (automated mode only)
-- `--gc, --globalconfig <path>`: Path to configuration file
+
+#### Optional Parameters
+- `--scan-targets, -st <path>`: Path to file containing seed URLs list
+- `--monitor-targets, -mt <path>`: File containing URLs to monitor (automated mode only)
+- `--globalconfig, -gc <path>`: Path to configuration file
 
 ### Usage Examples
 
 ```bash
 # Run once with URLs list from file
-./monsterinc --mode onetime -u targets.txt
+./monsterinc --mode onetime --scan-targets targets.txt
 
 # Run automatically with monitoring
-./monsterinc --mode automated --mtf monitor_targets.txt
+./monsterinc --mode automated --monitor-targets monitor_targets.txt
 
 # Use custom configuration file
-./monsterinc --mode onetime --globalconfig custom_config.yaml -u targets.txt
+./monsterinc --mode onetime --globalconfig custom_config.yaml --scan-targets targets.txt
 
 # Run automated mode with both scan and monitor
-./monsterinc --mode automated -u scan_targets.txt --mtf monitor_targets.txt
+./monsterinc --mode automated --scan-targets scan_targets.txt --monitor-targets monitor_targets.txt
 ```
 
 ## Configuration
@@ -149,28 +152,29 @@ cp config.example.yaml config.yaml
 
 ```
 monsterinc/
-├── cmd/monsterinc/         # Application entry point
-├── internal/               # Internal application logic
-│   ├── config/            # Configuration management
-│   ├── crawler/           # Web crawling module
-│   ├── datastore/         # Data storage module
-│   ├── differ/            # Difference comparison module
-│   ├── extractor/         # Path extraction module
-│   ├── httpxrunner/       # httpx wrapper
-│   ├── logger/            # Logging module
-│   ├── models/            # Data structure definitions
-│   ├── monitor/           # File monitoring module
-│   ├── notifier/          # Notification module
-│   ├── orchestrator/      # Workflow orchestration
-│   ├── reporter/          # HTML report generation
-│   ├── scheduler/         # Automated scan scheduling
-│   ├── secrets/           # Secret detection
-│   └── urlhandler/        # URL handling and normalization
-├── reports/               # HTML reports directory
-├── database/              # Database and Parquet files directory
-├── tasks/                 # PRD files and task lists
-├── config.example.yaml    # Sample configuration file
-└── README.md             # This file
+├── cmd/
+│   └── monsterinc/             # Application entry point
+├── internal/                   # Internal application logic
+│   ├── config/                # Configuration management
+│   ├── crawler/               # Web crawling module
+│   ├── datastore/             # Data storage module (Parquet)
+│   ├── differ/                # Difference comparison module
+│   ├── extractor/             # Path extraction module
+│   ├── httpxrunner/           # httpx wrapper
+│   ├── logger/                # Logging module
+│   ├── models/                # Data structure definitions
+│   ├── monitor/               # File monitoring module
+│   ├── notifier/              # Notification module
+│   ├── orchestrator/          # Workflow orchestration
+│   ├── reporter/              # HTML report generation
+│   ├── scheduler/             # Automated scan scheduling
+│   ├── secrets/               # Secret detection
+│   └── urlhandler/            # URL handling and normalization
+├── reports/                   # HTML reports directory
+├── database/                  # Database and Parquet files directory
+├── tasks/                     # PRD files and task lists
+├── config.example.yaml        # Sample configuration file
+└── README.md                  # This file
 ```
 
 ## Workflow Operation
@@ -188,7 +192,7 @@ monsterinc/
 10. **Notification**: Send completion notification
 
 ### Automated Mode
-1. **Scheduler**: Calculate next scan time
+1. **Scheduler**: Calculate next scan time based on configuration
 2. **Target Reloading**: Reload targets for each cycle
 3. **Scan Execution**: Execute workflow like onetime mode
 4. **History Management**: Save scan history to SQLite
@@ -211,6 +215,7 @@ monsterinc/
 - [parquet-go](https://github.com/parquet-go/parquet-go) - Parquet file handling
 - [zerolog](https://github.com/rs/zerolog) - Structured logging
 - [jsluice](https://github.com/BishopFox/jsluice) - JavaScript analysis
+- [sqlite](https://modernc.org/sqlite) - SQLite database (CGO-free)
 
 ## Contributing
 
@@ -226,5 +231,5 @@ This project is distributed under the MIT License. See `LICENSE` file for more d
 
 ## Support
 
-- Create [GitHub Issue](https://github.com/your-username/monsterinc/issues) to report bugs or suggest features
-- See [Wiki](./wiki.md) for more details about project structure and operation 
+- Create [GitHub Issue](https://github.com/aleister1102/monsterinc/issues) to report bugs or suggest features
+- See [Wiki](./WIKI.md) for more details about project structure and operation 

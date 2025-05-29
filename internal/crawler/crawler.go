@@ -13,8 +13,8 @@ import (
 	"sync" // For thread-safe access to discoveredURLs
 	"time"
 
-	"monsterinc/internal/config" // Import the config package
-	"monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/config" // Import the config package
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/gocolly/colly/v2"
 	"github.com/rs/zerolog"
@@ -190,9 +190,23 @@ func NewCrawler(cfg *config.CrawlerConfig, httpClient *http.Client, appLogger ze
 	}
 	maxContentLength := int64(maxContentLengthMB) * 1024 * 1024
 
+	// Auto-add seed hostnames to allowed hostnames if enabled
+	finalAllowedHostnames := cfg.Scope.AllowedHostnames
+	if cfg.AutoAddSeedHostnames && len(cfg.SeedURLs) > 0 {
+		seedHostnames := ExtractHostnamesFromSeedURLs(cfg.SeedURLs, moduleLogger)
+		if len(seedHostnames) > 0 {
+			finalAllowedHostnames = MergeAllowedHostnames(cfg.Scope.AllowedHostnames, seedHostnames)
+			moduleLogger.Info().
+				Strs("seed_hostnames", seedHostnames).
+				Strs("original_allowed_hostnames", cfg.Scope.AllowedHostnames).
+				Strs("final_allowed_hostnames", finalAllowedHostnames).
+				Msg("Auto-added seed hostnames to allowed hostnames")
+		}
+	}
+
 	// Initialize ScopeSettings with the logger
 	scopeSettings := NewScopeSettings(
-		cfg.Scope.AllowedHostnames,
+		finalAllowedHostnames,
 		cfg.Scope.AllowedSubdomains,
 		cfg.Scope.DisallowedHostnames,
 		cfg.Scope.DisallowedSubdomains,

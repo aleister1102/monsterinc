@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"monsterinc/internal/config"
-	"monsterinc/internal/models"
-	"monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"io/fs"
+
+	"encoding/base64"
 
 	"github.com/rs/zerolog"
 )
@@ -26,6 +28,9 @@ var templatesFS embed.FS
 
 //go:embed assets/*
 var assetsFS embed.FS
+
+//go:embed assets/img/favicon.ico
+var faviconICODiff []byte
 
 const (
 	DefaultDiffReportDir       = "reports/diff"
@@ -270,6 +275,12 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, e
 		// ItemsPerPage and EnableDataTables can be set from config if needed by template for aggregated view
 	}
 
+	// Set favicon base64 data
+	if len(faviconICODiff) > 0 {
+		pageData.FaviconBase64 = base64.StdEncoding.EncodeToString(faviconICODiff)
+		r.logger.Debug().Int("favicon_size", len(faviconICODiff)).Msg("Set favicon base64 for aggregated diff report.")
+	}
+
 	// Execute the main template
 	if err := r.template.ExecuteTemplate(file, "diff_report.html.tmpl", pageData); err != nil {
 		r.logger.Error().Err(err).Msg("Failed to execute template for aggregated diff report.")
@@ -336,6 +347,12 @@ func (r *HtmlDiffReporter) GenerateSingleDiffReport(urlStr string, diffResult *m
 		DiffResults: []models.DiffResultDisplay{displayDiff}, // Use DiffResults
 		TotalDiffs:  1,
 		ReportType:  "single",
+	}
+
+	// Set favicon base64 data
+	if len(faviconICODiff) > 0 {
+		pageData.FaviconBase64 = base64.StdEncoding.EncodeToString(faviconICODiff)
+		r.logger.Debug().Int("favicon_size", len(faviconICODiff)).Msg("Set favicon base64 for single diff report.")
 	}
 
 	if err := r.template.ExecuteTemplate(file, "diff_report.html.tmpl", pageData); err != nil {

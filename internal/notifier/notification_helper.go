@@ -2,8 +2,8 @@ package notifier
 
 import (
 	"context"
-	"monsterinc/internal/config"
-	"monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
 	"os"
 
 	"github.com/rs/zerolog"
@@ -172,13 +172,44 @@ func (nh *NotificationHelper) SendAggregatedFileChangesNotification(ctx context.
 		nh.logger.Error().Err(err).Msg("Failed to send aggregated file changes notification")
 	} else {
 		nh.logger.Info().Int("change_count", len(changes)).Msg("Aggregated file changes notification sent successfully.")
-		// Auto-delete report file if configured and path exists
+
+		// Auto-delete single diff reports if configured
+		if nh.cfg.AutoDeleteReportAfterDiscordNotification {
+			// Collect single diff report paths from changes
+			singleReportPaths := make([]string, 0)
+			for _, change := range changes {
+				if change.DiffReportPath != nil && *change.DiffReportPath != "" {
+					singleReportPaths = append(singleReportPaths, *change.DiffReportPath)
+				}
+			}
+
+			// Delete single diff reports
+			for _, path := range singleReportPaths {
+				nh.logger.Info().Str("single_report_path", path).Msg("Attempting to auto-delete single diff report file after successful aggregated notification.")
+				if errDel := os.Remove(path); errDel != nil {
+					nh.logger.Error().Err(errDel).Str("single_report_path", path).Msg("Failed to auto-delete single diff report file.")
+				} else {
+					nh.logger.Info().Str("single_report_path", path).Msg("Successfully auto-deleted single diff report file.")
+				}
+			}
+		}
+
+		// Auto-delete aggregated report file if configured and path exists
 		if nh.cfg.AutoDeleteReportAfterDiscordNotification && reportFilePath != "" {
 			nh.logger.Info().Str("report_path", reportFilePath).Msg("Attempting to auto-delete aggregated diff report file after successful Discord notification.")
 			if errDel := os.Remove(reportFilePath); errDel != nil {
 				nh.logger.Error().Err(errDel).Str("report_path", reportFilePath).Msg("Failed to auto-delete aggregated diff report file.")
 			} else {
 				nh.logger.Info().Str("report_path", reportFilePath).Msg("Successfully auto-deleted aggregated diff report file.")
+			}
+
+			// Also delete the assets directory if it exists
+			assetsDir := "reports/diff/assets"
+			nh.logger.Info().Str("assets_dir", assetsDir).Msg("Attempting to auto-delete diff assets directory after successful Discord notification.")
+			if errDelAssets := os.RemoveAll(assetsDir); errDelAssets != nil {
+				nh.logger.Error().Err(errDelAssets).Str("assets_dir", assetsDir).Msg("Failed to auto-delete diff assets directory.")
+			} else {
+				nh.logger.Info().Str("assets_dir", assetsDir).Msg("Successfully auto-deleted diff assets directory.")
 			}
 		}
 	}

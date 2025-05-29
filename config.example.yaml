@@ -177,6 +177,13 @@ crawler_config:
   # Maximum content length in MB to download for a page.
   # Default: 2
   max_content_length_mb: 2
+  # Automatically add seed URL hostnames to allowed hostnames list.
+  # When enabled, hostnames extracted from seed URLs will be automatically
+  # added to the allowed_hostnames list in the scope configuration.
+  # This is useful to ensure the crawler can visit seed domains without
+  # manually specifying them in allowed_hostnames.
+  # Default: true
+  auto_add_seed_hostnames: true
 
 # Reporter configuration: Settings for generating HTML reports.
 reporter_config:
@@ -241,7 +248,7 @@ notification_config:
 
   # Automatically delete the generated HTML report file after a Discord notification for that report has been successfully sent.
   # This applies to notifications that include a report_path, like scan completion or diff reports.
-  # Default: false
+  # Default: true
   auto_delete_report_after_discord_notification: true
 
 # Logging configuration: Settings for application logging.

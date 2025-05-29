@@ -3,7 +3,7 @@ package models
 import (
 	"encoding/json"
 	"time"
-	// "monsterinc/internal/utils" // Removed: Imported and not used, and caused naming conflict
+	// "github.com/aleister1102/monsterinc/internal/utils" // Removed: Imported and not used, and caused naming conflict
 )
 
 // Required for TLSCertExpiry potentially if it becomes time.Time

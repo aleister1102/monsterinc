@@ -9,6 +9,7 @@ $(document).ready(function () {
     }
 
     // const $globalSearchInput = $('#globalSearchInput'); // Global search disabled
+    const $globalSearchInput = $('#globalSearchInput'); // Global search enabled
     const $rootURLFilter = $('#rootURLFilter'); // New filter input for root URL
     const $statusCodeFilter = $('#statusCodeFilter');
     const $contentTypeFilter = $('#contentTypeFilter');
@@ -26,6 +27,7 @@ $(document).ready(function () {
     let currentSortDirection = 'asc';
     let currentFilters = {
         // globalSearch: '', // Global search disabled
+        globalSearch: '', // Global search enabled
         rootURL: '', // Added for root URL filtering
         statusCode: '',
         contentType: '',
@@ -86,7 +88,7 @@ $(document).ready(function () {
 
     // --- Filtering Logic ---
     function filterData(data) {
-        // const globalSearchTerm = currentFilters.globalSearch.toLowerCase(); // Global search disabled
+        const globalSearchTerm = currentFilters.globalSearch.toLowerCase(); // Global search enabled
         const rootURL = currentFilters.rootURL;
         const statusCode = currentFilters.statusCode;
         const contentType = currentFilters.contentType.toLowerCase();
@@ -97,7 +99,8 @@ $(document).ready(function () {
             if (rootURL && (!pr.RootTargetURL || pr.RootTargetURL !== rootURL)) {
                 return false;
             }
-            /* Global search disabled
+            
+            // Global search enabled
             let matchesGlobal = true;
             if (globalSearchTerm) {
                 matchesGlobal = (
@@ -114,7 +117,6 @@ $(document).ready(function () {
                 );
             }
             if (!matchesGlobal) return false;
-            */
 
             if (statusCode && (!pr.StatusCode || pr.StatusCode.toString() !== statusCode)) return false;
             if (contentType && (!pr.ContentType || !pr.ContentType.toLowerCase().startsWith(contentType))) return false;
@@ -244,6 +246,7 @@ $(document).ready(function () {
 
     // --- Event Listeners ---
     // $globalSearchInput.on('input', function() { currentFilters.globalSearch = $(this).val(); processAndDisplayData(); }); // Global search disabled
+    $globalSearchInput.on('input', function() { currentFilters.globalSearch = $(this).val(); processAndDisplayData(); });
     $rootURLFilter.on('change', function () { currentFilters.rootURL = $(this).val(); processAndDisplayData(); });
     $statusCodeFilter.on('change', function () { currentFilters.statusCode = $(this).val(); processAndDisplayData(); });
     $contentTypeFilter.on('change', function () { currentFilters.contentType = $(this).val(); processAndDisplayData(); });
@@ -257,6 +260,7 @@ $(document).ready(function () {
 
     $clearAllFiltersBtn.on('click', function () {
         currentFilters = {
+            globalSearch: '', // Global search enabled
             rootURL: '',
             statusCode: '',
             contentType: '',
@@ -264,12 +268,12 @@ $(document).ready(function () {
             urlStatus: ''
         };
         // Reset input field values
+        $globalSearchInput.val(''); // Global search enabled
         $rootURLFilter.val('');
         $statusCodeFilter.val('');
         $contentTypeFilter.val('');
         $techFilterInput.val('');
         $urlStatusFilter.val('');
-        // $globalSearchInput.val(''); // If global search were enabled
 
         processAndDisplayData();
     });

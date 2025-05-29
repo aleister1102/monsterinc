@@ -198,3 +198,67 @@ func isStringInSlice(str string, slice []string) bool {
 	}
 	return false
 }
+
+// ExtractHostnamesFromSeedURLs extracts unique hostnames from a list of seed URLs
+func ExtractHostnamesFromSeedURLs(seedURLs []string, logger zerolog.Logger) []string {
+	hostnameSet := make(map[string]bool)
+
+	for _, seedURL := range seedURLs {
+		if strings.TrimSpace(seedURL) == "" {
+			continue
+		}
+
+		parsedURL, err := url.Parse(seedURL)
+		if err != nil {
+			logger.Warn().Str("seed_url", seedURL).Err(err).Msg("Failed to parse seed URL for hostname extraction")
+			continue
+		}
+
+		hostname := parsedURL.Hostname()
+		if hostname == "" {
+			logger.Warn().Str("seed_url", seedURL).Msg("Seed URL has no hostname component")
+			continue
+		}
+
+		// Normalize hostname to lowercase
+		normalizedHostname := strings.ToLower(strings.TrimSpace(hostname))
+		hostnameSet[normalizedHostname] = true
+	}
+
+	// Convert map to slice
+	hostnames := make([]string, 0, len(hostnameSet))
+	for hostname := range hostnameSet {
+		hostnames = append(hostnames, hostname)
+	}
+
+	return hostnames
+}
+
+// MergeAllowedHostnames merges extracted seed hostnames with existing allowed hostnames
+func MergeAllowedHostnames(existingHostnames, seedHostnames []string) []string {
+	hostnameSet := make(map[string]bool)
+
+	// Add existing hostnames
+	for _, hostname := range existingHostnames {
+		normalizedHostname := strings.ToLower(strings.TrimSpace(hostname))
+		if normalizedHostname != "" {
+			hostnameSet[normalizedHostname] = true
+		}
+	}
+
+	// Add seed hostnames
+	for _, hostname := range seedHostnames {
+		normalizedHostname := strings.ToLower(strings.TrimSpace(hostname))
+		if normalizedHostname != "" {
+			hostnameSet[normalizedHostname] = true
+		}
+	}
+
+	// Convert back to slice
+	mergedHostnames := make([]string, 0, len(hostnameSet))
+	for hostname := range hostnameSet {
+		mergedHostnames = append(mergedHostnames, hostname)
+	}
+
+	return mergedHostnames
+}

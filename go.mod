@@ -1,4 +1,4 @@
-module monsterinc
+module github.com/aleister1102/monsterinc
 
 go 1.23.1
 

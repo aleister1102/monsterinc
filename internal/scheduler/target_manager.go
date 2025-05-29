@@ -3,8 +3,8 @@ package scheduler
 import (
 	// "bufio" // No longer needed if urlhandler.ReadURLsFromFile is used
 	"fmt"
-	"monsterinc/internal/models"
-	"monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	// "os" // No longer needed if urlhandler.ReadURLsFromFile is used
 	"path/filepath"

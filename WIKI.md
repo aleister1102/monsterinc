@@ -99,6 +99,38 @@ MonsterInc is a comprehensive web reconnaissance and monitoring tool designed fo
 - Mode selection (onetime vs automated)
 - Graceful shutdown handling
 
+**main.go**: The main application file that handles:
+- Command-line argument parsing
+- Configuration loading and validation
+- Mode selection and execution
+- Graceful shutdown handling
+- Global initialization of services
+
+#### Command-Line Arguments
+
+**Required Arguments**
+- `--mode <onetime|automated>`: Execution mode
+
+**Optional Arguments**
+- `--scan-targets, -st <path>`: Path to file containing seed URLs
+- `--monitor-targets, -mt <path>`: File containing URLs to monitor (automated mode)
+- `--globalconfig, -gc <path>`: Path to configuration file (default: config.yaml)
+
+#### Execution Modes
+
+**Onetime Mode**: Executes a single scan cycle and exits:
+1. Load targets from file or configuration
+2. Execute complete scan workflow
+3. Generate report and send notifications
+4. Exit
+
+**Automated Mode**: Runs continuously with scheduled scans:
+1. Initialize scheduler and monitoring services
+2. Execute scan cycles at configured intervals
+3. Handle retries for failed scans
+4. Maintain scan history in SQLite database
+5. Optional file monitoring for real-time change detection
+
 ### internal/config
 **Purpose**: Configuration management
 - YAML/JSON configuration loading
@@ -437,9 +469,9 @@ The `cmd/monsterinc` package provides the command-line interface and orchestrate
 - `--mode <onetime|automated>`: Execution mode
 
 **Optional Arguments**
-- `-u, --urlfile <path>`: Path to file containing seed URLs
-- `--mtf, --monitor-target-file <path>`: File containing URLs to monitor (automated mode)
-- `--gc, --globalconfig <path>`: Path to configuration file (default: config.yaml)
+- `--scan-targets, -st <path>`: Path to file containing seed URLs
+- `--monitor-targets, -mt <path>`: File containing URLs to monitor (automated mode)
+- `--globalconfig, -gc <path>`: Path to configuration file (default: config.yaml)
 
 #### Execution Modes
 

@@ -3,13 +3,13 @@ package monitor
 import (
 	"context"
 	"encoding/json"
-	"monsterinc/internal/config"
-	"monsterinc/internal/differ"
-	"monsterinc/internal/extractor"
-	"monsterinc/internal/models"
-	"monsterinc/internal/notifier"
-	"monsterinc/internal/reporter"
-	"monsterinc/internal/secrets"
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/differ"
+	"github.com/aleister1102/monsterinc/internal/extractor"
+	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/notifier"
+	"github.com/aleister1102/monsterinc/internal/reporter"
+	"github.com/aleister1102/monsterinc/internal/secrets"
 	"net/http"
 	"strings"
 	sync "sync"
@@ -221,6 +221,33 @@ func (s *MonitoringService) Start(initialURLs []string) error {
 // Stop signals the MonitoringService and its scheduler to shut down gracefully.
 func (s *MonitoringService) Stop() {
 	s.logger.Info().Msg("Attempting to stop MonitoringService...")
+
+	// Get current monitored URLs for notification before cleanup
+	currentMonitoredURLs := s.GetCurrentlyMonitoredURLs()
+
+	// Send any remaining aggregated changes and errors before stopping
+	s.logger.Info().Msg("Sending final aggregated changes and errors before stopping...")
+	s.sendAggregatedChanges()
+	s.sendAggregatedErrors()
+
+	// Send interrupted notification using scan completion format
+	if s.notificationHelper != nil && len(currentMonitoredURLs) > 0 {
+		s.logger.Info().Int("monitored_url_count", len(currentMonitoredURLs)).Msg("Sending monitor service interrupted notification...")
+
+		// Create ScanSummaryData for interrupted monitor service
+		interruptedSummary := models.ScanSummaryData{
+			ScanSessionID: time.Now().Format("20060102-150405-monitor"),
+			TargetSource:  "monitor_service",
+			Targets:       currentMonitoredURLs,
+			TotalTargets:  len(currentMonitoredURLs),
+			Status:        string(models.ScanStatusInterrupted),
+			ErrorMessages: []string{"Monitor service was stopped/interrupted"},
+			Component:     "MonitorService",
+		}
+
+		// Use a background context since serviceCtx might be cancelled
+		s.notificationHelper.SendScanCompletionNotification(context.Background(), interruptedSummary, notifier.MonitorServiceNotification)
+	}
 
 	// Stop the scheduler first
 	if s.scheduler != nil {

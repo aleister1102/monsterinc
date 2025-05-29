@@ -8,6 +8,14 @@
     {{else}}
     <title>MonsterInc Content Diff Report: {{ (index .DiffResults 0).URL }}</title>
     {{end}}
+    
+    <!-- Favicon -->
+    {{if .FaviconBase64}}
+    <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,{{.FaviconBase64}}">
+    {{else}}
+    <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAAAQAABILAAASCwAAAAAAAAAAAAAAAAAAA">
+    {{end}}
+    
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.21/css/dataTables.bootstrap4.min.css">
     
@@ -317,9 +325,9 @@
     <div class="report-container">
         <div class="report-header">
         {{if eq .ReportType "aggregated"}}
-            <h1><i class="fas fa-code-branch me-3"></i>MonsterInc Aggregated Content Diff Report</h1>
+            <h1><i class="fas fa-code-branch mr-3"></i>MonsterInc Aggregated Content Diff Report</h1>
         {{else}}
-            <h1><i class="fas fa-code-branch me-3"></i>MonsterInc Content Diff Report</h1>
+            <h1><i class="fas fa-code-branch mr-3"></i>MonsterInc Content Diff Report</h1>
         {{end}}
         </div>
 
@@ -364,7 +372,7 @@
                     <div class="card-header" id="heading{{$index}}">
                         <h5 class="mb-0">
                             <button class="btn btn-link" data-toggle="collapse" data-target="#collapse{{$index}}" aria-expanded="{{if eq $index 0}}true{{else}}false{{end}}" aria-controls="collapse{{$index}}">
-                                <i class="fas fa-globe me-2"></i>{{ $diff.URL }} 
+                                <i class="fas fa-globe mr-2"></i>{{ $diff.URL }} 
                                 <span class="badge bg-secondary ms-2">{{ $diff.ContentType }}</span>
                                 <small class="ms-2 text-light">{{ $diff.Timestamp.Format "2006-01-02 15:04:05" }}</small>
                             </button>
@@ -375,16 +383,16 @@
                         <div class="card-body">
                             {{if $diff.ErrorMessage}}
                                 <div class="error-message">
-                                    <i class="fas fa-exclamation-triangle me-2"></i>Error: {{ $diff.ErrorMessage }}
+                                    <i class="fas fa-exclamation-triangle mr-2"></i>Error: {{ $diff.ErrorMessage }}
                                 </div>
                             {{else if $diff.IsIdentical}}
                                 <div class="alert alert-info">
-                                    <i class="fas fa-check-circle me-2"></i>No changes detected for this item.
+                                    <i class="fas fa-check-circle mr-2"></i>No changes detected for this item.
                                 </div>
                             {{else}}
                                 <div class="row mb-3">
                                     <div class="col-md-8">
-                                        <p><strong><i class="fas fa-info-circle me-1"></i>Diff Summary:</strong> {{ $diff.Summary }}</p>
+                                        <p><strong><i class="fas fa-info-circle mr-1"></i>Diff Summary:</strong> {{ $diff.Summary }}</p>
                                     </div>
                                     <div class="col-md-4">
                                 <div class="hash-info">
@@ -405,28 +413,28 @@
                                 {{if $diff.ExtractedPaths}}
                                 <hr>
                                 <div class="extracted-paths">
-                                    <h6><i class="fas fa-sitemap me-2"></i><strong>Extracted Paths ({{len $diff.ExtractedPaths}})</strong></h6>
+                                    <h6><i class="fas fa-sitemap mr-2"></i><strong>Extracted Paths ({{len $diff.ExtractedPaths}})</strong></h6>
                                     {{range $path := $diff.ExtractedPaths}}
                                     <div class="path-item">
                                         <div class="row">
                                             <div class="col-md-6">
-                                                <small><strong><i class="fas fa-code me-1"></i>Raw:</strong></small><br>
+                                                <small><strong><i class="fas fa-code mr-1"></i>Raw:</strong></small><br>
                                                 <code class="bg-light px-2 py-1 rounded d-block">{{$path.ExtractedRawPath}}</code>
                                             </div>
                                             <div class="col-md-6">
-                                                <small><strong><i class="fas fa-external-link-alt me-1"></i>Absolute:</strong></small><br>
+                                                <small><strong><i class="fas fa-external-link-alt mr-1"></i>Absolute:</strong></small><br>
                                                 <a href="{{$path.ExtractedAbsoluteURL}}" target="_blank" class="text-break">{{$path.ExtractedAbsoluteURL}}</a>
                                             </div>
                                         </div>
                                         <div class="row mt-2">
                                             <div class="col-md-6">
-                                                <small><strong><i class="fas fa-tag me-1"></i>Type:</strong></small>
+                                                <small><strong><i class="fas fa-tag mr-1"></i>Type:</strong></small>
                                                 <span class="badge bg-info ms-1">{{$path.Type}}</span>
                                             </div>
                                         </div>
                                         {{if $path.Context}}
                                         <div class="mt-2">
-                                            <small><strong><i class="fas fa-align-left me-1"></i>Context:</strong></small>
+                                            <small><strong><i class="fas fa-align-left mr-1"></i>Context:</strong></small>
                                             <pre class="bg-light p-2 rounded mt-1" style="max-height: 100px; overflow-y: auto; font-size: 0.8em;"><code>{{$path.Context}}</code></pre>
                                         </div>
                                         {{end}}
@@ -438,7 +446,7 @@
                                 {{if $diff.SecretFindings}}
                                 <hr>
                                 <div class="secret-section">
-                                    <h6><i class="fas fa-shield-alt me-2"></i><strong>Secret Detection Findings ({{len $diff.SecretFindings}})</strong></h6>
+                                    <h6><i class="fas fa-shield-alt mr-2"></i><strong>Secret Detection Findings ({{len $diff.SecretFindings}})</strong></h6>
                                     
                                     {{/* Secret Statistics */}}
                                     <div class="row mb-3">
@@ -484,12 +492,12 @@
                                     <table class="table table-sm secret-table">
                                         <thead>
                                             <tr>
-                                                <th><i class="fas fa-tag me-1"></i>Rule ID</th>
-                                                <th><i class="fas fa-info me-1"></i>Description</th>
-                                                <th><i class="fas fa-exclamation-triangle me-1"></i>Severity</th>
-                                                <th><i class="fas fa-key me-1"></i>Secret</th>
-                                                <th><i class="fas fa-list-ol me-1"></i>Line</th>
-                                                <th><i class="fas fa-tools me-1"></i>Tool</th>
+                                                <th><i class="fas fa-tag mr-1"></i>Rule ID</th>
+                                                <th><i class="fas fa-info mr-1"></i>Description</th>
+                                                <th><i class="fas fa-exclamation-triangle mr-1"></i>Severity</th>
+                                                <th><i class="fas fa-key mr-1"></i>Secret</th>
+                                                <th><i class="fas fa-list-ol mr-1"></i>Line</th>
+                                                <th><i class="fas fa-tools mr-1"></i>Tool</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -499,10 +507,10 @@
                                                 <td>{{$finding.Description}}</td>
                                                 <td>
                                                     <span class="badge {{if or (eq $finding.Severity "HIGH") (eq $finding.Severity "CRITICAL")}}badge-danger{{else if eq $finding.Severity "MEDIUM"}}badge-warning{{else if eq $finding.Severity "LOW"}}badge-info{{else}}badge-secondary{{end}}">
-                                                        {{if or (eq $finding.Severity "HIGH") (eq $finding.Severity "CRITICAL")}}<i class="fas fa-exclamation-triangle me-1"></i>{{else if eq $finding.Severity "MEDIUM"}}
-                                                        <i class="fas fa-exclamation-circle me-1"></i>{{else if eq $finding.Severity "LOW"}}
-                                                        <i class="fas fa-info-circle me-1"></i>{{else}}
-                                                        <i class="fas fa-question-circle me-1"></i>{{end}}
+                                                        {{if or (eq $finding.Severity "HIGH") (eq $finding.Severity "CRITICAL")}}<i class="fas fa-exclamation-triangle mr-1"></i>{{else if eq $finding.Severity "MEDIUM"}}
+                                                        <i class="fas fa-exclamation-circle mr-1"></i>{{else if eq $finding.Severity "LOW"}}
+                                                        <i class="fas fa-info-circle mr-1"></i>{{else}}
+                                                        <i class="fas fa-question-circle mr-1"></i>{{end}}
                                                         {{$finding.Severity}}
                                                     </span>
                                                 </td>
@@ -525,7 +533,7 @@
                                 {{if $diff.FullContent}}
                                 <hr>
                                 <div class="full-content-section">
-                                    <h6><i class="fas fa-file-code me-2"></i><strong>Full New Content</strong></h6>
+                                    <h6><i class="fas fa-file-code mr-2"></i><strong>Full New Content</strong></h6>
                                     <pre>{{ $diff.FullContent }}</pre>
                                 </div>
                                 {{end}}

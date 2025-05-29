@@ -2,9 +2,9 @@ package extractor
 
 import (
 	"fmt"
-	"monsterinc/internal/config"
-	"monsterinc/internal/models"
-	"monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"net/url"
 	"regexp"
 	"strings"
