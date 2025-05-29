@@ -3,6 +3,7 @@ package crawler
 import (
 	"errors"
 	"fmt" // For logging regex compilation errors
+	"monsterinc/internal/urlhandler"
 	"net/url"
 	"regexp" // For path restriction logic
 	"strings"
@@ -12,27 +13,39 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// ScopeSettings defines the rules for what URLs the crawler is allowed to visit.
-// Task 2.1: Define structures for hostname and subdomain control.
+// TODO: Define structures for hostname and subdomain control.
+// ScopeSettings provides control over which URLs the crawler will visit.
 type ScopeSettings struct {
-	AllowedHostnames     []string // If empty, any hostname is allowed (unless disallowed).
-	AllowedSubdomains    []string // Only effective if AllowedHostnames is also set. If empty, any subdomain of an allowed hostname is permitted.
-	DisallowedHostnames  []string // Specific hostnames to never visit.
-	DisallowedSubdomains []string // Specific subdomains to never visit.
-
-	AllowedPathPatterns    []*regexp.Regexp // Task 2.2: Regex for allowed paths
-	DisallowedPathPatterns []*regexp.Regexp // Task 2.2: Regex for disallowed paths
+	AllowedHostnames       []string
+	AllowedSubdomains      []string
+	DisallowedHostnames    []string
+	DisallowedSubdomains   []string
+	AllowedPathPatterns    []*regexp.Regexp // TODO: Regex for allowed paths
+	DisallowedPathPatterns []*regexp.Regexp // TODO: Regex for disallowed paths
 	logger                 zerolog.Logger   // Added logger
 }
 
-// NewScopeSettings creates a new ScopeSettings with provided rules.
-// For now, these are passed directly. Later, this will come from config.
+type ScopeChecker struct {
+	allowedHostnames       []string
+	allowedSubdomains      []string
+	disallowedHostnames    []string
+	disallowedSubdomains   []string
+	AllowedPathPatterns    []*regexp.Regexp
+	DisallowedPathPatterns []*regexp.Regexp
+}
+
+// NewScopeSettings creates a new ScopeSettings instance based on the provided configuration.
+// rootURLHostname is extracted from one of the initial seed URLs and will be automatically allowed.
+// allowedHostnames, disallowedHostnames: explicit hostnames to allow/disallow.
+// allowedSubdomains, disallowedSubdomains: allowed/disallowed subdomains (suffix matching).
+// allowedPathRegexes, disallowedPathRegexes: path regex patterns for fine-grained control.
 func NewScopeSettings(
-	allowedHostnames, allowedSubdomains,
-	disallowedHostnames, disallowedSubdomains,
-	allowedPathRegexes, disallowedPathRegexes []string, // Task 2.2: Added path regexes
-	logger zerolog.Logger, // Added logger parameter
-) *ScopeSettings {
+	rootURLHostname string,
+	allowedHostnames, disallowedHostnames []string,
+	allowedSubdomains, disallowedSubdomains []string,
+	allowedPathRegexes, disallowedPathRegexes []string, // TODO: Added path regexes
+	logger zerolog.Logger,
+) (*ScopeSettings, error) {
 	scopeLogger := logger.With().Str("component", "ScopeSettings").Logger()
 
 	normalize := func(items []string) []string {
@@ -70,12 +83,12 @@ func NewScopeSettings(
 	ss.AllowedPathPatterns = compileRegexes(allowedPathRegexes)
 	ss.DisallowedPathPatterns = compileRegexes(disallowedPathRegexes)
 
-	return ss
+	return ss, nil
 }
 
 // CheckHostnameScope evaluates if the given hostname is within the configured scope
 // based on AllowedHostnames, AllowedSubdomains, DisallowedHostnames, and DisallowedSubdomains.
-// Task 2.1: Implement hostname and subdomain control logic.
+// TODO: Implement hostname and subdomain control logic.
 func (ss *ScopeSettings) CheckHostnameScope(hostname string) bool {
 	if hostname == "" {
 		return false // Cannot determine scope for empty hostname
@@ -116,7 +129,7 @@ func (ss *ScopeSettings) CheckHostnameScope(hostname string) bool {
 }
 
 // checkPathScope evaluates if the given URL path is within the configured path regexes.
-// Task 2.2: Implement path restriction logic.
+// TODO: Implement path restriction logic.
 func (ss *ScopeSettings) checkPathScope(path string) bool {
 	// 1. Check DisallowedPathPatterns
 	for _, re := range ss.DisallowedPathPatterns {
@@ -201,34 +214,11 @@ func isStringInSlice(str string, slice []string) bool {
 
 // ExtractHostnamesFromSeedURLs extracts unique hostnames from a list of seed URLs
 func ExtractHostnamesFromSeedURLs(seedURLs []string, logger zerolog.Logger) []string {
-	hostnameSet := make(map[string]bool)
+	hostnames, errors := urlhandler.ExtractHostnamesFromURLs(seedURLs)
 
-	for _, seedURL := range seedURLs {
-		if strings.TrimSpace(seedURL) == "" {
-			continue
-		}
-
-		parsedURL, err := url.Parse(seedURL)
-		if err != nil {
-			logger.Warn().Str("seed_url", seedURL).Err(err).Msg("Failed to parse seed URL for hostname extraction")
-			continue
-		}
-
-		hostname := parsedURL.Hostname()
-		if hostname == "" {
-			logger.Warn().Str("seed_url", seedURL).Msg("Seed URL has no hostname component")
-			continue
-		}
-
-		// Normalize hostname to lowercase
-		normalizedHostname := strings.ToLower(strings.TrimSpace(hostname))
-		hostnameSet[normalizedHostname] = true
-	}
-
-	// Convert map to slice
-	hostnames := make([]string, 0, len(hostnameSet))
-	for hostname := range hostnameSet {
-		hostnames = append(hostnames, hostname)
+	// Log any errors encountered during hostname extraction
+	for urlString, err := range errors {
+		logger.Warn().Str("seed_url", urlString).Err(err).Msg("Failed to extract hostname from seed URL")
 	}
 
 	return hostnames
@@ -236,29 +226,5 @@ func ExtractHostnamesFromSeedURLs(seedURLs []string, logger zerolog.Logger) []st
 
 // MergeAllowedHostnames merges extracted seed hostnames with existing allowed hostnames
 func MergeAllowedHostnames(existingHostnames, seedHostnames []string) []string {
-	hostnameSet := make(map[string]bool)
-
-	// Add existing hostnames
-	for _, hostname := range existingHostnames {
-		normalizedHostname := strings.ToLower(strings.TrimSpace(hostname))
-		if normalizedHostname != "" {
-			hostnameSet[normalizedHostname] = true
-		}
-	}
-
-	// Add seed hostnames
-	for _, hostname := range seedHostnames {
-		normalizedHostname := strings.ToLower(strings.TrimSpace(hostname))
-		if normalizedHostname != "" {
-			hostnameSet[normalizedHostname] = true
-		}
-	}
-
-	// Convert back to slice
-	mergedHostnames := make([]string, 0, len(hostnameSet))
-	for hostname := range hostnameSet {
-		mergedHostnames = append(mergedHostnames, hostname)
-	}
-
-	return mergedHostnames
+	return urlhandler.MergeHostnames(existingHostnames, seedHostnames)
 }
