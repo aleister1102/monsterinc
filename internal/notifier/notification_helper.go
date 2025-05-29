@@ -2,9 +2,10 @@ package notifier
 
 import (
 	"context"
+	"os"
+
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"os"
 
 	"github.com/rs/zerolog"
 )

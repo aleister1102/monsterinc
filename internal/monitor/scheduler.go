@@ -2,9 +2,10 @@ package monitor
 
 import (
 	"context"
-	"github.com/aleister1102/monsterinc/internal/config"
 	"sync"
 	"time"
+
+	"github.com/aleister1102/monsterinc/internal/config"
 
 	"github.com/rs/zerolog"
 )
@@ -24,7 +25,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new monitor scheduler.
-func NewScheduler(logger zerolog.Logger, cfg *config.MonitorConfig, service *MonitoringService) *Scheduler {
+func NewScheduler(cfg *config.MonitorConfig, logger zerolog.Logger, service *MonitoringService) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 	schedLogger := logger.With().Str("component", "MonitorScheduler").Logger()
 

@@ -9,4 +9,4 @@ type Target struct {
 	// Add other metadata fields if needed, for example:
 	// SourceFile string    // The file from which this target was loaded
 	// AddedAt    time.Time // Timestamp when the target was added
-} 
+}

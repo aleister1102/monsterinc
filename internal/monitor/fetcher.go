@@ -1,16 +1,17 @@
 package monitor
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"github.com/aleister1102/monsterinc/internal/config"
 	"net/http"
+
+	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/config"
 
 	"github.com/rs/zerolog"
 )
 
-var ErrNotModified = errors.New("content not modified")
+var ErrNotModified = common.NewError("content not modified")
 
 // Fetcher handles fetching file content from URLs.
 // It might be a struct with dependencies like http.Client and config, or just a collection of functions.
@@ -52,7 +53,7 @@ func (f *Fetcher) FetchFileContent(input FetchFileContentInput) (*FetchFileConte
 	req, err := http.NewRequest("GET", input.URL, nil)
 	if err != nil {
 		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to create new HTTP request")
-		return nil, fmt.Errorf("creating request for %s: %w", input.URL, err)
+		return nil, common.WrapError(err, fmt.Sprintf("creating request for %s", input.URL))
 	}
 
 	// Add conditional headers if previous values are available
@@ -67,7 +68,7 @@ func (f *Fetcher) FetchFileContent(input FetchFileContentInput) (*FetchFileConte
 	resp, err := f.httpClient.Do(req)
 	if err != nil {
 		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to execute HTTP request")
-		return nil, fmt.Errorf("fetching %s: %w", input.URL, err)
+		return nil, common.NewNetworkError(input.URL, "HTTP request failed", err)
 	}
 	defer resp.Body.Close()
 
@@ -88,17 +89,25 @@ func (f *Fetcher) FetchFileContent(input FetchFileContentInput) (*FetchFileConte
 		// Read body for non-OK for potential error messages, but limit size
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) // Read up to 1KB of the body
 		result.Content = bodyBytes                                  // Include partial body in error case if needed for context
-		return result, fmt.Errorf("HTTP status %d for %s: %s", resp.StatusCode, input.URL, string(bodyBytes))
+		return result, common.NewHTTPErrorWithURL(resp.StatusCode, string(bodyBytes), input.URL)
 	}
 
-	// TODO: FR10 - Handle very large files. Consider streaming and hash calculation on the fly.
-	// For now, read full body. This needs to be robust for large files.
-	// Consider max content length from config if available and applicable here.
+	if resp.ContentLength > 0 && resp.ContentLength > int64(f.cfg.MaxContentSize) {
+		return nil, fmt.Errorf("content too large: %d bytes (max: %d bytes)", resp.ContentLength, f.cfg.MaxContentSize)
+	}
+
+	// TODO: Handle very large files with streaming and hash calculation
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to read response body")
-		return nil, fmt.Errorf("reading body for %s: %w", input.URL, err)
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+
+	// Check actual body size
+	if len(bodyBytes) > f.cfg.MaxContentSize {
+		return nil, fmt.Errorf("content too large: %d bytes (max: %d bytes)", len(bodyBytes), f.cfg.MaxContentSize)
+	}
+
 	result.Content = bodyBytes
 
 	f.logger.Debug().Str("url", input.URL).Str("content_type", result.ContentType).Int("size", len(result.Content)).Msg("File content fetched successfully")

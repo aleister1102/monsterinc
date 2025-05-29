@@ -343,6 +343,7 @@ type MonitorConfig struct {
 	StoreFullContentOnChange bool     `json:"store_full_content_on_change" yaml:"store_full_content_on_change"`
 	HTTPTimeoutSeconds       int      `json:"http_timeout_seconds,omitempty" yaml:"http_timeout_seconds,omitempty" validate:"omitempty,min=1"`
 	InitialMonitorURLs       []string `json:"initial_monitor_urls,omitempty" yaml:"initial_monitor_urls,omitempty" validate:"omitempty,dive,url"`
+	MaxContentSize           int      `json:"max_content_size,omitempty" yaml:"max_content_size,omitempty" validate:"omitempty,min=1"` // Max content size in bytes
 	// JSFileExtensions and HTMLFileExtensions are kept for now, but patterns are more flexible.
 	// Consider deprecating them in favor of TargetJSFilePatterns and TargetHTMLFilePatterns.
 	JSFileExtensions   []string `json:"js_file_extensions,omitempty" yaml:"js_file_extensions,omitempty"`
@@ -364,6 +365,7 @@ func NewDefaultMonitorConfig() MonitorConfig {
 		StoreFullContentOnChange:   true,
 		HTTPTimeoutSeconds:         30,
 		InitialMonitorURLs:         []string{},
+		MaxContentSize:             1048576, // Default 1MB
 		JSFileExtensions:           []string{"\\.js", "\\.jsx", "\\.ts", "\\.tsx"},
 		HTMLFileExtensions:         []string{"\\.html", "\\.htm"},
 		AggregationIntervalSeconds: 600, // Default to 10 minutes for aggregation
@@ -492,7 +494,45 @@ func LoadGlobalConfig(providedPath string) (*GlobalConfig, error) { // providedP
 
 // SaveGlobalConfig saves the global configuration to the given file path.
 // It supports both JSON and YAML formats based on file extension.
-// ... existing code ...
+func SaveGlobalConfig(cfg *GlobalConfig, filePath string) error {
+	if cfg == nil {
+		return fmt.Errorf("configuration is nil")
+	}
+
+	if filePath == "" {
+		return fmt.Errorf("file path is empty")
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory '%s': %w", dir, err)
+	}
+
+	ext := filepath.Ext(filePath)
+	isYAML := ext == ".yaml" || ext == ".yml"
+
+	var data []byte
+	var err error
+
+	if isYAML {
+		data, err = yaml.Marshal(cfg)
+		if err != nil {
+			return fmt.Errorf("failed to marshal configuration to YAML: %w", err)
+		}
+	} else {
+		data, err = json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
+		}
+	}
+
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write configuration file '%s': %w", filePath, err)
+	}
+
+	return nil
+}
 
 // DiffReporterConfig holds specific settings for diff reports.
 // This is a new struct for task 6.1 from 12-tasks-prd-html-js-content-diff-reporting.md

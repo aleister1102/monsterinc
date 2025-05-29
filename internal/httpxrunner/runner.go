@@ -3,10 +3,11 @@ package httpxrunner
 import (
 	"context"
 	"fmt"
-	"github.com/aleister1102/monsterinc/internal/models"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/aleister1102/monsterinc/internal/models"
 
 	"github.com/projectdiscovery/httpx/common/customheader"
 	"github.com/projectdiscovery/httpx/runner"

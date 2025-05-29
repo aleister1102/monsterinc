@@ -3,10 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"reflect"
 	"strings"
+
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -54,7 +55,7 @@ func ValidateConfig(cfg *GlobalConfig) error {
 			return false // Should not happen if struct tag is on a []string
 		}
 		for _, s := range slice {
-			if _, err := url.ParseRequestURI(s); err != nil {
+			if err := urlhandler.ValidateURLFormat(s); err != nil {
 				return false
 			}
 		}

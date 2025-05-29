@@ -5,6 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
@@ -12,11 +18,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/orchestrator"
 	"github.com/aleister1102/monsterinc/internal/reporter"
 	"github.com/aleister1102/monsterinc/internal/secrets"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/rs/zerolog"
 )
