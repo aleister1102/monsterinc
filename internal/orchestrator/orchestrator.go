@@ -120,6 +120,88 @@ func (so *ScanOrchestrator) ExecuteScanWorkflow(ctx context.Context, seedURLs []
 	return allProbeResultsForCurrentScan, allURLDiffResults, allSecretFindings, nil
 }
 
+// ExecuteHTMLWorkflow executes both scan and monitor workflow for HTML URLs
+func (so *ScanOrchestrator) ExecuteHTMLWorkflow(ctx context.Context, htmlURLs []string, scanSessionID string, targetSource string) (models.ScanSummaryData, []models.ProbeResult, map[string]models.URLDiffResult, []models.SecretFinding, error) {
+	// For HTML URLs, we run the full scan workflow which includes crawling
+	return so.ExecuteCompleteScanWorkflow(ctx, htmlURLs, scanSessionID, targetSource)
+}
+
+// ExecuteMonitorOnlyWorkflow executes only monitor workflow for non-HTML URLs (JS, JSON, etc.)
+func (so *ScanOrchestrator) ExecuteMonitorOnlyWorkflow(ctx context.Context, monitorURLs []string, scanSessionID string, targetSource string) (models.ScanSummaryData, []models.ProbeResult, map[string]models.URLDiffResult, []models.SecretFinding, error) {
+	startTime := time.Now()
+
+	// Build summary data
+	summaryData := models.GetDefaultScanSummaryData()
+	summaryData.ScanSessionID = scanSessionID
+	summaryData.TargetSource = targetSource
+	summaryData.Targets = monitorURLs
+	summaryData.TotalTargets = len(monitorURLs)
+
+	// For monitor-only workflow, we skip crawling and directly probe the URLs
+	var allProbeResults []models.ProbeResult
+	var allSecretFindings []models.SecretFinding
+	var allURLDiffResults map[string]models.URLDiffResult
+
+	if len(monitorURLs) > 0 {
+		// Execute HTTPX probing directly on monitor URLs
+		probeResults, err := so.executeHTTPXProbing(ctx, monitorURLs, monitorURLs, monitorURLs[0], scanSessionID)
+		if err != nil {
+			summaryData.Status = string(models.ScanStatusFailed)
+			summaryData.ErrorMessages = []string{fmt.Sprintf("Monitor workflow probing failed: %v", err)}
+			return summaryData, nil, nil, nil, err
+		}
+		allProbeResults = probeResults
+
+		// Execute secret detection
+		secretFindings, err := so.executeSecretDetection(ctx, allProbeResults, scanSessionID)
+		if err != nil {
+			summaryData.Status = string(models.ScanStatusFailed)
+			summaryData.ErrorMessages = []string{fmt.Sprintf("Monitor workflow secret detection failed: %v", err)}
+			return summaryData, allProbeResults, nil, nil, err
+		}
+		allSecretFindings = secretFindings
+
+		// Process diffing and storage
+		urlDiffResults, err := so.processDiffingAndStorage(ctx, allProbeResults, monitorURLs, monitorURLs[0], scanSessionID)
+		if err != nil {
+			summaryData.Status = string(models.ScanStatusFailed)
+			summaryData.ErrorMessages = []string{fmt.Sprintf("Monitor workflow diffing/storage failed: %v", err)}
+			return summaryData, allProbeResults, urlDiffResults, allSecretFindings, err
+		}
+		allURLDiffResults = urlDiffResults
+	}
+
+	scanDuration := time.Since(startTime)
+	summaryData.ScanDuration = scanDuration
+
+	// Populate probe stats
+	if allProbeResults != nil {
+		summaryData.ProbeStats.DiscoverableItems = len(allProbeResults)
+		for _, pr := range allProbeResults {
+			if pr.Error == "" && (pr.StatusCode < 400 || (pr.StatusCode >= 300 && pr.StatusCode < 400)) {
+				summaryData.ProbeStats.SuccessfulProbes++
+			} else {
+				summaryData.ProbeStats.FailedProbes++
+			}
+		}
+	}
+
+	// Populate diff stats
+	if allURLDiffResults != nil {
+		for _, diffResult := range allURLDiffResults {
+			summaryData.DiffStats.New += diffResult.New
+			summaryData.DiffStats.Old += diffResult.Old
+			summaryData.DiffStats.Existing += diffResult.Existing
+		}
+	}
+
+	// Calculate secret statistics
+	summaryData.SecretStats = notifier.CalculateSecretStats(allSecretFindings)
+
+	summaryData.Status = string(models.ScanStatusCompleted)
+	return summaryData, allProbeResults, allURLDiffResults, allSecretFindings, nil
+}
+
 // ExecuteCompleteScanWorkflow executes the complete scan workflow and returns summary data
 func (so *ScanOrchestrator) ExecuteCompleteScanWorkflow(ctx context.Context, seedURLs []string, scanSessionID string, targetSource string) (models.ScanSummaryData, []models.ProbeResult, map[string]models.URLDiffResult, []models.SecretFinding, error) {
 	startTime := time.Now()
@@ -346,26 +428,11 @@ func (so *ScanOrchestrator) executeSecretDetection(ctx context.Context, allProbe
 		so.logger.Info().Str("session_id", scanSessionID).Msg("Starting secret detection on probe results")
 
 		for _, pr := range allProbeResultsForCurrentScan {
-			// Check for context cancellation during secret detection
-			if cancelled := common.CheckCancellationWithLog(ctx, so.logger, "secret detection"); cancelled.Cancelled {
-				return allSecretFindings, cancelled.Error
-			}
-
-			// Debug log for each probe result
-			so.logger.Debug().Str("url", pr.InputURL).Int("body_size", len(pr.Body)).Str("content_type", pr.ContentType).Bool("has_body", len(pr.Body) > 0).Msg("Checking probe result for secret detection")
-
 			var bodyContent []byte
-			var contentType string
 
-			// Use body from HTTPX if available, otherwise fetch using Fetcher
 			if len(pr.Body) > 0 {
 				bodyContent = []byte(pr.Body)
-				contentType = pr.ContentType
-				so.logger.Debug().Str("url", pr.InputURL).Int("body_size", len(pr.Body)).Msg("Using body content from HTTPX for secret detection")
-			} else if pr.StatusCode == 200 {
-				// Try to fetch body content using Fetcher for successful responses
-				so.logger.Debug().Str("url", pr.InputURL).Msg("No body from HTTPX, attempting to fetch using Fetcher")
-
+			} else {
 				fetchResult, err := so.fetcher.FetchFileContent(monitor.FetchFileContentInput{
 					URL: pr.InputURL,
 				})
@@ -376,33 +443,20 @@ func (so *ScanOrchestrator) executeSecretDetection(ctx context.Context, allProbe
 
 				if fetchResult.HTTPStatusCode == 200 && len(fetchResult.Content) > 0 {
 					bodyContent = fetchResult.Content
-					contentType = fetchResult.ContentType
-					so.logger.Debug().Str("url", pr.InputURL).Int("fetched_size", len(bodyContent)).Msg("Successfully fetched body content using Fetcher")
 				} else {
-					so.logger.Debug().Str("url", pr.InputURL).Int("status", fetchResult.HTTPStatusCode).Msg("Fetcher returned non-200 status or empty content")
 					continue
 				}
-			} else {
-				so.logger.Debug().Str("url", pr.InputURL).Int("status_code", pr.StatusCode).Msg("Skipping secret detection - no body content and non-200 status")
+			}
+
+			secretFindings, err := so.secretDetector.ScanContent(pr.InputURL, bodyContent, pr.ContentType)
+			if err != nil {
+				so.logger.Warn().Err(err).Str("url", pr.InputURL).Msg("Failed to scan content for secrets")
 				continue
 			}
 
-			// Scan content for secrets if we have body content
-			if len(bodyContent) > 0 {
-				so.logger.Debug().Str("url", pr.InputURL).Int("body_size", len(bodyContent)).Msg("Scanning content for secrets")
-
-				secretFindings, err := so.secretDetector.ScanContent(pr.InputURL, bodyContent, contentType)
-				if err != nil {
-					so.logger.Warn().Err(err).Str("url", pr.InputURL).Msg("Failed to scan content for secrets")
-					continue
-				}
-
-				if len(secretFindings) > 0 {
-					so.logger.Info().Str("url", pr.InputURL).Int("findings_count", len(secretFindings)).Msg("Found secrets in content")
-					allSecretFindings = append(allSecretFindings, secretFindings...)
-				} else {
-					so.logger.Debug().Str("url", pr.InputURL).Msg("No secrets found in content")
-				}
+			if len(secretFindings) > 0 {
+				so.logger.Info().Str("url", pr.InputURL).Int("findings_count", len(secretFindings)).Msg("Found secrets in content")
+				allSecretFindings = append(allSecretFindings, secretFindings...)
 			}
 		}
 
@@ -427,7 +481,6 @@ func (so *ScanOrchestrator) processDiffingAndStorage(ctx context.Context, allPro
 			} else if rtURL == "" {
 				rtURL = pr.InputURL // Absolute fallback
 			}
-			so.logger.Debug().Str("input_url", pr.InputURL).Str("fallback_root_target", rtURL).Msg("Empty RootTargetURL in probe result, using fallback.")
 		}
 		resultsByRootTarget[rtURL] = append(resultsByRootTarget[rtURL], pr)
 	}
