@@ -139,6 +139,11 @@ func (s *RegexScanner) ScanWithRegexes(content []byte, sourceURL string) ([]mode
 	contentReader := bytes.NewReader(content)
 	lineScanner := bufio.NewScanner(contentReader)
 
+	// Increase buffer size to handle large JS files (default is 64KB, increase to 1MB)
+	const maxScanTokenSize = 1024 * 1024 // 1MB
+	buf := make([]byte, maxScanTokenSize)
+	lineScanner.Buffer(buf, maxScanTokenSize)
+
 	for lineScanner.Scan() {
 		lineNumber++
 		lineBytes := lineScanner.Bytes()
