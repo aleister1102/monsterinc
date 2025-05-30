@@ -39,7 +39,7 @@ type FileReadOptions struct {
 // DefaultFileReadOptions returns default file reading options
 func DefaultFileReadOptions() FileReadOptions {
 	return FileReadOptions{
-		MaxSize:    10 * 1024 * 1024, // 10MB default
+		MaxSize:    50 * 1024 * 1024, // 50MB default
 		BufferSize: 64 * 1024,        // 64KB buffer
 		LineBased:  false,
 		TrimLines:  true,

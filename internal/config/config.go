@@ -51,12 +51,11 @@ const (
 	DefaultStorageCompressionCodec = "zstd"
 
 	// Log Defaults
-	DefaultLogLevel        = "info"
-	DefaultLogFormat       = "console"
-	DefaultLogFile         = ""
-	DefaultMaxLogSizeMB    = 100
-	DefaultMaxLogBackups   = 3
-	DefaultCompressOldLogs = false
+	DefaultLogLevel      = "info"
+	DefaultLogFormat     = "console"
+	DefaultLogFile       = ""
+	DefaultMaxLogSizeMB  = 100
+	DefaultMaxLogBackups = 3
 
 	// Diff Defaults
 	DefaultDiffPreviousScanLookbackDays = 7
@@ -224,27 +223,30 @@ func NewDefaultCrawlerConfig() CrawlerConfig {
 	}
 }
 
+// ReporterConfig holds configuration for generating HTML reports.
+// Note: The exact report filename will be determined by the application logic.
 type ReporterConfig struct {
-	OutputDir           string `json:"output_dir,omitempty" yaml:"output_dir,omitempty" validate:"omitempty,dirpath"`
-	ItemsPerPage        int    `json:"items_per_page,omitempty" yaml:"items_per_page,omitempty" validate:"omitempty,min=1"`
-	EmbedAssets         bool   `json:"embed_assets" yaml:"embed_assets"`
-	TemplatePath        string `json:"template_path,omitempty" yaml:"template_path,omitempty"`
-	GenerateEmptyReport bool   `json:"generate_empty_report" yaml:"generate_empty_report"`
-	ReportTitle         string `json:"report_title,omitempty" yaml:"report_title,omitempty"`
-	DefaultItemsPerPage int    `json:"default_items_per_page,omitempty" yaml:"default_items_per_page,omitempty"`
-	EnableDataTables    bool   `json:"enable_data_tables" yaml:"enable_data_tables"`
+	OutputDir                    string `json:"output_dir,omitempty" yaml:"output_dir,omitempty" validate:"omitempty,dirpath"`
+	ItemsPerPage                 int    `json:"items_per_page,omitempty" yaml:"items_per_page,omitempty" validate:"omitempty,min=1"`
+	EmbedAssets                  bool   `json:"embed_assets" yaml:"embed_assets"`
+	TemplatePath                 string `json:"template_path,omitempty" yaml:"template_path,omitempty"`
+	GenerateEmptyReport          bool   `json:"generate_empty_report" yaml:"generate_empty_report"`
+	ReportTitle                  string `json:"report_title,omitempty" yaml:"report_title,omitempty"`
+	DefaultItemsPerPage          int    `json:"default_items_per_page,omitempty" yaml:"default_items_per_page,omitempty"`
+	EnableDataTables             bool   `json:"enable_data_tables" yaml:"enable_data_tables"`
+	MaxProbeResultsPerReportFile int    `mapstructure:"max_probe_results_per_report_file" json:"max_probe_results_per_report_file,omitempty" yaml:"max_probe_results_per_report_file,omitempty"`
 }
 
 func NewDefaultReporterConfig() ReporterConfig {
 	return ReporterConfig{
-		OutputDir:           DefaultReporterOutputDir,
-		ItemsPerPage:        DefaultReporterItemsPerPage,
-		EmbedAssets:         DefaultReporterEmbedAssets,
-		TemplatePath:        "",
-		GenerateEmptyReport: false,
-		ReportTitle:         "MonsterInc Scan Report",
-		DefaultItemsPerPage: DefaultReporterItemsPerPage,
-		EnableDataTables:    true,
+		OutputDir:                    DefaultReporterOutputDir,
+		ItemsPerPage:                 DefaultReporterItemsPerPage,
+		EmbedAssets:                  DefaultReporterEmbedAssets,
+		TemplatePath:                 "",
+		GenerateEmptyReport:          false,
+		ReportTitle:                  "MonsterInc Scan Report",
+		EnableDataTables:             true,
+		MaxProbeResultsPerReportFile: 1000, // Default to 1000 results per file
 	}
 }
 
@@ -294,20 +296,18 @@ type LogConfig struct {
 	LogFile   string `json:"log_file,omitempty" yaml:"log_file,omitempty" validate:"omitempty,filepath"` // Optional: Path to the log file. If empty, logs to stderr.
 
 	// Future consideration for rotation, if not using an external tool or simple file output:
-	MaxLogSizeMB    int  `json:"max_log_size_mb,omitempty" yaml:"max_log_size_mb,omitempty"`
-	MaxLogBackups   int  `json:"max_log_backups,omitempty" yaml:"max_log_backups,omitempty"`
-	CompressOldLogs bool `json:"compress_old_logs" yaml:"compress_old_logs"`
+	MaxLogSizeMB  int `json:"max_log_size_mb,omitempty" yaml:"max_log_size_mb,omitempty"`
+	MaxLogBackups int `json:"max_log_backups,omitempty" yaml:"max_log_backups,omitempty"`
 }
 
 // NewDefaultLogConfig creates a LogConfig with default values.
 func NewDefaultLogConfig() LogConfig {
 	return LogConfig{
-		LogLevel:        "info",    // Default log level
-		LogFormat:       "console", // Default log format
-		LogFile:         "",        // Default to stderr, not a file
-		MaxLogSizeMB:    100,       // Example default if implementing rotation
-		MaxLogBackups:   3,         // Example default if implementing rotation
-		CompressOldLogs: false,     // Example default if implementing rotation
+		LogLevel:      "info",    // Default log level
+		LogFormat:     "console", // Default log format
+		LogFile:       "",        // Default to stderr, not a file
+		MaxLogSizeMB:  100,       // Example default if implementing rotation
+		MaxLogBackups: 3,         // Example default if implementing rotation
 	}
 }
 
