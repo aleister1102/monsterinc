@@ -318,7 +318,107 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 	return payload
 }
 
-// FormatCriticalErrorMessage creates a Discord message payload for critical errors.
+// FormatInterruptNotificationMessage creates a unified Discord message payload for service interruptions.
+func FormatInterruptNotificationMessage(summary models.ScanSummaryData, cfg config.NotificationConfig) models.DiscordMessagePayload {
+	mentions := buildMentions(cfg.MentionRoleIDs)
+	messageContent := ""
+	if mentions != "" {
+		messageContent = mentions + "\n"
+	}
+
+	// Determine service type from component or scan mode
+	serviceType := "Service"
+	if summary.Component != "" {
+		if strings.Contains(strings.ToLower(summary.Component), "monitor") {
+			serviceType = "Monitor Service"
+		} else if strings.Contains(strings.ToLower(summary.Component), "scan") || strings.Contains(strings.ToLower(summary.Component), "scheduler") {
+			serviceType = "Scan Service"
+		} else {
+			serviceType = summary.Component
+		}
+	} else if summary.ScanMode != "" {
+		if summary.ScanMode == "automated" {
+			serviceType = "Automated Scan Service"
+		} else {
+			serviceType = "Scan Service"
+		}
+	}
+
+	title := fmt.Sprintf(":octagonal_sign: %s Interrupted", serviceType)
+
+	description := fmt.Sprintf("The %s was interrupted and may not have completed successfully.", serviceType)
+	if summary.ScanSessionID != "" {
+		description += fmt.Sprintf("\n**Session ID**: `%s`", summary.ScanSessionID)
+	}
+	if summary.TargetSource != "" {
+		description += fmt.Sprintf("\n**Target Source**: `%s`", summary.TargetSource)
+	}
+	if summary.ScanMode != "" {
+		description += fmt.Sprintf("\n**Mode**: `%s`", summary.ScanMode)
+	}
+
+	var fields []models.DiscordEmbedField
+
+	// Add status field
+	fields = append(fields, createStatusField("INTERRUPTED", ":octagonal_sign:", true))
+
+	// Add timing information if available
+	if summary.ScanDuration > 0 {
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   ":stopwatch: Duration Before Interrupt",
+			Value:  formatDuration(summary.ScanDuration),
+			Inline: true,
+		})
+	}
+
+	// Add target information
+	if summary.TotalTargets > 0 {
+		fields = append(fields, createCountField("Total Targets", summary.TotalTargets, "", true))
+	}
+
+	// Add error details if available
+	if len(summary.ErrorMessages) > 0 {
+		errorMsg := ""
+		maxErrors := 3 // Limit to first 3 errors for readability
+		for i, e := range summary.ErrorMessages {
+			if i >= maxErrors {
+				errorMsg += fmt.Sprintf("\n... and %d more errors", len(summary.ErrorMessages)-maxErrors)
+				break
+			}
+			if i > 0 {
+				errorMsg += "\n"
+			}
+			errorMsg += truncateString(e, 200)
+		}
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   ":warning: Error Details",
+			Value:  truncateString(errorMsg, 1000),
+			Inline: false,
+		})
+	}
+
+	embed := models.DiscordEmbed{
+		Title:       title,
+		Description: description,
+		Color:       colorWarning, // Orange for interruptions (less severe than critical errors)
+		Timestamp:   time.Now().Format(timestampFormatDiscord),
+		Fields:      fields,
+		Footer:      createStandardFooter(footerTextSystemAlerts),
+	}
+
+	return models.DiscordMessagePayload{
+		Username:  monsterIncUsername,
+		AvatarURL: monsterIncIconURL,
+		Content:   messageContent,
+		Embeds:    []models.DiscordEmbed{embed},
+		AllowedMentions: &models.AllowedMentions{
+			Parse: []string{"roles"},
+			Roles: cfg.MentionRoleIDs,
+		},
+	}
+}
+
+// FormatCriticalErrorMessage creates a Discord message payload for critical application errors.
 func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.NotificationConfig) models.DiscordMessagePayload {
 	mentions := buildMentions(cfg.MentionRoleIDs)
 	messageContent := ""
@@ -856,6 +956,72 @@ func FormatMonitorCycleCompleteMessage(data models.MonitorCycleCompleteData, cfg
 	var fields []models.DiscordEmbedField
 	fields = append(fields, createTimestampField("Cycle Completed", data.Timestamp, true))
 	fields = append(fields, createCountField("Total Monitored", data.TotalMonitored, "URLs", true))
+
+	// Add file changes information if any
+	if len(data.FileChanges) > 0 {
+		// Calculate aggregated stats
+		aggregatedStats := calculateMonitorAggregatedStats(data.FileChanges)
+		contentTypeBreakdown := calculateContentTypeBreakdown(data.FileChanges)
+
+		// Add summary field
+		summaryValue := fmt.Sprintf("Changes: %d\nExtracted Paths: %d\nSecret Findings: %d",
+			aggregatedStats.TotalChanges,
+			aggregatedStats.TotalPaths,
+			aggregatedStats.TotalSecrets)
+
+		if aggregatedStats.HighSeverityCount > 0 {
+			summaryValue += fmt.Sprintf("\n:warning: High Severity: %d", aggregatedStats.HighSeverityCount)
+		}
+
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   ":chart_with_upwards_trend: Summary",
+			Value:  summaryValue,
+			Inline: true,
+		})
+
+		// Add content types breakdown
+		if len(contentTypeBreakdown) > 0 {
+			contentTypesValue := ""
+			for contentType, count := range contentTypeBreakdown {
+				if contentTypesValue != "" {
+					contentTypesValue += "\n"
+				}
+				contentTypesValue += fmt.Sprintf("%s: %d", contentType, count)
+			}
+			fields = append(fields, models.DiscordEmbedField{
+				Name:   ":file_folder: Content Types",
+				Value:  contentTypesValue,
+				Inline: true,
+			})
+		}
+
+		// Add changed URLs list (truncated if too long)
+		if len(data.ChangedURLs) > 0 {
+			urlsValue := ""
+			maxURLsToShow := 10
+			for i, url := range data.ChangedURLs {
+				if i >= maxURLsToShow {
+					urlsValue += fmt.Sprintf("\n... and %d more", len(data.ChangedURLs)-maxURLsToShow)
+					break
+				}
+				if urlsValue != "" {
+					urlsValue += ",\n"
+				}
+				urlsValue += truncateString(url, 80)
+			}
+			fields = append(fields, models.DiscordEmbedField{
+				Name:   ":link: Changed URLs",
+				Value:  urlsValue,
+				Inline: false,
+			})
+		}
+	} else {
+		fields = append(fields, models.DiscordEmbedField{
+			Name:   ":white_check_mark: Status",
+			Value:  "No changes detected in this cycle",
+			Inline: false,
+		})
+	}
 
 	// Link to the aggregated report if available
 	if data.ReportPath != "" {
