@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ .ReportTitle }}</title>
+    <title>{{.ReportTitle}}{{.ReportPartInfo}}</title>
     {{if .FaviconBase64}}
         <link rel="icon" type="image/png" href="data:image/png;base64,{{.FaviconBase64}}">
     {{end}}
@@ -631,7 +631,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
         <div class="container-fluid">
             <a class="navbar-brand fw-bold" href="#">
-                <i class="fas fa-shield-alt me-2"></i>{{ .ReportTitle }}
+                <i class="fas fa-shield-alt me-2"></i>{{.ReportTitle}}{{.ReportPartInfo}}
             </a>
             <div class="collapse navbar-collapse">
                 <span class="navbar-text ms-auto">
@@ -725,18 +725,20 @@
                         <table id="resultsTable" class="table table-hover my-2 {{if .EnableDataTables}}dataTable{{end}}" style="width:100%">
                     <thead>
                         <tr>
-                                    <th class="sortable" data-sort-key="InputURL"><i class="fas fa-link me-1"></i>Input URL</th>
-                                    <th class="sortable" data-sort-key="FinalURL"><i class="fas fa-external-link-alt me-1"></i>Final URL</th>
-                                    <th class="sortable hide-on-mobile" data-sort-key="DiffStatus"><i class="fas fa-code-branch me-1"></i>Diff Status</th>
-                                    <th class="sortable" data-sort-key="StatusCode"><i class="fas fa-signal me-1"></i>Status</th>
-                                    <th class="sortable hide-on-small" data-sort-key="Title"><i class="fas fa-heading me-1"></i>Title</th>
-                                    <th class="hide-on-medium"><i class="fas fa-cogs me-1"></i>Technologies</th>
-                                    <th class="sortable hide-on-mobile" data-sort-key="ContentType"><i class="fas fa-file-alt me-1"></i>Content Type</th>
-                                    <th><i class="fas fa-info-circle me-1"></i>Details</th>
+                                    <!-- Chú ý: Các tiêu đề này sẽ được sử dụng bởi tùy chọn 'columns' của DataTables nếu dùng data source là JS array -->
+                                    <th data-col-name="InputURL"><i class="fas fa-link me-1"></i>Input URL</th>
+                                    <th data-col-name="FinalURL"><i class="fas fa-external-link-alt me-1"></i>Final URL</th>
+                                    <th data-col-name="URLStatus" class="hide-on-mobile"><i class="fas fa-code-branch me-1"></i>Diff Status</th>
+                                    <th data-col-name="StatusCode"><i class="fas fa-signal me-1"></i>Status</th>
+                                    <th data-col-name="Title" class="hide-on-small"><i class="fas fa-heading me-1"></i>Title</th>
+                                    <th data-col-name="Technologies" class="hide-on-medium"><i class="fas fa-cogs me-1"></i>Technologies</th>
+                                    <th data-col-name="ContentType" class="hide-on-mobile"><i class="fas fa-file-alt me-1"></i>Content Type</th>
+                                    <th data-col-name="Details"><i class="fas fa-info-circle me-1"></i>Details</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {{if not .ProbeResults}}
+                        {{/* KHÔNG lặp ở đây nữa nếu DataTables được cung cấp data từ JS array */}}
+                        {{/* {{if not .ProbeResults}}
                         <tr>
                                     <td colspan="8" class="text-center py-5">
                                         <i class="fas fa-search fa-3x text-muted mb-3"></i>
@@ -761,7 +763,7 @@
                                         <i class="fas fa-eye me-1"></i>View
                                     </button></td>
                         </tr>
-                        {{end}}
+                        {{end}} */}}
                     </tbody>
                 </table>
                     </div>
@@ -897,470 +899,39 @@
         window.reportSettings = window.reportSettings || {};
         window.reportSettings.initialProbeResults = {{ .ProbeResultsJSON }};
         window.reportSettings.secretFindings = {{ .SecretFindingsJSON }};
-        window.reportSettings.secretStats = {{ jsonMarshal .SecretStats }};
-        // console.log("Data injected into window.reportSettings.initialProbeResults:", window.reportSettings.initialProbeResults);
+        window.reportSettings.secretStats = {{ .SecretStats | json }};
+        {{/* window.reportSettings.diffSummaryData = {{ .DiffSummaryData | json }}; // Consider if needed by JS */}}
     </script>
 
+    {{if .ReportJs}}
+    <script type="text/javascript">
+    //<![CDATA[
+    {{.ReportJs}}
+    //]]>
+    </script>
+    {{end}}
+
     <script>
-        // Embedded Custom Report JS
-        {{if .ReportJs}}{{.ReportJs}}{{end}}
-
-        // Initialize Secret Findings Accordion after page load
-        document.addEventListener('DOMContentLoaded', function() {
-            if (window.reportSettings && window.reportSettings.secretFindings) {
-                initializeSecretFindingsAccordion();
+        {{/*
+        function escapeHtml(unsafe) {
+            if (typeof unsafe !== 'string') {
+                if (unsafe === null || typeof unsafe === 'undefined') return '';
+                unsafe = String(unsafe);
             }
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
 
-            // "To Top" Button
-            var toTopBtn = document.getElementById("toTopBtn");
-            if (toTopBtn) {
-                window.onscroll = function() {
-                    if (document.body.scrollTop > 200 || document.documentElement.scrollTop > 200) {
-                        toTopBtn.style.display = "block";
-                    } else {
-                        toTopBtn.style.display = "none";
-                    }
-                };
-                toTopBtn.onclick = function() {
-                    $('html, body').animate({scrollTop:0}, 'smooth');
-                };
-            }
-
-            {{if .EnableDataTables}}
-            var resultsTable = $('#resultsTable').DataTable({
-                "pageLength": {{.ItemsPerPage}},
-                "lengthMenu": [ [10, 25, 50, 100, -1], [10, 25, 50, 100, "All"] ],
-                "dom": 'lrt<"pagination-controls-container pagination-bottom"<"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>>',
-                // Add other DataTables options if needed
-            });
-
-            // Auto scroll to top when DataTables page changes
-            resultsTable.on('page.dt', function () {
-                $('html, body').animate({
-                    scrollTop: $("#resultsTable_wrapper").offset().top - 70 // Adjust offset as needed
-                }, 'smooth');
-            });
+        // window.reportSettings = { 
             
-            // Length changer and pagination are now only at the bottom
-            
-            // Global search input will be handled by custom JS, not DataTables search
-            
-            // Custom filters to redraw DataTable
-            $('#rootURLFilter, #statusCodeFilter, #contentTypeFilter, #urlStatusFilter').on('change', function(){
-                // This example assumes you have column-specific filtering logic or a combined filter function
-                // For simplicity, this just redraws. Implement specific filtering as needed.
-                // Example: resultsTable.columns(0).search(this.value).draw(); // For a specific column
-                resultsTable.draw(); 
-            });
-            
-            $('#clearAllFiltersBtn').on('click', function(){
-                $('#globalSearchInput, #techFilterInput').val('');
-                $('#rootURLFilter, #statusCodeFilter, #contentTypeFilter, #urlStatusFilter').val('').trigger('change');
-                resultsTable.draw();
-            });
-
-            {{end}}
-        });
-
-        function initializeSecretFindingsAccordion() {
-            const secretFindings = window.reportSettings.secretFindings;
-            if (!secretFindings || secretFindings.length === 0) {
-                return;
-            }
-
-            // Debug: Log the first finding to see the structure
-            console.log('Secret findings structure:', secretFindings[0]);
-
-            // Group findings by source URL
-            const groupedFindings = {};
-            secretFindings.forEach(finding => {
-                // Use snake_case as defined in JSON tags
-                const sourceURL = finding.source_url || finding.SourceURL || finding.sourceURL || 
-                                 finding.source || finding.Source || 'Unknown Source';
-                if (!groupedFindings[sourceURL]) {
-                    groupedFindings[sourceURL] = [];
-                }
-                groupedFindings[sourceURL].push(finding);
-            });
-
-            // Debug: Log grouped findings
-            console.log('Grouped findings:', groupedFindings);
-
-            // Create accordion HTML
-            const accordionContainer = document.getElementById('secretFindingsAccordion');
-            if (!accordionContainer) return;
-
-            let accordionHTML = '';
-            let groupIndex = 0;
-
-            Object.keys(groupedFindings).sort().forEach(sourceURL => {
-                const findings = groupedFindings[sourceURL];
-                const groupId = `secretGroup${groupIndex}`;
-                const collapseId = `collapse${groupIndex}`;
-                
-                // Sort findings by severity within each group
-                findings.sort((a, b) => {
-                    const severityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 };
-                    const aSeverity = (a.severity || '').toUpperCase();
-                    const bSeverity = (b.severity || '').toUpperCase();
-                    
-                    const aOrder = severityOrder[aSeverity] !== undefined ? severityOrder[aSeverity] : 4;
-                    const bOrder = severityOrder[bSeverity] !== undefined ? severityOrder[bSeverity] : 4;
-                    
-                    return aOrder - bOrder;
-                });
-                
-                // Calculate severity stats for this group - use snake_case from JSON tags
-                const severityStats = {
-                    high: findings.filter(f => {
-                        const severity = f.severity || f.Severity || '';
-                        return severity === 'HIGH' || severity === 'CRITICAL';
-                    }).length,
-                    medium: findings.filter(f => {
-                        const severity = f.severity || f.Severity || '';
-                        return severity === 'MEDIUM';
-                    }).length,
-                    low: findings.filter(f => {
-                        const severity = f.severity || f.Severity || '';
-                        return severity === 'LOW';
-                    }).length,
-                    unknown: findings.filter(f => {
-                        const severity = f.severity || f.Severity || '';
-                        return !severity || !['HIGH', 'CRITICAL', 'MEDIUM', 'LOW'].includes(severity);
-                    }).length
-                };
-
-                // Create severity badges
-                let severityBadges = '';
-                if (severityStats.high > 0) {
-                    severityBadges += `<span class="badge bg-danger">${severityStats.high} High</span>`;
-                }
-                if (severityStats.medium > 0) {
-                    severityBadges += `<span class="badge bg-warning">${severityStats.medium} Medium</span>`;
-                }
-                if (severityStats.low > 0) {
-                    severityBadges += `<span class="badge bg-info">${severityStats.low} Low</span>`;
-                }
-                if (severityStats.unknown > 0) {
-                    severityBadges += `<span class="badge bg-secondary">${severityStats.unknown} Unknown</span>`;
-                }
-
-                accordionHTML += `
-                    <div class="mb-2">
-                        <div class="secret-group-header">
-                            <button class="btn collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}" 
-                                    aria-expanded="false" aria-controls="${collapseId}">
-                                <div class="d-flex align-items-center justify-content-between w-100">
-                                    <div class="d-flex align-items-center flex-grow-1">
-                                        <i class="fas fa-chevron-down collapse-icon me-3"></i>
-                                        <span class="secret-group-url me-auto">${escapeHtml(sourceURL)}</span>
-                                    </div>
-                                    <div class="d-flex align-items-center">
-                                        <span class="secret-group-count">${findings.length} secrets</span>
-                                        <div class="secret-group-severity-badges">
-                                            ${severityBadges}
-                                        </div>
-                                    </div>
-                                </div>
-                            </button>
-                        </div>
-                        <div id="${collapseId}" class="collapse" data-bs-parent="#secretFindingsAccordion">
-                            <div class="secret-findings-table-container">
-                                <table class="table table-hover secret-findings-table">
-                                    <thead>
-                                        <tr>
-                                            <th><i class="fas fa-tag me-1"></i>Rule ID</th>
-                                            <th><i class="fas fa-info me-1"></i>Description</th>
-                                            <th><i class="fas fa-exclamation-triangle me-1"></i>Severity</th>
-                                            <th><i class="fas fa-key me-1"></i>Secret</th>
-                                            <th><i class="fas fa-list-ol me-1"></i>Line</th>
-                                            <th><i class="fas fa-tools me-1"></i>Tool</th>
-                                            <th><i class="fas fa-clock me-1"></i>Timestamp</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                `;
-
-                findings.forEach(finding => {
-                    const severity = finding.severity || finding.Severity || '';
-                    const severityClass = getSeverityClass(severity);
-                    const severityIcon = getSeverityIcon(severity);
-                    const formattedTimestamp = formatTimestamp(finding.timestamp || finding.Timestamp);
-                    
-                    accordionHTML += `
-                        <tr class="${severityClass}">
-                            <td><code class="bg-light px-2 py-1 rounded">${escapeHtml(finding.rule_id || finding.RuleID || '')}</code></td>
-                            <td class="truncate-description" title="${escapeHtml(finding.description || finding.Description || '')}">${escapeHtml(finding.description || finding.Description || '')}</td>
-                            <td>
-                                <span class="badge ${getSeverityBadgeClass(severity)}">
-                                    ${severityIcon}
-                                    ${escapeHtml(severity || 'UNKNOWN')}
-                                </span>
-                            </td>
-                            <td class="secret-text-cell">
-                                ${(finding.secret_text || finding.SecretText) ? 
-                                    `<div>
-                                        <span class="secret-text-display" 
-                                              data-full-secret="${escapeHtml(finding.secret_text || finding.SecretText)}"
-                                              data-tooltip="secret">
-                                            ${escapeHtml(finding.secret_text || finding.SecretText)}
-                                        </span>
-                                        <button class="btn btn-sm btn-outline-secondary copy-secret-btn ms-2" data-secret="${escapeHtml(finding.secret_text || finding.SecretText)}" title="Copy Secret">
-                                            <i class="fas fa-copy"></i>
-                                        </button>
-                                    </div>` : 
-                                    '<span class="text-muted">-</span>'
-                                }
-                            </td>
-                            <td>${(finding.line_number || finding.LineNumber) ? `<span class="badge bg-secondary">${finding.line_number || finding.LineNumber}</span>` : '<span class="text-muted">-</span>'}</td>
-                            <td>${(finding.tool_name || finding.ToolName) ? `<span class="badge bg-primary">${escapeHtml(finding.tool_name || finding.ToolName)}</span>` : '<span class="text-muted">-</span>'}</td>
-                            <td><small class="text-muted">${formattedTimestamp}</small></td>
-                        </tr>
-                    `;
-                });
-
-                accordionHTML += `
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                `;
-
-                groupIndex++;
-            });
-
-            accordionContainer.innerHTML = accordionHTML;
-        }
-
-        function getSeverityClass(severity) {
-            if (!severity) return 'table-secondary';
-            const sev = severity.toUpperCase();
-            if (sev === 'HIGH' || sev === 'CRITICAL') return 'table-danger';
-            if (sev === 'MEDIUM') return 'table-warning';
-            if (sev === 'LOW') return 'table-info';
-            return 'table-secondary';
-        }
-
-        function getSeverityBadgeClass(severity) {
-            if (!severity) return 'bg-secondary';
-            const sev = severity.toUpperCase();
-            if (sev === 'HIGH' || sev === 'CRITICAL') return 'bg-danger';
-            if (sev === 'MEDIUM') return 'bg-warning';
-            if (sev === 'LOW') return 'bg-info';
-            return 'bg-secondary';
-        }
-
-        function getSeverityIcon(severity) {
-            if (!severity) return '<i class="fas fa-question-circle me-1"></i>';
-            const sev = severity.toUpperCase();
-            if (sev === 'HIGH' || sev === 'CRITICAL') return '<i class="fas fa-exclamation-triangle me-1"></i>';
-            if (sev === 'MEDIUM') return '<i class="fas fa-exclamation-circle me-1"></i>';
-            if (sev === 'LOW') return '<i class="fas fa-info-circle me-1"></i>';
-            return '<i class="fas fa-question-circle me-1"></i>';
-        }
-
-        function formatTimestamp(timestamp) {
-            if (!timestamp) return '-';
-            try {
-                const date = new Date(timestamp);
-                return date.toLocaleString('en-GB', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
-            } catch (e) {
-                return timestamp;
-            }
-        }
-
-        function escapeHtml(text) {
-            if (!text) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // Add tooltip functionality
-        function createTooltip() {
-            const tooltip = document.createElement('div');
-            tooltip.id = 'secret-tooltip';
-            tooltip.style.cssText = `
-                position: absolute;
-                background: #2c3e50;
-                color: white;
-                padding: 8px 12px;
-                border-radius: 4px;
-                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                font-size: 11px;
-                max-width: 400px;
-                word-break: break-all;
-                white-space: pre-wrap;
-                z-index: 10000;
-                pointer-events: none;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-                border: 1px solid #34495e;
-                opacity: 0;
-                transition: opacity 0.2s ease;
-            `;
-            document.body.appendChild(tooltip);
-            return tooltip;
-        }
-
-        let tooltip = null;
-        let tooltipHideTimeout = null; // Timeout variable for hiding
-        let tooltipShowTimeout = null; // Timeout variable for showing (though might not be needed if showing instantly)
-
-        function showTooltip(element, event) {
-            const fullText = element.getAttribute('data-full-secret');
-            // console.log('showTooltip called with:', fullText);
-            // console.log('Text length:', fullText ? fullText.length : 'null');
-            
-            if (!fullText || fullText.length <= 20) {
-                // console.log('Not showing tooltip - text too short or missing');
-                return;
-            }
-
-            if (!tooltip) {
-                // console.log('Creating new tooltip');
-                tooltip = createTooltip();
-            }
-
-            // Clear any pending hide timeout
-            if (tooltipHideTimeout) {
-                clearTimeout(tooltipHideTimeout);
-                tooltipHideTimeout = null;
-            }
-
-            // console.log('Showing tooltip with text:', fullText.substring(0, 100) + '...');
-            tooltip.textContent = fullText;
-            tooltip.style.display = 'block'; // Show immediately
-            tooltip.style.opacity = '1';
-            
-            // Position tooltip
-            const rect = element.getBoundingClientRect();
-            
-            let left = event.pageX + 15;
-            let top = event.pageY - 10;
-            
-            const tooltipRect = tooltip.getBoundingClientRect();
-                
-            // Adjust if tooltip would go off screen
-            if (left + tooltipRect.width > window.innerWidth) {
-                left = event.pageX - tooltipRect.width - 15;
-            }
-            // Adjust Y position: prefer above, but if no space, go below
-            if (top - tooltipRect.height < 0) { // If not enough space above
-                top = event.pageY + 25; // Position below cursor
-                if (top + tooltipRect.height > window.innerHeight) { // If also not enough space below
-                    top = window.innerHeight - tooltipRect.height - 5; // Stick to bottom with padding
-                }
-            } else {
-                 top = top - tooltipRect.height; // Position above cursor (adjust for tooltip height)
-            }
-            
-            tooltip.style.left = left + 'px';
-            tooltip.style.top = top + 'px';
-                
-            // console.log('Tooltip positioned at:', left, top);
-        }
-
-        function hideTooltip() {
-            // Clear any pending show timeout (if we were to add one)
-            if (tooltipShowTimeout) {
-                clearTimeout(tooltipShowTimeout);
-                tooltipShowTimeout = null;
-            }
-            if (tooltipHideTimeout) { // Prevent multiple timeouts
-                clearTimeout(tooltipHideTimeout);
-            }
-            tooltipHideTimeout = setTimeout(() => {
-                if (tooltip) {
-                    tooltip.style.opacity = '0';
-                    setTimeout(() => { // Wait for opacity transition before hiding
-                        if (tooltip) tooltip.style.display = 'none';
-                    }, 200); // This should match the CSS transition duration for opacity
-                }
-                tooltipHideTimeout = null;
-            }, 250); // Small delay before starting to hide, allows moving from element to tooltip if needed
-        }
-
-        function moveTooltip(event) {
-            if (tooltip && tooltip.style.opacity === '1') {
-                const tooltipRect = tooltip.getBoundingClientRect();
-                
-                let left = event.pageX + 10;
-                let top = event.pageY - 10;
-                
-                if (left + tooltipRect.width > window.innerWidth) {
-                    left = event.pageX - tooltipRect.width - 10;
-                }
-                if (top - tooltipRect.height < 0) {
-                    top = event.pageY + 20;
-                }
-                
-                tooltip.style.left = left + 'px';
-                tooltip.style.top = top + 'px';
-            }
-        }
-
-        // Event delegation for tooltips
-        document.addEventListener('mouseover', function(e) {
-            const element = e.target.closest('.secret-text-display');
-            if (element) {
-                console.log('Hovering over secret element:', element);
-                console.log('Full secret data:', element.getAttribute('data-full-secret'));
-                showTooltip(element, e);
-            }
-        });
-
-        document.addEventListener('mouseout', function(e) {
-            const element = e.target.closest('.secret-text-display');
-            if (element) {
-                console.log('Mouse out from secret element');
-                hideTooltip();
-            }
-        });
-
-        document.addEventListener('mousemove', function(e) {
-            const element = e.target.closest('.secret-text-display');
-            if (element && tooltip && tooltip.style.opacity === '1') {
-                moveTooltip(e);
-            }
-        });
-
-        // Copy Secret button
-        document.addEventListener('click', function(e) {
-            const copyBtn = e.target.closest('.copy-secret-btn');
-            if (copyBtn) {
-                const secretToCopy = copyBtn.dataset.secret;
-                navigator.clipboard.writeText(secretToCopy).then(function() {
-                    const originalIcon = copyBtn.innerHTML;
-                    copyBtn.innerHTML = '<i class="fas fa-check"></i>';
-                    copyBtn.classList.add('btn-success');
-                    copyBtn.classList.remove('btn-outline-secondary');
-                    setTimeout(function() {
-                        copyBtn.innerHTML = originalIcon;
-                        copyBtn.classList.remove('btn-success');
-                        copyBtn.classList.add('btn-outline-secondary');
-                    }, 2000);
-                }, function(err) {
-                    console.error('Failed to copy secret: ', err);
-                    // Optional: Show an error message
-                    const originalIcon = copyBtn.innerHTML;
-                    copyBtn.innerHTML = '<i class="fas fa-times"></i>';
-                    copyBtn.classList.add('btn-danger');
-                    copyBtn.classList.remove('btn-outline-secondary');
-                     setTimeout(function() {
-                        copyBtn.innerHTML = originalIcon;
-                        copyBtn.classList.remove('btn-danger');
-                        copyBtn.classList.add('btn-outline-secondary');
-                    }, 2000);
-                });
-            }
-        });
+        // }; // THIS LINE IS THE PROBLEM - Commented out or remove
+        */}}
+        
+        // Initialize Secret Findings Accordion and other DOM ready events
     </script>
 </body>
 </html>

@@ -1,6 +1,8 @@
 package datastore
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
@@ -36,6 +39,9 @@ const (
 type ParquetFileHistoryStore struct {
 	storageConfig *config.StorageConfig
 	logger        zerolog.Logger
+	// Add mutex map for per-URL locking
+	urlMutexes   map[string]*sync.Mutex
+	mutexMapLock sync.RWMutex
 }
 
 // NewParquetFileHistoryStore creates a new ParquetFileHistoryStore.
@@ -43,6 +49,7 @@ func NewParquetFileHistoryStore(cfg *config.StorageConfig, logger zerolog.Logger
 	store := &ParquetFileHistoryStore{
 		storageConfig: cfg,
 		logger:        logger.With().Str("component", "ParquetFileHistoryStore").Logger(),
+		urlMutexes:    make(map[string]*sync.Mutex),
 	}
 
 	basePath := cfg.ParquetBasePath
@@ -53,8 +60,38 @@ func NewParquetFileHistoryStore(cfg *config.StorageConfig, logger zerolog.Logger
 	return store, nil
 }
 
+// getURLMutex returns a mutex for the specific URL to ensure thread-safety
+func (pfs *ParquetFileHistoryStore) getURLMutex(url string) *sync.Mutex {
+	pfs.mutexMapLock.RLock()
+	mutex, exists := pfs.urlMutexes[url]
+	pfs.mutexMapLock.RUnlock()
+
+	if exists {
+		return mutex
+	}
+
+	pfs.mutexMapLock.Lock()
+	defer pfs.mutexMapLock.Unlock()
+
+	// Double-check after acquiring write lock
+	if mutex, exists := pfs.urlMutexes[url]; exists {
+		return mutex
+	}
+
+	mutex = &sync.Mutex{}
+	pfs.urlMutexes[url] = mutex
+	return mutex
+}
+
+// generateURLHash creates a unique hash for the URL to use as filename
+func (pfs *ParquetFileHistoryStore) generateURLHash(url string) string {
+	hasher := sha256.New()
+	hasher.Write([]byte(url))
+	return hex.EncodeToString(hasher.Sum(nil))[:16] // Use first 16 chars for shorter filename
+}
+
 // getHistoryFilePath returns the path to the Parquet file for a specific URL.
-// It now creates a directory structure based on the URL's host:port.
+// Now creates a unique file for each URL using URL hash.
 func (pfs *ParquetFileHistoryStore) getHistoryFilePath(recordURL string) (string, error) {
 	hostnameWithPort, err := urlhandler.ExtractHostnameWithPort(recordURL)
 	if err != nil {
@@ -65,13 +102,23 @@ func (pfs *ParquetFileHistoryStore) getHistoryFilePath(recordURL string) (string
 	// Sanitize hostname:port for directory name using specialized function
 	sanitizedHostPort := urlhandler.SanitizeHostnamePort(hostnameWithPort)
 
-	// Base path for all monitor data: <storageConfig.ParquetBasePath>/monitor/<sanitizedHostPort>/current_history.parquet
+	// Generate unique hash for this specific URL
+	urlHash := pfs.generateURLHash(recordURL)
+
+	// Create filename: <url_hash>_history.parquet
+	fileName := fmt.Sprintf("%s_history.parquet", urlHash)
+
+	// Base path for all monitor data: <storageConfig.ParquetBasePath>/monitor/<sanitizedHostPort>/<url_hash>_history.parquet
 	urlSpecificDir := filepath.Join(pfs.storageConfig.ParquetBasePath, monitorDataDir, sanitizedHostPort)
 	if err := os.MkdirAll(urlSpecificDir, 0755); err != nil {
 		pfs.logger.Error().Err(err).Str("directory", urlSpecificDir).Msg("Failed to create URL-specific directory for history file")
 		return "", fmt.Errorf("creating directory '%s': %w", urlSpecificDir, err)
 	}
-	return filepath.Join(urlSpecificDir, fileHistoryCurrentFile), nil
+
+	filePath := filepath.Join(urlSpecificDir, fileName)
+	pfs.logger.Debug().Str("url", recordURL).Str("file_path", filePath).Str("url_hash", urlHash).Msg("Generated history file path")
+
+	return filePath, nil
 }
 
 // getAndSortRecordsForURL is an internal helper to get the file path for a URL,
@@ -214,6 +261,11 @@ func (pfs *ParquetFileHistoryStore) loadExistingRecords(historyFilePath string) 
 
 // StoreFileRecord stores a new version of a monitored file.
 func (pfs *ParquetFileHistoryStore) StoreFileRecord(record models.FileHistoryRecord) error {
+	// Get URL-specific mutex to ensure thread-safety
+	urlMutex := pfs.getURLMutex(record.URL)
+	urlMutex.Lock()
+	defer urlMutex.Unlock()
+
 	historyFilePath, err := pfs.getHistoryFilePath(record.URL)
 	if err != nil {
 		return err // Error already logged in getHistoryFilePath
@@ -225,6 +277,16 @@ func (pfs *ParquetFileHistoryStore) StoreFileRecord(record models.FileHistoryRec
 	existingRecords, err := pfs.loadExistingRecords(historyFilePath)
 	if err != nil {
 		return err
+	}
+
+	// Check if this exact record already exists (prevent duplicates)
+	for _, existingRecord := range existingRecords {
+		if existingRecord.URL == record.URL &&
+			existingRecord.Hash == record.Hash &&
+			existingRecord.Timestamp == record.Timestamp {
+			pfs.logger.Debug().Str("url", record.URL).Str("hash", record.Hash).Int64("timestamp", record.Timestamp).Msg("Record already exists, skipping duplicate")
+			return nil
+		}
 	}
 
 	// Always append the new record
@@ -246,12 +308,13 @@ func (pfs *ParquetFileHistoryStore) StoreFileRecord(record models.FileHistoryRec
 	return nil
 }
 
-// getArchivedHistoryFilesSorted is no longer directly applicable with per-URL files.
-// This function would need to be re-thought if global archiving is needed.
-// For now, let's assume GetLastKnownRecord will operate on the single current_history.parquet per URL.
-
 // GetLastKnownRecord retrieves the most recent FileHistoryRecord for a given URL.
 func (pfs *ParquetFileHistoryStore) GetLastKnownRecord(recordURL string) (*models.FileHistoryRecord, error) {
+	// Get URL-specific mutex to ensure thread-safety
+	urlMutex := pfs.getURLMutex(recordURL)
+	urlMutex.Lock()
+	defer urlMutex.Unlock()
+
 	records, err := pfs.getAndSortRecordsForURL(recordURL)
 	if err != nil {
 		return nil, err
@@ -271,6 +334,11 @@ func (pfs *ParquetFileHistoryStore) GetLatestRecord(recordURL string) (*models.F
 
 // GetRecordsForURL retrieves a limited number of records for a URL, for potential future use.
 func (pfs *ParquetFileHistoryStore) GetRecordsForURL(recordURL string, limit int) ([]*models.FileHistoryRecord, error) {
+	// Get URL-specific mutex to ensure thread-safety
+	urlMutex := pfs.getURLMutex(recordURL)
+	urlMutex.Lock()
+	defer urlMutex.Unlock()
+
 	records, err := pfs.getAndSortRecordsForURL(recordURL)
 	if err != nil {
 		return nil, err
@@ -338,7 +406,7 @@ func (pfs *ParquetFileHistoryStore) walkDirectoryForDiffs(monitorBaseDir string)
 	allDiffRecords := make([]*models.FileHistoryRecord, 0)
 
 	// Walk through the monitorBaseDir to find all host-specific directories
-	// then look for current_history.parquet in each.
+	// then look for *_history.parquet files in each.
 	err := filepath.WalkDir(monitorBaseDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// Log the error but try to continue if possible, unless it's a critical error like permission denied to the root
@@ -350,11 +418,12 @@ func (pfs *ParquetFileHistoryStore) walkDirectoryForDiffs(monitorBaseDir string)
 			return nil // Skip this entry and continue
 		}
 
-		// We are looking for current_history.parquet files
-		if !d.IsDir() && d.Name() == fileHistoryCurrentFile {
+		// We are looking for *_history.parquet files (new pattern)
+		if !d.IsDir() && strings.HasSuffix(d.Name(), "_history.parquet") {
 			diffRecords, scanErr := pfs.scanHistoryFile(path)
 			if scanErr != nil {
-				return nil // Error already logged in scanHistoryFile
+				pfs.logger.Error().Err(scanErr).Str("file", path).Msg("Error scanning history file for diffs")
+				return nil // Continue walking despite error
 			}
 			if diffRecords != nil {
 				allDiffRecords = append(allDiffRecords, diffRecords...)
@@ -401,7 +470,7 @@ func (pfs *ParquetFileHistoryStore) readRecordsFromFile(filePath string) ([]*mod
 
 // GetHostnamesWithHistory retrieves a list of unique hostname:port combinations that have history records.
 // This method scans the base monitor directory for subdirectories (each representing a hostname:port)
-// and checks if they contain a current_history.parquet file.
+// and checks if they contain any *_history.parquet files.
 func (pfs *ParquetFileHistoryStore) GetHostnamesWithHistory() ([]string, error) {
 	hostnamesPorts := make([]string, 0)
 	seenHostsPorts := make(map[string]bool)
@@ -419,18 +488,30 @@ func (pfs *ParquetFileHistoryStore) GetHostnamesWithHistory() ([]string, error) 
 	for _, entry := range entries {
 		if entry.IsDir() {
 			hostPortDirName := entry.Name()
-			historyFilePath := filepath.Join(monitorBaseDir, hostPortDirName, fileHistoryCurrentFile)
-			if _, err := os.Stat(historyFilePath); err == nil {
-				// File exists, so this hostname:port has history
+			hostPortDir := filepath.Join(monitorBaseDir, hostPortDirName)
+
+			// Check if this directory contains any *_history.parquet files
+			dirEntries, err := os.ReadDir(hostPortDir)
+			if err != nil {
+				pfs.logger.Warn().Err(err).Str("dir", hostPortDir).Msg("Error reading host directory, skipping.")
+				continue
+			}
+
+			hasHistoryFiles := false
+			for _, dirEntry := range dirEntries {
+				if !dirEntry.IsDir() && strings.HasSuffix(dirEntry.Name(), "_history.parquet") {
+					hasHistoryFiles = true
+					break
+				}
+			}
+
+			if hasHistoryFiles {
 				// Convert sanitized directory name back to hostname:port format
 				hostPortRestored := urlhandler.RestoreHostnamePort(hostPortDirName)
 				if !seenHostsPorts[hostPortRestored] {
 					hostnamesPorts = append(hostnamesPorts, hostPortRestored)
 					seenHostsPorts[hostPortRestored] = true
 				}
-			} else if !os.IsNotExist(err) {
-				// Some other error stating the file, log it but continue
-				pfs.logger.Warn().Err(err).Str("file", historyFilePath).Msg("Error checking history file for hostname:port, skipping.")
 			}
 		}
 	}
@@ -541,16 +622,40 @@ func (pfs *ParquetFileHistoryStore) GetAllLatestDiffResultsForURLs(urls []string
 }
 
 // getAndSortRecordsForHost is a helper to get all records for a hostname:port, sorted newest first.
+// This now reads from all *_history.parquet files in the host directory.
 func (pfs *ParquetFileHistoryStore) getAndSortRecordsForHost(hostWithPort string) ([]models.FileHistoryRecord, error) {
 	sanitizedHostPort := urlhandler.SanitizeHostnamePort(hostWithPort)
 	hostSpecificDir := filepath.Join(pfs.storageConfig.ParquetBasePath, monitorDataDir, sanitizedHostPort)
-	filePath := filepath.Join(hostSpecificDir, fileHistoryCurrentFile)
 
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+	if _, err := os.Stat(hostSpecificDir); os.IsNotExist(err) {
 		return []models.FileHistoryRecord{}, nil // Return empty slice, not an error
 	}
 
-	return readFileHistoryRecords(filePath, pfs.logger)
+	// Read all *_history.parquet files in the directory
+	dirEntries, err := os.ReadDir(hostSpecificDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read host directory '%s': %w", hostSpecificDir, err)
+	}
+
+	var allRecords []models.FileHistoryRecord
+	for _, entry := range dirEntries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), "_history.parquet") {
+			filePath := filepath.Join(hostSpecificDir, entry.Name())
+			records, err := readFileHistoryRecords(filePath, pfs.logger)
+			if err != nil {
+				pfs.logger.Error().Err(err).Str("file", filePath).Msg("Error reading history file for host")
+				continue // Skip this file but continue with others
+			}
+			allRecords = append(allRecords, records...)
+		}
+	}
+
+	// Sort all records by timestamp descending (newest first)
+	sort.SliceStable(allRecords, func(i, j int) bool {
+		return allRecords[i].Timestamp > allRecords[j].Timestamp
+	})
+
+	return allRecords, nil
 }
 
 // GetAllDiffResults retrieves all diff results from all history files.

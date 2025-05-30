@@ -472,7 +472,10 @@ func (so *ScanOrchestrator) executeSecretDetection(ctx context.Context, allProbe
 func (so *ScanOrchestrator) processDiffingAndStorage(ctx context.Context, allProbeResultsForCurrentScan []models.ProbeResult, seedURLs []string, primaryRootTargetURL, scanSessionID string) (map[string]models.URLDiffResult, error) {
 	// Group results by root target
 	resultsByRootTarget := make(map[string][]models.ProbeResult)
-	for _, pr := range allProbeResultsForCurrentScan { // Use results from current scan
+	// Create a map to store indices of probe results for each root target to update the original slice
+	indicesByRootTarget := make(map[string][]int)
+
+	for i, pr := range allProbeResultsForCurrentScan { // Use results from current scan
 		rtURL := pr.RootTargetURL
 		if rtURL == "" {
 			rtURL = primaryRootTargetURL          // Fallback to session's primary root target
@@ -483,6 +486,7 @@ func (so *ScanOrchestrator) processDiffingAndStorage(ctx context.Context, allPro
 			}
 		}
 		resultsByRootTarget[rtURL] = append(resultsByRootTarget[rtURL], pr)
+		indicesByRootTarget[rtURL] = append(indicesByRootTarget[rtURL], i) // Store index
 	}
 
 	// Run URL diffing and store to Parquet
@@ -502,10 +506,14 @@ func (so *ScanOrchestrator) processDiffingAndStorage(ctx context.Context, allPro
 
 		so.logger.Info().Str("root_target", rootTgt).Int("current_results_count", len(resultsForRoot)).Str("session_id", scanSessionID).Msg("Processing diff for root target")
 
-		// Create a slice of pointers to models.ProbeResult for UrlDiffer to modify status and timestamps
+		// Create a slice of pointers to models.ProbeResult from resultsForRoot for UrlDiffer
+		// These pointers will point to copies, but we'll use the returned DiffedURL.ProbeResult to update the original allProbeResultsForCurrentScan
 		currentScanProbesPtr := make([]*models.ProbeResult, len(resultsForRoot))
 		for i := range resultsForRoot {
-			currentScanProbesPtr[i] = &resultsForRoot[i]
+			// Create a temporary copy for UrlDiffer to modify.
+			// This is safer if UrlDiffer modifies more than just URLStatus in the future.
+			tempCopy := resultsForRoot[i]
+			currentScanProbesPtr[i] = &tempCopy
 		}
 
 		diffResult, err := urlDiffer.Compare(currentScanProbesPtr, rootTgt)
@@ -522,8 +530,27 @@ func (so *ScanOrchestrator) processDiffingAndStorage(ctx context.Context, allPro
 		allURLDiffResults[rootTgt] = *diffResult
 		so.logger.Info().Str("root_target", rootTgt).Str("session_id", scanSessionID).Int("new", diffResult.New).Int("old", diffResult.Old).Int("existing", diffResult.Existing).Int("total_diff_urls", len(diffResult.Results)).Msg("URL Diffing complete for target.")
 
-		probesToStoreThisTarget := make([]models.ProbeResult, 0, len(diffResult.Results))
+		// Update the original allProbeResultsForCurrentScan with the URLStatus and any other modifications from diffResult
+		// Create a map of InputURL to updated ProbeResult from diffResult for efficient lookup
+		updatedProbesMap := make(map[string]models.ProbeResult)
+		for _, diffedURL := range diffResult.Results {
+			updatedProbesMap[diffedURL.ProbeResult.InputURL] = diffedURL.ProbeResult
+		}
 
+		// Iterate through the original indices for this rootTgt and update allProbeResultsForCurrentScan
+		for _, originalIndex := range indicesByRootTarget[rootTgt] {
+			originalProbe := &allProbeResultsForCurrentScan[originalIndex] // Get a pointer to the original item
+			if updatedProbe, ok := updatedProbesMap[originalProbe.InputURL]; ok {
+				// Preserve fields that UrlDiffer doesn't touch, then update with fields UrlDiffer might have set (like URLStatus)
+				// This ensures we don't lose data from the initial httpx scan if UrlDiffer only returns a subset of fields.
+				// A safer approach is to copy only specific fields that UrlDiffer is known to modify.
+				originalProbe.URLStatus = updatedProbe.URLStatus
+				originalProbe.OldestScanTimestamp = updatedProbe.OldestScanTimestamp // Ensure this is also carried over if set by differ
+				// Copy any other relevant fields that might have been updated by the differ.
+			}
+		}
+
+		probesToStoreThisTarget := make([]models.ProbeResult, 0, len(diffResult.Results))
 		for _, diffedURL := range diffResult.Results {
 			probesToStoreThisTarget = append(probesToStoreThisTarget, diffedURL.ProbeResult)
 		}

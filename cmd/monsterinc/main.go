@@ -204,9 +204,9 @@ func initializeServices(gCfg *config.GlobalConfig, zLogger zerolog.Logger, flags
 	}
 
 	var monitoringService *monitor.MonitoringService
-	// Initialize monitoring service for both automated and onetime modes if enabled
-	if gCfg.MonitorConfig.Enabled {
-		zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service is enabled. Initializing...")
+	// Initialize monitoring service only if in automated mode and enabled
+	if gCfg.Mode == "automated" && gCfg.MonitorConfig.Enabled {
+		zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service is enabled for automated mode. Initializing...")
 		fileHistoryStore, fhStoreErr := datastore.NewParquetFileHistoryStore(&gCfg.StorageConfig, zLogger)
 		if fhStoreErr != nil {
 			zLogger.Error().Err(fhStoreErr).Msg("Failed to initialize ParquetFileHistoryStore for monitoring. Monitoring will be disabled.")
@@ -258,7 +258,12 @@ func initializeServices(gCfg *config.GlobalConfig, zLogger zerolog.Logger, flags
 			zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service initialized.")
 		}
 	} else {
-		zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service is disabled in configuration.")
+		if gCfg.Mode == "onetime" {
+			zLogger.Info().Msg("File monitoring service is not initialized in onetime mode.")
+		} else if !gCfg.MonitorConfig.Enabled { // Applies to automated mode if monitor is disabled in config
+			zLogger.Info().Msg("File monitoring service is disabled in configuration.")
+		}
+		monitoringService = nil // Ensure it's nil if not initialized for automated mode or if in onetime mode
 	}
 
 	var unifiedSchedulerInstance *scheduler.UnifiedScheduler
@@ -549,9 +554,9 @@ func main() {
 	setupSignalHandling(ctx, cancel, gCfg, notificationHelper, monitoringService, zLogger)
 
 	// Start monitoring service early if enabled and in onetime mode
-	if gCfg.Mode == "onetime" && monitoringService != nil {
-		startMonitoringService(ctx, monitoringService, flags.monitorTargetFile, gCfg, zLogger, notificationHelper, &monitorWg)
-	}
+	// if gCfg.Mode == "onetime" && monitoringService != nil {
+	// 	startMonitoringService(ctx, monitoringService, flags.monitorTargetFile, gCfg, zLogger, notificationHelper, &monitorWg)
+	// }
 
 	// Now run application logic, which might populate unifiedSchedulerInstance
 	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, secretDetector, monitoringService, &unifiedSchedulerInstance)
@@ -560,8 +565,8 @@ func main() {
 }
 
 func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileArgument string, appLogger zerolog.Logger, notificationHelper *notifier.NotificationHelper, secretDetector *secrets.SecretDetectorService) {
-	// Initialize components
-	scanOrchestrator := initializeScanOrchestrator(gCfg, appLogger, secretDetector)
+	appLogger.Info().Msg("Initializing scan orchestrator for onetime mode. Secret scanning will be disabled for this scan.")
+	scanOrchestrator := initializeScanOrchestrator(gCfg, appLogger, nil)
 
 	// Load seed URLs
 	seedURLs, targetSource := loadSeedURLs(gCfg, urlListFileArgument, appLogger, notificationHelper)
@@ -578,11 +583,10 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 	// summaryData được khởi tạo ở đây để nếu ExecuteCompleteScanWorkflow bị ngắt sớm, chúng ta vẫn có các giá trị mặc định.
 	var summaryData models.ScanSummaryData = models.GetDefaultScanSummaryData()
 	var probeResults []models.ProbeResult
-	var urlDiffResults map[string]models.URLDiffResult
 	var secretFindings []models.SecretFinding
 	var workflowErr error
 
-	summaryData, probeResults, urlDiffResults, secretFindings, workflowErr = scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, seedURLs, scanSessionID, targetSource)
+	summaryData, probeResults, _, secretFindings, workflowErr = scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, seedURLs, scanSessionID, targetSource)
 
 	// Ưu tiên kiểm tra lỗi từ workflow trước, sau đó mới đến context chung
 	if errors.Is(workflowErr, context.Canceled) || ctx.Err() == context.Canceled {
@@ -620,7 +624,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 		}
 
 		appLogger.Info().Interface("interruption_summary", interruptionSummary).Msg("Attempting to send onetime scan interruption notification.")
-		notificationHelper.SendScanCompletionNotification(context.Background(), interruptionSummary, notifier.ScanServiceNotification)
+		notificationHelper.SendScanCompletionNotification(context.Background(), interruptionSummary, notifier.ScanServiceNotification, nil)
 		return
 	}
 
@@ -638,11 +642,11 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 	appLogger.Info().Msg("Scan workflow completed via orchestrator.")
 
 	// Generate and send completion notification
-	generateReportAndNotify(ctx, gCfg, summaryData, probeResults, urlDiffResults, secretFindings, scanSessionID, "onetime", notificationHelper, appLogger)
+	generateReportAndNotify(ctx, gCfg, summaryData, probeResults, secretFindings, scanSessionID, "onetime", notificationHelper, appLogger)
 
 	// Note: monitoringService.Stop() was removed from here.
 	// The monitoring service will be stopped when the main context is cancelled.
-	appLogger.Info().Msg("Onetime scan specific tasks finished. Monitoring service (if active) continues.")
+	appLogger.Info().Msg("Onetime scan specific tasks finished. Application will now exit.")
 }
 
 func initializeScanOrchestrator(gCfg *config.GlobalConfig, appLogger zerolog.Logger, secretDetector *secrets.SecretDetectorService) *orchestrator.ScanOrchestrator {
@@ -718,7 +722,7 @@ func loadSeedURLs(gCfg *config.GlobalConfig, urlListFileArgument string, appLogg
 			noTargetsSummary.TargetSource = onetimeTargetSource
 			noTargetsSummary.Status = string(models.ScanStatusNoTargets)
 			noTargetsSummary.ErrorMessages = []string{noSeedsMsg}
-			notificationHelper.SendScanCompletionNotification(context.Background(), noTargetsSummary, notifier.ScanServiceNotification)
+			notificationHelper.SendScanCompletionNotification(context.Background(), noTargetsSummary, notifier.ScanServiceNotification, nil)
 		} else {
 			appLogger.Info().Msg("No targets specified for onetime scan via CLI or config. 'NO_TARGETS' notification will be skipped.")
 		}
@@ -744,52 +748,59 @@ func handleWorkflowError(summaryData models.ScanSummaryData, workflowErr error, 
 	summaryData.Status = string(models.ScanStatusFailed)
 	summaryData.ErrorMessages = []string{fmt.Sprintf("Scan workflow execution failed: %v", workflowErr)}
 	summaryData.ScanMode = scanMode
-	notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification)
+	notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification, nil)
 	appLogger.Error().Err(workflowErr).Msg("Scan workflow execution failed")
 }
 
-func generateReportAndNotify(ctx context.Context, gCfg *config.GlobalConfig, summaryData models.ScanSummaryData, probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, secretFindings []models.SecretFinding, scanSessionID string, scanMode string, notificationHelper *notifier.NotificationHelper, appLogger zerolog.Logger) {
+func generateReportAndNotify(ctx context.Context, gCfg *config.GlobalConfig, summaryData models.ScanSummaryData, probeResults []models.ProbeResult, secretFindings []models.SecretFinding, scanSessionID string, scanMode string, notificationHelper *notifier.NotificationHelper, appLogger zerolog.Logger) {
 	appLogger.Info().Msg("Generating HTML report...")
 	htmlReporter, err := reporter.NewHtmlReporter(&gCfg.ReporterConfig, appLogger)
 	if err != nil {
 		summaryData.Status = string(models.ScanStatusFailed)
 		summaryData.ErrorMessages = append(summaryData.ErrorMessages, fmt.Sprintf("Failed to initialize HTML reporter: %v", err))
 		summaryData.ScanMode = scanMode
-		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification)
+		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification, nil)
 		appLogger.Error().Err(err).Msg("Failed to initialize HTML reporter")
 		return
 	}
 
-	reportFilename := fmt.Sprintf("%s_%s_report.html", scanSessionID, gCfg.Mode)
-	reportPath := filepath.Join(gCfg.ReporterConfig.OutputDir, reportFilename)
+	// Base output path, parts will be derived from this
+	baseReportFilename := fmt.Sprintf("%s_%s_report.html", scanSessionID, gCfg.Mode)
+	baseReportPath := filepath.Join(gCfg.ReporterConfig.OutputDir, baseReportFilename)
 
 	probeResultsPtr := make([]*models.ProbeResult, len(probeResults))
 	for i := range probeResults {
 		probeResultsPtr[i] = &probeResults[i]
 	}
 
-	if err := htmlReporter.GenerateReport(probeResultsPtr, urlDiffResults, secretFindings, reportPath); err != nil {
+	// Correctly assign two return values from GenerateReport
+	reportFilePaths, reportGenErr := htmlReporter.GenerateReport(probeResultsPtr, secretFindings, baseReportPath)
+	if reportGenErr != nil {
 		summaryData.Status = string(models.ScanStatusFailed) // Or models.ScanStatusPartialComplete
-		summaryData.ErrorMessages = append(summaryData.ErrorMessages, fmt.Sprintf("Failed to generate HTML report: %v", err))
+		summaryData.ErrorMessages = append(summaryData.ErrorMessages, fmt.Sprintf("Failed to generate HTML report(s): %v", reportGenErr))
 		summaryData.ScanMode = scanMode
-		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification)
-		appLogger.Error().Err(err).Msg("Failed to generate HTML report")
+		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification, nil)
+		appLogger.Error().Err(reportGenErr).Msg("Failed to generate HTML report(s)")
 		return
 	}
 
-	// Check if report file was actually created
-	if _, err := os.Stat(reportPath); os.IsNotExist(err) {
-		appLogger.Info().Str("path", reportPath).Msg("HTML report was skipped (no data to report)")
-		summaryData.ReportPath = "" // Clear report path since no file was created
+	if len(reportFilePaths) == 0 {
+		appLogger.Info().Msg("HTML report generation resulted in no files (e.g., no data and generate_empty_report is false).")
+		summaryData.ReportPath = "" // Ensure it's clear no report was generated
 	} else {
-		appLogger.Info().Str("path", reportPath).Msg("HTML report generated successfully")
-		summaryData.ReportPath = reportPath
+		appLogger.Info().Strs("paths", reportFilePaths).Msg("HTML report(s) generated successfully.")
+		// For summary, we can point to the first part or a general message
+		if len(reportFilePaths) == 1 {
+			summaryData.ReportPath = reportFilePaths[0]
+		} else {
+			summaryData.ReportPath = fmt.Sprintf("Multiple report files generated (%d parts), see notifications.", len(reportFilePaths))
+		}
 	}
 
 	summaryData.Status = string(models.ScanStatusCompleted)
 	summaryData.ScanMode = scanMode
 
-	notificationHelper.SendScanCompletionNotification(ctx, summaryData, notifier.ScanServiceNotification)
+	notificationHelper.SendScanCompletionNotification(ctx, summaryData, notifier.ScanServiceNotification, reportFilePaths)
 
 	appLogger.Info().Msg("MonsterInc Crawler finished (onetime mode).")
 }
