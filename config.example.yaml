@@ -208,6 +208,10 @@ reporter_config:
   # Enable DataTables for sortable/searchable tables in the report.
   # Default: true
   enable_data_tables: true
+  # MaxProbeResultsPerReportFile defines the maximum number of probe results to include in a single HTML report file.
+  # If the total number of probe results exceeds this value, the report will be split into multiple files.
+  # A value of 0 means no limit (all results in one file). Default: 1000
+  max_probe_results_per_report_file: 1000
   # Note: The exact report filename will be determined by the application logic (e.g., incorporating timestamps or target names).
 
 # Storage configuration: Settings for how scan data is stored (e.g., Parquet files).
