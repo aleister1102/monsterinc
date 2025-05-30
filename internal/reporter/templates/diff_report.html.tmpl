@@ -218,60 +218,195 @@
 
         /* Secret Detection Styling */
         .secret-section {
-            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            background: white;
             border-radius: 12px;
-            padding: 20px;
-            margin-top: 20px;
-            border: 1px solid #ffeaa7;
+            padding: 24px;
+            margin-top: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,.1);
         }
 
         .secret-stats-card {
-            border-radius: 8px;
+            border-radius: 12px;
             transition: transform 0.2s ease;
-            margin-bottom: 15px;
         }
 
         .secret-stats-card:hover {
             transform: translateY(-2px);
         }
 
-        .secret-table {
-            background: white;
+        /* Grouped Secret Findings Styles */
+        .secret-group-header {
+            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+            border: 1px solid #f1b0b7;
             border-radius: 8px;
-            overflow: hidden;
-        }
-
-        .secret-table th {
-            background: linear-gradient(135deg, #ffc107, #e0a800);
-            color: #212529;
-            border: none;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.85em;
-            letter-spacing: 0.5px;
-        }
-
-        .secret-table td {
-            vertical-align: middle;
-            border-bottom: 1px solid #f8f9fa;
-        }
-
-        .badge {
-            font-size: 0.75em;
-            padding: 4px 8px;
-            border-radius: 6px;
-        }
-
-        .btn {
-            border-radius: 8px;
-            font-weight: 500;
-            padding: 6px 12px;
+            margin-bottom: 2px;
             transition: all 0.3s ease;
         }
 
-        .btn:hover {
+        .secret-group-header:hover {
+            background: linear-gradient(135deg, #f5c6cb, #f1b0b7);
             transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 2px 8px rgba(220, 53, 69, 0.15);
+        }
+
+        .secret-group-header .btn {
+            width: 100%;
+            text-align: left;
+            padding: 15px 20px;
+            border: none;
+            background: transparent;
+            color: #721c24;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .secret-group-header .btn:focus {
+            box-shadow: none;
+        }
+
+        .secret-group-url {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            word-break: break-all;
+        }
+
+        .secret-group-count {
+            background: #dc3545;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+
+        .secret-group-severity-badges {
+            display: inline-flex;
+            gap: 5px;
+            margin-left: 10px;
+        }
+
+        .secret-group-severity-badges .badge {
+            font-size: 0.7em;
+            padding: 2px 6px;
+        }
+
+        .secret-findings-table-container {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+        }
+
+        .secret-findings-table {
+            margin-bottom: 0;
+        }
+
+        .secret-findings-table thead th {
+            background: linear-gradient(135deg, #6c757d, #495057);
+            color: white;
+            border: none;
+            text-align: center;
+            vertical-align: middle;
+            font-weight: 600;
+            padding: 12px 8px;
+        }
+
+        .secret-findings-table tbody td {
+            vertical-align: middle;
+            padding: 8px;
+            border-color: #dee2e6;
+        }
+
+        /* Secret text display with ellipsis */
+        .secret-text-cell {
+            max-width: 200px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            position: relative;
+            cursor: help;
+        }
+
+        .secret-text-display {
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: inline-block;
+            cursor: help;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background-color: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid #dee2e6;
+            transition: background-color 0.2s ease;
+        }
+
+        .secret-text-display:hover {
+            background-color: #e9ecef;
+            border-color: #adb5bd;
+        }
+
+        .copy-secret-btn {
+            padding: 2px 6px;
+            font-size: 0.75em;
+            line-height: 1;
+            border-radius: 3px;
+        }
+
+        .secret-text-cell > div {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        /* Tooltip for full secret display */
+        .secret-tooltip {
+            position: absolute;
+            background: #000;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.8em;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-width: 400px;
+            z-index: 1050;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            display: none;
+            font-family: 'Courier New', monospace;
+        }
+
+        .secret-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #000 transparent transparent transparent;
+        }
+
+        .secret-table {
+            width: 100%;
+            margin-bottom: 1rem;
+            color: #212529;
+        }
+
+        .secret-table th {
+            padding: 0.75rem;
+            vertical-align: top;
+            border-top: 1px solid #dee2e6;
+            text-align: center;
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+
+        .secret-table td {
+            padding: 0.75rem;
+            vertical-align: top;
+            border-top: 1px solid #dee2e6;
         }
 
         /* URL Styling */
@@ -564,44 +699,23 @@
                                     </div>
 
                                     {{/* Secret Findings Table */}}
-                                    <table class="table table-sm secret-table">
-                                        <thead>
-                                            <tr>
-                                                <th><i class="fas fa-tag mr-1"></i>Rule ID</th>
-                                                <th><i class="fas fa-info mr-1"></i>Description</th>
-                                                <th><i class="fas fa-exclamation-triangle mr-1"></i>Severity</th>
-                                                <th><i class="fas fa-key mr-1"></i>Secret</th>
-                                                <th><i class="fas fa-list-ol mr-1"></i>Line</th>
-                                                <th><i class="fas fa-tools mr-1"></i>Tool</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {{range $finding := $diff.SecretFindings}}
-                                            <tr class="{{if or (eq $finding.Severity "HIGH") (eq $finding.Severity "CRITICAL")}}table-danger{{else if eq $finding.Severity "MEDIUM"}}table-warning{{else if eq $finding.Severity "LOW"}}table-info{{else}}table-secondary{{end}}">
-                                                <td><code class="bg-light px-2 py-1 rounded">{{$finding.RuleID}}</code></td>
-                                                <td>{{$finding.Description}}</td>
-                                                <td>
-                                                    <span class="badge {{if or (eq $finding.Severity "HIGH") (eq $finding.Severity "CRITICAL")}}badge-danger{{else if eq $finding.Severity "MEDIUM"}}badge-warning{{else if eq $finding.Severity "LOW"}}badge-info{{else}}badge-secondary{{end}}">
-                                                        {{if or (eq $finding.Severity "HIGH") (eq $finding.Severity "CRITICAL")}}<i class="fas fa-exclamation-triangle mr-1"></i>{{else if eq $finding.Severity "MEDIUM"}}
-                                                        <i class="fas fa-exclamation-circle mr-1"></i>{{else if eq $finding.Severity "LOW"}}
-                                                        <i class="fas fa-info-circle mr-1"></i>{{else}}
-                                                        <i class="fas fa-question-circle mr-1"></i>{{end}}
-                                                        {{$finding.Severity}}
-                                                    </span>
-                                                </td>
-                                                <td class="font-monospace">
-                                                    {{if $finding.SecretText}}
-                                                        <code class="bg-dark text-light px-2 py-1 rounded">{{$finding.SecretText}}</code>
-                                                    {{else}}
-                                                        <span class="text-muted">-</span>
-                                                    {{end}}
-                                                </td>
-                                                <td>{{if $finding.LineNumber}}<span class="badge bg-secondary">{{$finding.LineNumber}}</span>{{else}}<span class="text-muted">-</span>{{end}}</td>
-                                                <td>{{if $finding.ToolName}}<span class="badge bg-primary">{{$finding.ToolName}}</span>{{else}}<span class="text-muted">-</span>{{end}}</td>
-                                            </tr>
-                                            {{end}}
-                                        </tbody>
-                                    </table>
+                                    <div class="secret-findings-table-container">
+                                        <table class="table table-hover secret-findings-table">
+                                            <thead>
+                                                <tr>
+                                                    <th><i class="fas fa-tag mr-1"></i>Rule ID</th>
+                                                    <th><i class="fas fa-info mr-1"></i>Description</th>
+                                                    <th><i class="fas fa-exclamation-triangle mr-1"></i>Severity</th>
+                                                    <th><i class="fas fa-key mr-1"></i>Secret</th>
+                                                    <th><i class="fas fa-list-ol mr-1"></i>Line</th>
+                                                    <th><i class="fas fa-tools mr-1"></i>Tool</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="secretTableBody{{$index}}">
+                                                {{/* Secrets will be sorted by JavaScript */}}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                                 {{end}}
 
@@ -683,9 +797,109 @@
                 {{end}}
                 {{end}}
             }
+
+            // Initialize secret findings tables
+            function initializeSecretTables() {
+                {{range $index, $diff := .DiffResults}}
+                {{if $diff.SecretFindings}}
+                var secretFindings = {{jsonMarshal $diff.SecretFindings}};
+                populateSecretTable({{$index}}, secretFindings);
+                {{end}}
+                {{end}}
+            }
+
+            function populateSecretTable(diffIndex, secretFindings) {
+                var tableBody = document.getElementById('secretTableBody' + diffIndex);
+                if (!tableBody || !secretFindings || secretFindings.length === 0) {
+                    return;
+                }
+
+                // Sort by severity (High/Critical first, then Medium, Low, Unknown)
+                secretFindings.sort(function(a, b) {
+                    var severityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 };
+                    var aSeverity = (a.severity || a.Severity || '').toUpperCase();
+                    var bSeverity = (b.severity || b.Severity || '').toUpperCase();
+                    
+                    var aOrder = severityOrder[aSeverity] !== undefined ? severityOrder[aSeverity] : 4;
+                    var bOrder = severityOrder[bSeverity] !== undefined ? severityOrder[bSeverity] : 4;
+                    
+                    return aOrder - bOrder;
+                });
+
+                var html = '';
+                secretFindings.forEach(function(finding) {
+                    var severity = finding.severity || finding.Severity || '';
+                    var severityClass = getSeverityClass(severity);
+                    var severityBadgeClass = getSeverityBadgeClass(severity);
+                    var severityIcon = getSeverityIcon(severity);
+                    
+                    html += '<tr class="' + severityClass + '">';
+                    html += '<td><code class="bg-light px-2 py-1 rounded">' + escapeHtml(finding.rule_id || finding.RuleID || '') + '</code></td>';
+                    html += '<td>' + escapeHtml(finding.description || finding.Description || '') + '</td>';
+                    html += '<td><span class="badge ' + severityBadgeClass + '">' + severityIcon + escapeHtml(severity || 'UNKNOWN') + '</span></td>';
+                    
+                    // Secret text with tooltip and copy functionality
+                    if (finding.secret_text || finding.SecretText) {
+                        var secretText = finding.secret_text || finding.SecretText;
+                        html += '<td class="secret-text-cell">';
+                        html += '<div>';
+                        html += '<span class="secret-text-display" data-full-secret="' + escapeHtml(secretText) + '" data-tooltip="secret">';
+                        html += escapeHtml(secretText);
+                        html += '</span>';
+                        html += '<button class="btn btn-sm btn-outline-secondary copy-secret-btn ms-2" data-secret="' + escapeHtml(secretText) + '" title="Copy Secret">';
+                        html += '<i class="fas fa-copy"></i>';
+                        html += '</button>';
+                        html += '</div>';
+                        html += '</td>';
+                    } else {
+                        html += '<td><span class="text-muted">-</span></td>';
+                    }
+                    
+                    html += '<td>' + ((finding.line_number || finding.LineNumber) ? '<span class="badge bg-secondary">' + (finding.line_number || finding.LineNumber) + '</span>' : '<span class="text-muted">-</span>') + '</td>';
+                    html += '<td>' + ((finding.tool_name || finding.ToolName) ? '<span class="badge bg-primary">' + escapeHtml(finding.tool_name || finding.ToolName) + '</span>' : '<span class="text-muted">-</span>') + '</td>';
+                    html += '</tr>';
+                });
+
+                tableBody.innerHTML = html;
+            }
+
+            function getSeverityClass(severity) {
+                if (!severity) return 'table-secondary';
+                var sev = severity.toUpperCase();
+                if (sev === 'HIGH' || sev === 'CRITICAL') return 'table-danger';
+                if (sev === 'MEDIUM') return 'table-warning';
+                if (sev === 'LOW') return 'table-info';
+                return 'table-secondary';
+            }
+
+            function getSeverityBadgeClass(severity) {
+                if (!severity) return 'badge-secondary';
+                var sev = severity.toUpperCase();
+                if (sev === 'HIGH' || sev === 'CRITICAL') return 'badge-danger';
+                if (sev === 'MEDIUM') return 'badge-warning';
+                if (sev === 'LOW') return 'badge-info';
+                return 'badge-secondary';
+            }
+
+            function getSeverityIcon(severity) {
+                if (!severity) return '<i class="fas fa-question-circle mr-1"></i>';
+                var sev = severity.toUpperCase();
+                if (sev === 'HIGH' || sev === 'CRITICAL') return '<i class="fas fa-exclamation-triangle mr-1"></i>';
+                if (sev === 'MEDIUM') return '<i class="fas fa-exclamation-circle mr-1"></i>';
+                if (sev === 'LOW') return '<i class="fas fa-info-circle mr-1"></i>';
+                return '<i class="fas fa-question-circle mr-1"></i>';
+            }
+
+            function escapeHtml(text) {
+                if (!text) return '';
+                var div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
             
             // Call the function initially
             addLineNumbers();
+            initializeSecretTables();
             
             // Re-call when accordion is opened
             $('#diffsAccordion').on('shown.bs.collapse', function() {
@@ -704,6 +918,122 @@
             toTopBtn.onclick = function() {
                 $('html, body').animate({scrollTop:0}, 'smooth');
             };
+
+            // Tooltip functionality for secrets
+            var tooltip = null;
+            var tooltipHideTimeout = null;
+
+            function createTooltip() {
+                var tooltip = document.createElement('div');
+                tooltip.style.cssText = `
+                    position: absolute;
+                    background: #2c3e50;
+                    color: white;
+                    padding: 8px 12px;
+                    border-radius: 4px;
+                    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                    font-size: 11px;
+                    max-width: 400px;
+                    word-break: break-all;
+                    white-space: pre-wrap;
+                    z-index: 10000;
+                    pointer-events: none;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+                    border: 1px solid #34495e;
+                    opacity: 0;
+                    transition: opacity 0.2s ease;
+                `;
+                document.body.appendChild(tooltip);
+                return tooltip;
+            }
+
+            function showTooltip(element, event) {
+                var fullText = element.getAttribute('data-full-secret');
+                if (!fullText || fullText.length <= 20) {
+                    return;
+                }
+
+                if (!tooltip) {
+                    tooltip = createTooltip();
+                }
+
+                if (tooltipHideTimeout) {
+                    clearTimeout(tooltipHideTimeout);
+                    tooltipHideTimeout = null;
+                }
+
+                tooltip.textContent = fullText;
+                tooltip.style.display = 'block';
+                tooltip.style.opacity = '1';
+                
+                var rect = element.getBoundingClientRect();
+                var left = event.pageX + 15;
+                var top = event.pageY - 10;
+                
+                var tooltipRect = tooltip.getBoundingClientRect();
+                if (left + tooltipRect.width > window.innerWidth) {
+                    left = event.pageX - tooltipRect.width - 15;
+                }
+                if (top - tooltipRect.height < 0) {
+                    top = event.pageY + 25;
+                    if (top + tooltipRect.height > window.innerHeight) {
+                        top = window.innerHeight - tooltipRect.height - 5;
+                    }
+                } else {
+                    top = top - tooltipRect.height;
+                }
+                
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = top + 'px';
+            }
+
+            function hideTooltip() {
+                if (tooltipHideTimeout) {
+                    clearTimeout(tooltipHideTimeout);
+                }
+                tooltipHideTimeout = setTimeout(function() {
+                    if (tooltip) {
+                        tooltip.style.opacity = '0';
+                        setTimeout(function() {
+                            if (tooltip) tooltip.style.display = 'none';
+                        }, 200);
+                    }
+                    tooltipHideTimeout = null;
+                }, 250);
+            }
+
+            // Event delegation for tooltips and copy buttons
+            $(document).on('mouseover', '.secret-text-display', function(e) {
+                showTooltip(this, e);
+            });
+
+            $(document).on('mouseout', '.secret-text-display', function(e) {
+                hideTooltip();
+            });
+
+            $(document).on('click', '.copy-secret-btn', function() {
+                var secretToCopy = $(this).data('secret');
+                navigator.clipboard.writeText(secretToCopy).then(function() {
+                    var $btn = $(this);
+                    var originalIcon = $btn.html();
+                    $btn.html('<i class="fas fa-check"></i>');
+                    $btn.removeClass('btn-outline-secondary').addClass('btn-success');
+                    setTimeout(function() {
+                        $btn.html(originalIcon);
+                        $btn.removeClass('btn-success').addClass('btn-outline-secondary');
+                    }, 2000);
+                }.bind(this), function(err) {
+                    console.error('Failed to copy secret: ', err);
+                    var $btn = $(this);
+                    var originalIcon = $btn.html();
+                    $btn.html('<i class="fas fa-times"></i>');
+                    $btn.removeClass('btn-outline-secondary').addClass('btn-danger');
+                    setTimeout(function() {
+                        $btn.html(originalIcon);
+                        $btn.removeClass('btn-danger').addClass('btn-outline-secondary');
+                    }, 2000);
+                }.bind(this));
+            });
 
             // Client-side Pagination for Accordion Items
             var accordionItems = $('.accordion-item');
