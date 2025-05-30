@@ -65,6 +65,11 @@ func NewHtmlDiffReporter(_ *config.ReporterConfig, logger zerolog.Logger, histor
 		logger.Warn().Msg("HistoryStore is nil in NewHtmlDiffReporter. Aggregated reports will not be available.")
 	}
 
+	// Log current working directory for debugging
+	if wd, err := os.Getwd(); err == nil {
+		logger.Info().Str("working_directory", wd).Str("target_dir", DefaultDiffReportDir).Msg("Creating diff report directory.")
+	}
+
 	// Ensure the dedicated diff report output directory exists
 	if err := os.MkdirAll(DefaultDiffReportDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create diff report output directory %s: %w", DefaultDiffReportDir, err)
@@ -88,6 +93,17 @@ func NewHtmlDiffReporter(_ *config.ReporterConfig, logger zerolog.Logger, histor
 				return template.HTML("Error pretty printing JSON")
 			}
 			return template.HTML(prettyJSON.String())
+		},
+		"jsonMarshal": func(v interface{}) template.JS {
+			a, err := json.Marshal(v)
+			if err != nil {
+				// This function is called from within a template, direct logging might be tricky
+				// Consider returning an error string or using a global logger if absolutely necessary
+				// For now, print to stderr as a fallback.
+				fmt.Fprintf(os.Stderr, "[ERROR] Template: jsonMarshal error: %v\n", err)
+				return ""
+			}
+			return template.JS(a)
 		},
 		"operationToString": func(op models.DiffOperation) string {
 			switch op {
