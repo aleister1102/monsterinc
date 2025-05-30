@@ -65,6 +65,10 @@ type MonitoringService struct {
 	// Shutdown flag to prevent sending changes during shutdown
 	isShuttingDown bool
 	shutdownMutex  sync.RWMutex
+
+	// Per-URL mutexes to prevent concurrent processing of the same URL
+	urlCheckMutexes      map[string]*sync.Mutex
+	urlCheckMutexMapLock sync.RWMutex
 }
 
 // NewMonitoringService creates a new instance of MonitoringService.
@@ -140,6 +144,8 @@ func NewMonitoringService(
 		changedURLsInCycleMutex: sync.RWMutex{},
 		isShuttingDown:          false,
 		shutdownMutex:           sync.RWMutex{},
+		urlCheckMutexes:         make(map[string]*sync.Mutex),
+		urlCheckMutexMapLock:    sync.RWMutex{},
 	}
 
 	// Log final state of htmlDiffReporter
@@ -265,7 +271,7 @@ func (s *MonitoringService) Stop() {
 		}
 
 		// Use a background context since serviceCtx might be cancelled
-		s.notificationHelper.SendScanCompletionNotification(context.Background(), interruptedSummary, notifier.MonitorServiceNotification)
+		s.notificationHelper.SendScanCompletionNotification(context.Background(), interruptedSummary, notifier.MonitorServiceNotification, nil)
 	}
 
 	// Cancel the service-specific context to stop other goroutines like monitorChan listener
@@ -364,6 +370,11 @@ func (s *MonitoringService) CheckURL(url string) {
 
 // checkURL performs the actual check for a single URL. Called by the unified scheduler's workers.
 func (s *MonitoringService) checkURL(url string) {
+	// Get URL-specific mutex to prevent concurrent processing of the same URL
+	urlCheckMutex := s.getURLCheckMutex(url)
+	urlCheckMutex.Lock()
+	defer urlCheckMutex.Unlock()
+
 	fetchResult, err := s.fetcher.FetchFileContent(FetchFileContentInput{
 		URL: url,
 	})
@@ -574,6 +585,9 @@ func (s *MonitoringService) storeURLRecord(url string, processedUpdate *models.M
 func (s *MonitoringService) TriggerCycleEndReport() {
 	s.logger.Info().Msg("Monitoring cycle complete. Triggering end-of-cycle report and notification.")
 
+	// Cleanup unused mutexes to prevent memory leaks
+	s.cleanupUnusedMutexes()
+
 	// Get file changes before clearing them
 	s.fileChangeEventsMutex.Lock()
 	fileChanges := make([]models.FileChangeInfo, len(s.fileChangeEvents))
@@ -632,4 +646,46 @@ func (s *MonitoringService) TriggerCycleEndReport() {
 	s.changedURLsInCycle = make(map[string]struct{})
 	s.changedURLsInCycleMutex.Unlock()
 	s.logger.Info().Msg("Cleared changed URLs list for the next monitoring cycle.")
+}
+
+// getURLCheckMutex returns a mutex for the specific URL to ensure thread-safety
+func (s *MonitoringService) getURLCheckMutex(url string) *sync.Mutex {
+	s.urlCheckMutexMapLock.RLock()
+	mutex, exists := s.urlCheckMutexes[url]
+	s.urlCheckMutexMapLock.RUnlock()
+
+	if exists {
+		return mutex
+	}
+
+	s.urlCheckMutexMapLock.Lock()
+	defer s.urlCheckMutexMapLock.Unlock()
+
+	// Double-check after acquiring write lock
+	if mutex, exists := s.urlCheckMutexes[url]; exists {
+		return mutex
+	}
+
+	mutex = &sync.Mutex{}
+	s.urlCheckMutexes[url] = mutex
+	return mutex
+}
+
+// cleanupUnusedMutexes removes mutexes for URLs that are no longer monitored
+func (s *MonitoringService) cleanupUnusedMutexes() {
+	s.monitoredURLsMutex.RLock()
+	monitoredURLs := make(map[string]struct{})
+	for url := range s.monitoredURLs {
+		monitoredURLs[url] = struct{}{}
+	}
+	s.monitoredURLsMutex.RUnlock()
+
+	s.urlCheckMutexMapLock.Lock()
+	defer s.urlCheckMutexMapLock.Unlock()
+
+	for url := range s.urlCheckMutexes {
+		if _, isMonitored := monitoredURLs[url]; !isMonitored {
+			delete(s.urlCheckMutexes, url)
+		}
+	}
 }
