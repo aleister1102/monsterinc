@@ -360,7 +360,8 @@ func (us *UnifiedScheduler) runUnifiedCycleWithRetries(ctx context.Context) {
 		}
 
 		var currentAttemptSummary models.ScanSummaryData
-		currentAttemptSummary, lastErr = us.runUnifiedCycle(ctx, currentScanSessionID, initialTargetSource)
+		var reportFilePaths []string
+		currentAttemptSummary, reportFilePaths, lastErr = us.runUnifiedCycle(ctx, currentScanSessionID, initialTargetSource)
 
 		// Merge results from runUnifiedCycle
 		scanSummary.Targets = currentAttemptSummary.Targets
@@ -375,7 +376,7 @@ func (us *UnifiedScheduler) runUnifiedCycleWithRetries(ctx context.Context) {
 		if lastErr == nil {
 			us.logger.Info().Str("scan_session_id", currentScanSessionID).Msg("UnifiedScheduler: Unified cycle completed successfully.")
 			scanSummary.Status = string(models.ScanStatusCompleted)
-			us.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary, notifier.ScanServiceNotification)
+			us.notificationHelper.SendScanCompletionNotification(context.Background(), scanSummary, notifier.ScanServiceNotification, reportFilePaths)
 			return
 		}
 
@@ -407,12 +408,13 @@ func (us *UnifiedScheduler) runUnifiedCycleWithRetries(ctx context.Context) {
 }
 
 // runUnifiedCycle executes a complete unified cycle
-func (us *UnifiedScheduler) runUnifiedCycle(ctx context.Context, scanSessionID string, predeterminedTargetSource string) (models.ScanSummaryData, error) {
+func (us *UnifiedScheduler) runUnifiedCycle(ctx context.Context, scanSessionID string, predeterminedTargetSource string) (models.ScanSummaryData, []string, error) {
 	startTime := time.Now()
 	summary := models.GetDefaultScanSummaryData()
 	summary.ScanSessionID = scanSessionID
 	summary.ScanMode = "automated"
 	summary.TargetSource = predeterminedTargetSource
+	var generatedReportPaths []string // To store paths of generated reports
 
 	// Load targets
 	targets, determinedTargetSource, err := us.targetManager.LoadAndSelectTargets(
@@ -422,7 +424,7 @@ func (us *UnifiedScheduler) runUnifiedCycle(ctx context.Context, scanSessionID s
 	)
 	if err != nil {
 		us.logger.Error().Err(err).Msg("UnifiedScheduler: Failed to load targets for unified cycle.")
-		return summary, fmt.Errorf("failed to load targets: %w", err)
+		return summary, nil, fmt.Errorf("failed to load targets: %w", err)
 	}
 	if determinedTargetSource == "" {
 		determinedTargetSource = "UnknownSource"
@@ -433,7 +435,7 @@ func (us *UnifiedScheduler) runUnifiedCycle(ctx context.Context, scanSessionID s
 		us.logger.Info().Str("source", determinedTargetSource).Msg("UnifiedScheduler: No targets to process in this unified cycle.")
 		summary.Status = string(models.ScanStatusNoTargets)
 		summary.ErrorMessages = []string{"No targets loaded for this unified cycle."}
-		return summary, nil
+		return summary, nil, nil
 	}
 
 	// Convert targets to string slice for compatibility
@@ -531,7 +533,7 @@ func (us *UnifiedScheduler) runUnifiedCycle(ctx context.Context, scanSessionID s
 	}
 
 	// Execute scan workflow for HTML URLs (run in parallel with monitor)
-	var scanSummary models.ScanSummaryData
+	var scanWorkflowSummary models.ScanSummaryData // Renamed to avoid conflict with outer summary
 	var probeResults []models.ProbeResult
 	var urlDiffResults map[string]models.URLDiffResult
 	var secretFindings []models.SecretFinding
@@ -540,7 +542,7 @@ func (us *UnifiedScheduler) runUnifiedCycle(ctx context.Context, scanSessionID s
 		us.logger.Info().Int("html_count", len(htmlURLs)).Msg("UnifiedScheduler: Executing scan workflow for HTML URLs (parallel).")
 		var workflowErr error
 
-		scanSummary, probeResults, urlDiffResults, secretFindings, workflowErr = us.scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, htmlURLs, scanSessionID, determinedTargetSource)
+		scanWorkflowSummary, probeResults, urlDiffResults, secretFindings, workflowErr = us.scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, htmlURLs, scanSessionID, determinedTargetSource)
 		if workflowErr != nil {
 			us.logger.Error().Err(workflowErr).Msg("UnifiedScheduler: Scan workflow failed for HTML URLs.")
 			summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Scan workflow error: %v", workflowErr))
@@ -550,20 +552,20 @@ func (us *UnifiedScheduler) runUnifiedCycle(ctx context.Context, scanSessionID s
 				summary.Status = string(models.ScanStatusInterrupted)
 				us.notificationHelper.SendScanInterruptNotification(context.Background(), summary)
 				us.notificationHelper.SendMonitorInterruptNotification(context.Background(), summary)
-				return summary, workflowErr
+				return summary, nil, workflowErr // Return nil for report paths
 			}
 		} else {
 			us.logger.Info().Int("probe_results", len(probeResults)).Int("diff_results", len(urlDiffResults)).Int("secret_findings", len(secretFindings)).Msg("UnifiedScheduler: Scan workflow completed successfully.")
 		}
 
 		// Merge scan results into summary
-		summary.ProbeStats = scanSummary.ProbeStats
-		summary.DiffStats = scanSummary.DiffStats
-		summary.SecretStats = scanSummary.SecretStats
-		summary.ErrorMessages = append(summary.ErrorMessages, scanSummary.ErrorMessages...)
+		summary.ProbeStats = scanWorkflowSummary.ProbeStats
+		summary.DiffStats = scanWorkflowSummary.DiffStats
+		summary.SecretStats = scanWorkflowSummary.SecretStats
+		summary.ErrorMessages = append(summary.ErrorMessages, scanWorkflowSummary.ErrorMessages...)
 
 		// Generate HTML report (always generate, even if no probe results)
-		us.generateAndSetReport(ctx, scanSessionID, probeResults, urlDiffResults, secretFindings, &summary)
+		generatedReportPaths = us.generateAndSetReport(ctx, scanSessionID, probeResults, secretFindings, &summary)
 	}
 
 	// Wait for monitor service to complete adding URLs and initial cycle
@@ -588,7 +590,7 @@ func (us *UnifiedScheduler) runUnifiedCycle(ctx context.Context, scanSessionID s
 		}
 		us.notificationHelper.SendScanInterruptNotification(context.Background(), summary)
 		us.notificationHelper.SendMonitorInterruptNotification(context.Background(), summary)
-		return summary, ctx.Err()
+		return summary, nil, ctx.Err() // Return nil for report paths
 	}
 
 	// Update scan completion in database
@@ -617,7 +619,7 @@ func (us *UnifiedScheduler) runUnifiedCycle(ctx context.Context, scanSessionID s
 	}
 
 	us.logger.Info().Str("session_id", scanSessionID).Dur("duration", summary.ScanDuration).Msg("UnifiedScheduler: Unified cycle completed.")
-	return summary, nil
+	return summary, generatedReportPaths, nil
 }
 
 // classifyURLsByContentType classifies URLs based on their content type
@@ -833,8 +835,8 @@ func (us *UnifiedScheduler) performMonitorCycle(cycleType string) {
 }
 
 // generateAndSetReport generates and sets the HTML report for a scan
-func (us *UnifiedScheduler) generateAndSetReport(ctx context.Context, scanSessionID string, probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, secretFindings []models.SecretFinding, summary *models.ScanSummaryData) {
-	us.logger.Info().Int("probe_results", len(probeResults)).Int("url_diffs", len(urlDiffResults)).Int("secret_findings", len(secretFindings)).Msg("UnifiedScheduler: Generating HTML report...")
+func (us *UnifiedScheduler) generateAndSetReport(ctx context.Context, scanSessionID string, probeResults []models.ProbeResult, secretFindings []models.SecretFinding, summary *models.ScanSummaryData) []string {
+	us.logger.Info().Int("probe_results", len(probeResults)).Int("secret_findings", len(secretFindings)).Msg("UnifiedScheduler: Generating HTML report...")
 
 	// Ensure output directory exists
 	if us.globalConfig.ReporterConfig.OutputDir == "" {
@@ -846,19 +848,19 @@ func (us *UnifiedScheduler) generateAndSetReport(ctx context.Context, scanSessio
 	if err := os.MkdirAll(us.globalConfig.ReporterConfig.OutputDir, 0755); err != nil {
 		us.logger.Error().Err(err).Str("output_dir", us.globalConfig.ReporterConfig.OutputDir).Msg("UnifiedScheduler: Failed to create output directory")
 		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Failed to create output directory: %v", err))
-		return
+		return nil // Return nil for report paths on error
 	}
 
 	htmlReporter, err := reporter.NewHtmlReporter(&us.globalConfig.ReporterConfig, us.logger)
 	if err != nil {
 		us.logger.Error().Err(err).Msg("UnifiedScheduler: Failed to initialize HTML reporter")
 		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Failed to initialize HTML reporter: %v", err))
-		return
+		return nil // Return nil for report paths on error
 	}
 
-	reportFilename := fmt.Sprintf("%s_%s_report.html", scanSessionID, us.globalConfig.Mode)
-	reportPath := filepath.Join(us.globalConfig.ReporterConfig.OutputDir, reportFilename)
-	us.logger.Info().Str("report_path", reportPath).Msg("UnifiedScheduler: Report will be generated at path")
+	baseReportFilename := fmt.Sprintf("scheduled_scan_%s_report.html", scanSessionID)
+	baseReportPath := filepath.Join(us.globalConfig.ReporterConfig.OutputDir, baseReportFilename)
+	us.logger.Info().Str("base_report_path", baseReportPath).Msg("UnifiedScheduler: Base report path set.")
 
 	// Convert []models.ProbeResult to []*models.ProbeResult
 	probeResultsPtr := make([]*models.ProbeResult, len(probeResults))
@@ -866,18 +868,29 @@ func (us *UnifiedScheduler) generateAndSetReport(ctx context.Context, scanSessio
 		probeResultsPtr[i] = &probeResults[i]
 	}
 
-	if err := htmlReporter.GenerateReport(probeResultsPtr, urlDiffResults, secretFindings, reportPath); err != nil {
-		us.logger.Error().Err(err).Str("report_path", reportPath).Msg("UnifiedScheduler: Failed to generate HTML report")
-		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Failed to generate HTML report: %v", err))
-		return
+	// Generate report
+	reportFilePaths, reportGenErr := htmlReporter.GenerateReport(probeResultsPtr, secretFindings, baseReportPath)
+	if reportGenErr != nil {
+		us.logger.Error().Err(reportGenErr).Msg("Failed to generate HTML report(s) in unified scheduler cycle")
+		summary.Status = string(models.ScanStatusFailed)
+		summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Failed to generate HTML report(s): %v", reportGenErr))
+		// Even if report generation fails, reportFilePaths might contain paths to partially generated files (or be nil)
+		// We still return it so the caller can decide how to handle notification.
+		return nil // Return nil for report paths on error
 	}
 
 	// Check if report file was actually created
-	if _, err := os.Stat(reportPath); os.IsNotExist(err) {
-		us.logger.Info().Str("path", reportPath).Msg("UnifiedScheduler: HTML report was skipped (no data to report)")
+	if len(reportFilePaths) == 0 {
+		us.logger.Info().Msg("UnifiedScheduler: HTML report generation resulted in no files (e.g., no data and generate_empty_report is false). Scheduled scan report will be empty.")
 		summary.ReportPath = "" // Clear report path since no file was created
 	} else {
-		us.logger.Info().Str("path", reportPath).Msg("UnifiedScheduler: HTML report generated successfully")
-		summary.ReportPath = reportPath
+		us.logger.Info().Strs("report_paths", reportFilePaths).Msg("UnifiedScheduler: HTML report(s) generated successfully for scheduled scan.")
+		// Set summary.ReportPath to the first part, or a general message if multiple parts
+		if len(reportFilePaths) == 1 {
+			summary.ReportPath = reportFilePaths[0]
+		} else {
+			summary.ReportPath = fmt.Sprintf("Multiple report files generated (%d parts), see notifications.", len(reportFilePaths))
+		}
 	}
+	return reportFilePaths // Return all generated paths
 }

@@ -74,6 +74,9 @@ type ReportPageData struct {
 	SecretFindings     []SecretFinding `json:"secret_findings,omitempty"`
 	SecretFindingsJSON template.JS     `json:"-"` // JSON string of SecretFindings for JavaScript processing
 	SecretStats        SecretStats     `json:"secret_stats"`
+
+	// Report Part Information (for multi-part reports)
+	ReportPartInfo string `json:"report_part_info,omitempty"`
 }
 
 // ReporterConfigForTemplate is a subset of reporter configurations relevant for the template.
@@ -123,6 +126,7 @@ func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
 		HasCNAMEs:       len(pr.CNAMEs) > 0,
 		HasIPs:          len(pr.IPs) > 0,
 		RootTargetURL:   pr.RootTargetURL, // Use the correct RootTargetURL from ProbeResult
+		URLStatus:       pr.URLStatus,     // Assign URLStatus
 	}
 }
 

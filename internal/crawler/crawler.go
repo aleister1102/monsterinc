@@ -20,8 +20,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const defaultHeadTimeout = 10 * time.Second
-
 // Crawler represents the web crawler instance.
 type Crawler struct {
 	Collector        *colly.Collector
@@ -215,6 +213,8 @@ func NewCrawler(cfg *config.CrawlerConfig, httpClient *http.Client, appLogger ze
 		cfg.Scope.AllowedPathRegexes,    // TODO
 		cfg.Scope.DisallowedPathRegexes, // TODO
 		moduleLogger,                    // Pass the moduleLogger to ScopeSettings
+		cfg.IncludeSubdomains,           // Pass IncludeSubdomains setting
+		cfg.SeedURLs,                    // Pass original seed URLs for base domain extraction
 	)
 	if err != nil {
 		moduleLogger.Error().Err(err).Msg("Failed to initialize scope settings")
@@ -394,10 +394,10 @@ func (cr *Crawler) Start(ctx context.Context) {
 
 // logSummary logs the crawling summary statistics.
 func (cr *Crawler) logSummary() {
+	duration := time.Since(cr.crawlStartTime)
 	cr.mutex.RLock() // Protect access to counters and discoveredURLs map
 	defer cr.mutex.RUnlock()
 
-	duration := time.Since(cr.crawlStartTime)
 	// Clarify what "URLs Visited" means in this context.
 	// totalVisited is incremented on OnResponse, which might include redirects or non-HTML pages.
 	// len(cr.discoveredURLs) is the count of unique URLs our DiscoverURL method decided to queue.

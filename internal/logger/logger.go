@@ -69,7 +69,6 @@ func New(cfg config.LogConfig) (zerolog.Logger, error) {
 			Filename:   cfg.LogFile,
 			MaxSize:    cfg.MaxLogSizeMB,
 			MaxBackups: cfg.MaxLogBackups,
-			Compress:   cfg.CompressOldLogs,
 			LocalTime:  true,
 		}
 

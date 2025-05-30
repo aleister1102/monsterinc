@@ -97,7 +97,7 @@ $(document).ready(function () {
             if (rootURL && (!pr.RootTargetURL || pr.RootTargetURL !== rootURL)) {
                 return false;
             }
-            
+
             // Global search enabled
             let matchesGlobal = true;
             if (globalSearchTerm) {
@@ -105,7 +105,7 @@ $(document).ready(function () {
                     (pr.InputURL && pr.InputURL.toLowerCase().includes(globalSearchTerm)) ||
                     (pr.FinalURL && pr.FinalURL.toLowerCase().includes(globalSearchTerm)) ||
                     (pr.Title && pr.Title.toLowerCase().includes(globalSearchTerm)) ||
-        
+
                     (pr.ContentType && pr.ContentType.toLowerCase().includes(globalSearchTerm)) ||
                     (Array.isArray(pr.Technologies) && pr.Technologies.join(', ').toLowerCase().includes(globalSearchTerm)) ||
                     (Array.isArray(pr.IPs) && pr.IPs.join(', ').toLowerCase().includes(globalSearchTerm)) ||
@@ -168,6 +168,14 @@ $(document).ready(function () {
         const start = (page - 1) * itemsPerPage;
         const end = start + itemsPerPage;
         const paginatedItems = filteredAndSortedData.slice(start, end);
+
+        // Destroy DataTable instance if it exists, so our rendering takes full effect
+        if ($.fn.dataTable.isDataTable('#resultsTable')) {
+            $('#resultsTable').DataTable().destroy();
+            // Ensure tbody is empty for our rendering.
+            // renderTableRows also calls $tableBody.empty(), but this is an extra safeguard.
+            $('#resultsTable tbody').empty();
+        }
 
         renderTableRows(paginatedItems);
         setupPaginationControls(filteredAndSortedData.length);
@@ -244,7 +252,7 @@ $(document).ready(function () {
 
     // --- Event Listeners ---
     // $globalSearchInput.on('input', function() { currentFilters.globalSearch = $(this).val(); processAndDisplayData(); }); // Global search disabled
-    $globalSearchInput.on('input', function() { currentFilters.globalSearch = $(this).val(); processAndDisplayData(); });
+    $globalSearchInput.on('input', function () { currentFilters.globalSearch = $(this).val(); processAndDisplayData(); });
     $rootURLFilter.on('change', function () { currentFilters.rootURL = $(this).val(); processAndDisplayData(); });
     $statusCodeFilter.on('change', function () { currentFilters.statusCode = $(this).val(); processAndDisplayData(); });
     $contentTypeFilter.on('change', function () { currentFilters.contentType = $(this).val(); processAndDisplayData(); });
@@ -329,7 +337,7 @@ $(document).ready(function () {
             detailsText += `Method: ${resultData.Method || '-'}\n`;
             detailsText += `Status Code: ${resultData.StatusCode || '-'}\n`;
             detailsText += `Title: ${resultData.Title || '-'}\n`;
-    
+
             detailsText += `Content Type: ${resultData.ContentType || '-'}\n`;
             detailsText += `Content Length: ${resultData.ContentLength !== undefined ? resultData.ContentLength : '-'}\n`;
             detailsText += `Timestamp: ${resultData.Timestamp || '-'}\n`;
