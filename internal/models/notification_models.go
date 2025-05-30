@@ -159,9 +159,10 @@ type MonitorAggregatedStats struct {
 
 // MonitorCycleCompleteData holds data for the monitor service's end-of-cycle notification.
 type MonitorCycleCompleteData struct {
-	ChangedURLs    []string  // List of URLs that had changes detected during this cycle.
-	ReportPath     string    // Path to the aggregated HTML diff report for all monitored URLs.
-	TotalMonitored int       // Total number of URLs being monitored in this cycle.
-	Timestamp      time.Time // Timestamp when the cycle completed.
+	ChangedURLs    []string         // List of URLs that had changes detected during this cycle.
+	FileChanges    []FileChangeInfo // Detailed information about file changes
+	ReportPath     string           // Path to the aggregated HTML diff report for all monitored URLs.
+	TotalMonitored int              // Total number of URLs being monitored in this cycle.
+	Timestamp      time.Time        // Timestamp when the cycle completed.
 	// Add any other summary fields you might want, e.g., total errors in cycle.
 }
