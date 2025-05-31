@@ -1,0 +1,122 @@
+## Relevant Files
+
+- `internal/orchestrator/orchestrator.go` - Contains the main scan orchestration logic.
+- `internal/scheduler/scheduler.go` - Manages scheduled scan execution.
+- `internal/scheduler/db.go` - Database interactions for scheduler history.
+- `internal/scheduler/target_manager.go` - Handles loading and selection of scan targets for the scheduler.
+- `internal/crawler/crawler.go` - Core web crawling functionality.
+- `internal/crawler/asset.go` - Logic for extracting assets from HTML.
+- `internal/crawler/scope.go` - Manages the scope of the crawler.
+- `internal/httpxrunner/runner.go` - Wrapper for the httpx tool execution.
+- `internal/httpxrunner/result.go` - Helper functions for httpx results.
+- `internal/reporter/html_reporter.go` - Generates main HTML scan reports.
+- `internal/reporter/html_diff_reporter.go` - Generates HTML diff reports for monitored files.
+- `internal/datastore/parquet_reader.go` - Reads scan data from Parquet files.
+- `internal/datastore/parquet_writer.go` - Writes scan data to Parquet files.
+- `internal/monitor/service.go` - Core file monitoring service logic.
+- `internal/monitor/fetcher.go` - Fetches content for monitored files.
+- `internal/monitor/processor.go` - Processes content of monitored files (e.g., hashing).
+- `cmd/monsterinc/main.go` - Main application entry point, argument parsing, and service initialization.
+- Other Go files within `internal/` and `cmd/` directories as per PRD Functional Requirement #1.
+
+### Notes
+
+- Refactoring will focus on applying clean code principles from `.cursor/rules/refactor.mdc`.
+- Functional equivalence must be maintained.
+- `gofmt` or `goimports` should be run on all modified files.
+- Testing will be handled by the user.
+
+## Tasks
+
+- [ ] 1.0 Refactor `internal/orchestrator/orchestrator.go`
+  - [ ] 1.1 Review and apply meaningful names for variables, functions, and parameters.
+  - [ ] 1.2 Analyze functions for single responsibility; refactor long functions into smaller, focused ones (e.g., `ExecuteScanWorkflow`, `ExecuteCompleteScanWorkflow`, `executeHTTPXProbing`, `processDiffingAndStorage`, `executeSecretDetection`).
+  - [ ] 1.3 Reduce the number of parameters for functions; use structs for complex parameter groups (e.g., `NewScanOrchestrator`, `ExecuteScanWorkflow` and its sub-functions like `prepareScanConfiguration`, `executeCrawler`, `executeHTTPXProbing`, `executeSecretDetection`, `processDiffingAndStorage`).
+  - [ ] 1.4 Identify and minimize side effects in functions where possible.
+  - [ ] 1.5 Ensure consistent levels of abstraction within each function.
+  - [ ] 1.6 Review error handling, ensuring errors are wrapped with context and handled appropriately.
+  - [ ] 1.7 Add/improve Godoc comments for public functions and types.
+  - [ ] 1.8 Review `logger.Info()` calls to reduce noise and ensure they provide essential information.
+  - [ ] 1.9 Run `gofmt`/`goimports` on the file.
+- [ ] 2.0 Refactor `internal/scheduler/` package (scheduler.go, db.go, target_manager.go)
+  - [ ] 2.1 (`scheduler.go`) Review and apply meaningful names.
+  - [ ] 2.2 (`scheduler.go`) Break down long functions (e.g., `Start`, `runUnifiedCycleWithRetries`, `runUnifiedCycle`) into smaller, single-responsibility functions.
+  - [ ] 2.3 (`scheduler.go`) Reduce function parameters, using structs if necessary (e.g., `NewUnifiedScheduler`, `runUnifiedCycle`).
+  - [ ] 2.4 (`scheduler.go`) Review and refine `logger.Info()` calls.
+  - [ ] 2.5 (`db.go`) Review function names and parameters for clarity (e.g., `RecordScanStart`, `UpdateScanCompletion`).
+  - [ ] 2.6 (`db.go`) Ensure error handling is robust and provides context.
+  - [ ] 2.7 (`target_manager.go`) Review functions like `LoadAndSelectTargets`, `LoadTargetsFromFile` for clarity, parameter reduction, and single responsibility.
+  - [ ] 2.8 (`target_manager.go`) Refine logging within `TargetManager`.
+  - [ ] 2.9 Add/improve Godoc comments for public elements in all files.
+  - [ ] 2.10 Run `gofmt`/`goimports` on all files in the package.
+- [ ] 3.0 Refactor `internal/crawler/` package (crawler.go, asset.go, scope.go)
+  - [ ] 3.1 (`crawler.go`) Review and apply meaningful names.
+  - [ ] 3.2 (`crawler.go`) Analyze `NewCrawler`, `handleError`, `handleRequest`, `handleResponse`, `DiscoverURL`, `Start` for potential refactoring (length, params).
+  - [ ] 3.3 (`crawler.go`) Simplify logic within Colly callbacks if possible or extract to helper methods.
+  - [ ] 3.4 (`crawler.go`) Review `logger.Info()` usage.
+  - [ ] 3.5 (`asset.go`) Refactor `ExtractAssetsFromHTML` if it's too long or complex; check parameter list.
+  - [ ] 3.6 (`scope.go`) Review `NewScopeSettings`, `CheckHostnameScope`, `IsURLAllowed` for clarity, parameter reduction, and single responsibility.
+  - [ ] 3.7 (`scope.go`) Ensure regex compilation errors are handled gracefully.
+  - [ ] 3.8 Add/improve Godoc comments for public elements in all files.
+  - [ ] 3.9 Run `gofmt`/`goimports` on all files in the package.
+- [ ] 4.0 Refactor `internal/httpxrunner/` package (runner.go, result.go)
+  - [ ] 4.1 (`runner.go`) Review and apply meaningful names.
+  - [ ] 4.2 (`runner.go`) Analyze `configureHttpxOptions`, `mapHttpxResultToProbeResult`, `NewRunner`, `Run` for potential refactoring (length, params).
+  - [ ] 4.3 (`runner.go`) Simplify the mapping logic in `mapHttpxResultToProbeResult` if possible.
+  - [ ] 4.4 (`runner.go`) Review `logger.Info()` usage.
+  - [ ] 4.5 (`result.go`) Ensure helper functions are concise and well-named.
+  - [ ] 4.6 Add/improve Godoc comments for public elements in all files.
+  - [ ] 4.7 Run `gofmt`/`goimports` on all files in the package.
+- [ ] 5.0 Refactor `internal/reporter/` package (html_reporter.go, html_diff_reporter.go)
+  - [ ] 5.1 (`html_reporter.go`) Review and apply meaningful names.
+  - [ ] 5.2 (`html_reporter.go`) Refactor `NewHtmlReporter`, `prepareReportData`, `GenerateReport`, `executeAndWriteReport` for length, parameters, and single responsibility.
+  - [ ] 5.3 (`html_reporter.go`) Simplify template data preparation if complex.
+  - [ ] 5.4 (`html_diff_reporter.go`) Review and apply meaningful names.
+  - [ ] 5.5 (`html_diff_reporter.go`) Refactor `NewHtmlDiffReporter`, `GenerateDiffReport`, `GenerateSingleDiffReport`, `generateDiffHTML` for length, parameters, and single responsibility.
+  - [ ] 5.6 Review `logger.Info()` usage in both files.
+  - [ ] 5.7 Add/improve Godoc comments for public elements in both files.
+  - [ ] 5.8 Run `gofmt`/`goimports` on all files in the package.
+- [ ] 6.0 Refactor `internal/datastore/` package (parquet_reader.go, parquet_writer.go, parquet_file_history_store.go, secrets_store.go)
+  - [ ] 6.1 (`parquet_reader.go`) Review `FindAllProbeResultsForTarget`, `readProbeResultsFromSpecificFile` for clarity and error handling.
+  - [ ] 6.2 (`parquet_writer.go`) Refactor `transformToParquetResult`, `Write` for clarity, parameter handling, and reduce complexity if any.
+  - [ ] 6.3 (`parquet_file_history_store.go`) Review methods like `StoreFileRecord`, `GetLastKnownRecord`, `GetAllLatestDiffResultsForURLs` for clarity, error handling, and potential simplification. Reduce parameter count where possible.
+  - [ ] 6.4 (`secrets_store.go`) Review `StoreSecretFindings`, `readSecretsFromFile`, `deduplicateSecrets` for clarity and efficiency.
+  - [ ] 6.5 Review `logger.Info()` usage across all files in the package.
+  - [ ] 6.6 Add/improve Godoc comments for public elements in all files.
+  - [ ] 6.7 Run `gofmt`/`goimports` on all files in the package.
+- [ ] 7.0 Refactor `internal/monitor/` package (service.go, fetcher.go, processor.go)
+  - [ ] 7.1 (`service.go`) Review and apply meaningful names.
+  - [ ] 7.2 (`service.go`) Refactor `NewMonitoringService`, `Start`, `Stop`, `checkURL`, `detectURLChanges`, `storeURLRecord`, `sendAggregatedChanges` for length, parameters, and single responsibility.
+  - [ ] 7.3 (`service.go`) Simplify aggregation logic and mutex usage if possible.
+  - [ ] 7.4 (`fetcher.go`) Review `FetchFileContent` for clarity and error handling.
+  - [ ] 7.5 (`processor.go`) Review `ProcessContent` for clarity.
+  - [ ] 7.6 Review `logger.Info()` usage across all files in the package.
+  - [ ] 7.7 Add/improve Godoc comments for public elements in all files.
+  - [ ] 7.8 Run `gofmt`/`goimports` on all files in the package.
+- [ ] 8.0 Refactor `cmd/monsterinc/main.go`
+  - [ ] 8.1 Review and apply meaningful names for variables and functions (e.g. `parseFlags`, `loadConfigurationAndLogger`, `initializeServices`, `runApplicationLogic`, `runOnetimeScan`).
+  - [ ] 8.2 Break down overly long functions (especially `main`, `runApplicationLogic`, `runOnetimeScan`) into smaller, more focused helper functions.
+  - [ ] 8.3 Reduce the number of parameters for functions; consider using structs for grouped parameters if it improves clarity.
+  - [ ] 8.4 Simplify conditional logic and flag parsing if possible.
+  - [ ] 8.5 Review error handling to ensure consistency and clarity.
+  - [ ] 8.6 Add/improve Godoc comments for key functions if applicable (though `main` package functions are often not heavily documented with Godoc for external use).
+  - [ ] 8.7 Review `logger.Info()` and `fmt.Println()` calls. Standardize on logger and reduce noise, especially `fmt.Println` which should ideally be replaced by logger calls.
+  - [ ] 8.8 Run `gofmt`/`goimports` on the file.
+- [ ] 9.0 Refactor remaining Go files in `internal/` and `cmd/` directories
+  - [ ] 9.1 Systematically go through each remaining Go file in `internal/` (e.g., `config/`, `logger/`, `models/`, `notifier/`, `secrets/`, `urlhandler/`, `common/` etc.).
+  - [ ] 9.2 For each file, apply all relevant refactoring principles from `.cursor/rules/refactor.mdc`:
+      - Meaningful names.
+      - Short functions, do one thing.
+      - Few parameters.
+      - Avoid side effects (where practical).
+      - Consistent abstraction levels.
+      - Clear error handling (wrap errors).
+      - Add/improve Godoc comments.
+      - Review and refine `logger.Info()` calls.
+  - [ ] 9.3 Run `gofmt`/`goimports` on each modified file.
+- [ ] 10.0 Review and Refine Logging Across All Refactored Files
+  - [ ] 10.1 After individual file/package refactoring, conduct a holistic review of all `logger.Info()` calls across the entire codebase.
+  - [ ] 10.2 Ensure `logger.Info()` provides only essential, high-value information for understanding the application's operational state during normal execution.
+  - [ ] 10.3 Confirm `logger.Debug()` is used for verbose information useful for diagnostics/debugging.
+  - [ ] 10.4 Confirm `logger.Error()`, `logger.Warn()`, `logger.Fatal()` are used appropriately for their respective severity levels.
+  - [ ] 10.5 Remove or convert any remaining `fmt.Print*` calls to appropriate logger calls, unless they are specifically for user-facing CLI output that shouldn't be in logs (e.g., fatal errors before logger is initialized in `main`). 
