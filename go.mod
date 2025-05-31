@@ -10,7 +10,6 @@ require (
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/gocolly/colly/v2 v2.2.0
-	github.com/google/martian/v3 v3.3.3
 	github.com/parquet-go/parquet-go v0.25.0
 	github.com/projectdiscovery/httpx v1.7.0
 	github.com/rs/zerolog v1.34.0
