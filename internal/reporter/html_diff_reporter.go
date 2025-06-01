@@ -15,7 +15,6 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"io/fs"
@@ -245,9 +244,6 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, e
 		// Calculate summary
 		summary := createDiffSummary(diffResult.Diffs)
 
-		// Calculate secret stats for this diff
-		secretStats := notifier.CalculateSecretStats(diffResult.SecretFindings)
-
 		display := models.DiffResultDisplay{
 			URL:            url,
 			Timestamp:      time.UnixMilli(diffResult.Timestamp), // Convert back to time.Time for display
@@ -260,8 +256,6 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, e
 			IsIdentical:    diffResult.IsIdentical,
 			ErrorMessage:   diffResult.ErrorMessage,
 			ExtractedPaths: diffResult.ExtractedPaths,
-			SecretFindings: diffResult.SecretFindings, // Add secret findings
-			SecretStats:    secretStats,               // Add secret stats
 		}
 		diffResultsDisplay = append(diffResultsDisplay, display)
 	}
@@ -363,8 +357,6 @@ func (r *HtmlDiffReporter) GenerateSingleDiffReport(urlStr string, diffResult *m
 		ErrorMessage:   diffResult.ErrorMessage,
 		FullContent:    string(currentContent), // Add current content
 		ExtractedPaths: diffResult.ExtractedPaths,
-		SecretFindings: diffResult.SecretFindings,                                // Add secret findings
-		SecretStats:    notifier.CalculateSecretStats(diffResult.SecretFindings), // Calculate secret stats
 	}
 
 	pageData := models.DiffReportPageData{
