@@ -75,39 +75,6 @@ const (
 
 // --- Nested Configuration Structs ---
 
-// SecretsConfig defines the configuration for secret detection functionality.
-type SecretsConfig struct {
-	Enabled                    bool     `json:"enabled" yaml:"enabled"`
-	EnableTruffleHog           bool     `json:"enable_trufflehog" yaml:"enable_trufflehog"`
-	TruffleHogPath             string   `json:"trufflehog_path,omitempty" yaml:"trufflehog_path,omitempty" validate:"omitempty,filepath"`
-	EnableCustomRegex          bool     `json:"enable_custom_regex" yaml:"enable_custom_regex"`
-	CustomRegexPatternsFile    string   `json:"custom_regex_patterns_file,omitempty" yaml:"custom_regex_patterns_file,omitempty" validate:"omitempty,fileexists"`
-	MaxFileSizeToScanMB        int      `json:"max_file_size_to_scan_mb,omitempty" yaml:"max_file_size_to_scan_mb,omitempty" validate:"omitempty,min=0"`
-	NotifyOnHighSeverity       bool     `json:"notify_on_high_severity" yaml:"notify_on_high_severity"`
-	NotifyOnHighSeveritySecret bool     `json:"notify_on_high_severity_secret" yaml:"notify_on_high_severity_secret"`
-	DefaultRegexPatterns       []string `json:"default_regex_patterns,omitempty" yaml:"default_regex_patterns,omitempty"` // For internal use, not typically set in config file
-	TruffleHogMaxConcurrency   int      `json:"trufflehog_max_concurrency,omitempty" yaml:"trufflehog_max_concurrency,omitempty" validate:"omitempty,min=1"`
-	TruffleHogTimeoutSeconds   int      `json:"trufflehog_timeout_seconds,omitempty" yaml:"trufflehog_timeout_seconds,omitempty" validate:"omitempty,min=1"`
-	TruffleHogNoVerification   bool     `json:"trufflehog_no_verification" yaml:"trufflehog_no_verification"`
-}
-
-func NewDefaultSecretsConfig() SecretsConfig {
-	return SecretsConfig{
-		Enabled:                    false,        // Disabled by default
-		EnableTruffleHog:           true,         // Default to using TruffleHog if secrets scanning is enabled
-		TruffleHogPath:             "trufflehog", // Default path, assumes it's in PATH (for CLI mode, less relevant for lib)
-		EnableCustomRegex:          true,         // Default to using custom regexes if secrets scanning is enabled
-		CustomRegexPatternsFile:    "",           // No custom file by default
-		MaxFileSizeToScanMB:        5,            // Default max file size to scan is 5MB
-		NotifyOnHighSeverity:       true,         // Default to notifying on high severity findings
-		NotifyOnHighSeveritySecret: false,        // Default to false
-		DefaultRegexPatterns:       []string{},
-		TruffleHogMaxConcurrency:   5,    // Default concurrency for TruffleHog library scans
-		TruffleHogTimeoutSeconds:   60,   // Default timeout for TruffleHog library scans
-		TruffleHogNoVerification:   true, // Default to true (added)
-	}
-}
-
 type InputConfig struct {
 	InputURLs []string `json:"input_urls,omitempty" yaml:"input_urls,omitempty" validate:"omitempty,dive,url"`
 	InputFile string   `json:"input_file,omitempty" yaml:"input_file,omitempty" validate:"omitempty,fileexists"`
@@ -335,15 +302,16 @@ func NewDefaultDiffConfig() DiffConfig {
 
 // MonitorConfig holds configuration for monitoring JS/HTML files for changes.
 type MonitorConfig struct {
-	Enabled                  bool     `json:"enabled" yaml:"enabled"`
-	CheckIntervalSeconds     int      `json:"check_interval_seconds,omitempty" yaml:"check_interval_seconds,omitempty" validate:"omitempty,min=1"`
-	TargetJSFilePatterns     []string `json:"target_js_file_patterns,omitempty" yaml:"target_js_file_patterns,omitempty"`
-	TargetHTMLFilePatterns   []string `json:"target_html_file_patterns,omitempty" yaml:"target_html_file_patterns,omitempty"`
-	MaxConcurrentChecks      int      `json:"max_concurrent_checks,omitempty" yaml:"max_concurrent_checks,omitempty" validate:"omitempty,min=1"`
-	StoreFullContentOnChange bool     `json:"store_full_content_on_change" yaml:"store_full_content_on_change"`
-	HTTPTimeoutSeconds       int      `json:"http_timeout_seconds,omitempty" yaml:"http_timeout_seconds,omitempty" validate:"omitempty,min=1"`
-	InitialMonitorURLs       []string `json:"initial_monitor_urls,omitempty" yaml:"initial_monitor_urls,omitempty" validate:"omitempty,dive,url"`
-	MaxContentSize           int      `json:"max_content_size,omitempty" yaml:"max_content_size,omitempty" validate:"omitempty,min=1"` // Max content size in bytes
+	Enabled                   bool     `json:"enabled" yaml:"enabled"`
+	CheckIntervalSeconds      int      `json:"check_interval_seconds,omitempty" yaml:"check_interval_seconds,omitempty" validate:"omitempty,min=1"`
+	TargetJSFilePatterns      []string `json:"target_js_file_patterns,omitempty" yaml:"target_js_file_patterns,omitempty"`
+	TargetHTMLFilePatterns    []string `json:"target_html_file_patterns,omitempty" yaml:"target_html_file_patterns,omitempty"`
+	MaxConcurrentChecks       int      `json:"max_concurrent_checks,omitempty" yaml:"max_concurrent_checks,omitempty" validate:"omitempty,min=1"`
+	StoreFullContentOnChange  bool     `json:"store_full_content_on_change" yaml:"store_full_content_on_change"`
+	HTTPTimeoutSeconds        int      `json:"http_timeout_seconds,omitempty" yaml:"http_timeout_seconds,omitempty" validate:"omitempty,min=1"`
+	MonitorInsecureSkipVerify bool     `json:"monitor_insecure_skip_verify" yaml:"monitor_insecure_skip_verify"`
+	InitialMonitorURLs        []string `json:"initial_monitor_urls,omitempty" yaml:"initial_monitor_urls,omitempty" validate:"omitempty,dive,url"`
+	MaxContentSize            int      `json:"max_content_size,omitempty" yaml:"max_content_size,omitempty" validate:"omitempty,min=1"` // Max content size in bytes
 	// JSFileExtensions and HTMLFileExtensions are kept for now, but patterns are more flexible.
 	// Consider deprecating them in favor of TargetJSFilePatterns and TargetHTMLFilePatterns.
 	JSFileExtensions   []string `json:"js_file_extensions,omitempty" yaml:"js_file_extensions,omitempty"`
@@ -364,6 +332,7 @@ func NewDefaultMonitorConfig() MonitorConfig {
 		MaxConcurrentChecks:        5,
 		StoreFullContentOnChange:   true,
 		HTTPTimeoutSeconds:         30,
+		MonitorInsecureSkipVerify:  true, // Default to true to match previous hardcoded behavior
 		InitialMonitorURLs:         []string{},
 		MaxContentSize:             1048576, // Default 1MB
 		JSFileExtensions:           []string{"\\.js", "\\.jsx", "\\.ts", "\\.tsx"},
@@ -389,15 +358,19 @@ func NewDefaultSchedulerConfig() SchedulerConfig {
 	}
 }
 
-// ExtractorConfig defines configuration for path extraction.
+// ExtractorConfig holds configuration for path extraction.
 type ExtractorConfig struct {
 	CustomRegexes []string `json:"custom_regexes,omitempty" yaml:"custom_regexes,omitempty"`
+	Allowlist     []string `json:"allowlist,omitempty" yaml:"allowlist,omitempty"`
+	Denylist      []string `json:"denylist,omitempty" yaml:"denylist,omitempty"`
 }
 
 // NewDefaultExtractorConfig creates a default ExtractorConfig.
 func NewDefaultExtractorConfig() ExtractorConfig {
 	return ExtractorConfig{
-		CustomRegexes: []string{}, // Default to no custom regexes
+		CustomRegexes: []string{},
+		Allowlist:     []string{},
+		Denylist:      []string{},
 	}
 }
 
@@ -415,7 +388,6 @@ type GlobalConfig struct {
 	NormalizerConfig     NormalizerConfig   `json:"normalizer_config,omitempty" yaml:"normalizer_config,omitempty"`
 	SchedulerConfig      SchedulerConfig    `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
 	ExtractorConfig      ExtractorConfig    `json:"extractor_config,omitempty" yaml:"extractor_config,omitempty"`
-	SecretsConfig        SecretsConfig      `json:"secrets_config,omitempty" yaml:"secrets_config,omitempty"`
 	Mode                 string             `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
 	DiffReporterConfig   DiffReporterConfig `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
 	PathExtractorDomains []string           `json:"path_extractor_domains,omitempty" yaml:"path_extractor_domains,omitempty" validate:"omitempty,dive,hostname_rfc1123"`
@@ -438,7 +410,6 @@ func NewDefaultGlobalConfig() *GlobalConfig {
 		NormalizerConfig:     NewDefaultNormalizerConfig(),
 		SchedulerConfig:      NewDefaultSchedulerConfig(),
 		ExtractorConfig:      NewDefaultExtractorConfig(),
-		SecretsConfig:        NewDefaultSecretsConfig(),
 		DiffReporterConfig:   NewDefaultDiffReporterConfig(),
 		PathExtractorDomains: []string{},
 	}
