@@ -28,16 +28,15 @@
 
 ## Tasks
 
-- [ ] 1.0 Refactor `internal/orchestrator/orchestrator.go`
-  - [ ] 1.1 Review and apply meaningful names for variables, functions, and parameters.
-  - [ ] 1.2 Analyze functions for single responsibility; refactor long functions into smaller, focused ones (e.g., `ExecuteScanWorkflow`, `ExecuteCompleteScanWorkflow`, `executeHTTPXProbing`, `processDiffingAndStorage`, `executeSecretDetection`).
-  - [ ] 1.3 Reduce the number of parameters for functions; use structs for complex parameter groups (e.g., `NewScanOrchestrator`, `ExecuteScanWorkflow` and its sub-functions like `prepareScanConfiguration`, `executeCrawler`, `executeHTTPXProbing`, `executeSecretDetection`, `processDiffingAndStorage`).
-  - [ ] 1.4 Identify and minimize side effects in functions where possible.
-  - [ ] 1.5 Ensure consistent levels of abstraction within each function.
-  - [ ] 1.6 Review error handling, ensuring errors are wrapped with context and handled appropriately.
-  - [ ] 1.7 Add/improve Godoc comments for public functions and types.
-  - [ ] 1.8 Review `logger.Info()` calls to reduce noise and ensure they provide essential information.
-  - [ ] 1.9 Run `gofmt`/`goimports` on the file.
+- [x] 1.0 Refactor `internal/orchestrator/orchestrator.go`
+  - [x] 1.1 Review and apply meaningful names for variables, functions, and parameters.
+  - [x] 1.2 Analyze functions for single responsibility; refactor long functions into smaller, focused ones (e.g., `ExecuteScanWorkflow`, `ExecuteCompleteScanWorkflow`, `executeHTTPXProbing`, `processDiffingAndStorage`, `executeSecretDetection`).
+  - [x] 1.3 Reduce the number of parameters for functions; use structs for complex parameter groups (e.g., `NewScanOrchestrator`, `ExecuteScanWorkflow` and its sub-functions like `prepareScanConfiguration`, `executeCrawler`, `executeHTTPXProbing`, `executeSecretDetection`, `processDiffingAndStorage`).
+  - [x] 1.4 Identify and minimize side effects in functions where possible.
+  - [x] 1.5 Ensure consistent levels of abstraction within each function.
+  - [x] 1.6 Review error handling, ensuring errors are wrapped with context and handled appropriately.
+  - [x] 1.7 Add/improve Godoc comments for public functions and types.
+  - [x] 1.8 Review `logger.Info()` calls to reduce noise and ensure they provide essential information.
 - [ ] 2.0 Refactor `internal/scheduler/` package (scheduler.go, db.go, target_manager.go)
   - [ ] 2.1 (`scheduler.go`) Review and apply meaningful names.
   - [ ] 2.2 (`scheduler.go`) Break down long functions (e.g., `Start`, `runUnifiedCycleWithRetries`, `runUnifiedCycle`) into smaller, single-responsibility functions.
@@ -48,7 +47,6 @@
   - [ ] 2.7 (`target_manager.go`) Review functions like `LoadAndSelectTargets`, `LoadTargetsFromFile` for clarity, parameter reduction, and single responsibility.
   - [ ] 2.8 (`target_manager.go`) Refine logging within `TargetManager`.
   - [ ] 2.9 Add/improve Godoc comments for public elements in all files.
-  - [ ] 2.10 Run `gofmt`/`goimports` on all files in the package.
 - [ ] 3.0 Refactor `internal/crawler/` package (crawler.go, asset.go, scope.go)
   - [ ] 3.1 (`crawler.go`) Review and apply meaningful names.
   - [ ] 3.2 (`crawler.go`) Analyze `NewCrawler`, `handleError`, `handleRequest`, `handleResponse`, `DiscoverURL`, `Start` for potential refactoring (length, params).
@@ -58,7 +56,6 @@
   - [ ] 3.6 (`scope.go`) Review `NewScopeSettings`, `CheckHostnameScope`, `IsURLAllowed` for clarity, parameter reduction, and single responsibility.
   - [ ] 3.7 (`scope.go`) Ensure regex compilation errors are handled gracefully.
   - [ ] 3.8 Add/improve Godoc comments for public elements in all files.
-  - [ ] 3.9 Run `gofmt`/`goimports` on all files in the package.
 - [ ] 4.0 Refactor `internal/httpxrunner/` package (runner.go, result.go)
   - [ ] 4.1 (`runner.go`) Review and apply meaningful names.
   - [ ] 4.2 (`runner.go`) Analyze `configureHttpxOptions`, `mapHttpxResultToProbeResult`, `NewRunner`, `Run` for potential refactoring (length, params).
@@ -66,7 +63,6 @@
   - [ ] 4.4 (`runner.go`) Review `logger.Info()` usage.
   - [ ] 4.5 (`result.go`) Ensure helper functions are concise and well-named.
   - [ ] 4.6 Add/improve Godoc comments for public elements in all files.
-  - [ ] 4.7 Run `gofmt`/`goimports` on all files in the package.
 - [ ] 5.0 Refactor `internal/reporter/` package (html_reporter.go, html_diff_reporter.go)
   - [ ] 5.1 (`html_reporter.go`) Review and apply meaningful names.
   - [ ] 5.2 (`html_reporter.go`) Refactor `NewHtmlReporter`, `prepareReportData`, `GenerateReport`, `executeAndWriteReport` for length, parameters, and single responsibility.
@@ -119,4 +115,4 @@
   - [ ] 10.2 Ensure `logger.Info()` provides only essential, high-value information for understanding the application's operational state during normal execution.
   - [ ] 10.3 Confirm `logger.Debug()` is used for verbose information useful for diagnostics/debugging.
   - [ ] 10.4 Confirm `logger.Error()`, `logger.Warn()`, `logger.Fatal()` are used appropriately for their respective severity levels.
-  - [ ] 10.5 Remove or convert any remaining `fmt.Print*` calls to appropriate logger calls, unless they are specifically for user-facing CLI output that shouldn't be in logs (e.g., fatal errors before logger is initialized in `main`). 
+  - [ ] 10.5 Remove or convert any remaining `fmt.Print*` calls to appropriate logger calls, unless they are specifically for user-facing CLI output that shouldn't be in logs (e.g., fatal errors before logger is initialized in `main`).
