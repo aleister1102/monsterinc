@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
@@ -22,57 +23,49 @@ import (
 // It uses jsluice for JavaScript AST-based analysis and then applies
 // custom regexes from config for a full-content scan.
 type PathExtractor struct {
-	logger        zerolog.Logger
-	customRegexes []*regexp.Regexp // For manual full-content scanning
+	config           config.ExtractorConfig
+	logger           zerolog.Logger
+	customRegexes    []*regexp.Regexp // For manual full-content scanning
+	allowlistRegexes []*regexp.Regexp // For allowlist scanning
+	denylistRegexes  []*regexp.Regexp // For denylist scanning
 }
 
 // NewPathExtractor creates a new PathExtractor.
 // Custom regexes from config are compiled for manual scanning.
-func NewPathExtractor(extractorCfg config.ExtractorConfig, log zerolog.Logger) (*PathExtractor, error) {
+func NewPathExtractor(extractorCfg config.ExtractorConfig, logger zerolog.Logger) (*PathExtractor, error) {
 	pe := &PathExtractor{
-		logger: log.With().Str("component", "PathExtractor").Logger(),
+		config:           extractorCfg,
+		logger:           logger.With().Str("component", "PathExtractor").Logger(),
+		customRegexes:    make([]*regexp.Regexp, 0),
+		allowlistRegexes: make([]*regexp.Regexp, 0),
+		denylistRegexes:  make([]*regexp.Regexp, 0),
 	}
 
 	if len(extractorCfg.CustomRegexes) > 0 {
-		pe.logger.Info().Int("count", len(extractorCfg.CustomRegexes)).Msg("Compiling custom regexes from configuration for manual full-content scan...")
-		for _, regexStr := range extractorCfg.CustomRegexes {
-			re, err := regexp.Compile(regexStr)
-			if err != nil {
-				pe.logger.Error().Err(err).Str("regex", regexStr).Msg("Failed to compile custom regex for manual scan, skipping.")
-			} else {
-				pe.customRegexes = append(pe.customRegexes, re)
-			}
-		}
-		pe.logger.Info().Int("compiled_count", len(pe.customRegexes)).Msg("Finished compiling custom regexes for manual scan.")
+		pe.customRegexes = common.CompileRegexes(extractorCfg.CustomRegexes, pe.logger)
+		pe.logger.Debug().Int("compiled_count", len(pe.customRegexes)).Msg("Finished compiling custom regexes for manual scan.")
 	} else {
-		pe.logger.Info().Msg("No custom regexes provided in configuration for manual scan.")
+		pe.logger.Debug().Msg("No custom regexes provided in configuration for manual scan.")
+	}
+
+	// Compile Allowlist regexes
+	if len(extractorCfg.Allowlist) > 0 {
+		pe.allowlistRegexes = common.CompileRegexes(extractorCfg.Allowlist, pe.logger)
+		pe.logger.Debug().Int("compiled_count", len(pe.allowlistRegexes)).Msg("Finished compiling allowlist regexes.")
+	} else {
+		pe.logger.Debug().Msg("No allowlist regexes provided in configuration.")
+	}
+
+	// Compile Denylist regexes
+	if len(extractorCfg.Denylist) > 0 {
+		pe.denylistRegexes = common.CompileRegexes(extractorCfg.Denylist, pe.logger)
+		pe.logger.Debug().Int("compiled_count", len(pe.denylistRegexes)).Msg("Finished compiling denylist regexes.")
+	} else {
+		pe.logger.Debug().Msg("No denylist regexes provided in configuration.")
 	}
 
 	pe.logger.Info().Msg("PathExtractor initialized.")
 	return pe, nil
-}
-
-// makeURLMatcher is a placeholder function to demonstrate how one might create
-// a jsluice.URLMatcher for specific, future AST-based matching logic.
-// It is NOT directly used by the custom regexes from the config in the current setup,
-// as those are now handled by manual full-content scanning after jsluice analysis.
-func makeURLMatcher(matcherName string, nodeType string, logicFunc func(n *jsluice.Node) *jsluice.URL, logger zerolog.Logger) jsluice.URLMatcher {
-	logger.Debug().Str("matcher_name", matcherName).Str("node_type", nodeType).Msg("Placeholder makeURLMatcher called (not actively used for config regexes).")
-	// Example of how to return a jsluice.URLMatcher struct.
-	// The actual logicFunc would contain specific AST-based matching.
-	return jsluice.URLMatcher{
-		Type: nodeType, // e.g., "string", "assignment_expression", "call_expression"
-		Fn: func(n *jsluice.Node) *jsluice.URL {
-			// This is where specific logic for this placeholder matcher would go.
-			// For example, call the passed logicFunc or implement inline.
-			if logicFunc != nil {
-				return logicFunc(n)
-			}
-			// Default placeholder behavior: find nothing.
-			// logger.Trace().Str("matcher_name", matcherName).Msg("Placeholder matcher function executed.")
-			return nil
-		},
-	}
 }
 
 // validateAndResolveURL validates and resolves a raw path to an absolute URL
