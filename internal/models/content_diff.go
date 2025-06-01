@@ -32,7 +32,6 @@ type ContentDiffResult struct {
 	OldHash          string          `json:"old_hash,omitempty"`
 	NewHash          string          `json:"new_hash,omitempty"`
 	ExtractedPaths   []ExtractedPath `json:"extracted_paths,omitempty"`
-	SecretFindings   []SecretFinding `json:"secret_findings,omitempty"` // Secret findings detected in the content
 }
 
 // DiffDisplay holds processed diffs for HTML template rendering.
