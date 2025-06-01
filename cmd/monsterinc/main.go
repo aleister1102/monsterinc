@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/logger"
@@ -23,7 +23,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/orchestrator"
 	"github.com/aleister1102/monsterinc/internal/reporter"
 	"github.com/aleister1102/monsterinc/internal/scheduler"
-	"github.com/aleister1102/monsterinc/internal/secrets"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
 )
@@ -31,7 +30,6 @@ import (
 type appFlags struct {
 	urlListFile       string
 	monitorTargetFile string
-	unifiedFile       string
 	globalConfigFile  string
 	mode              string
 }
@@ -48,8 +46,6 @@ func parseFlags() appFlags {
 
 	modeFlag := flag.String("mode", "", "Mode to run the tool: onetime or automated (overrides config file if set)")
 	modeFlagAlias := flag.String("m", "", "Alias for --mode")
-
-	unifiedFile := flag.String("f", "", "Path to a text file containing seed URLs for unified scan + monitor")
 
 	flag.Parse()
 
@@ -79,13 +75,9 @@ func parseFlags() appFlags {
 		flags.mode = *modeFlagAlias
 	}
 
-	if *unifiedFile != "" {
-		flags.unifiedFile = *unifiedFile
-	}
-
 	// Auto-set mode to automated if using monitor-specific flags
 	if flags.mode == "" {
-		if flags.monitorTargetFile != "" || flags.unifiedFile != "" {
+		if flags.monitorTargetFile != "" {
 			flags.mode = "automated"
 			fmt.Printf("[INFO] Mode automatically set to 'automated' due to monitor-related flags\n")
 		} else {
@@ -105,28 +97,8 @@ func parseFlags() appFlags {
 
 // validateFlags validates command line flag combinations
 func validateFlags(flags appFlags) error {
-	// Rule 1: If using -mt, mode should not be onetime
 	if flags.monitorTargetFile != "" && flags.mode == "onetime" {
 		return fmt.Errorf("-mt (monitor targets) cannot be used with mode 'onetime'. Use 'automated' mode or omit mode flag")
-	}
-
-	// Rule 2: If using -f, it must be automated mode (or no mode specified, defaults to automated)
-	if flags.unifiedFile != "" {
-		if flags.mode != "" && flags.mode != "automated" {
-			return fmt.Errorf("-f (unified file) can only be used with 'automated' mode")
-		}
-		// If -f is used, cannot use -st or -mt
-		if flags.urlListFile != "" {
-			return fmt.Errorf("-f (unified file) cannot be used together with -st (scan targets)")
-		}
-		if flags.monitorTargetFile != "" {
-			return fmt.Errorf("-f (unified file) cannot be used together with -mt (monitor targets)")
-		}
-	}
-
-	// Rule 3: Cannot use both -st and -mt together (they should use -f instead)
-	if flags.urlListFile != "" && flags.monitorTargetFile != "" {
-		return fmt.Errorf("-st and -mt cannot be used together. Use -f for unified scan + monitor on the same file")
 	}
 
 	return nil
@@ -175,178 +147,121 @@ func loadConfigurationAndLogger(flags appFlags) (*config.GlobalConfig, zerolog.L
 	return gCfg, zLogger, nil
 }
 
-func initializeServices(gCfg *config.GlobalConfig, zLogger zerolog.Logger, flags appFlags, notificationHelper *notifier.NotificationHelper) (*monitor.MonitoringService, *secrets.SecretDetectorService, *scheduler.UnifiedScheduler, error) {
-	var secretStore datastore.SecretsStore
-	var secretDetector *secrets.SecretDetectorService
-	var errSecretService error
+func initializeMonitoringServices(
+	gCfg *config.GlobalConfig,
+	zLogger zerolog.Logger,
+	notificationHelper *notifier.NotificationHelper,
+) (*monitor.MonitoringService, error) {
+	var monitoringService *monitor.MonitoringService = nil
+	var fileHistoryStore *datastore.ParquetFileHistoryStore = nil
 
-	if gCfg.SecretsConfig.Enabled {
-		zLogger.Info().Msg("Secrets detection is enabled. Initializing services...")
-		secretStore, errSecretService = datastore.NewParquetSecretsStore(&gCfg.StorageConfig, zLogger)
-		if errSecretService != nil {
-			zLogger.Error().Err(errSecretService).Msg("Failed to initialize ParquetSecretsStore. Secret detection storage will be compromised.")
-			secretStore = nil
-		}
-
-		if secretStore != nil {
-			secretDetector, errSecretService = secrets.NewSecretDetectorService(gCfg, secretStore, zLogger, notificationHelper)
-			if errSecretService != nil {
-				zLogger.Error().Err(errSecretService).Msg("Failed to initialize SecretDetectorService. Secret detection will be compromised.")
-				secretDetector = nil
-			} else {
-				zLogger.Info().Msg("SecretDetectorService initialized successfully.")
-			}
-		} else {
-			zLogger.Warn().Msg("ParquetSecretsStore failed to initialize. SecretDetectorService will not be initialized.")
-		}
-	} else {
-		zLogger.Info().Msg("Secrets detection is disabled in the configuration.")
-	}
-
-	var monitoringService *monitor.MonitoringService
-	// Initialize monitoring service only if in automated mode and enabled
-	if gCfg.Mode == "automated" && gCfg.MonitorConfig.Enabled {
-		zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service is enabled for automated mode. Initializing...")
-		fileHistoryStore, fhStoreErr := datastore.NewParquetFileHistoryStore(&gCfg.StorageConfig, zLogger)
+	if gCfg.MonitorConfig.Enabled {
+		// If monitor is enabled, initialize file history store
+		var fhStoreErr error
+		fileHistoryStore, fhStoreErr = datastore.NewParquetFileHistoryStore(&gCfg.StorageConfig, zLogger)
 		if fhStoreErr != nil {
 			zLogger.Error().Err(fhStoreErr).Msg("Failed to initialize ParquetFileHistoryStore for monitoring. Monitoring will be disabled.")
-		} else {
-			monitorHTTPClientTimeout := time.Duration(gCfg.MonitorConfig.HTTPTimeoutSeconds) * time.Second
-			if gCfg.MonitorConfig.HTTPTimeoutSeconds <= 0 {
-				monitorHTTPClientTimeout = 30 * time.Second
-				zLogger.Warn().Int("configured_timeout", gCfg.MonitorConfig.HTTPTimeoutSeconds).Dur("default_timeout", monitorHTTPClientTimeout).Msg("Monitor HTTPTimeoutSeconds invalid or not set, using default")
-			}
-			monitorHTTPClient := &http.Client{
-				Timeout: monitorHTTPClientTimeout,
-				Transport: &http.Transport{
-					TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-				},
-			}
-			monitorLogger := zLogger.With().Str("service", "FileMonitor").Logger()
+			return nil, fmt.Errorf("failed to initialize ParquetFileHistoryStore for monitoring: %w", fhStoreErr)
+		}
 
-			if gCfg.SecretsConfig.Enabled && secretDetector != nil {
-				monitoringService = monitor.NewMonitoringService(
-					&gCfg.MonitorConfig,
-					&gCfg.CrawlerConfig,
-					&gCfg.ExtractorConfig,
-					&gCfg.NotificationConfig,
-					&gCfg.ReporterConfig,
-					&gCfg.DiffReporterConfig,
-					&gCfg.SecretsConfig,
-					fileHistoryStore,
-					monitorLogger,
-					notificationHelper,
-					monitorHTTPClient,
-					secretDetector,
-				)
-			} else {
-				monitoringService = monitor.NewMonitoringService(
-					&gCfg.MonitorConfig,
-					&gCfg.CrawlerConfig,
-					&gCfg.ExtractorConfig,
-					&gCfg.NotificationConfig,
-					&gCfg.ReporterConfig,
-					&gCfg.DiffReporterConfig,
-					&gCfg.SecretsConfig,
-					fileHistoryStore,
-					monitorLogger,
-					notificationHelper,
-					monitorHTTPClient,
-					nil,
-				)
-			}
-			zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service initialized.")
+		// Initialize HTTP client for monitor
+		monitorHTTPClientTimeout := time.Duration(gCfg.MonitorConfig.HTTPTimeoutSeconds) * time.Second
+		if gCfg.MonitorConfig.HTTPTimeoutSeconds <= 0 {
+			monitorHTTPClientTimeout = 30 * time.Second
+			zLogger.Warn().Int("configured_timeout", gCfg.MonitorConfig.HTTPTimeoutSeconds).Dur("default_timeout", monitorHTTPClientTimeout).Msg("Monitor HTTPTimeoutSeconds invalid or not set, using default timeout")
 		}
-	} else {
-		if gCfg.Mode == "onetime" {
-			zLogger.Info().Msg("File monitoring service is not initialized in onetime mode.")
-		} else if !gCfg.MonitorConfig.Enabled { // Applies to automated mode if monitor is disabled in config
-			zLogger.Info().Msg("File monitoring service is disabled in configuration.")
+
+		clientFactory := common.NewHTTPClientFactory(zLogger)
+		monitorHTTPClient, clientErr := clientFactory.CreateMonitorClient(
+			monitorHTTPClientTimeout,
+			gCfg.MonitorConfig.MonitorInsecureSkipVerify,
+		)
+		if clientErr != nil {
+			zLogger.Error().Err(clientErr).Msg("Failed to create HTTP client for monitoring. Monitoring will be disabled.")
+			return nil, fmt.Errorf("failed to create HTTP client for monitoring: %w", clientErr)
 		}
-		monitoringService = nil // Ensure it's nil if not initialized for automated mode or if in onetime mode
+
+		// Initialize monitor service
+		monitorLogger := zLogger.With().Str("service", "FileMonitor").Logger()
+		monitoringService = monitor.NewMonitoringService(
+			&gCfg.MonitorConfig,
+			&gCfg.CrawlerConfig,
+			&gCfg.ExtractorConfig,
+			&gCfg.NotificationConfig,
+			&gCfg.ReporterConfig,
+			&gCfg.DiffReporterConfig,
+			fileHistoryStore,
+			monitorLogger,
+			notificationHelper,
+			monitorHTTPClient,
+		)
+		zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service initialized.")
 	}
 
-	var unifiedSchedulerInstance *scheduler.UnifiedScheduler
-	// UnifiedScheduler is only initialized in automated mode
-	// This logic will be handled in runApplicationLogic
-
-	return monitoringService, secretDetector, unifiedSchedulerInstance, nil
+	return monitoringService, nil
 }
 
-func setupSignalHandling(ctx context.Context, cancel context.CancelFunc, gCfg *config.GlobalConfig, notificationHelper *notifier.NotificationHelper, monitoringService *monitor.MonitoringService, zLogger zerolog.Logger) {
+func initializeScheduler(
+	gCfg *config.GlobalConfig,
+	scanURLFile string,
+	zLogger zerolog.Logger,
+	notificationHelper *notifier.NotificationHelper,
+	monitoringService *monitor.MonitoringService,
+	schedulerPtr **scheduler.Scheduler,
+) (**scheduler.Scheduler, error) {
+	var schedulerErr error
+	*schedulerPtr, schedulerErr = scheduler.NewScheduler(
+		gCfg,
+		scanURLFile,
+		zLogger,
+		notificationHelper,
+		monitoringService,
+	)
+	// If scheduler initialization fails, send a critical error notification and exit
+	if schedulerErr != nil {
+		criticalErrSummary := models.GetDefaultScanSummaryData()
+		criticalErrSummary.Component = "SchedulerInitialization"
+		criticalErrSummary.TargetSource = scanURLFile
+		criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize scheduler: %v", schedulerErr)}
+
+		notificationHelper.SendCriticalErrorNotification(
+			context.Background(),
+			"SchedulerInitialization",
+			criticalErrSummary,
+		)
+		zLogger.Fatal().Err(schedulerErr).Msg("Failed to initialize scheduler")
+	}
+
+	return schedulerPtr, nil
+}
+
+func setupSignalHandling(
+	cancel context.CancelFunc,
+	zLogger zerolog.Logger,
+) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		sig := <-sigChan
 		zLogger.Info().Str("signal", sig.String()).Msg("Received interrupt signal, initiating graceful shutdown...")
-		cancel() // Only cancel the main context. Services should listen to this context.
+		cancel()
 	}()
 }
 
-func startMonitoringService(ctx context.Context, monitoringService *monitor.MonitoringService, monitorTargetFile string, gCfg *config.GlobalConfig, zLogger zerolog.Logger, notificationHelper *notifier.NotificationHelper, monitorWg *sync.WaitGroup) {
-	if monitoringService == nil {
-		return
-	}
-	monitorWg.Add(1)
-	go func() {
-		defer monitorWg.Done()
-		zLogger.Info().Msg("Starting file monitoring service...")
-
-		initialMonitorURLs := []string{}
-		targetSource := "config"
-		if monitorTargetFile != "" {
-			zLogger.Info().Str("file", monitorTargetFile).Msg("Loading initial monitor URLs from --monitor-target-file")
-			urlsFromFile, err := urlhandler.ReadURLsFromFile(monitorTargetFile, zLogger)
-			if err != nil {
-				zLogger.Error().Err(err).Str("file", monitorTargetFile).Msg("Failed to load URLs from monitor target file. Continuing without them.")
-			} else {
-				initialMonitorURLs = append(initialMonitorURLs, urlsFromFile...)
-				targetSource = filepath.Base(monitorTargetFile)
-			}
-		}
-
-		if len(gCfg.MonitorConfig.InitialMonitorURLs) > 0 {
-			zLogger.Info().Int("count", len(gCfg.MonitorConfig.InitialMonitorURLs)).Msg("Appending initial monitor URLs from config file.")
-			initialMonitorURLs = append(initialMonitorURLs, gCfg.MonitorConfig.InitialMonitorURLs...)
-			if targetSource == "config" {
-				targetSource = "config_initial_urls"
-			}
-		}
-
-		if len(initialMonitorURLs) == 0 {
-			zLogger.Info().Msg("No initial URLs provided for monitoring service (via CLI flag or config). Service will start with an empty list.")
-		}
-
-		if err := monitoringService.Start(initialMonitorURLs); err != nil {
-			zLogger.Error().Err(err).Msg("File monitoring service failed to start")
-		}
-		<-ctx.Done()
-		zLogger.Info().Msg("Stopping file monitoring service due to context cancellation...")
-
-		// Send notification about monitoring service interruption
-		if len(initialMonitorURLs) > 0 && notificationHelper != nil {
-			interruptSummary := models.GetDefaultScanSummaryData()
-			interruptSummary.Component = "MonitoringService"
-			interruptSummary.Status = string(models.ScanStatusInterrupted)
-			interruptSummary.TargetSource = targetSource
-			interruptSummary.Targets = initialMonitorURLs
-			interruptSummary.TotalTargets = len(initialMonitorURLs)
-			interruptSummary.ErrorMessages = []string{"Monitoring service was interrupted by user or system signal"}
-
-			if notificationHelper != nil {
-				// Use monitor service notification type for proper webhook routing
-				notificationHelper.SendMonitorInterruptNotification(context.Background(), interruptSummary)
-			}
-		}
-	}()
-}
-
-func runApplicationLogic(ctx context.Context, gCfg *config.GlobalConfig, flags appFlags, zLogger zerolog.Logger, notificationHelper *notifier.NotificationHelper, secretDetector *secrets.SecretDetectorService, monitoringService *monitor.MonitoringService, unifiedSchedulerInstancePtr **scheduler.UnifiedScheduler) {
-	mainScanURLFile := ""
+func runApplicationLogic(
+	ctx context.Context,
+	gCfg *config.GlobalConfig,
+	flags appFlags,
+	zLogger zerolog.Logger,
+	notificationHelper *notifier.NotificationHelper,
+	monitoringService *monitor.MonitoringService,
+	schedulerPtr **scheduler.Scheduler,
+) {
+	scanURLFile := ""
 	if flags.urlListFile != "" {
-		mainScanURLFile = flags.urlListFile
-		zLogger.Info().Str("file", mainScanURLFile).Msg("Using -st for main scan targets.")
+		scanURLFile = flags.urlListFile
+		zLogger.Info().Str("file", scanURLFile).Msg("Using -st for main scan targets.")
 	}
 
 	monitorURLFile := ""
@@ -355,149 +270,112 @@ func runApplicationLogic(ctx context.Context, gCfg *config.GlobalConfig, flags a
 		zLogger.Info().Str("file", monitorURLFile).Msg("Using -mt for monitor targets.")
 	}
 
-	unifiedFile := ""
-	if flags.unifiedFile != "" {
-		unifiedFile = flags.unifiedFile
-		zLogger.Info().Str("file", unifiedFile).Msg("Using -f for unified scan + monitor targets.")
-		// For unified file, set both scan and monitor to the same file
-		mainScanURLFile = unifiedFile
-		// Note: We don't set monitorURLFile here because UnifiedScheduler will handle both
-	}
-
 	if gCfg.Mode == "automated" {
-		// Handle unified file (-f) - both scan and monitor on same file
-		if unifiedFile != "" {
-			zLogger.Info().Str("unified_file", unifiedFile).Msg("Automated mode: -f provided. Initializing unified scheduler for scan + monitor on same file...")
-			var errUnifiedScheduler error
-			*unifiedSchedulerInstancePtr, errUnifiedScheduler = scheduler.NewUnifiedScheduler(gCfg, unifiedFile, zLogger, notificationHelper, secretDetector, monitoringService)
-			if errUnifiedScheduler != nil {
-				criticalErrSummary := models.GetDefaultScanSummaryData()
-				criticalErrSummary.Component = "UnifiedSchedulerInitialization"
-				criticalErrSummary.TargetSource = unifiedFile
-				criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize unified scheduler: %v", errUnifiedScheduler)}
-				notificationHelper.SendCriticalErrorNotification(context.Background(), "UnifiedSchedulerInitialization", criticalErrSummary)
-				zLogger.Fatal().Err(errUnifiedScheduler).Msg("Failed to initialize unified scheduler")
+		// If neither scan nor monitor targets provided
+		if scanURLFile == "" && monitorURLFile == "" {
+			zLogger.Info().Msg("Automated mode: Neither -st nor -mt provided. No services will be started.")
+		}
+
+		// Start scheduler if scan targets are provided
+		if scanURLFile != "" {
+			// Initialize scheduler for scan targets in automated mode
+			schedulerPtr, err := initializeScheduler(
+				gCfg,
+				scanURLFile,
+				zLogger,
+				notificationHelper,
+				monitoringService,
+				schedulerPtr,
+			)
+			if err != nil {
+				zLogger.Error().Err(err).Msg("Failed to initialize scheduler")
+				return
 			}
 
-			if *unifiedSchedulerInstancePtr != nil {
-				if err := (*unifiedSchedulerInstancePtr).Start(ctx); err != nil {
+			// Start the scheduler
+			if *schedulerPtr != nil {
+				if err := (*schedulerPtr).Start(ctx); err != nil {
+					// If the scheduler is stopped due to context cancellation (interrupt), log it
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-						zLogger.Info().Msg("UnifiedScheduler stopped due to context cancellation (interrupt).")
+						zLogger.Info().Msg("Scheduler stopped due to context cancellation (interrupt).")
 					} else {
 						criticalErrSummary := models.GetDefaultScanSummaryData()
-						criticalErrSummary.Component = "UnifiedSchedulerRuntime"
-						criticalErrSummary.TargetSource = unifiedFile
-						criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("UnifiedScheduler error: %v", err)}
-						notificationHelper.SendCriticalErrorNotification(context.Background(), "UnifiedSchedulerRuntime", criticalErrSummary)
-						zLogger.Error().Err(err).Msg("UnifiedScheduler error")
+						criticalErrSummary.Component = "SchedulerRuntime"
+						criticalErrSummary.TargetSource = scanURLFile
+						criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Scheduler error: %v", err)}
+
+						notificationHelper.SendCriticalErrorNotification(
+							context.Background(),
+							"SchedulerRuntime",
+							criticalErrSummary,
+						)
+						zLogger.Error().Err(err).Msg("Scheduler error")
 					}
 				}
-				zLogger.Info().Msg("Automated mode (with unified scheduler) completed or interrupted.")
-				if *unifiedSchedulerInstancePtr != nil && ctx.Err() == context.Canceled {
-					zLogger.Info().Msg("Context cancelled, ensuring unified scheduler is stopped.")
-					(*unifiedSchedulerInstancePtr).Stop()
+				zLogger.Info().Msg("Automated mode (with scheduler) completed or interrupted.")
+				if *schedulerPtr != nil && ctx.Err() == context.Canceled {
+					zLogger.Info().Msg("Context cancelled, ensuring scheduler is stopped.")
+					(*schedulerPtr).Stop()
 				}
-			}
-		} else {
-			// Handle separate scan (-st) and monitor (-mt) files
-			// Start UnifiedScheduler if scan targets are provided
-			if mainScanURLFile != "" {
-				zLogger.Info().Str("urlfile", mainScanURLFile).Msg("Automated mode: -st provided. Initializing and starting unified scheduler module...")
-				var errUnifiedScheduler error
-				*unifiedSchedulerInstancePtr, errUnifiedScheduler = scheduler.NewUnifiedScheduler(gCfg, mainScanURLFile, zLogger, notificationHelper, secretDetector, monitoringService)
-				if errUnifiedScheduler != nil {
-					criticalErrSummary := models.GetDefaultScanSummaryData()
-					criticalErrSummary.Component = "UnifiedSchedulerInitialization"
-					criticalErrSummary.TargetSource = mainScanURLFile
-					criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize unified scheduler: %v", errUnifiedScheduler)}
-					notificationHelper.SendCriticalErrorNotification(context.Background(), "UnifiedSchedulerInitialization", criticalErrSummary)
-					zLogger.Fatal().Err(errUnifiedScheduler).Msg("Failed to initialize unified scheduler")
-				}
-
-				if *unifiedSchedulerInstancePtr != nil {
-					if err := (*unifiedSchedulerInstancePtr).Start(ctx); err != nil {
-						if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-							zLogger.Info().Msg("UnifiedScheduler stopped due to context cancellation (interrupt).")
-						} else {
-							criticalErrSummary := models.GetDefaultScanSummaryData()
-							criticalErrSummary.Component = "UnifiedSchedulerRuntime"
-							criticalErrSummary.TargetSource = mainScanURLFile
-							criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("UnifiedScheduler error: %v", err)}
-							notificationHelper.SendCriticalErrorNotification(context.Background(), "UnifiedSchedulerRuntime", criticalErrSummary)
-							zLogger.Error().Err(err).Msg("UnifiedScheduler error")
-						}
-					}
-					zLogger.Info().Msg("Automated mode (with unified scheduler) completed or interrupted.")
-					if *unifiedSchedulerInstancePtr != nil && ctx.Err() == context.Canceled {
-						zLogger.Info().Msg("Context cancelled, ensuring unified scheduler is stopped.")
-						(*unifiedSchedulerInstancePtr).Stop()
-					}
-				}
-			}
-
-			// Start MonitoringService if monitor targets are provided (and no scan targets, or as additional monitoring)
-			if monitorURLFile != "" && mainScanURLFile == "" {
-				zLogger.Info().Str("monitor_file", monitorURLFile).Msg("Automated mode: -mt provided without -st. Starting monitoring service only...")
-
-				// Load monitor URLs from file
-				monitorURLs, targetSource := loadSeedURLs(gCfg, monitorURLFile, zLogger, notificationHelper)
-				if len(monitorURLs) == 0 {
-					zLogger.Warn().Str("file", monitorURLFile).Str("target_source", targetSource).Msg("No valid monitor URLs found in file")
-					return
-				}
-
-				// Start monitoring service with the loaded URLs
-				if err := monitoringService.Start(monitorURLs); err != nil {
-					zLogger.Error().Err(err).Msg("Failed to start monitoring service")
-					return
-				}
-				zLogger.Info().Int("monitor_urls", len(monitorURLs)).Msg("Monitoring service started successfully")
-
-				// Wait for context cancellation
-				<-ctx.Done()
-				zLogger.Info().Msg("Context cancelled, stopping monitoring service...")
-
-				// Send notification about monitoring service interruption
-				interruptSummary := models.GetDefaultScanSummaryData()
-				interruptSummary.Component = "MonitoringService"
-				interruptSummary.Status = string(models.ScanStatusInterrupted)
-				interruptSummary.TargetSource = targetSource
-				interruptSummary.Targets = monitorURLs
-				interruptSummary.TotalTargets = len(monitorURLs)
-				interruptSummary.ErrorMessages = []string{"Monitoring service was interrupted by user or system signal"}
-
-				if notificationHelper != nil {
-					// Use monitor service notification type for proper webhook routing
-					notificationHelper.SendMonitorInterruptNotification(context.Background(), interruptSummary)
-				}
-			}
-
-			// If neither scan nor monitor targets provided
-			if mainScanURLFile == "" && monitorURLFile == "" {
-				zLogger.Info().Msg("Automated mode: Neither -st, -mt, nor -f provided. No services will be started.")
 			}
 		}
-	} else { // Onetime mode
-		zLogger.Info().Msg("Running in onetime mode...")
-		runOnetimeScan(ctx, gCfg, mainScanURLFile, zLogger, notificationHelper, secretDetector)
+
+		// Start MonitoringService if monitor targets are provided
+		if monitorURLFile != "" {
+			// Load monitor URLs from file
+			monitorURLs, targetSource := loadUrls(gCfg, monitorURLFile, zLogger, notificationHelper)
+			if len(monitorURLs) == 0 {
+				zLogger.Warn().Str("file", monitorURLFile).Str("target_source", targetSource).Msg("No valid monitor URLs found in file")
+				return
+			}
+
+			// Start monitoring service with the loaded URLs
+			if err := monitoringService.Start(monitorURLs); err != nil {
+				zLogger.Error().Err(err).Msg("Failed to start monitoring service")
+				return
+			}
+			zLogger.Info().Int("monitor_urls", len(monitorURLs)).Msg("Monitoring service started successfully")
+
+			// Wait for context cancellation
+			<-ctx.Done()
+			zLogger.Info().Msg("Context cancelled, stopping monitoring service...")
+
+			// Send notification about monitoring service interruption
+			interruptSummary := models.GetDefaultScanSummaryData()
+			interruptSummary.Component = "MonitoringService"
+			interruptSummary.Status = string(models.ScanStatusInterrupted)
+			interruptSummary.TargetSource = targetSource
+			interruptSummary.Targets = monitorURLs
+			interruptSummary.TotalTargets = len(monitorURLs)
+			interruptSummary.ErrorMessages = []string{"Monitoring service was interrupted by user or system signal"}
+
+			if notificationHelper != nil {
+				// Use monitor service notification type for proper webhook routing
+				notificationHelper.SendMonitorInterruptNotification(context.Background(), interruptSummary)
+			}
+		}
+	} else {
+		runOnetimeScan(ctx, gCfg, scanURLFile, zLogger, notificationHelper)
 	}
 }
 
-func shutdownServices(monitoringService *monitor.MonitoringService, unifiedScheduler *scheduler.UnifiedScheduler, monitorWg *sync.WaitGroup, zLogger zerolog.Logger, ctx context.Context) {
+func shutdownServices(
+	monitoringService *monitor.MonitoringService,
+	scheduler *scheduler.Scheduler,
+	monitorWg *sync.WaitGroup,
+	zLogger zerolog.Logger,
+	ctx context.Context,
+) {
 	if monitoringService != nil {
 		zLogger.Info().Msg("Waiting for file monitoring service to shut down completely...")
 		monitorWg.Wait() // This ensures its goroutine finishes, which includes calling its Stop()
 		zLogger.Info().Msg("File monitoring service has shut down.")
 	}
 
-	// UnifiedScheduler is stopped in runApplicationLogic if interrupted.
-	// If not interrupted, its main loop finishes and Stop() might have been called or not needed if already fully stopped.
-	// However, for a clean shutdown sequence, ensure Stop is called if it exists and hasn't been.
-	// This is more of a fallback or explicit finalization if not handled by interrupt logic.
-	if unifiedScheduler != nil {
-		zLogger.Info().Msg("Ensuring unified scheduler is stopped as part of final shutdown sequence...")
-		unifiedScheduler.Stop() // Call Stop here if not already stopped by interrupt logic in runApplicationLogic
-		zLogger.Info().Msg("UnifiedScheduler confirmed stopped in shutdownServices.")
+	if scheduler != nil {
+		zLogger.Info().Msg("Ensuring scheduler is stopped as part of final shutdown sequence...")
+		scheduler.Stop() // Call Stop here if not already stopped by interrupt logic in runApplicationLogic
+		zLogger.Info().Msg("Scheduler confirmed stopped in shutdownServices.")
 	}
 
 	if ctx.Err() == context.Canceled {
@@ -528,9 +406,7 @@ func main() {
 	}
 	notificationHelper := notifier.NewNotificationHelper(discordNotifier, gCfg.NotificationConfig, zLogger)
 
-	// Check for invalid flag combination: -mt with onetime mode
 	if flags.monitorTargetFile != "" && gCfg.Mode == "onetime" {
-		// Use zLogger if available and initialized, otherwise fmt to stderr
 		errMsg := "Invalid combination: --monitor-targets (-mt) cannot be used with --mode onetime (-m onetime). File monitoring is only available in automated mode."
 		if zLogger.GetLevel() != zerolog.Disabled {
 			zLogger.Fatal().Str("monitor_target_file", flags.monitorTargetFile).Str("mode", gCfg.Mode).Msg(errMsg)
@@ -540,7 +416,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	monitoringService, secretDetector, unifiedSchedulerInstance, err := initializeServices(gCfg, zLogger, flags, notificationHelper)
+	monitoringService, err := initializeMonitoringServices(gCfg, zLogger, notificationHelper)
 	if err != nil {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize services")
 	}
@@ -548,28 +424,21 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	setupSignalHandling(cancel, zLogger)
+
+	var schedulerPtr *scheduler.Scheduler
+	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, monitoringService, &schedulerPtr)
+
 	var monitorWg sync.WaitGroup
-
-	// Setup signal handling
-	setupSignalHandling(ctx, cancel, gCfg, notificationHelper, monitoringService, zLogger)
-
-	// Start monitoring service early if enabled and in onetime mode
-	// if gCfg.Mode == "onetime" && monitoringService != nil {
-	// 	startMonitoringService(ctx, monitoringService, flags.monitorTargetFile, gCfg, zLogger, notificationHelper, &monitorWg)
-	// }
-
-	// Now run application logic, which might populate unifiedSchedulerInstance
-	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, secretDetector, monitoringService, &unifiedSchedulerInstance)
-
-	shutdownServices(monitoringService, unifiedSchedulerInstance, &monitorWg, zLogger, ctx)
+	shutdownServices(monitoringService, schedulerPtr, &monitorWg, zLogger, ctx)
 }
 
-func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileArgument string, appLogger zerolog.Logger, notificationHelper *notifier.NotificationHelper, secretDetector *secrets.SecretDetectorService) {
+func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileArgument string, appLogger zerolog.Logger, notificationHelper *notifier.NotificationHelper) {
 	appLogger.Info().Msg("Initializing scan orchestrator for onetime mode. Secret scanning will be disabled for this scan.")
-	scanOrchestrator := initializeScanOrchestrator(gCfg, appLogger, nil)
+	scanOrchestrator := initializeScanOrchestrator(gCfg, appLogger)
 
 	// Load seed URLs
-	seedURLs, targetSource := loadSeedURLs(gCfg, urlListFileArgument, appLogger, notificationHelper)
+	seedURLs, targetSource := loadUrls(gCfg, urlListFileArgument, appLogger, notificationHelper)
 	if len(seedURLs) == 0 {
 		appLogger.Info().Msg("Onetime scan: No seed URLs loaded, scan will not run. Monitoring service (if active) will continue until application termination.")
 		return // Error already handled in loadSeedURLs, or no targets were specified.
@@ -580,7 +449,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 
 	// Execute complete scan workflow
 	scanSessionID := time.Now().Format("20060102-150405")
-	// summaryData được khởi tạo ở đây để nếu ExecuteCompleteScanWorkflow bị ngắt sớm, chúng ta vẫn có các giá trị mặc định.
+	// summaryData is used to populate the interruption summary if the scan is interrupted.
 	var summaryData models.ScanSummaryData = models.GetDefaultScanSummaryData()
 	var probeResults []models.ProbeResult
 	var secretFindings []models.SecretFinding
@@ -588,7 +457,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 
 	summaryData, probeResults, _, secretFindings, workflowErr = scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, seedURLs, scanSessionID, targetSource)
 
-	// Ưu tiên kiểm tra lỗi từ workflow trước, sau đó mới đến context chung
+	// Check workflow error first, then check context cancellation
 	if errors.Is(workflowErr, context.Canceled) || ctx.Err() == context.Canceled {
 		appLogger.Info().Msg("Onetime scan workflow interrupted.")
 		interruptionSummary := models.GetDefaultScanSummaryData()
@@ -600,8 +469,8 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 		interruptionSummary.ScanMode = "onetime"
 		interruptionSummary.ErrorMessages = []string{"Onetime scan interrupted by signal or context cancellation."}
 
-		// Nếu workflowErr không phải là context.Canceled (ví dụ, một lỗi khác xảy ra trước khi cancel được xử lý đầy đủ)
-		// hoặc nếu summaryData có vẻ đã được điền một phần, hãy cố gắng sử dụng nó.
+		// If workflowErr is not context.Canceled (e.g., another error occurred before cancellation was fully processed)
+		// or if summaryData seems to have been partially populated, try to use it.
 		if workflowErr != nil && !errors.Is(workflowErr, context.Canceled) {
 			interruptionSummary.ErrorMessages = append(interruptionSummary.ErrorMessages, fmt.Sprintf("Additional error during interruption: %v", workflowErr))
 		}
@@ -614,9 +483,6 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 			}
 			if summaryData.DiffStats.New > 0 || summaryData.DiffStats.Old > 0 || summaryData.DiffStats.Existing > 0 {
 				interruptionSummary.DiffStats = summaryData.DiffStats
-			}
-			if summaryData.SecretStats.TotalFindings > 0 {
-				interruptionSummary.SecretStats = summaryData.SecretStats
 			}
 			// if summaryData.ScanDuration > 0 { // Duration might be very short if interrupted early
 			// 	interruptionSummary.ScanDuration = summaryData.ScanDuration
@@ -649,7 +515,7 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 	appLogger.Info().Msg("Onetime scan specific tasks finished. Application will now exit.")
 }
 
-func initializeScanOrchestrator(gCfg *config.GlobalConfig, appLogger zerolog.Logger, secretDetector *secrets.SecretDetectorService) *orchestrator.ScanOrchestrator {
+func initializeScanOrchestrator(gCfg *config.GlobalConfig, appLogger zerolog.Logger) *orchestrator.ScanOrchestrator {
 	parquetReader := datastore.NewParquetReader(&gCfg.StorageConfig, appLogger)
 	parquetWriter, parquetErr := datastore.NewParquetWriter(&gCfg.StorageConfig, appLogger)
 	if parquetErr != nil {
@@ -657,51 +523,62 @@ func initializeScanOrchestrator(gCfg *config.GlobalConfig, appLogger zerolog.Log
 		parquetWriter = nil
 	}
 
-	scanOrchestrator := orchestrator.NewScanOrchestrator(gCfg, appLogger, parquetReader, parquetWriter, secretDetector)
+	scanOrchestrator := orchestrator.NewScanOrchestrator(gCfg, appLogger, parquetReader, parquetWriter)
 	return scanOrchestrator
 }
 
-func loadSeedURLs(gCfg *config.GlobalConfig, urlListFileArgument string, appLogger zerolog.Logger, notificationHelper *notifier.NotificationHelper) ([]string, string) {
-	var seedURLs []string
-	var onetimeTargetSource string
+func loadUrls(
+	gCfg *config.GlobalConfig,
+	urlFileArgument string,
+	appLogger zerolog.Logger,
+	notificationHelper *notifier.NotificationHelper,
+) ([]string, string) {
+	var Urls []string
+	var targetSource string
 
-	// 1. Use urlListFileArgument (from -urlfile) if provided
-	if urlListFileArgument != "" {
-		appLogger.Info().Str("file", urlListFileArgument).Msg("Attempting to read seed URLs from provided file argument for onetime scan.")
-		loadedURLs, errFile := urlhandler.ReadURLsFromFile(urlListFileArgument, appLogger)
+	// 1. Use urlListFileArgument (from -scan-targets or -monitor-targets) if provided
+	if urlFileArgument != "" {
+		loadedURLs, errFile := urlhandler.ReadURLsFromFile(urlFileArgument, appLogger)
 		if errFile != nil {
-			appLogger.Error().Err(errFile).Str("file", urlListFileArgument).Msg("Failed to load URLs from file. See previous logs for details.")
+			appLogger.Error().Err(errFile).Str("file", urlFileArgument).Msg("Failed to load URLs from file. See previous logs for details.")
+
 			criticalErrSummary := models.GetDefaultScanSummaryData()
-			criticalErrSummary.TargetSource = urlListFileArgument
-			criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to load URLs from file '%s': %v. Check application logs.", urlListFileArgument, errFile)}
-			notificationHelper.SendCriticalErrorNotification(context.Background(), "OnetimeScanURLFileLoad", criticalErrSummary)
-			// Do not return yet, allow fallback to config if file load fails but wasn't strictly required to exist
+			criticalErrSummary.ScanMode = gCfg.Mode
+			criticalErrSummary.TargetSource = urlFileArgument
+			criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to load URLs from file '%s': %v. Check application logs.", urlFileArgument, errFile)}
+
+			notificationHelper.SendCriticalErrorNotification(
+				context.Background(),
+				"URLFileLoad",
+				criticalErrSummary,
+			)
 		}
-		seedURLs = loadedURLs
-		onetimeTargetSource = filepath.Base(urlListFileArgument)
-		if len(seedURLs) == 0 && errFile == nil { // File existed and was read, but was empty
-			appLogger.Warn().Str("file", urlListFileArgument).Msg("Provided URL file was empty. Will attempt to use seeds from config if available.")
-		} else if len(seedURLs) == 0 && errFile != nil { // File loading failed
-			appLogger.Warn().Str("file", urlListFileArgument).Msg("Failed to load URLs from file. Will attempt to use seeds from config if available.")
+
+		Urls = loadedURLs
+		targetSource = filepath.Base(urlFileArgument)
+
+		if len(Urls) == 0 && errFile == nil { // File existed and was read, but was empty
+			appLogger.Warn().Str("file", urlFileArgument).Msg("Provided URL file was empty. Will attempt to use URLs from config if available.")
+		} else if len(Urls) == 0 && errFile != nil { // File loading failed
+			appLogger.Warn().Str("file", urlFileArgument).Msg("Failed to load URLs from file. Will attempt to use URLs from config if available.")
 		}
 	}
 
 	// 2. Fallback to InputConfig.InputURLs if no seeds from file argument
-	if len(seedURLs) == 0 {
+	if len(Urls) == 0 {
 		if len(gCfg.InputConfig.InputURLs) > 0 {
-			appLogger.Info().Int("count", len(gCfg.InputConfig.InputURLs)).Msg("Using seed URLs from global input_config.input_urls for onetime scan.")
-			seedURLs = gCfg.InputConfig.InputURLs
-			onetimeTargetSource = "config_input_urls"
+			appLogger.Info().Int("count", len(gCfg.InputConfig.InputURLs)).Msg("Using seed URLs from global input_config.input_urls")
+			Urls = gCfg.InputConfig.InputURLs
+			targetSource = "config_input_urls"
 		} else if gCfg.InputConfig.InputFile != "" { // 3. Fallback to InputConfig.InputFile
-			appLogger.Info().Str("file", gCfg.InputConfig.InputFile).Msg("Using seed URLs from input_config.input_file for onetime scan.")
+			appLogger.Info().Str("file", gCfg.InputConfig.InputFile).Msg("Using seed URLs from input_config.input_file")
 			loadedURLs, errFile := urlhandler.ReadURLsFromFile(gCfg.InputConfig.InputFile, appLogger)
 			if errFile != nil {
 				appLogger.Error().Err(errFile).Str("file", gCfg.InputConfig.InputFile).Msg("Failed to load URLs from config input_file.")
-				// critical error if this was the last resort and it fails?
 			} else {
-				seedURLs = loadedURLs
-				onetimeTargetSource = filepath.Base(gCfg.InputConfig.InputFile)
-				if len(seedURLs) == 0 {
+				Urls = loadedURLs
+				targetSource = filepath.Base(gCfg.InputConfig.InputFile)
+				if len(Urls) == 0 {
 					appLogger.Warn().Str("file", gCfg.InputConfig.InputFile).Msg("Config input_file was empty.")
 				}
 			}
@@ -709,27 +586,20 @@ func loadSeedURLs(gCfg *config.GlobalConfig, urlListFileArgument string, appLogg
 	}
 
 	// Final check for seed URLs
-	if len(seedURLs) == 0 {
-		noSeedsMsg := "No seed URLs provided or loaded for onetime scan. Please specify via -urlfile, or in input_config in the config file. Onetime scan will not run."
-		appLogger.Warn().Msg(noSeedsMsg) // Keep the log
-
-		// Only send notification if onetimeTargetSource was set, implying an attempt to provide targets.
-		// If onetimeTargetSource is still "", it means no target source was specified by the user.
-		if onetimeTargetSource != "" {
+	if len(Urls) == 0 {
+		if targetSource != "" {
 			noTargetsSummary := models.GetDefaultScanSummaryData()
-			noTargetsSummary.ScanMode = "onetime"
-			// Since onetimeTargetSource != "", it will be set correctly here.
-			noTargetsSummary.TargetSource = onetimeTargetSource
+			noTargetsSummary.TargetSource = targetSource
 			noTargetsSummary.Status = string(models.ScanStatusNoTargets)
-			noTargetsSummary.ErrorMessages = []string{noSeedsMsg}
+			noTargetsSummary.ErrorMessages = []string{"No URLs provided or loaded."}
 			notificationHelper.SendScanCompletionNotification(context.Background(), noTargetsSummary, notifier.ScanServiceNotification, nil)
 		} else {
 			appLogger.Info().Msg("No targets specified for onetime scan via CLI or config. 'NO_TARGETS' notification will be skipped.")
 		}
-		return nil, "" // Still return, as no scan can run
+		return nil, ""
 	}
 
-	return seedURLs, onetimeTargetSource
+	return Urls, targetSource
 }
 
 func sendScanStartNotification(ctx context.Context, seedURLs []string, targetSource string, scanMode string, notificationHelper *notifier.NotificationHelper, appLogger zerolog.Logger) {
