@@ -219,26 +219,6 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 		})
 	}
 
-	// Add secret detection statistics if any secrets were found
-	if summary.SecretStats.TotalFindings > 0 {
-		secretValue := fmt.Sprintf("Total: %d", summary.SecretStats.TotalFindings)
-		if summary.SecretStats.HighSeverity > 0 {
-			secretValue += fmt.Sprintf(" | High: %d", summary.SecretStats.HighSeverity)
-		}
-		if summary.SecretStats.MediumSeverity > 0 {
-			secretValue += fmt.Sprintf(" | Medium: %d", summary.SecretStats.MediumSeverity)
-		}
-		if summary.SecretStats.LowSeverity > 0 {
-			secretValue += fmt.Sprintf(" | Low: %d", summary.SecretStats.LowSeverity)
-		}
-
-		fields = append(fields, models.DiscordEmbedField{
-			Name:   ":lock: Secret Detection",
-			Value:  secretValue,
-			Inline: false,
-		})
-	}
-
 	if summary.RetriesAttempted > 0 && (models.ScanStatus(summary.Status) == models.ScanStatusFailed || models.ScanStatus(summary.Status) == models.ScanStatusPartialComplete) {
 		fields = append(fields, models.DiscordEmbedField{
 			Name:   fieldNameRetries,
@@ -578,19 +558,11 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 			if len(change.ExtractedPaths) > 0 {
 				descriptionBuilder.WriteString(fmt.Sprintf("  - **Extracted Paths:** %d\n", len(change.ExtractedPaths)))
 			}
-			if len(change.SecretFindings) > 0 {
-				descriptionBuilder.WriteString(fmt.Sprintf("  - **Secrets Found:** %d\n", len(change.SecretFindings)))
-				for _, secret := range change.SecretFindings {
-					if secret.Severity == "HIGH" || secret.Severity == "CRITICAL" {
-						aggregatedStats.HighSeverityCount++
-					}
-				}
-			}
+
 			descriptionBuilder.WriteString("\n")
 		}
 		aggregatedStats.TotalChanges++
 		aggregatedStats.TotalPaths += len(change.ExtractedPaths)
-		aggregatedStats.TotalSecrets += len(change.SecretFindings)
 
 	}
 
@@ -685,99 +657,6 @@ func FormatAggregatedMonitorErrorsMessage(errors []models.MonitorFetchErrorInfo,
 		Content:         buildMentions(cfg.MentionRoleIDs),
 		Embeds:          []models.DiscordEmbed{embed},
 		AllowedMentions: &allowedMentions,
-	}
-}
-
-// FormatHighSeveritySecretNotification creates a Discord message payload for high-severity secret findings.
-func FormatHighSeveritySecretNotification(finding models.SecretFinding, cfg config.NotificationConfig) models.DiscordMessagePayload {
-	mentions := buildMentions(cfg.MentionRoleIDs)
-	messageContent := ""
-	if mentions != "" {
-		messageContent = mentions + "\n"
-	}
-
-	title := ":warning: High-Severity Secret Detected"
-	if finding.Severity == "CRITICAL" {
-		title = ":bangbang: Critical Secret Detected"
-	}
-
-	description := fmt.Sprintf("A %s severity secret has been detected during content scanning.", strings.ToLower(finding.Severity))
-
-	var fields []models.DiscordEmbedField
-
-	// Source URL field
-	fields = append(fields, models.DiscordEmbedField{
-		Name:   fieldNameSourceURL,
-		Value:  truncateString(finding.SourceURL, 1000),
-		Inline: false,
-	})
-
-	// Rule and Description
-	fields = append(fields, models.DiscordEmbedField{
-		Name:   fieldNameDetectionRule,
-		Value:  fmt.Sprintf("**Rule ID**: `%s`\n**Description**: %s", finding.RuleID, truncateString(finding.Description, 800)),
-		Inline: false,
-	})
-
-	// Severity and Tool
-	toolInfo := "Unknown"
-	if finding.ToolName != "" {
-		toolInfo = finding.ToolName
-	}
-	fields = append(fields, models.DiscordEmbedField{
-		Name:   fieldNameSecurityInfo,
-		Value:  fmt.Sprintf("**Severity**: `%s`\n**Tool**: `%s`\n**Line**: %d", finding.Severity, toolInfo, finding.LineNumber),
-		Inline: true,
-	})
-
-	// Masked secret preview
-	maskedSecret := "***"
-	if finding.SecretText != "" {
-		if len(finding.SecretText) > 10 {
-			maskedSecret = finding.SecretText[:3] + "***" + finding.SecretText[len(finding.SecretText)-3:]
-		} else if len(finding.SecretText) > 2 {
-			maskedSecret = "***" + finding.SecretText[len(finding.SecretText)-2:]
-		}
-	}
-	fields = append(fields, models.DiscordEmbedField{
-		Name:   fieldNameSecretPreview,
-		Value:  fmt.Sprintf("`%s`", maskedSecret),
-		Inline: true,
-	})
-
-	// Verification state if available
-	if finding.VerificationState != "" {
-		fields = append(fields, models.DiscordEmbedField{
-			Name:   fieldNameVerification,
-			Value:  fmt.Sprintf("`%s`", finding.VerificationState),
-			Inline: true,
-		})
-	}
-
-	// Color based on severity - use standardized colors
-	embedColor := colorSecurityAlert // Pink for security alerts
-	if finding.Severity == "CRITICAL" {
-		embedColor = colorCritical // Purple for critical alerts
-	}
-
-	embed := models.DiscordEmbed{
-		Title:       title,
-		Description: description,
-		Color:       embedColor,
-		Timestamp:   finding.Timestamp.Format(timestampFormatDiscord),
-		Fields:      fields,
-		Footer:      createStandardFooter(footerTextSecrets),
-	}
-
-	return models.DiscordMessagePayload{
-		Username:  monsterIncUsername,
-		AvatarURL: monsterIncIconURL,
-		Content:   messageContent,
-		Embeds:    []models.DiscordEmbed{embed},
-		AllowedMentions: &models.AllowedMentions{
-			Parse: []string{"roles"},
-			Roles: cfg.MentionRoleIDs,
-		},
 	}
 }
 
@@ -888,14 +767,6 @@ func calculateMonitorAggregatedStats(changes []models.FileChangeInfo) models.Mon
 	// Calculate total paths and secrets from the changes
 	for _, change := range changes {
 		stats.TotalPaths += len(change.ExtractedPaths)
-		stats.TotalSecrets += len(change.SecretFindings)
-
-		// Count high severity secrets
-		for _, secret := range change.SecretFindings {
-			if strings.ToLower(secret.Severity) == "high" || strings.ToLower(secret.Severity) == "critical" {
-				stats.HighSeverityCount++
-			}
-		}
 	}
 
 	return stats
@@ -914,36 +785,6 @@ func calculateContentTypeBreakdown(changes []models.FileChangeInfo) map[string]i
 	}
 
 	return breakdown
-}
-
-// CalculateSecretStats calculates statistics from secret findings
-func CalculateSecretStats(secretFindings []models.SecretFinding) models.SecretStats {
-	stats := models.SecretStats{}
-	ruleIDs := make(map[string]struct{})
-	sourceURLs := make(map[string]struct{})
-
-	for _, sf := range secretFindings {
-		stats.TotalFindings++
-		switch strings.ToLower(sf.Severity) {
-		case "critical", "high":
-			stats.HighSeverity++
-		case "medium":
-			stats.MediumSeverity++
-		case "low":
-			stats.LowSeverity++
-		default:
-			stats.UnknownSeverity++
-		}
-		if sf.RuleID != "" {
-			ruleIDs[sf.RuleID] = struct{}{}
-		}
-		if sf.SourceURL != "" {
-			sourceURLs[sf.SourceURL] = struct{}{}
-		}
-	}
-	stats.UniqueRules = len(ruleIDs)
-	stats.UniqueSourceURLs = len(sourceURLs)
-	return stats
 }
 
 // FormatMonitorCycleCompleteMessage creates a Discord message payload for monitor cycle completion.

@@ -281,23 +281,6 @@ func (nh *NotificationHelper) SendAggregatedMonitorErrorsNotification(ctx contex
 	}
 }
 
-// SendHighSeveritySecretNotification sends a notification for high-severity secret findings.
-func (nh *NotificationHelper) SendHighSeveritySecretNotification(ctx context.Context, finding models.SecretFinding, serviceType NotificationServiceType) {
-	webhookURL := nh.getWebhookURL(serviceType)
-	if !nh.cfg.NotifyOnHighSeverity || nh.discordNotifier == nil || webhookURL == "" {
-		return
-	}
-
-	nh.logger.Info().Str("service_type", fmt.Sprintf("%d", serviceType)).Str("finding_rule", finding.RuleID).Msg("Attempting to send high severity secret notification.")
-
-	payload := FormatHighSeveritySecretNotification(finding, nh.cfg)
-	if err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, ""); err != nil { // No report for this one
-		nh.logger.Error().Err(err).Msg("Failed to send high severity secret notification")
-	} else {
-		nh.logger.Info().Msg("High severity secret notification sent successfully.")
-	}
-}
-
 // SendMonitorCycleCompleteNotification sends a notification when a monitor cycle completes.
 func (nh *NotificationHelper) SendMonitorCycleCompleteNotification(ctx context.Context, data models.MonitorCycleCompleteData) {
 	webhookURL := nh.getWebhookURL(MonitorServiceNotification)
