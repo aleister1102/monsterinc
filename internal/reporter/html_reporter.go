@@ -16,7 +16,6 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/aleister1102/monsterinc/internal/notifier"
 
 	"github.com/rs/zerolog"
 )
@@ -288,19 +287,6 @@ func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, sec
 	}
 	pageData.ProbeResultsJSON = template.JS(resultsJSON)
 	r.logger.Debug().Int("total_results_for_json", len(pageData.ProbeResults)).Msg("ProbeResults marshalled to JSON for template.")
-
-	// Process secret findings
-	pageData.SecretFindings = secretFindings
-	pageData.SecretStats = notifier.CalculateSecretStats(secretFindings)
-
-	// Marshal secret findings to JSON for JavaScript processing
-	secretFindingsJSON, err := json.Marshal(secretFindings)
-	if err != nil {
-		r.logger.Error().Err(err).Msg("Failed to marshal SecretFindings to JSON for template consumption.")
-		return pageData, fmt.Errorf("failed to marshal secret findings to JSON: %w", err)
-	}
-	pageData.SecretFindingsJSON = template.JS(secretFindingsJSON)
-	r.logger.Debug().Int("total_secret_findings_for_json", len(secretFindings)).Msg("SecretFindings marshalled to JSON for template.")
 
 	return pageData, nil
 }

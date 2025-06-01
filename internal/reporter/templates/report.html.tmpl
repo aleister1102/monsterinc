@@ -320,40 +320,6 @@
             text-decoration: underline;
         }
 
-        /* Secret Detection Section */
-        .secret-section {
-            background: white;
-            border-radius: 12px;
-            padding: 24px;
-            margin-top: 30px;
-            box-shadow: 0 2px 8px rgba(0,0,0,.1);
-        }
-
-        .secret-stats-card {
-            border-radius: 12px;
-            transition: transform 0.2s ease;
-        }
-
-        .secret-stats-card:hover {
-            transform: translateY(-2px);
-        }
-
-        /* Secret findings table styling */
-        #secretFindingsTable thead th {
-            text-align: center;
-            vertical-align: middle;
-        }
-
-        #secretFindingsTable tbody td {
-            vertical-align: middle;
-        }
-
-        /* Center specific columns in secret findings table */
-        #secretFindingsTable th:nth-child(4), #secretFindingsTable td:nth-child(4) { text-align: center; } /* Severity */
-        #secretFindingsTable th:nth-child(6), #secretFindingsTable td:nth-child(6) { text-align: center; } /* Line */
-        #secretFindingsTable th:nth-child(7), #secretFindingsTable td:nth-child(7) { text-align: center; } /* Tool */
-        #secretFindingsTable th:nth-child(8), #secretFindingsTable td:nth-child(8) { text-align: center; } /* Timestamp */
-
         /* Button Styling */
         .btn {
             border-radius: 8px;
@@ -399,89 +365,7 @@
             min-width: 80px !important; /* Ensure minimum width for the select box */
         }
 
-        /* Grouped Secret Findings Styles */
-        .secret-group-header {
-            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
-            border: 1px solid #f1b0b7;
-            border-radius: 8px;
-            margin-bottom: 2px;
-            transition: all 0.3s ease;
-        }
-
-        .secret-group-header:hover {
-            background: linear-gradient(135deg, #f5c6cb, #f1b0b7);
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(220, 53, 69, 0.15);
-        }
-
-        .secret-group-header .btn {
-            width: 100%;
-            text-align: left;
-            padding: 15px 20px;
-            border: none;
-            background: transparent;
-            color: #721c24;
-            font-weight: 600;
-            text-decoration: none;
-        }
-
-        .secret-group-header .btn:focus {
-            box-shadow: none;
-        }
-
-        .secret-group-url {
-            font-family: 'Courier New', monospace;
-            font-size: 0.9em;
-            word-break: break-all;
-        }
-
-        .secret-group-count {
-            background: #dc3545;
-            color: white;
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 0.8em;
-            margin-left: 10px;
-        }
-
-        .secret-group-severity-badges {
-            display: inline-flex;
-            gap: 5px;
-            margin-left: 10px;
-        }
-
-        .secret-group-severity-badges .badge {
-            font-size: 0.7em;
-            padding: 2px 6px;
-        }
-
-        .secret-findings-table-container {
-            background: white;
-            border: 1px solid #dee2e6;
-            border-top: none;
-            border-radius: 0 0 8px 8px;
-        }
-
-        .secret-findings-table {
-            margin-bottom: 0;
-        }
-
-        .secret-findings-table thead th {
-            background: linear-gradient(135deg, #6c757d, #495057);
-            color: white;
-            border: none;
-            padding: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.8em;
-            letter-spacing: 0.5px;
-        }
-
-        .secret-findings-table tbody td {
-            padding: 10px 12px;
-            vertical-align: middle;
-            border-bottom: 1px solid #f8f9fa;
-        }
+        
 
         .collapse-icon {
             transition: transform 0.3s ease;
@@ -489,75 +373,6 @@
 
         .collapsed .collapse-icon {
             transform: rotate(-90deg);
-        }
-
-        /* Secret text display with ellipsis */
-        .secret-text-cell {
-            max-width: 200px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            position: relative;
-            cursor: help;
-        }
-
-        .secret-text-display {
-            max-width: 150px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            display: inline-block;
-            cursor: help;
-            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            background-color: #f8f9fa;
-            padding: 2px 6px;
-            border-radius: 3px;
-            border: 1px solid #dee2e6;
-            transition: background-color 0.2s ease;
-        }
-
-        .secret-text-display:hover {
-            background-color: #e9ecef;
-            border-color: #adb5bd;
-        }
-
-        .dark-theme .secret-text-display {
-            background-color: #343a40;
-            color: #f8f9fa;
-            border-color: #495057;
-        }
-
-        .dark-theme .secret-text-display:hover {
-            background-color: #495057;
-            border-color: #6c757d;
-        }
-
-        /* Tooltip for full secret display */
-        .secret-tooltip {
-            position: absolute;
-            background: #000;
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 0.8em;
-            white-space: pre-wrap;
-            word-break: break-all;
-            max-width: 400px;
-            z-index: 1050;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-            display: none;
-            font-family: 'Courier New', monospace;
-        }
-
-        .secret-tooltip::after {
-            content: '';
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            margin-left: -5px;
-            border-width: 5px;
-            border-style: solid;
-            border-color: #000 transparent transparent transparent;
         }
 
         /* To Top Button */
@@ -769,64 +584,6 @@
                     </div>
                 </div>
 
-                {{/* Secret Detection Findings Section */}}
-                {{if .SecretFindings}}
-                <div class="secret-section">
-                    <div class="row">
-                        <div class="col-12">
-                            <h3 class="mb-4">
-                                <i class="fas fa-shield-alt text-warning me-2"></i>Secret Detection Findings
-                                <span class="badge bg-danger ms-2">{{.SecretStats.TotalFindings}}</span>
-                            </h3>
-                            
-                            {{/* Secret Statistics */}}
-                            <div class="row mb-4">
-                                <div class="col-md-3">
-                                    <div class="card border-danger secret-stats-card">
-                                        <div class="card-body text-center">
-                                            <i class="fas fa-exclamation-triangle fa-2x text-danger mb-2"></i>
-                                            <h5 class="card-title text-danger mb-1">High/Critical</h5>
-                                            <h2 class="text-danger mb-0">{{.SecretStats.HighSeverity}}</h2>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card border-warning secret-stats-card">
-                                        <div class="card-body text-center">
-                                            <i class="fas fa-exclamation-circle fa-2x text-warning mb-2"></i>
-                                            <h5 class="card-title text-warning mb-1">Medium</h5>
-                                            <h2 class="text-warning mb-0">{{.SecretStats.MediumSeverity}}</h2>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card border-info secret-stats-card">
-                                        <div class="card-body text-center">
-                                            <i class="fas fa-info-circle fa-2x text-info mb-2"></i>
-                                            <h5 class="card-title text-info mb-1">Low</h5>
-                                            <h2 class="text-info mb-0">{{.SecretStats.LowSeverity}}</h2>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="card border-secondary secret-stats-card">
-                                        <div class="card-body text-center">
-                                            <i class="fas fa-question-circle fa-2x text-secondary mb-2"></i>
-                                            <h5 class="card-title text-secondary mb-1">Unknown</h5>
-                                            <h2 class="text-secondary mb-0">{{.SecretStats.UnknownSeverity}}</h2>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {{/* Grouped Secret Findings */}}
-                            <div id="secretFindingsAccordion">
-                                <!-- This will be populated by JavaScript -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                {{end}}
 
                 <!-- Pagination and Controls -->
                 <div class="row mt-4">
@@ -898,8 +655,6 @@
     <script type="text/javascript">
         window.reportSettings = window.reportSettings || {};
         window.reportSettings.initialProbeResults = {{ .ProbeResultsJSON }};
-        window.reportSettings.secretFindings = {{ .SecretFindingsJSON }};
-        window.reportSettings.secretStats = {{ .SecretStats | json }};
         {{/* window.reportSettings.diffSummaryData = {{ .DiffSummaryData | json }}; // Consider if needed by JS */}}
     </script>
 
@@ -931,7 +686,6 @@
         // }; // THIS LINE IS THE PROBLEM - Commented out or remove
         */}}
         
-        // Initialize Secret Findings Accordion and other DOM ready events
     </script>
 </body>
 </html>
