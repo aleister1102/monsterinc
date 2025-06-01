@@ -62,9 +62,3 @@ type DiffResult interface {
 	GetDiffs() interface{}
 	IsIdentical() bool
 }
-
-// SecretContainer interface for models that can contain secret findings
-type SecretContainer interface {
-	GetSecretFindings() []SecretFinding
-	HasSecrets() bool
-}

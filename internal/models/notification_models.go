@@ -74,7 +74,6 @@ type ScanSummaryData struct {
 	TotalTargets     int           // Total number of targets processed or attempted
 	ProbeStats       ProbeStats    // Statistics from the probing phase
 	DiffStats        DiffStats     // Statistics from the diffing phase (New, Old, Existing)
-	SecretStats      SecretStats   // Statistics from secret detection
 	ScanDuration     time.Duration // Total duration of the scan
 	ReportPath       string        // Filesystem path to the generated report (used by notifier to attach)
 	Status           string        // Overall status: "COMPLETED", "FAILED", "STARTED", "INTERRUPTED", "PARTIAL_COMPLETE"
@@ -108,7 +107,6 @@ type FileChangeInfo struct {
 	ChangeTime     time.Time       // Time the change was detected
 	DiffReportPath *string         // Path to the generated HTML diff report for this specific change
 	ExtractedPaths []ExtractedPath // Paths extracted from the content (for JS files)
-	SecretFindings []SecretFinding // Secret findings detected in the content
 }
 
 // MonitorFetchErrorInfo holds information about an error encountered during file fetching or processing.
@@ -144,7 +142,6 @@ func GetDefaultScanSummaryData() ScanSummaryData {
 		TotalTargets:  0,
 		ProbeStats:    ProbeStats{},
 		DiffStats:     DiffStats{},
-		SecretStats:   SecretStats{},
 		Status:        string(ScanStatusUnknown), // Default to unknown status
 	}
 }
