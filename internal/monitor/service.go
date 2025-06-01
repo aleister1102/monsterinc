@@ -15,7 +15,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/reporter"
-	"github.com/aleister1102/monsterinc/internal/secrets"
 
 	"github.com/rs/zerolog"
 )
@@ -27,7 +26,6 @@ type MonitoringService struct {
 	extractorConfig    *config.ExtractorConfig
 	notificationCfg    *config.NotificationConfig
 	reporterConfig     *config.ReporterConfig
-	secretsConfig      *config.SecretsConfig
 	historyStore       models.FileHistoryStore
 	logger             zerolog.Logger
 	notificationHelper *notifier.NotificationHelper
@@ -37,7 +35,6 @@ type MonitoringService struct {
 	contentDiffer      *differ.ContentDiffer
 	htmlDiffReporter   *reporter.HtmlDiffReporter
 	pathExtractor      *extractor.PathExtractor
-	secretDetector     *secrets.SecretDetectorService
 
 	// For managing target URLs dynamically
 	monitorChan        chan string         // Channel to receive new URLs to monitor
@@ -79,12 +76,10 @@ func NewMonitoringService(
 	notificationCfg *config.NotificationConfig,
 	mainReporterCfg *config.ReporterConfig,
 	diffReporterCfg *config.DiffReporterConfig,
-	secretsCfg *config.SecretsConfig,
 	store models.FileHistoryStore,
 	baseLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	httpClient *http.Client,
-	secretDetector *secrets.SecretDetectorService,
 ) *MonitoringService {
 	serviceSpecificCtx, serviceSpecificCancel := context.WithCancel(context.Background())
 	instanceLogger := baseLogger.With().Str("component", "MonitoringService").Logger()
@@ -121,7 +116,6 @@ func NewMonitoringService(
 		extractorConfig:         extractorCfg,
 		notificationCfg:         notificationCfg,
 		reporterConfig:          mainReporterCfg,
-		secretsConfig:           secretsCfg,
 		historyStore:            store,
 		logger:                  instanceLogger,
 		notificationHelper:      notificationHelper,
@@ -131,7 +125,6 @@ func NewMonitoringService(
 		contentDiffer:           contentDifferInstance,
 		htmlDiffReporter:        htmlDiffReporterInstance,
 		pathExtractor:           pathExtractorInstance,
-		secretDetector:          secretDetector,
 		monitorChan:             make(chan string, monitorCfg.MaxConcurrentChecks*2),
 		monitoredURLs:           make(map[string]struct{}),
 		monitoredURLsMutex:      sync.RWMutex{},
@@ -405,18 +398,7 @@ func (s *MonitoringService) checkURL(url string) {
 		return
 	}
 
-	var secretFindings []models.SecretFinding
-	if s.secretDetector != nil {
-		findings, err := s.secretDetector.ScanContent(url, fetchResult.Content, fetchResult.ContentType)
-		if err != nil {
-			s.logger.Error().Err(err).Str("url", url).Msg("Error during secret detection for monitored file")
-		} else if len(findings) > 0 {
-			s.logger.Info().Int("count", len(findings)).Str("url", url).Msg("Secrets found in monitored file content")
-			secretFindings = findings
-		}
-	}
-
-	changeInfo, diffResult, err := s.detectURLChanges(url, processedUpdate, fetchResult, secretFindings)
+	changeInfo, diffResult, err := s.detectURLChanges(url, processedUpdate, fetchResult)
 	if err != nil {
 		s.logger.Error().Err(err).Str("url", url).Msg("Error detecting URL changes")
 		return
@@ -454,7 +436,7 @@ func (s *MonitoringService) processURLContent(url string, content []byte, conten
 }
 
 // detectURLChanges compares current content with historical data and detects changes
-func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models.MonitoredFileUpdate, fetchResult *FetchFileContentResult, secretFindings []models.SecretFinding) (*models.FileChangeInfo, *models.ContentDiffResult, error) {
+func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models.MonitoredFileUpdate, fetchResult *FetchFileContentResult) (*models.FileChangeInfo, *models.ContentDiffResult, error) {
 	// Compare with historical data
 	lastRecord, err := s.historyStore.GetLastKnownRecord(url)
 	if err != nil || lastRecord == nil {
@@ -479,7 +461,6 @@ func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models
 			ContentType:    fetchResult.ContentType,
 			ChangeTime:     processedUpdate.FetchedAt,
 			ExtractedPaths: extractedPaths,
-			SecretFindings: secretFindings,
 		}
 
 		s.logger.Info().Str("url", url).Str("new_hash", processedUpdate.NewHash).Msg("New file detected")
@@ -510,7 +491,6 @@ func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models
 		ContentType:    fetchResult.ContentType,
 		ChangeTime:     processedUpdate.FetchedAt,
 		ExtractedPaths: extractedPaths,
-		SecretFindings: secretFindings,
 	}
 
 	var diffResult *models.ContentDiffResult
@@ -521,8 +501,7 @@ func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models
 			s.logger.Error().Err(diffErr).Str("url", url).Msg("Failed to generate content diff")
 		} else {
 			diffResult.ExtractedPaths = extractedPaths
-			diffResult.SecretFindings = secretFindings
-			s.logger.Info().Str("url", url).Bool("is_identical", diffResult.IsIdentical).Int("diff_count", len(diffResult.Diffs)).Int("secret_count", len(secretFindings)).Msg("Content diff generated with secret detection")
+			s.logger.Info().Str("url", url).Bool("is_identical", diffResult.IsIdentical).Int("diff_count", len(diffResult.Diffs)).Msg("Content diff generated")
 
 			if s.htmlDiffReporter != nil {
 				reportPath, reportErr := s.htmlDiffReporter.GenerateSingleDiffReport(url, diffResult, oldHash, processedUpdate.NewHash, fetchResult.Content)
