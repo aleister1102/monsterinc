@@ -28,10 +28,10 @@ import (
 )
 
 type appFlags struct {
-	urlListFile       string
-	monitorTargetFile string
-	globalConfigFile  string
-	mode              string
+	urlListFile        string
+	monitorTargetsFile string
+	globalConfigFile   string
+	mode               string
 }
 
 func parseFlags() appFlags {
@@ -58,9 +58,9 @@ func parseFlags() appFlags {
 	}
 
 	if *monitorTargetFile != "" {
-		flags.monitorTargetFile = *monitorTargetFile
+		flags.monitorTargetsFile = *monitorTargetFile
 	} else if *monitorTargetFileAlias != "" {
-		flags.monitorTargetFile = *monitorTargetFileAlias
+		flags.monitorTargetsFile = *monitorTargetFileAlias
 	}
 
 	if *globalConfigFile != "" {
@@ -77,7 +77,7 @@ func parseFlags() appFlags {
 
 	// Auto-set mode to automated if using monitor-specific flags
 	if flags.mode == "" {
-		if flags.monitorTargetFile != "" {
+		if flags.monitorTargetsFile != "" {
 			flags.mode = "automated"
 			fmt.Printf("[INFO] Mode automatically set to 'automated' due to monitor-related flags\n")
 		} else {
@@ -97,7 +97,7 @@ func parseFlags() appFlags {
 
 // validateFlags validates command line flag combinations
 func validateFlags(flags appFlags) error {
-	if flags.monitorTargetFile != "" && flags.mode == "onetime" {
+	if flags.monitorTargetsFile != "" && flags.mode == "onetime" {
 		return fmt.Errorf("-mt (monitor targets) cannot be used with mode 'onetime'. Use 'automated' mode or omit mode flag")
 	}
 
@@ -149,13 +149,15 @@ func loadConfigurationAndLogger(flags appFlags) (*config.GlobalConfig, zerolog.L
 
 func initializeMonitoringServices(
 	gCfg *config.GlobalConfig,
+	monitorTargetsFile string,
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 ) (*monitor.MonitoringService, error) {
 	var monitoringService *monitor.MonitoringService = nil
 	var fileHistoryStore *datastore.ParquetFileHistoryStore = nil
 
-	if gCfg.MonitorConfig.Enabled {
+	// Only initialize the monitoring service if there are monitor targets to monitor and the monitor is enabled
+	if monitorTargetsFile != "" && gCfg.MonitorConfig.Enabled {
 		// If monitor is enabled, initialize file history store
 		var fhStoreErr error
 		fileHistoryStore, fhStoreErr = datastore.NewParquetFileHistoryStore(&gCfg.StorageConfig, zLogger)
@@ -265,8 +267,8 @@ func runApplicationLogic(
 	}
 
 	monitorURLFile := ""
-	if flags.monitorTargetFile != "" {
-		monitorURLFile = flags.monitorTargetFile
+	if flags.monitorTargetsFile != "" {
+		monitorURLFile = flags.monitorTargetsFile
 		zLogger.Info().Str("file", monitorURLFile).Msg("Using -mt for monitor targets.")
 	}
 
@@ -406,17 +408,17 @@ func main() {
 	}
 	notificationHelper := notifier.NewNotificationHelper(discordNotifier, gCfg.NotificationConfig, zLogger)
 
-	if flags.monitorTargetFile != "" && gCfg.Mode == "onetime" {
+	if flags.monitorTargetsFile != "" && gCfg.Mode == "onetime" {
 		errMsg := "Invalid combination: --monitor-targets (-mt) cannot be used with --mode onetime (-m onetime). File monitoring is only available in automated mode."
 		if zLogger.GetLevel() != zerolog.Disabled {
-			zLogger.Fatal().Str("monitor_target_file", flags.monitorTargetFile).Str("mode", gCfg.Mode).Msg(errMsg)
+			zLogger.Fatal().Str("monitor_target_file", flags.monitorTargetsFile).Str("mode", gCfg.Mode).Msg(errMsg)
 		} else {
 			fmt.Fprintln(os.Stderr, "[FATAL] "+errMsg)
 		}
 		os.Exit(1)
 	}
 
-	monitoringService, err := initializeMonitoringServices(gCfg, zLogger, notificationHelper)
+	monitoringService, err := initializeMonitoringServices(gCfg, flags.monitorTargetsFile, zLogger, notificationHelper)
 	if err != nil {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize services")
 	}
