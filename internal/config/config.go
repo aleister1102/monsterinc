@@ -237,7 +237,6 @@ type NotificationConfig struct {
 	NotifyOnFailure                          bool     `json:"notify_on_failure" yaml:"notify_on_failure"`
 	NotifyOnScanStart                        bool     `json:"notify_on_scan_start" yaml:"notify_on_scan_start"`
 	NotifyOnCriticalError                    bool     `json:"notify_on_critical_error" yaml:"notify_on_critical_error"`
-	NotifyOnHighSeverity                     bool     `json:"notify_on_high_severity_secret" yaml:"notify_on_high_severity_secret"`
 	AutoDeleteReportAfterDiscordNotification bool     `json:"auto_delete_report_after_discord_notification" yaml:"auto_delete_report_after_discord_notification"`
 }
 

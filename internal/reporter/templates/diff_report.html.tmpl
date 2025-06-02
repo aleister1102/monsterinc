@@ -531,88 +531,6 @@
                 {{end}}
             }
 
-            function populateSecretTable(diffIndex, secretFindings) {
-                var tableBody = document.getElementById('secretTableBody' + diffIndex);
-                if (!tableBody || !secretFindings || secretFindings.length === 0) {
-                    return;
-                }
-
-                // Sort by severity (High/Critical first, then Medium, Low, Unknown)
-                secretFindings.sort(function(a, b) {
-                    var severityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 };
-                    var aSeverity = (a.severity || a.Severity || '').toUpperCase();
-                    var bSeverity = (b.severity || b.Severity || '').toUpperCase();
-                    
-                    var aOrder = severityOrder[aSeverity] !== undefined ? severityOrder[aSeverity] : 4;
-                    var bOrder = severityOrder[bSeverity] !== undefined ? severityOrder[bSeverity] : 4;
-                    
-                    return aOrder - bOrder;
-                });
-
-                var html = '';
-                secretFindings.forEach(function(finding) {
-                    var severity = finding.severity || finding.Severity || '';
-                    var severityClass = getSeverityClass(severity);
-                    var severityBadgeClass = getSeverityBadgeClass(severity);
-                    var severityIcon = getSeverityIcon(severity);
-                    
-                    html += '<tr class="' + severityClass + '">';
-                    html += '<td><code class="bg-light px-2 py-1 rounded">' + escapeHtml(finding.rule_id || finding.RuleID || '') + '</code></td>';
-                    html += '<td>' + escapeHtml(finding.description || finding.Description || '') + '</td>';
-                    html += '<td><span class="badge ' + severityBadgeClass + '">' + severityIcon + escapeHtml(severity || 'UNKNOWN') + '</span></td>';
-                    
-                    // Secret text with tooltip and copy functionality
-                    if (finding.secret_text || finding.SecretText) {
-                        var secretText = finding.secret_text || finding.SecretText;
-                        html += '<td class="secret-text-cell">';
-                        html += '<div>';
-                        html += '<span class="secret-text-display" data-full-secret="' + escapeHtml(secretText) + '" data-tooltip="secret">';
-                        html += escapeHtml(secretText);
-                        html += '</span>';
-                        html += '<button class="btn btn-sm btn-outline-secondary copy-secret-btn ms-2" data-secret="' + escapeHtml(secretText) + '" title="Copy Secret">';
-                        html += '<i class="fas fa-copy"></i>';
-                        html += '</button>';
-                        html += '</div>';
-                        html += '</td>';
-                    } else {
-                        html += '<td><span class="text-muted">-</span></td>';
-                    }
-                    
-                    html += '<td>' + ((finding.line_number || finding.LineNumber) ? '<span class="badge bg-secondary">' + (finding.line_number || finding.LineNumber) + '</span>' : '<span class="text-muted">-</span>') + '</td>';
-                    html += '<td>' + ((finding.tool_name || finding.ToolName) ? '<span class="badge bg-primary">' + escapeHtml(finding.tool_name || finding.ToolName) + '</span>' : '<span class="text-muted">-</span>') + '</td>';
-                    html += '</tr>';
-                });
-
-                tableBody.innerHTML = html;
-            }
-
-            function getSeverityClass(severity) {
-                if (!severity) return 'table-secondary';
-                var sev = severity.toUpperCase();
-                if (sev === 'HIGH' || sev === 'CRITICAL') return 'table-danger';
-                if (sev === 'MEDIUM') return 'table-warning';
-                if (sev === 'LOW') return 'table-info';
-                return 'table-secondary';
-            }
-
-            function getSeverityBadgeClass(severity) {
-                if (!severity) return 'badge-secondary';
-                var sev = severity.toUpperCase();
-                if (sev === 'HIGH' || sev === 'CRITICAL') return 'badge-danger';
-                if (sev === 'MEDIUM') return 'badge-warning';
-                if (sev === 'LOW') return 'badge-info';
-                return 'badge-secondary';
-            }
-
-            function getSeverityIcon(severity) {
-                if (!severity) return '<i class="fas fa-question-circle mr-1"></i>';
-                var sev = severity.toUpperCase();
-                if (sev === 'HIGH' || sev === 'CRITICAL') return '<i class="fas fa-exclamation-triangle mr-1"></i>';
-                if (sev === 'MEDIUM') return '<i class="fas fa-exclamation-circle mr-1"></i>';
-                if (sev === 'LOW') return '<i class="fas fa-info-circle mr-1"></i>';
-                return '<i class="fas fa-question-circle mr-1"></i>';
-            }
-
             function escapeHtml(text) {
                 if (!text) return '';
                 var div = document.createElement('div');
@@ -622,7 +540,6 @@
             
             // Call the function initially
             addLineNumbers();
-            initializeSecretTables();
             
             // Re-call when accordion is opened
             $('#diffsAccordion').on('shown.bs.collapse', function() {

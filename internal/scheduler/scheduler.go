@@ -34,7 +34,7 @@ type Scheduler struct {
 	urlFileOverride    string
 	notificationHelper *notifier.NotificationHelper
 	targetManager      *TargetManager
-	scanOrchestrator   *orchestrator.ScanOrchestrator
+	scanOrchestrator   *orchestrator.Orchestrator
 	monitoringService  *monitor.MonitoringService
 	stopChan           chan struct{}
 	wg                 sync.WaitGroup
@@ -91,7 +91,8 @@ func NewScheduler(
 		moduleLogger.Warn().Err(parquetErr).Msg("Failed to initialize ParquetWriter for scheduler's orchestrator. Parquet writing might be disabled or limited.")
 	}
 
-	scanOrchestrator := orchestrator.NewScanOrchestrator(cfg, logger, parquetReader, parquetWriter)
+	// Initialize Orchestrator
+	scanOrchestrator := orchestrator.NewOrchestrator(cfg, logger, parquetReader, parquetWriter)
 
 	// Create HTTP client for content type detection
 	httpClient := &http.Client{
@@ -533,13 +534,12 @@ func (us *Scheduler) runCycle(ctx context.Context, scanSessionID string, predete
 	var scanWorkflowSummary models.ScanSummaryData // Renamed to avoid conflict with outer summary
 	var probeResults []models.ProbeResult
 	var urlDiffResults map[string]models.URLDiffResult
-	var secretFindings []models.SecretFinding
 
 	if len(htmlURLs) > 0 {
 		us.logger.Info().Int("html_count", len(htmlURLs)).Msg("Scheduler: Executing scan workflow for HTML URLs (parallel).")
 		var workflowErr error
 
-		scanWorkflowSummary, probeResults, urlDiffResults, secretFindings, workflowErr = us.scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, htmlURLs, scanSessionID, determinedTargetSource)
+		scanWorkflowSummary, probeResults, urlDiffResults, workflowErr = us.scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, htmlURLs, scanSessionID, determinedTargetSource)
 		if workflowErr != nil {
 			us.logger.Error().Err(workflowErr).Msg("Scheduler: Scan workflow failed for HTML URLs.")
 			summary.ErrorMessages = append(summary.ErrorMessages, fmt.Sprintf("Scan workflow error: %v", workflowErr))
@@ -552,7 +552,7 @@ func (us *Scheduler) runCycle(ctx context.Context, scanSessionID string, predete
 				return summary, nil, workflowErr // Return nil for report paths
 			}
 		} else {
-			us.logger.Info().Int("probe_results", len(probeResults)).Int("diff_results", len(urlDiffResults)).Int("secret_findings", len(secretFindings)).Msg("Scheduler: Scan workflow completed successfully.")
+			us.logger.Info().Int("probe_results", len(probeResults)).Int("diff_results", len(urlDiffResults)).Msg("Scheduler: Scan workflow completed successfully.")
 		}
 
 		// Merge scan results into summary
@@ -561,7 +561,7 @@ func (us *Scheduler) runCycle(ctx context.Context, scanSessionID string, predete
 		summary.ErrorMessages = append(summary.ErrorMessages, scanWorkflowSummary.ErrorMessages...)
 
 		// Generate HTML report (always generate, even if no probe results)
-		generatedReportPaths = us.generateAndSetReport(ctx, scanSessionID, probeResults, secretFindings, &summary)
+		generatedReportPaths = us.generateAndSetReport(ctx, scanSessionID, probeResults, &summary)
 	}
 
 	// Wait for monitor service to complete adding URLs and initial cycle
@@ -741,7 +741,7 @@ func (us *Scheduler) startMonitorWorkers() {
 
 	// Start monitor workers
 	us.logger.Info().Int("num_workers", numWorkers).Msg("Starting monitor workers")
-	for i := 0; i < numWorkers; i++ {
+	for i := range numWorkers {
 		us.monitorWorkerWG.Add(1)
 		go us.monitorWorker(i)
 	}
@@ -831,8 +831,8 @@ func (us *Scheduler) performMonitorCycle(cycleType string) {
 }
 
 // generateAndSetReport generates and sets the HTML report for a scan
-func (us *Scheduler) generateAndSetReport(ctx context.Context, scanSessionID string, probeResults []models.ProbeResult, secretFindings []models.SecretFinding, summary *models.ScanSummaryData) []string {
-	us.logger.Info().Int("probe_results", len(probeResults)).Int("secret_findings", len(secretFindings)).Msg("Scheduler: Generating HTML report...")
+func (us *Scheduler) generateAndSetReport(ctx context.Context, scanSessionID string, probeResults []models.ProbeResult, summary *models.ScanSummaryData) []string {
+	us.logger.Info().Int("probe_results", len(probeResults)).Msg("Scheduler: Generating HTML report...")
 
 	// Ensure output directory exists
 	if us.globalConfig.ReporterConfig.OutputDir == "" {
@@ -865,7 +865,7 @@ func (us *Scheduler) generateAndSetReport(ctx context.Context, scanSessionID str
 	}
 
 	// Generate report
-	reportFilePaths, reportGenErr := htmlReporter.GenerateReport(probeResultsPtr, secretFindings, baseReportPath)
+	reportFilePaths, reportGenErr := htmlReporter.GenerateReport(probeResultsPtr, baseReportPath)
 	if reportGenErr != nil {
 		us.logger.Error().Err(reportGenErr).Msg("Failed to generate HTML report(s) in scheduler cycle")
 		summary.Status = string(models.ScanStatusFailed)

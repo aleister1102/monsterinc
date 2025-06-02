@@ -436,7 +436,6 @@ func main() {
 }
 
 func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileArgument string, appLogger zerolog.Logger, notificationHelper *notifier.NotificationHelper) {
-	appLogger.Info().Msg("Initializing scan orchestrator for onetime mode. Secret scanning will be disabled for this scan.")
 	scanOrchestrator := initializeScanOrchestrator(gCfg, appLogger)
 
 	// Load seed URLs
@@ -454,10 +453,9 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 	// summaryData is used to populate the interruption summary if the scan is interrupted.
 	var summaryData models.ScanSummaryData = models.GetDefaultScanSummaryData()
 	var probeResults []models.ProbeResult
-	var secretFindings []models.SecretFinding
 	var workflowErr error
 
-	summaryData, probeResults, _, secretFindings, workflowErr = scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, seedURLs, scanSessionID, targetSource)
+	summaryData, probeResults, _, workflowErr = scanOrchestrator.ExecuteCompleteScanWorkflow(ctx, seedURLs, scanSessionID, targetSource)
 
 	// Check workflow error first, then check context cancellation
 	if errors.Is(workflowErr, context.Canceled) || ctx.Err() == context.Canceled {
@@ -496,11 +494,6 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 		return
 	}
 
-	// Log secret findings summary
-	if len(secretFindings) > 0 {
-		appLogger.Info().Int("secret_findings_count", len(secretFindings)).Msg("Secret detection found findings during scan")
-	}
-
 	// Handle other workflow errors (nếu không phải là Canceled)
 	if workflowErr != nil {
 		handleWorkflowError(summaryData, workflowErr, "onetime", notificationHelper, appLogger)
@@ -510,14 +503,14 @@ func runOnetimeScan(ctx context.Context, gCfg *config.GlobalConfig, urlListFileA
 	appLogger.Info().Msg("Scan workflow completed via orchestrator.")
 
 	// Generate and send completion notification
-	generateReportAndNotify(ctx, gCfg, summaryData, probeResults, secretFindings, scanSessionID, "onetime", notificationHelper, appLogger)
+	generateReportAndNotify(ctx, gCfg, summaryData, probeResults, scanSessionID, "onetime", notificationHelper, appLogger)
 
 	// Note: monitoringService.Stop() was removed from here.
 	// The monitoring service will be stopped when the main context is cancelled.
 	appLogger.Info().Msg("Onetime scan specific tasks finished. Application will now exit.")
 }
 
-func initializeScanOrchestrator(gCfg *config.GlobalConfig, appLogger zerolog.Logger) *orchestrator.ScanOrchestrator {
+func initializeScanOrchestrator(gCfg *config.GlobalConfig, appLogger zerolog.Logger) *orchestrator.Orchestrator {
 	parquetReader := datastore.NewParquetReader(&gCfg.StorageConfig, appLogger)
 	parquetWriter, parquetErr := datastore.NewParquetWriter(&gCfg.StorageConfig, appLogger)
 	if parquetErr != nil {
@@ -525,7 +518,7 @@ func initializeScanOrchestrator(gCfg *config.GlobalConfig, appLogger zerolog.Log
 		parquetWriter = nil
 	}
 
-	scanOrchestrator := orchestrator.NewScanOrchestrator(gCfg, appLogger, parquetReader, parquetWriter)
+	scanOrchestrator := orchestrator.NewOrchestrator(gCfg, appLogger, parquetReader, parquetWriter)
 	return scanOrchestrator
 }
 
@@ -624,7 +617,7 @@ func handleWorkflowError(summaryData models.ScanSummaryData, workflowErr error, 
 	appLogger.Error().Err(workflowErr).Msg("Scan workflow execution failed")
 }
 
-func generateReportAndNotify(ctx context.Context, gCfg *config.GlobalConfig, summaryData models.ScanSummaryData, probeResults []models.ProbeResult, secretFindings []models.SecretFinding, scanSessionID string, scanMode string, notificationHelper *notifier.NotificationHelper, appLogger zerolog.Logger) {
+func generateReportAndNotify(ctx context.Context, gCfg *config.GlobalConfig, summaryData models.ScanSummaryData, probeResults []models.ProbeResult, scanSessionID string, scanMode string, notificationHelper *notifier.NotificationHelper, appLogger zerolog.Logger) {
 	appLogger.Info().Msg("Generating HTML report...")
 	htmlReporter, err := reporter.NewHtmlReporter(&gCfg.ReporterConfig, appLogger)
 	if err != nil {
@@ -646,7 +639,7 @@ func generateReportAndNotify(ctx context.Context, gCfg *config.GlobalConfig, sum
 	}
 
 	// Correctly assign two return values from GenerateReport
-	reportFilePaths, reportGenErr := htmlReporter.GenerateReport(probeResultsPtr, secretFindings, baseReportPath)
+	reportFilePaths, reportGenErr := htmlReporter.GenerateReport(probeResultsPtr, baseReportPath)
 	if reportGenErr != nil {
 		summaryData.Status = string(models.ScanStatusFailed) // Or models.ScanStatusPartialComplete
 		summaryData.ErrorMessages = append(summaryData.ErrorMessages, fmt.Sprintf("Failed to generate HTML report(s): %v", reportGenErr))

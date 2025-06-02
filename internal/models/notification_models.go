@@ -148,10 +148,8 @@ func GetDefaultScanSummaryData() ScanSummaryData {
 
 // MonitorAggregatedStats holds aggregated statistics for monitor service notifications.
 type MonitorAggregatedStats struct {
-	TotalChanges      int // Total number of file changes
-	TotalPaths        int // Total number of extracted paths
-	TotalSecrets      int // Total number of secret findings
-	HighSeverityCount int // Number of high/critical severity secrets
+	TotalChanges int // Total number of file changes
+	TotalPaths   int // Total number of extracted paths
 }
 
 // MonitorCycleCompleteData holds data for the monitor service's end-of-cycle notification.
