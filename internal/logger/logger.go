@@ -10,7 +10,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/config"
 
 	"github.com/rs/zerolog"
-	// "github.com/rs/zerolog/log" // Removed to avoid conflict
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
