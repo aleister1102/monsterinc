@@ -5,6 +5,10 @@
 # Global application mode. Can be "onetime" (run once) or "automated" (run periodically/continuously based on other settings).
 # Default: "onetime"
 mode: "onetime"
+# Path Extractor Domains: List of domains for which path extraction will be attempted
+# from JavaScript files. e.g., ["example.com", "api.example.org"]
+# Default: []
+path_extractor_domains: 
 
 # Input configuration: Specifies where to get target URLs/domains.
 input_config:
@@ -403,11 +407,3 @@ extractor_config:
   # If you prefer flow style (ensure correct escaping and quoting if regexes contain special characters):
   # custom_regexes: ["regex1", "regex2"]
 
-# Mode of operation for the application: "onetime" or "automated".
-# This is a top-level setting, reiterated here for context if you are looking at secrets_config.
-# mode: "onetime"
-
-# Path Extractor Domains: List of domains for which path extraction will be attempted
-# from JavaScript files. e.g., ["example.com", "api.example.org"]
-# Default: []
-path_extractor_domains: 
