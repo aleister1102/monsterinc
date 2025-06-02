@@ -1,4 +1,4 @@
-package orchestrator
+package scanner
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 )
 
 // executeCrawler runs the crawler and returns discovered URLs
-func (so *Orchestrator) executeCrawler(
+func (so *Scanner) executeCrawler(
 	ctx context.Context,
 	crawlerConfig *config.CrawlerConfig,
 	scanSessionID,

@@ -1,4 +1,4 @@
-package orchestrator
+package scanner
 
 import (
 	"context"
@@ -8,8 +8,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/models"
-	// Note: config and datastore.ParquetWriter might be needed if ParquetWriter interaction is complex
-	// and not fully handled by existing parameters or ScanOrchestrator fields.
 )
 
 // DiffTargetInput holds parameters for diffAndPrepareStorageForTarget.
@@ -26,7 +24,7 @@ type DiffTargetInput struct {
 // It returns a new slice of ProbeResult with updated URLStatus and OldestScanTimestamp fields.
 // Refactored to use DiffTargetInput for its parameters as per task 1.3.
 // Error handling is reviewed as per task 1.6, ensuring errors are wrapped with context.
-func (so *Orchestrator) diffAndPrepareStorageForTarget(
+func (so *Scanner) diffAndPrepareStorageForTarget(
 	input DiffTargetInput,
 ) (*models.URLDiffResult, []models.ProbeResult, error) { // Return []models.ProbeResult
 	so.logger.Info().Str("root_target", input.RootTarget).Int("current_results_count", len(input.ProbeResultsForTarget)).Str("session_id", input.ScanSessionID).Msg("Processing diff for root target")
@@ -81,7 +79,7 @@ type ProcessDiffingAndStorageOutput struct {
 
 // groupProbeResultsByRootTarget groups probe results by their RootTargetURL.
 // It also returns a map of original indices for later updates.
-func (so *Orchestrator) groupProbeResultsByRootTarget(
+func (so *Scanner) groupProbeResultsByRootTarget(
 	currentScanProbeResults []models.ProbeResult,
 	primaryRootTargetURL string,
 	seedURLs []string,
@@ -132,7 +130,7 @@ func updateProcessedProbeResults(
 
 // processTargetGroup performs diffing, updates probe results, and writes to Parquet for a single target group.
 // It modifies processedProbeResults in place and contributes to the overall output.
-func (so *Orchestrator) processTargetGroup(
+func (so *Scanner) processTargetGroup(
 	inputCtx context.Context, // Renamed to avoid conflict with ProcessDiffingAndStorageInput.Ctx
 	rootTarget string,
 	resultsForRoot []models.ProbeResult,
@@ -193,7 +191,7 @@ func (so *Orchestrator) processTargetGroup(
 // Refactored to use ProcessDiffingAndStorageInput and return ProcessDiffingAndStorageOutput.
 // This addresses tasks 1.2 (single responsibility by better defining inputs/outputs),
 // 1.3 (parameter reduction), and 1.4 (minimizing side effects).
-func (so *Orchestrator) processDiffingAndStorage(input ProcessDiffingAndStorageInput) (ProcessDiffingAndStorageOutput, error) {
+func (so *Scanner) processDiffingAndStorage(input ProcessDiffingAndStorageInput) (ProcessDiffingAndStorageOutput, error) {
 	// Make a copy of the input slice to avoid modifying the original one passed by the caller directly.
 	// This copy will be updated and returned in ProcessDiffingAndStorageOutput.
 	processedProbeResults := make([]models.ProbeResult, len(input.CurrentScanProbeResults))
@@ -238,7 +236,7 @@ func (so *Orchestrator) processDiffingAndStorage(input ProcessDiffingAndStorageI
 
 // writeProbeResultsToParquet handles the persistence of probe results to Parquet.
 // This function is extracted from processDiffingAndStorage to improve separation of concerns (Task 1.2).
-func (so *Orchestrator) writeProbeResultsToParquet(ctx context.Context, probesToStore []models.ProbeResult, scanSessionID string, rootTarget string) error {
+func (so *Scanner) writeProbeResultsToParquet(ctx context.Context, probesToStore []models.ProbeResult, scanSessionID string, rootTarget string) error {
 	if so.parquetWriter == nil {
 		so.logger.Info().Str("root_target", rootTarget).Str("session_id", scanSessionID).Msg("ParquetWriter is not initialized. Skipping Parquet storage for target.")
 		return nil

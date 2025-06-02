@@ -1,4 +1,4 @@
-package orchestrator
+package scanner
 
 import (
 	"context"
@@ -28,7 +28,7 @@ type HTTPXProbingInput struct {
 
 // runHTTPXRunner creates and runs the httpx runner.
 // It encapsulates the logic for setting up and executing the httpx tool.
-func (so *Orchestrator) runHTTPXRunner(ctx context.Context, runnerConfig *httpxrunner.Config, primaryRootTargetURL string, scanSessionID string) ([]models.ProbeResult, error) {
+func (so *Scanner) runHTTPXRunner(ctx context.Context, runnerConfig *httpxrunner.Config, primaryRootTargetURL string, scanSessionID string) ([]models.ProbeResult, error) {
 	runner, err := httpxrunner.NewRunner(runnerConfig, primaryRootTargetURL, so.logger)
 	if err != nil {
 		so.logger.Error().Err(err).Str("session_id", scanSessionID).Msg("Failed to create HTTPX runner")
@@ -53,7 +53,7 @@ func (so *Orchestrator) runHTTPXRunner(ctx context.Context, runnerConfig *httpxr
 
 // processHTTPXResults maps the raw httpx results to models.ProbeResult and assigns RootTargetURL.
 // It handles cases where no probe result is found for a discovered URL.
-func (so *Orchestrator) processHTTPXResults(
+func (so *Scanner) processHTTPXResults(
 	runnerResults []models.ProbeResult,
 	discoveredURLs []string,
 	seedURLs []string,
@@ -85,7 +85,7 @@ func (so *Orchestrator) processHTTPXResults(
 }
 
 // executeHTTPXProbing runs HTTPX probing on discovered URLs and returns probe results
-func (so *Orchestrator) executeHTTPXProbing(ctx context.Context, input HTTPXProbingInput) ([]models.ProbeResult, error) {
+func (so *Scanner) executeHTTPXProbing(ctx context.Context, input HTTPXProbingInput) ([]models.ProbeResult, error) {
 	if len(input.DiscoveredURLs) == 0 {
 		so.logger.Info().Str("session_id", input.ScanSessionID).Msg("No URLs discovered by crawler or crawler skipped, skipping HTTPX probing.")
 		return nil, nil
