@@ -2,39 +2,36 @@ package scheduler
 
 import (
 	"database/sql"
-	// "log"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/rs/zerolog" // Added
-	_ "modernc.org/sqlite"  // SQLite driver, CGO-free
+	"github.com/rs/zerolog"
+	_ "modernc.org/sqlite"
 )
 
 // DB wraps the SQL database connection and provides methods for interacting with scan history.
 type DB struct {
 	db     *sql.DB
-	logger zerolog.Logger // Changed to zerolog.Logger
+	logger zerolog.Logger
 }
 
 // ScanHistoryEntry represents a record in the scan_history table.
 type ScanHistoryEntry struct {
 	ID             int64
 	ScanStartTime  time.Time
-	ScanEndTime    sql.NullTime // Use sql.NullTime for nullable time fields
+	ScanEndTime    sql.NullTime
 	Status         string
 	TargetSource   string
-	ReportFilePath sql.NullString // Use sql.NullString for nullable string fields
-	LogSummary     sql.NullString // Use sql.NullString for nullable string fields
+	ReportFilePath sql.NullString
+	LogSummary     sql.NullString
 }
 
 // NewDB initializes a new DB connection and ensures the schema is set up.
-// The logger passed here should ideally be a logger instance already contextualized for the scheduler or DB operations.
 func NewDB(dataSourceName string, logger zerolog.Logger) (*DB, error) {
 	logger.Info().Str("db_path", dataSourceName).Msg("Initializing scheduler database connection")
 
-	// Ensure the directory for the SQLite database exists
 	dbDir := filepath.Dir(dataSourceName)
 	if err := os.MkdirAll(dbDir, 0755); err != nil {
 		logger.Error().Err(err).Str("directory", dbDir).Msg("Failed to create scheduler database directory")
@@ -49,11 +46,11 @@ func NewDB(dataSourceName string, logger zerolog.Logger) (*DB, error) {
 
 	db := &DB{
 		db:     dbInstance,
-		logger: logger, // Use the passed logger directly (already contextualized or base scheduler logger)
+		logger: logger,
 	}
 
 	if err := db.InitSchema(); err != nil {
-		db.Close() // Close the DB if schema initialization fails
+		db.Close()
 		logger.Error().Err(err).Msg("Failed to initialize database schema")
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
@@ -74,14 +71,14 @@ func (d *DB) InitSchema() error {
 	query := `
 	CREATE TABLE IF NOT EXISTS scan_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		scan_session_id TEXT UNIQUE, -- Added for better tracking of a full scan session
+		scan_session_id TEXT UNIQUE,
 		scan_start_time DATETIME NOT NULL,
 		scan_end_time DATETIME,
 		status TEXT NOT NULL,
 		target_source TEXT NOT NULL,
 		num_targets INTEGER,
 		report_file_path TEXT,
-		log_summary TEXT, -- General errors or notes
+		log_summary TEXT,
 		new_urls INTEGER DEFAULT 0,
 		old_urls INTEGER DEFAULT 0,
 		existing_urls INTEGER DEFAULT 0
@@ -89,10 +86,10 @@ func (d *DB) InitSchema() error {
 	`
 	_, err := d.db.Exec(query)
 	if err != nil {
-		d.logger.Error().Err(err).Msg("DB: Failed to initialize schema") // Changed logger call
+		d.logger.Error().Err(err).Msg("DB: Failed to initialize schema")
 		return err
 	}
-	d.logger.Info().Msg("DB: Schema initialized successfully (scan_history table ensured).") // Changed logger call
+	d.logger.Info().Msg("DB: Schema initialized successfully (scan_history table ensured).")
 	return nil
 }
 
@@ -127,8 +124,6 @@ func (d *DB) UpdateScanCompletion(dbScanID int64, endTime time.Time, status stri
 }
 
 // GetLastScanTime retrieves the scan_end_time of the most recent scan attempt
-// (either successfully completed or the last retry that failed).
-// Returns nil if no scan history is found.
 func (d *DB) GetLastScanTime() (*time.Time, error) {
 	query := `SELECT scan_end_time FROM scan_history WHERE status = ? ORDER BY scan_end_time DESC LIMIT 1`
 	var nullableTime sql.NullTime
@@ -136,7 +131,7 @@ func (d *DB) GetLastScanTime() (*time.Time, error) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			d.logger.Info().Msg("No completed scan found in history.")
-			return nil, err // Return sql.ErrNoRows as is, so caller can distinguish
+			return nil, err
 		}
 		d.logger.Error().Err(err).Str("query", query).Msg("Failed to query last scan time")
 		return nil, fmt.Errorf("failed to query last scan time: %w", err)
@@ -147,5 +142,5 @@ func (d *DB) GetLastScanTime() (*time.Time, error) {
 		return &nullableTime.Time, nil
 	}
 	d.logger.Info().Msg("Last scan time was NULL in DB (likely an incomplete scan was the latest). Treat as no scan found.")
-	return nil, sql.ErrNoRows // Treat NULL as no row for scheduling purposes
+	return nil, sql.ErrNoRows
 }
