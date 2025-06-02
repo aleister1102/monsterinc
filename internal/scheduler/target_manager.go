@@ -1,36 +1,29 @@
 package scheduler
 
 import (
-	// "bufio" // No longer needed if urlhandler.ReadURLsFromFile is used
 	"fmt"
+	"strings"
 
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
-
-	// "os" // No longer needed if urlhandler.ReadURLsFromFile is used
-
-	"strings"
-
 	"github.com/rs/zerolog"
 )
 
 // TargetManager handles loading, normalizing, and selecting targets based on configuration.
-// !monsterinc/target-management
 type TargetManager struct {
 	logger zerolog.Logger
 	// We can add configuration here if needed later, e.g., for concurrent processing
 }
 
 // NewTargetManager creates a new TargetManager.
-// !monsterinc/target-management
 func NewTargetManager(logger zerolog.Logger) *TargetManager {
 	return &TargetManager{logger: logger}
 }
 
 // LoadAndSelectTargets loads target URLs from either a file or configuration and normalizes them.
 // Priority: inputFileOption (from -urlfile flag) > cfgInputFile (from config) > inputConfigUrls (from config)
+//
 // Returns: (normalized Targets slice, source description, error)
-// !monsterinc/target-management
 func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfigUrls []string, cfgInputFile string) ([]models.Target, string, error) {
 	var rawURLs []string
 	var determinedSource string
@@ -84,7 +77,6 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfi
 
 // loadURLsFromFile reads URLs from a file, one per line.
 // It filters out empty lines and validates that URLs start with http:// or https://
-// !monsterinc/target-management
 func (tm *TargetManager) loadURLsFromFile(filePath string) ([]string, error) {
 	// This function is now effectively replaced by urlhandler.ReadURLsFromFile.
 	// We pass tm.logger to it.
@@ -95,7 +87,6 @@ func (tm *TargetManager) loadURLsFromFile(filePath string) ([]string, error) {
 // and returns a slice of Target structs.
 // It skips empty lines and lines that result in an error during normalization.
 // This method can be used if direct file loading is needed, bypassing the selection logic.
-// !monsterinc/target-management
 func (tm *TargetManager) LoadTargetsFromFile(filePath string) ([]models.Target, error) {
 	// Use the refactored urlhandler.ReadURLsFromFile
 	rawURLs, err := urlhandler.ReadURLsFromFile(filePath, tm.logger)
