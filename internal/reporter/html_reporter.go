@@ -126,8 +126,7 @@ func NewHtmlReporter(cfg *config.ReporterConfig, appLogger zerolog.Logger) (*Htm
 // prepareReportData populates the ReportPageData struct based on probe results and reporter config.
 // It now accepts a slice of pointers to ProbeResult.
 // urlDiffs map[string]models.URLDiffResult, // This parameter is no longer used directly for populating ProbeResults
-func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, secretFindings []models.SecretFinding, partInfo string) (models.ReportPageData, error) {
-	r.logger.Debug().Msg("Preparing report page data.")
+func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, partInfo string) (models.ReportPageData, error) {
 	pageData := models.GetDefaultReportPageData()
 	pageData.ReportTitle = r.cfg.ReportTitle
 	if pageData.ReportTitle == "" {
@@ -293,11 +292,10 @@ func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, sec
 
 // GenerateReport generates an HTML report from the probe results and diff results.
 // outputPath is the desired path for the generated HTML file.
-// secretFindings contains all secret detection findings to be included in the report.
 // It now accepts a slice of pointers to ProbeResult.
 // urlDiffs map[string]models.URLDiffResult, // This parameter is no longer used
-func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, secretFindings []models.SecretFinding, baseOutputPath string) ([]string, error) {
-	if !r.cfg.GenerateEmptyReport && len(probeResults) == 0 && len(secretFindings) == 0 {
+func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, baseOutputPath string) ([]string, error) {
+	if !r.cfg.GenerateEmptyReport && len(probeResults) == 0 {
 		r.logger.Info().Msg("No results to report and generate_empty_report is false. Skipping report generation.")
 		return []string{}, nil
 	}
@@ -306,8 +304,8 @@ func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, secret
 	totalResults := len(probeResults)
 	var reportFilePaths []string
 
-	if totalResults == 0 { // Handle case with only secret findings or diffs, no probe results
-		pageData, err := r.prepareReportData(nil, secretFindings, "1/1") // urlDiffs was already removed here
+	if totalResults == 0 { // Handle case with only diffs, no probe results
+		pageData, err := r.prepareReportData(nil, "1/1") // urlDiffs was already removed here
 		if err != nil {
 			return nil, fmt.Errorf("failed to prepare report data for empty probe results: %w", err)
 		}
@@ -338,7 +336,7 @@ func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, secret
 			outputPath = fmt.Sprintf("%s_part_%d%s", baseName, i+1, ext)
 		}
 
-		pageData, err := r.prepareReportData(chunkResults, secretFindings, partInfo) // urlDiffs was already removed here
+		pageData, err := r.prepareReportData(chunkResults, partInfo) // urlDiffs was already removed here
 		if err != nil {
 			r.logger.Error().Err(err).Int("part", i+1).Msg("Failed to prepare report data for part")
 			// Decide if we should continue with other parts or fail all

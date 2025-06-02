@@ -55,14 +55,12 @@ const (
 	fieldNameSourceURL     = ":globe_with_meridians: Source URL"
 	fieldNameDetectionRule = ":mag: Detection Rule"
 	fieldNameSecurityInfo  = ":shield: Security Details"
-	fieldNameSecretPreview = ":lock: Secret Preview (Masked)"
 	fieldNameVerification  = ":white_check_mark: Verification"
 	fieldNameErrorDetails  = ":warning: Error Details"
 
 	// Standardized Footer Information
 	footerTextScanning     = "MonsterInc Scanning Platform"
 	footerTextMonitoring   = "MonsterInc File Monitor"
-	footerTextSecrets      = "MonsterInc Secret Detection"
 	footerTextSystemAlerts = "MonsterInc System Alert"
 
 	maxEmbedFields                       = 25
@@ -584,13 +582,6 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 	if aggregatedStats.TotalPaths > 0 {
 		embed.Fields = append(embed.Fields, createCountField("Total Extracted Paths", aggregatedStats.TotalPaths, "paths", true))
 	}
-	if aggregatedStats.TotalSecrets > 0 {
-		embed.Fields = append(embed.Fields, createCountField("Total Secrets Found", aggregatedStats.TotalSecrets, "secrets", true))
-		if aggregatedStats.HighSeverityCount > 0 {
-			embed.Fields = append(embed.Fields, createCountField("High/Critical Secrets", aggregatedStats.HighSeverityCount, "secrets", true))
-		}
-	}
-
 	embed.Footer = createStandardFooter("File Change Aggregation")
 	return createWebhookPayloadWithMentions(embed, cfg)
 }
@@ -764,7 +755,7 @@ func calculateMonitorAggregatedStats(changes []models.FileChangeInfo) models.Mon
 		TotalChanges: len(changes),
 	}
 
-	// Calculate total paths and secrets from the changes
+	// Calculate total paths from the changes
 	for _, change := range changes {
 		stats.TotalPaths += len(change.ExtractedPaths)
 	}
@@ -835,12 +826,7 @@ func FormatMonitorCycleCompleteMessage(data models.MonitorCycleCompleteData, cfg
 		if aggregatedStats.TotalPaths > 0 {
 			embed.Fields = append(embed.Fields, createCountField("Total Extracted Paths", aggregatedStats.TotalPaths, "paths", true))
 		}
-		if aggregatedStats.TotalSecrets > 0 {
-			embed.Fields = append(embed.Fields, createCountField("Total Secrets Found", aggregatedStats.TotalSecrets, "secrets", true))
-			if aggregatedStats.HighSeverityCount > 0 {
-				embed.Fields = append(embed.Fields, createCountField("High/Critical Secrets", aggregatedStats.HighSeverityCount, "secrets", true))
-			}
-		}
+
 		if len(contentTypeBreakdown) > 0 {
 			var breakdownStr strings.Builder
 			for ct, count := range contentTypeBreakdown {

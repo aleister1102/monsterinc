@@ -234,7 +234,6 @@ type ScanWorkflowResults struct {
 	DiscoveredURLs []string
 	ProbeResults   []interface{} // Using interface{} to avoid circular import
 	DiffResults    map[string]interface{}
-	SecretFindings []interface{}
 	ReportPath     string
 	Errors         []error
 }
@@ -327,41 +326,6 @@ func (swe *ScanWorkflowExecutor) AddProbingPhase(proberFunc func(context.Context
 	swe.AddPhase(phase)
 }
 
-// AddSecretDetectionPhase adds secret detection phase to scan workflow
-func (swe *ScanWorkflowExecutor) AddSecretDetectionPhase(secretFunc func(context.Context, []interface{}) ([]interface{}, error)) {
-	phase := WorkflowPhase{
-		Name:        "secret_detection",
-		Description: "Scan content for secrets and sensitive information",
-		Required:    false,
-		Execute: func(ctx context.Context) error {
-			swe.resultMutex.RLock()
-			probeResults := swe.results.ProbeResults
-			swe.resultMutex.RUnlock()
-
-			if len(probeResults) == 0 {
-				swe.logger.Info().Msg("No probe results available, skipping secret detection phase")
-				return nil
-			}
-
-			secretFindings, err := secretFunc(ctx, probeResults)
-			if err != nil {
-				return fmt.Errorf("secret detection phase failed: %w", err)
-			}
-
-			swe.resultMutex.Lock()
-			swe.results.SecretFindings = secretFindings
-			swe.resultMutex.Unlock()
-
-			swe.logger.Info().
-				Int("secret_findings_count", len(secretFindings)).
-				Msg("Secret detection phase completed")
-
-			return nil
-		},
-	}
-	swe.AddPhase(phase)
-}
-
 // AddDiffingPhase adds diffing phase to scan workflow
 func (swe *ScanWorkflowExecutor) AddDiffingPhase(diffFunc func(context.Context, []interface{}) (map[string]interface{}, error)) {
 	phase := WorkflowPhase{
@@ -437,7 +401,6 @@ func (swe *ScanWorkflowExecutor) GetScanResults() *ScanWorkflowResults {
 		DiscoveredURLs: append([]string(nil), swe.results.DiscoveredURLs...),
 		ProbeResults:   append([]interface{}(nil), swe.results.ProbeResults...),
 		DiffResults:    copyMap(swe.results.DiffResults),
-		SecretFindings: append([]interface{}(nil), swe.results.SecretFindings...),
 		ReportPath:     swe.results.ReportPath,
 		Errors:         append([]error(nil), swe.results.Errors...),
 	}
