@@ -14,7 +14,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/extractor"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/aleister1102/monsterinc/internal/monitor"
 	"github.com/aleister1102/monsterinc/internal/reporter"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
@@ -30,7 +29,7 @@ type Scanner struct {
 	parquetReader *datastore.ParquetReader
 	parquetWriter *datastore.ParquetWriter
 	pathExtractor *extractor.PathExtractor
-	fetcher       *monitor.Fetcher
+	fetcher       *common.Fetcher
 }
 
 // NewScanner creates a new Scanner instance.
@@ -61,7 +60,9 @@ func NewScanner(
 	}
 
 	// Initialize Fetcher
-	fetcher := monitor.NewFetcher(httpClient, logger, &globalConfig.MonitorConfig)
+	fetcher := common.NewFetcher(httpClient, logger, &common.HTTPClientFetcherConfig{
+		MaxContentSize: globalConfig.MonitorConfig.MaxContentSize,
+	})
 
 	return &Scanner{
 		config:        globalConfig,

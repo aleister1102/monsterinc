@@ -2,6 +2,8 @@ package common
 
 import (
 	"crypto/tls"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -368,4 +370,114 @@ func ValidateHTTPClientConfig(config HTTPClientConfig) error {
 	}
 
 	return collector.Error()
+}
+
+// --- BEGIN Fetcher code ---
+
+// ErrNotModified is returned when content has not been modified (HTTP 304).
+var ErrNotModified = NewError("content not modified")
+
+// Fetcher handles fetching file content from URLs.
+type Fetcher struct {
+	httpClient *http.Client
+	logger     zerolog.Logger
+	cfg        *HTTPClientFetcherConfig // Renamed from config.MonitorConfig for clarity within http_client
+}
+
+// HTTPClientFetcherConfig holds configuration specific to the Fetcher's needs,
+// currently just MaxContentSize. This can be expanded if more monitor-specific
+// configurations are needed by the Fetcher that are not part of general HTTPClientConfig.
+type HTTPClientFetcherConfig struct {
+	MaxContentSize int
+	// Potentially add other fetcher-specific configs here like UserAgent if different from client's default
+}
+
+// NewFetcher creates a new Fetcher.
+// It now takes HTTPClientFetcherConfig.
+func NewFetcher(client *http.Client, logger zerolog.Logger, cfg *HTTPClientFetcherConfig) *Fetcher {
+	return &Fetcher{
+		httpClient: client,
+		logger:     logger.With().Str("component", "Fetcher").Logger(),
+		cfg:        cfg,
+	}
+}
+
+// FetchFileContentInput holds parameters for FetchFileContent.
+type FetchFileContentInput struct {
+	URL                  string
+	PreviousETag         string
+	PreviousLastModified string
+}
+
+// FetchFileContentResult holds results from FetchFileContent.
+type FetchFileContentResult struct {
+	Content        []byte
+	ContentType    string
+	ETag           string
+	LastModified   string
+	HTTPStatusCode int
+}
+
+// FetchFileContent fetches the content of a file from the given URL with support for conditional GETs.
+// It returns the content, content type, new ETag, new LastModified, and any error encountered.
+// If the server returns 304 Not Modified, it returns ErrNotModified.
+func (f *Fetcher) FetchFileContent(input FetchFileContentInput) (*FetchFileContentResult, error) {
+	req, err := http.NewRequest("GET", input.URL, nil)
+	if err != nil {
+		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to create new HTTP request")
+		return nil, WrapError(err, fmt.Sprintf("creating request for %s", input.URL))
+	}
+
+	// Add conditional headers if previous values are available
+	if input.PreviousETag != "" {
+		req.Header.Set("If-None-Match", input.PreviousETag)
+	}
+	if input.PreviousLastModified != "" {
+		req.Header.Set("If-Modified-Since", input.PreviousLastModified)
+	}
+
+	resp, err := f.httpClient.Do(req)
+	if err != nil {
+		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to execute HTTP request")
+		return nil, NewNetworkError(input.URL, "HTTP request failed", err)
+	}
+	defer resp.Body.Close()
+
+	result := &FetchFileContentResult{
+		ETag:           resp.Header.Get("ETag"),
+		LastModified:   resp.Header.Get("Last-Modified"),
+		ContentType:    resp.Header.Get("Content-Type"),
+		HTTPStatusCode: resp.StatusCode,
+	}
+
+	if resp.StatusCode == http.StatusNotModified {
+		f.logger.Debug().Str("url", input.URL).Msg("Content not modified (304)")
+		return result, ErrNotModified
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		f.logger.Warn().Str("url", input.URL).Int("status_code", resp.StatusCode).Msg("Received non-OK HTTP status")
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) // Read up to 1KB
+		result.Content = bodyBytes
+		return result, NewHTTPErrorWithURL(resp.StatusCode, string(bodyBytes), input.URL)
+	}
+
+	if resp.ContentLength > 0 && resp.ContentLength > int64(f.cfg.MaxContentSize) {
+		return nil, fmt.Errorf("content too large: %d bytes (max: %d bytes)", resp.ContentLength, f.cfg.MaxContentSize)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to read response body")
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if len(bodyBytes) > f.cfg.MaxContentSize {
+		return nil, fmt.Errorf("content too large: %d bytes (max: %d bytes)", len(bodyBytes), f.cfg.MaxContentSize)
+	}
+
+	result.Content = bodyBytes
+
+	f.logger.Debug().Str("url", input.URL).Str("content_type", result.ContentType).Int("size", len(result.Content)).Msg("File content fetched successfully")
+	return result, nil
 }

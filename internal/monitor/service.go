@@ -9,6 +9,7 @@ import (
 	sync "sync"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/extractor"
@@ -30,7 +31,7 @@ type MonitoringService struct {
 	logger             zerolog.Logger
 	notificationHelper *notifier.NotificationHelper
 	httpClient         *http.Client
-	fetcher            *Fetcher
+	fetcher            *common.Fetcher
 	processor          *Processor
 	contentDiffer      *differ.ContentDiffer
 	htmlDiffReporter   *reporter.HtmlDiffReporter
@@ -84,7 +85,9 @@ func NewMonitoringService(
 	serviceSpecificCtx, serviceSpecificCancel := context.WithCancel(context.Background())
 	instanceLogger := baseLogger.With().Str("component", "MonitoringService").Logger()
 
-	fetcherInstance := NewFetcher(httpClient, instanceLogger, monitorCfg)
+	fetcherInstance := common.NewFetcher(httpClient, instanceLogger, &common.HTTPClientFetcherConfig{
+		MaxContentSize: monitorCfg.MaxContentSize,
+	})
 	processorInstance := NewProcessor(instanceLogger)
 	contentDifferInstance := differ.NewContentDiffer(instanceLogger, diffReporterCfg)
 
@@ -293,6 +296,7 @@ func (s *MonitoringService) Stop() {
 }
 
 func (s *MonitoringService) aggregationWorker() {
+	defer s.aggregationWg.Done() // Ensure WaitGroup is decremented when worker exits
 	defer s.logger.Info().Msg("Aggregation worker stopped.")
 
 	for {
@@ -302,6 +306,9 @@ func (s *MonitoringService) aggregationWorker() {
 			s.sendAggregatedErrors()
 		case <-s.doneChan:
 			s.logger.Info().Msg("Aggregation worker stopping.")
+			// Perform final send before exiting if there are pending events
+			s.sendAggregatedChanges()
+			s.sendAggregatedErrors()
 			return
 		}
 	}
@@ -363,20 +370,49 @@ func (s *MonitoringService) CheckURL(url string) {
 
 // checkURL performs the actual check for a single URL. Called by the unified scheduler's workers.
 func (s *MonitoringService) checkURL(url string) {
+	s.logger.Debug().Str("url", url).Msg("Starting to check URL")
 	// Get URL-specific mutex to prevent concurrent processing of the same URL
 	urlCheckMutex := s.getURLCheckMutex(url)
 	urlCheckMutex.Lock()
 	defer urlCheckMutex.Unlock()
 
-	fetchResult, err := s.fetcher.FetchFileContent(FetchFileContentInput{
-		URL: url,
-	})
-	if err != nil {
-		s.logger.Error().Err(err).Str("url", url).Msg("Failed to fetch file content")
+	// Fetch current state from history
+	previousRecord, err := s.historyStore.GetLastKnownRecord(url)                     // Corrected method
+	if err != nil && err.Error() != "level=error msg=\"Record not found\" url="+url { // A bit brittle check
+		s.logger.Error().Err(err).Str("url", url).Msg("Failed to get latest record from history store")
+		// Continue, as this might be the first time seeing the URL
+	}
+
+	var etag, lastModified string
+	if previousRecord != nil {
+		etag = previousRecord.ETag
+		lastModified = previousRecord.LastModified
+	}
+
+	fetchInput := common.FetchFileContentInput{ // Will be common.FetchFileContentInput
+		URL:                  url,
+		PreviousETag:         etag,
+		PreviousLastModified: lastModified,
+	}
+
+	fetchResult, fetchErr := s.fetcher.FetchFileContent(fetchInput)
+
+	if fetchErr != nil {
+		if fetchErr == common.ErrNotModified { // Will be common.ErrNotModified
+			s.logger.Info().Str("url", url).Msg("Content not modified (304), skipping further processing.")
+			// Potentially update last checked timestamp for this URL if it exists and content is not modified
+			if previousRecord != nil {
+				// No, we don't store a new record for 304. We just log and return.
+				// If we wanted to update a "last_polled_at" field without content change,
+				// the data model and store logic would need to support that.
+			}
+			return // Important: return if not modified
+		}
+		s.logger.Error().Err(fetchErr).Str("url", url).Msg("Failed to fetch file content")
 		s.aggregatedFetchErrorsMutex.Lock()
 		s.aggregatedFetchErrors = append(s.aggregatedFetchErrors, models.MonitorFetchErrorInfo{
 			URL:        url,
-			Error:      err.Error(),
+			Error:      fetchErr.Error(),
 			Source:     "fetch",
 			OccurredAt: time.Now(),
 		})
@@ -436,7 +472,10 @@ func (s *MonitoringService) processURLContent(url string, content []byte, conten
 }
 
 // detectURLChanges compares current content with historical data and detects changes
-func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models.MonitoredFileUpdate, fetchResult *FetchFileContentResult) (*models.FileChangeInfo, *models.ContentDiffResult, error) {
+// fetchResult will be common.FetchFileContentResult
+func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models.MonitoredFileUpdate, fetchResult *common.FetchFileContentResult) (*models.FileChangeInfo, *models.ContentDiffResult, error) {
+	s.logger.Debug().Str("url", url).Msg("Detecting changes for URL.")
+
 	// Compare with historical data
 	lastRecord, err := s.historyStore.GetLastKnownRecord(url)
 	if err != nil || lastRecord == nil {
@@ -519,7 +558,8 @@ func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models
 }
 
 // storeURLRecord saves the history record to the datastore.
-func (s *MonitoringService) storeURLRecord(url string, processedUpdate *models.MonitoredFileUpdate, fetchResult *FetchFileContentResult, diffResult *models.ContentDiffResult) error {
+// fetchResult will be common.FetchFileContentResult
+func (s *MonitoringService) storeURLRecord(url string, processedUpdate *models.MonitoredFileUpdate, fetchResult *common.FetchFileContentResult, diffResult *models.ContentDiffResult) error {
 	var diffResultJSON *string
 	if diffResult != nil {
 		jsonBytes, err := json.Marshal(diffResult)
@@ -552,7 +592,7 @@ func (s *MonitoringService) storeURLRecord(url string, processedUpdate *models.M
 		Timestamp:          processedUpdate.FetchedAt.Unix(),
 		Hash:               processedUpdate.NewHash,
 		ContentType:        fetchResult.ContentType,
-		Content:            fetchResult.Content,
+		Content:            fetchResult.Content, // Store full content if configured
 		ETag:               fetchResult.ETag,
 		LastModified:       fetchResult.LastModified,
 		DiffResultJSON:     diffResultJSON,
