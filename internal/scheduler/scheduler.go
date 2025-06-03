@@ -103,12 +103,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.stopChan = make(chan struct{})
 	s.mu.Unlock()
 
-	// Check if the input file for scan targets is provided
-	if s.scanTargetsFile == "" {
-		s.logger.Info().Msg("Scheduler: No scan targets provided. Running in monitor-only mode for scheduled tasks.")
-	} else {
-		s.logger.Info().Str("scan_targets_file", s.scanTargetsFile).Msg("Scheduler: Scan targets file provided, will perform scans.")
-	}
+	// Check if the input file for monitor targets is provided
 	if s.monitorTargetsFile != "" {
 		s.logger.Info().Str("monitor_targets_file", s.monitorTargetsFile).Msg("Scheduler: Monitor targets file provided, will perform monitoring.")
 	} else {
@@ -122,18 +117,16 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	if s.monitoringService != nil {
 		// URLs should be loaded into monitoringService by initializeMonitorWorkers (if monitorTargetsFile is set)
 		// or could be added by other means if the design evolves.
-		// We pass the currently known monitored URLs to Start().
-		monitoredURLs := s.monitoringService.GetCurrentlyMonitorUrls()
-
-		if err := s.monitoringService.Start(monitoredURLs); err != nil {
-			s.logger.Error().Err(err).Msg("Failed to start MonitoringService from Scheduler.")
-			// Propagate the error to the caller of Scheduler.Start()
-			return fmt.Errorf("scheduler failed to start monitoring service: %w", err)
-		}
-		s.logger.Info().Msg("MonitoringService started successfully by Scheduler.")
-		// The monitoringService.Start() method handles its own initial checks, notifications, and cycle.
-		// The previous explicit call to s.executeMonitoringCycle("initial-startup") here is no longer needed.
+		s.logger.Info().Msg("Starting the initial monitoring cycle.")
+		s.executeMonitoringCycle("initial-startup")
 	}
+
+	// // Check if the input file for scan targets is provided
+	// if s.scanTargetsFile == "" {
+	// 	s.logger.Info().Msg("Scheduler: No scan targets provided. Running in monitor-only mode for scheduled tasks.")
+	// 	return nil
+	// }
+	//TODO: do not run scans if no scan targets are provided, only monitoring. The current logic make the main goroutine exits before the monitoring service completes its cycles
 
 	// Start the main loop for scheduled scans.
 	s.wg.Add(1)
