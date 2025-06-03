@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
@@ -55,8 +54,7 @@ type HtmlDiffReporter struct {
 }
 
 // NewHtmlDiffReporter creates a new instance of HtmlDiffReporter.
-// The ReporterConfig is no longer used for OutputDir by this reporter.
-func NewHtmlDiffReporter(_ *config.ReporterConfig, logger zerolog.Logger, historyStore FileHistoryStore) (*HtmlDiffReporter, error) {
+func NewHtmlDiffReporter(logger zerolog.Logger, historyStore FileHistoryStore) (*HtmlDiffReporter, error) {
 	// ReporterConfig (cfg) is passed but OutputDir from it is NOT used for diff reports.
 	// Diff reports are always in DefaultDiffReportDir.
 

@@ -370,23 +370,6 @@ func (nh *NotificationHelper) SendMonitorInterruptNotification(ctx context.Conte
 	}
 }
 
-// SendMonitorStartNotification sends a notification when monitoring service starts.
-func (nh *NotificationHelper) SendMonitorStartNotification(ctx context.Context, summary models.ScanSummaryData) {
-	if !nh.cfg.NotifyOnScanStart || nh.discordNotifier == nil || nh.cfg.MonitorServiceDiscordWebhookURL == "" {
-		return
-	}
-
-	nh.logger.Info().Str("scan_session_id", summary.ScanSessionID).Str("target_source", summary.TargetSource).Int("total_targets", summary.TotalTargets).Msg("Preparing to send monitor start notification.")
-
-	payload := FormatScanStartMessage(summary, nh.cfg)
-	err := nh.discordNotifier.SendNotification(ctx, nh.cfg.MonitorServiceDiscordWebhookURL, payload, "")
-	if err != nil {
-		nh.logger.Error().Err(err).Msg("Failed to send monitor start notification")
-	} else {
-		nh.logger.Info().Str("scan_session_id", summary.ScanSessionID).Msg("Monitor start notification sent successfully.")
-	}
-}
-
 // SendScanInterruptNotification sends a notification when scan service is interrupted.
 func (nh *NotificationHelper) SendScanInterruptNotification(ctx context.Context, summaryData models.ScanSummaryData) {
 	if !nh.cfg.NotifyOnCriticalError || nh.discordNotifier == nil {
