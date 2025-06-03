@@ -29,7 +29,6 @@ type Scanner struct {
 	parquetReader *datastore.ParquetReader
 	parquetWriter *datastore.ParquetWriter
 	pathExtractor *extractor.PathExtractor
-	fetcher       *common.Fetcher
 }
 
 // NewScanner creates a new Scanner instance.
@@ -41,28 +40,11 @@ func NewScanner(
 	pReader *datastore.ParquetReader,
 	pWriter *datastore.ParquetWriter,
 ) *Scanner {
-	// Initialize PathExtractor
 	pathExtractor, err := extractor.NewPathExtractor(globalConfig.ExtractorConfig, logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to initialize PathExtractor in NewScanner")
 		return nil
 	}
-
-	// Initialize HTTP client using common factory for monitoring
-	httpClientFactory := common.NewHTTPClientFactory(logger)
-	httpClient, err := httpClientFactory.CreateMonitorClient(
-		time.Duration(globalConfig.HttpxRunnerConfig.TimeoutSecs)*time.Second,
-		false, // insecureSkipVerify - use config default
-	)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("Failed to create HTTP client for NewScanner")
-		return nil
-	}
-
-	// Initialize Fetcher
-	fetcher := common.NewFetcher(httpClient, logger, &common.HTTPClientFetcherConfig{
-		MaxContentSize: globalConfig.MonitorConfig.MaxContentSize,
-	})
 
 	return &Scanner{
 		config:        globalConfig,
@@ -70,7 +52,6 @@ func NewScanner(
 		parquetReader: pReader,
 		parquetWriter: pWriter,
 		pathExtractor: pathExtractor,
-		fetcher:       fetcher,
 	}
 }
 
