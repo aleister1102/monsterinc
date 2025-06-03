@@ -245,7 +245,7 @@ func (s *Scheduler) executeScanCycle(
 		s.logger.Info().Int("html_count", len(urls)).Msg("Scheduler: Executing scan workflow for HTML URLs using shared function.")
 		var workflowErr error
 
-		scanWorkflowSummary, _, finalReportFilePaths, workflowErr = s.orchestrator.ExecuteSingleScanWorkflowWithReporting(
+		scanWorkflowSummary, _, finalReportFilePaths, workflowErr = s.scanner.ExecuteSingleScanWorkflowWithReporting(
 			ctx,
 			s.globalConfig,
 			s.logger.With().Str("component", "ScanWorkflowRunner").Logger(),
