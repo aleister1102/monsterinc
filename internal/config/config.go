@@ -319,6 +319,10 @@ type MonitorConfig struct {
 	// Configuration for aggregating notifications (both changes and errors)
 	AggregationIntervalSeconds int `json:"aggregation_interval_seconds,omitempty" yaml:"aggregation_interval_seconds,omitempty" validate:"omitempty,min=1"`
 	MaxAggregatedEvents        int `json:"max_aggregated_events,omitempty" yaml:"max_aggregated_events,omitempty" validate:"omitempty,min=1"`
+
+	// For future use, temporarily add those for compatibility with urlhandler.LoadAndSelectTargets
+	InputURLs []string `json:"input_urls,omitempty" yaml:"input_urls,omitempty" validate:"omitempty,dive,url"`
+	InputFile string   `json:"input_file,omitempty" yaml:"input_file,omitempty" validate:"omitempty,fileexists"`
 }
 
 // NewDefaultMonitorConfig creates a MonitorConfig with default values.
@@ -448,16 +452,7 @@ func LoadGlobalConfig(providedPath string) (*GlobalConfig, error) { // providedP
 			// log.Println("[DEBUG] Config: JSON configuration loaded successfully.")
 		}
 	} else {
-		// No config file found or providedPath was empty and no defaults exist.
-		// log.Println("[INFO] Config: No configuration file loaded. Using defaults and environment variables.") // Example of an info log
 	}
-
-	// Override with environment variables
-	// Requires import "github.com/kelseyhightower/envconfig"
-	// err := envconfig.Process("monsterinc", cfg)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to process environment variables: %w", err)
-	// }
 
 	return cfg, nil
 }
