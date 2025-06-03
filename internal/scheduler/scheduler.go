@@ -5,19 +5,17 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/monitor"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/scanner"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/rs/zerolog"
 )
@@ -30,14 +28,13 @@ type Scheduler struct {
 	scanTargetsFile    string
 	monitorTargetsFile string // This is used for monitoring targets, if provided
 	notificationHelper *notifier.NotificationHelper
-	targetManager      *TargetManager
-	orchestrator       *scanner.Scanner
+	targetManager      *urlhandler.TargetManager
+	scanner            *scanner.Scanner
 	monitoringService  *monitor.MonitoringService
 	stopChan           chan struct{}
 	wg                 sync.WaitGroup
 	isRunning          bool
 	mu                 sync.Mutex
-	httpClient         *http.Client
 
 	// Monitor scheduling fields are now primarily managed in monitor_workers.go
 	// but the Scheduler struct still needs to hold references to the channel and WG
@@ -48,66 +45,54 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new Scheduler instance
+// Refactored ✅
 func NewScheduler(
 	cfg *config.GlobalConfig,
 	scanTargetsFile string,
+	scanner *scanner.Scanner,
 	monitorTargetsFile string,
+	monitoringService *monitor.MonitoringService,
 	logger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
-	monitoringService *monitor.MonitoringService,
 ) (*Scheduler, error) {
-	moduleLogger := logger.With().Str("module", "Scheduler").Logger()
+	schedulerLogger := logger.With().Str("module", "Scheduler").Logger()
 
 	if cfg.SchedulerConfig.SQLiteDBPath == "" {
-		moduleLogger.Error().Msg("SQLiteDBPath is not configured in SchedulerConfig")
+		schedulerLogger.Error().Msg("SQLiteDBPath is not configured in SchedulerConfig")
 		return nil, fmt.Errorf("sqliteDBPath is required for scheduler")
 	}
 
 	dbDir := filepath.Dir(cfg.SchedulerConfig.SQLiteDBPath)
 	if err := os.MkdirAll(dbDir, 0755); err != nil {
-		moduleLogger.Error().Err(err).Str("path", dbDir).Msg("Failed to create directory for SQLite database")
+		schedulerLogger.Error().Err(err).Str("path", dbDir).Msg("Failed to create directory for SQLite database")
 		return nil, fmt.Errorf("failed to create directory for sqlite database '%s': %w", dbDir, err)
 	}
 
-	db, err := NewDB(cfg.SchedulerConfig.SQLiteDBPath, moduleLogger)
+	db, err := NewDB(cfg.SchedulerConfig.SQLiteDBPath, schedulerLogger)
 	if err != nil {
-		moduleLogger.Error().Err(err).Msg("Failed to initialize scheduler database")
+		schedulerLogger.Error().Err(err).Msg("Failed to initialize scheduler database")
 		return nil, fmt.Errorf("failed to initialize scheduler database: %w", err)
 	}
 
-	targetManager := NewTargetManager(moduleLogger)
-	parquetReader := datastore.NewParquetReader(&cfg.StorageConfig, logger)
-	parquetWriter, parquetErr := datastore.NewParquetWriter(&cfg.StorageConfig, logger)
-	if parquetErr != nil {
-		moduleLogger.Warn().Err(parquetErr).Msg("Failed to initialize ParquetWriter for scheduler's orchestrator. Parquet writing might be disabled or limited.")
-	}
-
-	scanner := scanner.NewScanner(cfg, logger, parquetReader, parquetWriter)
-
-	clientFactory := common.NewHTTPClientFactory(moduleLogger)
-	httpClient, clientErr := clientFactory.CreateBasicClient(10 * time.Second)
-	if clientErr != nil {
-		moduleLogger.Error().Err(clientErr).Msg("Failed to create basic HTTP client for scheduler")
-		return nil, fmt.Errorf("failed to create basic http client for scheduler: %w", clientErr)
-	}
+	targetManager := urlhandler.NewTargetManager(schedulerLogger)
 
 	return &Scheduler{
 		globalConfig:       cfg,
 		db:                 db,
-		logger:             moduleLogger,
+		logger:             schedulerLogger,
 		scanTargetsFile:    scanTargetsFile,
 		monitorTargetsFile: monitorTargetsFile,
 		notificationHelper: notificationHelper,
 		targetManager:      targetManager,
-		orchestrator:       scanner,
+		scanner:            scanner,
 		monitoringService:  monitoringService,
 		stopChan:           make(chan struct{}),
-		httpClient:         httpClient,
 	}, nil
 }
 
 // Start begins the scheduler's main loop
 func (s *Scheduler) Start(ctx context.Context) error {
+	// Ensure the scheduler is not already running
 	s.mu.Lock()
 	if s.isRunning {
 		s.mu.Unlock()
@@ -118,18 +103,36 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.stopChan = make(chan struct{})
 	s.mu.Unlock()
 
+	// Check if the input file for scan targets is provided
+	if s.scanTargetsFile == "" {
+		s.logger.Info().Msg("Scheduler: No scan targets provided. Running in monitor-only mode for scheduled tasks.")
+	} else {
+		s.logger.Info().Str("scan_targets_file", s.scanTargetsFile).Msg("Scheduler: Scan targets file provided, will perform scans.")
+	}
+	if s.monitorTargetsFile != "" {
+		s.logger.Info().Str("monitor_targets_file", s.monitorTargetsFile).Msg("Scheduler: Monitor targets file provided, will perform monitoring.")
+	} else {
+		s.logger.Info().Msg("Scheduler: No monitor targets file provided, monitoring will not be initialized.")
+	}
+
 	s.initializeMonitorWorkers() // This initializes workers and starts the periodic ticker for monitoring.
 
-	// ? Can move this to executeMonitoringCycle?
-	// If monitoring service is active, trigger an initial monitoring cycle.
+	// If monitoring service is active, start it.
+	// Its Start() method will handle adding initial URLs and performing the first cycle.
 	if s.monitoringService != nil {
-		monitoredURLs := s.monitoringService.GetCurrentlyMonitoredURLs()
-		if len(monitoredURLs) > 0 {
-			s.logger.Info().Int("count", len(monitoredURLs)).Msg("Scheduler: Monitoring service is active with targets. Triggering initial monitoring cycle.")
-			s.executeMonitoringCycle("initial-startup")
-		} else {
-			s.logger.Info().Msg("Scheduler: Monitoring service is active but has no targets yet for an initial startup cycle.")
+		// URLs should be loaded into monitoringService by initializeMonitorWorkers (if monitorTargetsFile is set)
+		// or could be added by other means if the design evolves.
+		// We pass the currently known monitored URLs to Start().
+		monitoredURLs := s.monitoringService.GetCurrentlyMonitorUrls()
+
+		if err := s.monitoringService.Start(monitoredURLs); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to start MonitoringService from Scheduler.")
+			// Propagate the error to the caller of Scheduler.Start()
+			return fmt.Errorf("scheduler failed to start monitoring service: %w", err)
 		}
+		s.logger.Info().Msg("MonitoringService started successfully by Scheduler.")
+		// The monitoringService.Start() method handles its own initial checks, notifications, and cycle.
+		// The previous explicit call to s.executeMonitoringCycle("initial-startup") here is no longer needed.
 	}
 
 	// Start the main loop for scheduled scans.
@@ -137,7 +140,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	go s.runMainLoop(ctx)
 
 	s.logger.Info().Msg("Scheduler main loop goroutine started.")
-	s.wg.Wait()
+	s.wg.Wait() // Block until the main loop finishes
 	s.logger.Info().Msg("Scheduler Start method is returning as the main loop has finished.")
 
 	if ctx.Err() != nil && !errors.Is(ctx.Err(), context.Canceled) {
@@ -206,7 +209,7 @@ func (s *Scheduler) handleShutdownSignals(ctx context.Context, from string) bool
 
 // waitForNextScan calculates the next scan time and sleeps until then.
 func (s *Scheduler) waitForNextScan(ctx context.Context) (interrupted bool, err error) {
-	if s.scanTargetsFile == "" && s.monitoringService != nil && len(s.monitoringService.GetCurrentlyMonitoredURLs()) > 0 {
+	if s.scanTargetsFile == "" && s.monitoringService != nil && len(s.monitoringService.GetCurrentlyMonitorUrls()) > 0 {
 		s.logger.Info().Msg("Scheduler: No scan targets (-st) provided. Running in monitor-only mode for scheduled tasks. Waiting indefinitely for stop signal or context cancellation while monitor ticker runs.")
 		select {
 		case <-s.stopChan:
@@ -343,24 +346,13 @@ func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlU
 // sending start notifications, and triggering an initial monitoring cycle.
 // It uses a WaitGroup to allow the caller to wait for these initial tasks.
 func (s *Scheduler) manageMonitorServiceTasks(ctx context.Context, monitorWG *sync.WaitGroup, scanSessionID string, determinedSource string) {
-	monitorURLs := s.monitoringService.GetCurrentlyMonitoredURLs()
+	if s.monitoringService == nil {
+		s.logger.Warn().Msg("Scheduler: Monitoring service is not available in manageMonitorServiceTasks, skipping monitor workflow.")
+		return
+	}
+	monitorURLs := s.monitoringService.GetCurrentlyMonitorUrls()
 
 	if len(monitorURLs) > 0 && s.monitoringService != nil {
-
-		if s.notificationHelper != nil {
-			monitorStartSummary := models.NewScanSummaryDataBuilder().
-				WithScanSessionID(scanSessionID).
-				WithComponent("MonitoringService").
-				WithScanMode("automated").
-				WithTargetSource(determinedSource).
-				WithTargets(monitorURLs).
-				WithTotalTargets(len(monitorURLs)).
-				WithStatus(models.ScanStatusStarted).
-				Build()
-			s.logger.Info().Str("session_id", scanSessionID).Int("monitor_target_count", len(monitorURLs)).Msg("Scheduler: Sending monitor start notification.")
-			s.notificationHelper.SendMonitorStartNotification(ctx, monitorStartSummary)
-		}
-
 		monitorWG.Add(1)
 		go func() {
 			defer monitorWG.Done()
@@ -379,7 +371,7 @@ func (s *Scheduler) manageMonitorServiceTasks(ctx context.Context, monitorWG *sy
 					s.logger.Info().Str("url", url).Msg("Scheduler: Monitor URL addition cancelled due to context cancellation.")
 					return
 				default:
-					s.monitoringService.AddTargetURL(url)
+					s.monitoringService.AddMonitorUrl(url)
 				}
 			}
 			s.logger.Info().Msg("Scheduler: URLs added to monitoring service successfully.")
@@ -391,9 +383,11 @@ func (s *Scheduler) manageMonitorServiceTasks(ctx context.Context, monitorWG *sy
 			default:
 			}
 
-			//? Why need to execute monitoring cycle here?
-			s.logger.Info().Msg("Scheduler: Triggering immediate monitor cycle after adding URLs.")
-			s.executeMonitoringCycle("post-scan")
+			// The monitoringService.Start() method, called earlier in Scheduler.Start(),
+			// now handles its own initial checks, notifications, and cycle based on the URLs it has.
+			// Therefore, an explicit call to s.executeMonitoringCycle("post-scan") here is no longer needed
+			// and could lead to redundant initial checks if Start() already performed them.
+			s.logger.Info().Msg("Scheduler: Monitoring service's Start() method handles initial cycle. No explicit post-scan monitor cycle trigger needed here.")
 		}()
 	} else if s.monitoringService == nil {
 		s.logger.Warn().Msg("Scheduler: Monitoring service is not available, skipping monitor workflow.")
