@@ -274,16 +274,16 @@ func runApplicationLogic(
 	monitoringService *monitor.MonitoringService,
 	schedulerPtr **scheduler.Scheduler,
 ) {
-	scanURLFile := ""
+	scanTargetsFile := ""
 	if flags.urlListFile != "" {
-		scanURLFile = flags.urlListFile
-		zLogger.Info().Str("file", scanURLFile).Msg("Using -st for main scan targets.")
+		scanTargetsFile = flags.urlListFile
+		zLogger.Info().Str("file", scanTargetsFile).Msg("Using -st for main scan targets.")
 	}
 
-	monitorURLFile := ""
+	monitorTargetsFile := ""
 	if flags.monitorTargetsFile != "" {
-		monitorURLFile = flags.monitorTargetsFile
-		zLogger.Info().Str("file", monitorURLFile).Msg("Using -mt for monitor targets.")
+		monitorTargetsFile = flags.monitorTargetsFile
+		zLogger.Info().Str("file", monitorTargetsFile).Msg("Using -mt for monitor targets.")
 	}
 
 	if gCfg.Mode == "automated" {
@@ -293,9 +293,9 @@ func runApplicationLogic(
 		// If monitorURLFile is provided and monitoringService exists,
 		// load its URLs into the monitoringService *before* starting the scheduler.
 		// This allows the scheduler's Start() method to perform an "initial-startup" cycle.
-		if monitorURLFile != "" && monitoringService != nil {
+		if monitorTargetsFile != "" && monitoringService != nil {
 			// loadUrls handles notifications for loading failures/no URLs.
-			loadedMonitorURLs, loadedMonitorTargetSource := loadUrls(gCfg, monitorURLFile, zLogger, notificationHelper)
+			loadedMonitorURLs, loadedMonitorTargetSource := loadUrls(gCfg, monitorTargetsFile, zLogger, notificationHelper)
 			if len(loadedMonitorURLs) > 0 {
 				initialMonitorURLs = loadedMonitorURLs
 				monitorTargetSource = loadedMonitorTargetSource
@@ -305,17 +305,17 @@ func runApplicationLogic(
 				}
 				// monitoringService.Start() is NOT called here; scheduler manages its lifecycle.
 			} else {
-				zLogger.Warn().Str("file", monitorURLFile).Msg("No valid monitor URLs found in the monitor target file. Monitoring service will not have initial file-based targets for the scheduler.")
+				zLogger.Warn().Str("file", monitorTargetsFile).Msg("No valid monitor URLs found in the monitor target file. Monitoring service will not have initial file-based targets for the scheduler.")
 			}
 		}
 
 		// Determine if the scheduler should run.
 		// Scheduler runs if scan targets are provided OR if monitor targets have been loaded into the service.
-		automatedModeActive := scanURLFile != "" || (monitoringService != nil && len(monitoringService.GetCurrentlyMonitoredURLs()) > 0)
+		automatedModeActive := scanTargetsFile != "" || (monitoringService != nil && len(monitoringService.GetCurrentlyMonitoredURLs()) > 0)
 
 		if automatedModeActive {
 			activeServicesInfo := ""
-			if scanURLFile != "" {
+			if scanTargetsFile != "" {
 				activeServicesInfo += "Scan service (from -st). "
 			}
 			if monitoringService != nil && len(monitoringService.GetCurrentlyMonitoredURLs()) > 0 {
@@ -328,7 +328,8 @@ func runApplicationLogic(
 			// monitoringService is passed, which might already have targets.
 			tempScheduler, schedulerErr := scheduler.NewScheduler(
 				gCfg,
-				scanURLFile, // This will be empty if -st was not provided
+				scanTargetsFile, // This will be empty if -st was not provided
+				monitorTargetsFile,
 				zLogger,
 				notificationHelper,
 				monitoringService, // Pass the existing, potentially pre-loaded, monitoringService
@@ -337,8 +338,8 @@ func runApplicationLogic(
 				criticalErrSummary := models.GetDefaultScanSummaryData()
 				criticalErrSummary.Component = "SchedulerInitialization"
 				criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize scheduler: %v", schedulerErr)}
-				if scanURLFile != "" {
-					criticalErrSummary.TargetSource = scanURLFile
+				if scanTargetsFile != "" {
+					criticalErrSummary.TargetSource = scanTargetsFile
 				} else if monitorTargetSource != "" { // If scanURLFile is empty, use monitor source
 					criticalErrSummary.TargetSource = monitorTargetSource
 				} else {
@@ -358,8 +359,8 @@ func runApplicationLogic(
 					criticalErrSummary := models.GetDefaultScanSummaryData()
 					criticalErrSummary.Component = "SchedulerRuntime"
 					criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Scheduler error: %v", err)}
-					if scanURLFile != "" {
-						criticalErrSummary.TargetSource = scanURLFile
+					if scanTargetsFile != "" {
+						criticalErrSummary.TargetSource = scanTargetsFile
 					} else if monitorTargetSource != "" {
 						criticalErrSummary.TargetSource = monitorTargetSource
 					} else {
@@ -382,7 +383,7 @@ func runApplicationLogic(
 		}
 
 	} else { // Onetime mode
-		runOnetimeScan(ctx, gCfg, scanURLFile, zLogger, notificationHelper)
+		runOnetimeScan(ctx, gCfg, scanTargetsFile, zLogger, notificationHelper)
 		// In onetime mode, monitoringService is not actively used by runOnetimeScan.
 		// Flags validation should prevent -mt with onetime mode.
 	}
