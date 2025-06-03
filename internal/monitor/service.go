@@ -218,30 +218,30 @@ func (s *MonitoringService) GetCurrentlyMonitorUrls() []string {
 }
 
 // Start begins the monitoring process.
-func (s *MonitoringService) Start(initialURLs []string) error {
-	s.Preload(initialURLs)
+// func (s *MonitoringService) Start(initialURLs []string) error {
+// 	s.Preload(initialURLs)
 
-	// Send initial list of monitored URLs
-	monitoredNow := s.GetCurrentlyMonitorUrls()
-	if len(monitoredNow) > 0 && s.notificationHelper != nil {
-		s.notificationHelper.SendInitialMonitoredURLsNotification(s.serviceCtx, monitoredNow)
-	}
+// 	// Send initial list of monitored URLs
+// 	monitoredNow := s.GetCurrentlyMonitorUrls()
+// 	if len(monitoredNow) > 0 && s.notificationHelper != nil {
+// 		s.notificationHelper.SendInitialMonitoredURLsNotification(s.serviceCtx, monitoredNow)
+// 	}
 
-	// Perform initial check of all monitored URLs immediately
-	if len(monitoredNow) > 0 {
-		s.logger.Info().Int("url_count", len(monitoredNow)).Msg("Performing initial check of all monitored URLs...")
-		for _, url := range monitoredNow {
-			s.CheckURL(url)
-		}
-		s.logger.Info().Msg("Initial check of all monitored URLs completed.")
+// 	// Perform initial check of all monitored URLs immediately
+// 	if len(monitoredNow) > 0 {
+// 		s.logger.Info().Int("url_count", len(monitoredNow)).Msg("Performing initial check of all monitored URLs...")
+// 		for _, url := range monitoredNow {
+// 			s.CheckURL(url)
+// 		}
+// 		s.logger.Info().Msg("Initial check of all monitored URLs completed.")
 
-		// Trigger cycle end report after initial checks to send any changes found
-		s.TriggerCycleEndReport()
-	}
+// 		// Trigger cycle end report after initial checks to send any changes found
+// 		s.TriggerCycleEndReport()
+// 	}
 
-	s.logger.Info().Msg("MonitoringService started successfully.")
-	return nil
-}
+// 	s.logger.Info().Msg("MonitoringService started successfully.")
+// 	return nil
+// }
 
 func (s *MonitoringService) Preload(initialURLs []string) {
 	for _, u := range initialURLs {
@@ -313,49 +313,49 @@ func (s *MonitoringService) Stop() {
 	s.logger.Info().Msg("MonitoringService stopped.")
 }
 
-func (s *MonitoringService) aggregationWorker() {
-	defer s.aggregationWg.Done() // Ensure WaitGroup is decremented when worker exits
-	defer s.logger.Info().Msg("Aggregation worker stopped.")
+// func (s *MonitoringService) aggregationWorker() {
+// 	defer s.aggregationWg.Done() // Ensure WaitGroup is decremented when worker exits
+// 	defer s.logger.Info().Msg("Aggregation worker stopped.")
 
-	for {
-		select {
-		case <-s.aggregationTicker.C:
-			s.sendAggregatedChanges()
-			s.sendAggregatedErrors()
-		case <-s.doneChan:
-			s.logger.Info().Msg("Aggregation worker stopping.")
-			// Perform final send before exiting if there are pending events
-			s.sendAggregatedChanges()
-			s.sendAggregatedErrors()
-			return
-		}
-	}
-}
+// 	for {
+// 		select {
+// 		case <-s.aggregationTicker.C:
+// 			s.sendAggregatedChanges()
+// 			s.sendAggregatedErrors()
+// 		case <-s.doneChan:
+// 			s.logger.Info().Msg("Aggregation worker stopping.")
+// 			// Perform final send before exiting if there are pending events
+// 			s.sendAggregatedChanges()
+// 			s.sendAggregatedErrors()
+// 			return
+// 		}
+// 	}
+// }
 
-func (s *MonitoringService) sendAggregatedChanges() {
-	s.fileChangeEventsMutex.Lock()
-	defer s.fileChangeEventsMutex.Unlock()
+// func (s *MonitoringService) sendAggregatedChanges() {
+// 	s.fileChangeEventsMutex.Lock()
+// 	defer s.fileChangeEventsMutex.Unlock()
 
-	s.shutdownMutex.RLock()
-	isShuttingDown := s.isShuttingDown
-	s.shutdownMutex.RUnlock()
+// 	s.shutdownMutex.RLock()
+// 	isShuttingDown := s.isShuttingDown
+// 	s.shutdownMutex.RUnlock()
 
-	if isShuttingDown {
-		return
-	}
+// 	if isShuttingDown {
+// 		return
+// 	}
 
-	if len(s.fileChangeEvents) == 0 {
-		return
-	}
+// 	if len(s.fileChangeEvents) == 0 {
+// 		return
+// 	}
 
-	s.logger.Info().Int("count", len(s.fileChangeEvents)).Msg("Aggregated file changes detected (will be reported in cycle complete).")
+// 	s.logger.Info().Int("count", len(s.fileChangeEvents)).Msg("Aggregated file changes detected (will be reported in cycle complete).")
 
-	// Note: We no longer send notification here, only log the changes
-	// The notification will be sent in TriggerCycleEndReport with Monitor Cycle Complete
+// 	// Note: We no longer send notification here, only log the changes
+// 	// The notification will be sent in TriggerCycleEndReport with Monitor Cycle Complete
 
-	s.logger.Info().Msg("Aggregated file changes logged and event list cleared.")
-	s.fileChangeEvents = nil
-}
+// 	s.logger.Info().Msg("Aggregated file changes logged and event list cleared.")
+// 	s.fileChangeEvents = nil
+// }
 
 func (s *MonitoringService) sendAggregatedErrors() {
 	s.aggregatedFetchErrorsMutex.Lock()
