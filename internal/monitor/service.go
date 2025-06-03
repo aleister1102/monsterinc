@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	sync "sync"
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/extractor"
 	"github.com/aleister1102/monsterinc/internal/models"
@@ -22,25 +22,22 @@ import (
 
 // MonitoringService orchestrates the monitoring of HTML/JS files.
 type MonitoringService struct {
-	cfg                *config.MonitorConfig
-	crawlerCfg         *config.CrawlerConfig
-	extractorConfig    *config.ExtractorConfig
-	notificationCfg    *config.NotificationConfig
-	reporterConfig     *config.ReporterConfig
+	// Fields that are initialized in NewMonitoringService
+	gCfg               *config.GlobalConfig
 	historyStore       models.FileHistoryStore
 	logger             zerolog.Logger
 	notificationHelper *notifier.NotificationHelper
-	httpClient         *http.Client
-	fetcher            *common.Fetcher
-	processor          *Processor
-	contentDiffer      *differ.ContentDiffer
-	htmlDiffReporter   *reporter.HtmlDiffReporter
-	pathExtractor      *extractor.PathExtractor
+
+	fetcher          *common.Fetcher
+	processor        *Processor
+	contentDiffer    *differ.ContentDiffer
+	pathExtractor    *extractor.PathExtractor
+	htmlDiffReporter *reporter.HtmlDiffReporter
 
 	// For managing target URLs dynamically
-	monitorChan        chan string         // Channel to receive new URLs to monitor
-	monitoredURLs      map[string]struct{} // Set of URLs currently being monitored
-	monitoredURLsMutex sync.RWMutex        // Mutex for monitoredURLs map
+	monitorChan         chan string         // Channel to receive new URLs to monitor
+	monitorUrls         map[string]struct{} // Set of URLs currently being monitored
+	monitoredUrlsRMutex sync.RWMutex        // Mutex for monitoredURLs map
 
 	// For aggregating file changes
 	fileChangeEvents      []models.FileChangeInfo
@@ -70,39 +67,62 @@ type MonitoringService struct {
 }
 
 // NewMonitoringService creates a new instance of MonitoringService.
+// Refactored ✅
 func NewMonitoringService(
-	monitorCfg *config.MonitorConfig,
-	crawlerCfg *config.CrawlerConfig,
-	extractorCfg *config.ExtractorConfig,
-	notificationCfg *config.NotificationConfig,
-	mainReporterCfg *config.ReporterConfig,
-	diffReporterCfg *config.DiffReporterConfig,
-	store models.FileHistoryStore,
+	gCfg *config.GlobalConfig,
 	baseLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
-	httpClient *http.Client,
 ) *MonitoringService {
 	serviceSpecificCtx, serviceSpecificCancel := context.WithCancel(context.Background())
 	instanceLogger := baseLogger.With().Str("component", "MonitoringService").Logger()
 
-	fetcherInstance := common.NewFetcher(httpClient, instanceLogger, &common.HTTPClientFetcherConfig{
-		MaxContentSize: monitorCfg.MaxContentSize,
-	})
-	processorInstance := NewProcessor(instanceLogger)
-	contentDifferInstance := differ.NewContentDiffer(instanceLogger, diffReporterCfg)
+	if gCfg == nil || !gCfg.MonitorConfig.Enabled {
+		instanceLogger.Error().Msg("Global configuration is nil or monitoring is disabled. Monitoring cannot be initialized.")
+	}
 
-	// Initialize PathExtractor using the passed extractorCfg
-	pathExtractorInstance, err := extractor.NewPathExtractor(*extractorCfg, instanceLogger)
+	// Initialize file history store
+	historyStore, hErr := datastore.NewParquetFileHistoryStore(&gCfg.StorageConfig, instanceLogger)
+	if hErr != nil {
+		instanceLogger.Error().Err(hErr).Msg("Failed to initialize ParquetFileHistoryStore for monitoring. Monitoring will be disabled.")
+	}
+
+	// Initialize HTTP client for monitor
+	monitorHTTPClientTimeout := time.Duration(gCfg.MonitorConfig.HTTPTimeoutSeconds) * time.Second
+	if gCfg.MonitorConfig.HTTPTimeoutSeconds <= 0 {
+		monitorHTTPClientTimeout = 30 * time.Second
+		instanceLogger.Warn().
+			Int("configured_timeout", gCfg.MonitorConfig.HTTPTimeoutSeconds).
+			Dur("default_timeout", monitorHTTPClientTimeout).
+			Msg("Monitor HTTPTimeoutSeconds invalid or not set, using default timeout")
+	}
+	clientFactory := common.NewHTTPClientFactory(instanceLogger)
+	monitorHttpClient, clientErr := clientFactory.CreateMonitorClient(
+		monitorHTTPClientTimeout,
+		gCfg.MonitorConfig.MonitorInsecureSkipVerify,
+	)
+	if clientErr != nil {
+		instanceLogger.Error().Err(clientErr).Msg("Failed to create HTTP client for monitoring. Monitoring will be disabled.")
+	}
+
+	// Initialize fetcher, processor, content differ, and path extractor
+	fetcherInstance := common.NewFetcher(
+		monitorHttpClient,
+		instanceLogger,
+		&common.HTTPClientFetcherConfig{MaxContentSize: gCfg.MonitorConfig.MaxContentSize},
+	)
+	processorInstance := NewProcessor(instanceLogger)
+	contentDifferInstance := differ.NewContentDiffer(instanceLogger, &gCfg.DiffReporterConfig)
+	pathExtractorInstance, err := extractor.NewPathExtractor(gCfg.ExtractorConfig, instanceLogger)
 	if err != nil {
 		instanceLogger.Error().Err(err).Msg("Failed to initialize PathExtractor for MonitoringService. Path extraction from JS may not work.")
 		pathExtractorInstance = nil
 	}
 
 	var htmlDiffReporterInstance *reporter.HtmlDiffReporter
-	if mainReporterCfg != nil && store != nil {
+	if historyStore != nil {
 		instanceLogger.Info().Msg("Attempting to initialize HtmlDiffReporter for MonitoringService.")
 		var errReporter error
-		htmlDiffReporterInstance, errReporter = reporter.NewHtmlDiffReporter(mainReporterCfg, instanceLogger, store)
+		htmlDiffReporterInstance, errReporter = reporter.NewHtmlDiffReporter(instanceLogger, historyStore)
 		if errReporter != nil {
 			instanceLogger.Error().Err(errReporter).Str("error_type", fmt.Sprintf("%T", errReporter)).Msg("Failed to initialize HtmlDiffReporter for MonitoringService. Aggregated diff reporting will be impacted.")
 			htmlDiffReporterInstance = nil // Ensure it's nil on error
@@ -110,27 +130,22 @@ func NewMonitoringService(
 			instanceLogger.Info().Msg("HtmlDiffReporter initialized successfully for MonitoringService.")
 		}
 	} else {
-		instanceLogger.Warn().Bool("has_reporter_cfg", mainReporterCfg != nil).Bool("has_store", store != nil).Msg("HtmlDiffReporter not initialized due to missing mainReporterCfg or historyStore.")
+		instanceLogger.Warn().Bool("has_store", historyStore != nil).Msg("HtmlDiffReporter not initialized due to missing mainReporterCfg or historyStore.")
 	}
 
 	s := &MonitoringService{
-		cfg:                     monitorCfg,
-		crawlerCfg:              crawlerCfg,
-		extractorConfig:         extractorCfg,
-		notificationCfg:         notificationCfg,
-		reporterConfig:          mainReporterCfg,
-		historyStore:            store,
+		gCfg:                    gCfg,
+		historyStore:            historyStore,
 		logger:                  instanceLogger,
 		notificationHelper:      notificationHelper,
-		httpClient:              httpClient,
 		fetcher:                 fetcherInstance,
 		processor:               processorInstance,
 		contentDiffer:           contentDifferInstance,
 		htmlDiffReporter:        htmlDiffReporterInstance,
 		pathExtractor:           pathExtractorInstance,
-		monitorChan:             make(chan string, monitorCfg.MaxConcurrentChecks*2),
-		monitoredURLs:           make(map[string]struct{}),
-		monitoredURLsMutex:      sync.RWMutex{},
+		monitorChan:             make(chan string, gCfg.MonitorConfig.MaxConcurrentChecks*2),
+		monitorUrls:             make(map[string]struct{}),
+		monitoredUrlsRMutex:     sync.RWMutex{},
 		fileChangeEvents:        make([]models.FileChangeInfo, 0),
 		aggregatedFetchErrors:   make([]models.MonitorFetchErrorInfo, 0),
 		doneChan:                make(chan struct{}),
@@ -144,58 +159,59 @@ func NewMonitoringService(
 		urlCheckMutexMapLock:    sync.RWMutex{},
 	}
 
-	// Log final state of htmlDiffReporter
-	instanceLogger.Info().Bool("htmlDiffReporter_assigned", s.htmlDiffReporter != nil).Msg("MonitoringService created with htmlDiffReporter state.")
-
-	if s.cfg.AggregationIntervalSeconds <= 0 {
-		s.logger.Warn().Int("interval_seconds", s.cfg.AggregationIntervalSeconds).Msg("Monitor aggregation interval is not configured or invalid. Aggregation worker will not start.")
-	} else {
-		aggregationDuration := time.Duration(s.cfg.AggregationIntervalSeconds) * time.Second
-		s.aggregationTicker = time.NewTicker(aggregationDuration)
-		s.aggregationWg.Add(1) // Increment WaitGroup before starting worker
-		go s.aggregationWorker()
-		s.logger.Info().Dur("interval", aggregationDuration).Int("max_events", s.cfg.MaxAggregatedEvents).Msg("Aggregation worker started for monitor events.")
-	}
+	// Temporary commented out aggregation worker setup
+	// if s.gCfg.MonitorConfig.AggregationIntervalSeconds <= 0 {
+	// 	s.logger.Warn().Int("interval_seconds", s.gCfg.MonitorConfig.AggregationIntervalSeconds).Msg("Monitor aggregation interval is not configured or invalid. Aggregation worker will not start.")
+	// } else {
+	// 	aggregationDuration := time.Duration(s.gCfg.MonitorConfig.AggregationIntervalSeconds) * time.Second
+	// 	s.aggregationTicker = time.NewTicker(aggregationDuration)
+	// 	s.aggregationWg.Add(1) // Increment WaitGroup before starting worker
+	// 	go s.aggregationWorker()
+	// 	s.logger.Info().Dur("interval", aggregationDuration).Int("max_events", s.gCfg.MonitorConfig.MaxAggregatedEvents).Msg("Aggregation worker started for monitor events.")
+	// }
 
 	return s
 }
 
-// AddTargetURL adds a URL to the list of monitored URLs.
+// AddMonitorUrl adds a URL to the list of monitored URLs.
 // This method will be called by the unified scheduler.
-func (s *MonitoringService) AddTargetURL(url string) {
+// No need refactoring ✅
+func (s *MonitoringService) AddMonitorUrl(url string) {
 	if url == "" {
 		return
 	}
-	s.monitoredURLsMutex.Lock()
-	defer s.monitoredURLsMutex.Unlock()
+	s.monitoredUrlsRMutex.Lock()
+	defer s.monitoredUrlsRMutex.Unlock()
 
-	if _, exists := s.monitoredURLs[url]; !exists {
-		s.monitoredURLs[url] = struct{}{}
+	if _, exists := s.monitorUrls[url]; !exists {
+		s.monitorUrls[url] = struct{}{}
 		s.logger.Info().Str("url", url).Msg("Added new target URL for monitoring.")
 	} else {
 		s.logger.Debug().Str("url", url).Msg("Target URL already in monitoring list.")
 	}
 }
 
-// RemoveTargetURL removes a URL from the monitoring list.
-func (s *MonitoringService) RemoveTargetURL(url string) {
-	s.monitoredURLsMutex.Lock()
-	defer s.monitoredURLsMutex.Unlock()
+// RemoveMonitorUrl removes a URL from the monitoring list.
+// No need refactoring ✅
+func (s *MonitoringService) RemoveMonitorUrl(url string) {
+	s.monitoredUrlsRMutex.Lock()
+	defer s.monitoredUrlsRMutex.Unlock()
 
-	if _, exists := s.monitoredURLs[url]; exists {
-		delete(s.monitoredURLs, url)
+	if _, exists := s.monitorUrls[url]; exists {
+		delete(s.monitorUrls, url)
 		s.logger.Info().Str("url", url).Msg("Removed target URL from monitoring.")
 	}
 }
 
-// GetCurrentlyMonitoredURLs returns a copy of the current list of monitored URLs.
+// GetCurrentlyMonitorUrls returns a copy of the current list of monitored URLs.
 // This method will be called by the scheduler.
-func (s *MonitoringService) GetCurrentlyMonitoredURLs() []string {
-	s.monitoredURLsMutex.RLock()
-	defer s.monitoredURLsMutex.RUnlock()
+// No need refactoring ✅
+func (s *MonitoringService) GetCurrentlyMonitorUrls() []string {
+	s.monitoredUrlsRMutex.RLock()
+	defer s.monitoredUrlsRMutex.RUnlock()
 
-	urls := make([]string, 0, len(s.monitoredURLs))
-	for url := range s.monitoredURLs {
+	urls := make([]string, 0, len(s.monitorUrls))
+	for url := range s.monitorUrls {
 		urls = append(urls, url)
 	}
 	return urls
@@ -203,14 +219,10 @@ func (s *MonitoringService) GetCurrentlyMonitoredURLs() []string {
 
 // Start begins the monitoring process.
 func (s *MonitoringService) Start(initialURLs []string) error {
-	s.logger.Info().Msg("Starting MonitoringService...")
-
-	for _, u := range initialURLs {
-		s.AddTargetURL(u)
-	}
+	s.Preload(initialURLs)
 
 	// Send initial list of monitored URLs
-	monitoredNow := s.GetCurrentlyMonitoredURLs()
+	monitoredNow := s.GetCurrentlyMonitorUrls()
 	if len(monitoredNow) > 0 && s.notificationHelper != nil {
 		s.notificationHelper.SendInitialMonitoredURLsNotification(s.serviceCtx, monitoredNow)
 	}
@@ -231,6 +243,12 @@ func (s *MonitoringService) Start(initialURLs []string) error {
 	return nil
 }
 
+func (s *MonitoringService) Preload(initialURLs []string) {
+	for _, u := range initialURLs {
+		s.AddMonitorUrl(u)
+	}
+}
+
 // Stop signals the MonitoringService to shut down gracefully.
 func (s *MonitoringService) Stop() {
 	s.logger.Info().Msg("Attempting to stop MonitoringService...")
@@ -241,7 +259,7 @@ func (s *MonitoringService) Stop() {
 	s.shutdownMutex.Unlock()
 
 	// Get current monitored URLs for notification before cleanup
-	currentMonitoredURLs := s.GetCurrentlyMonitoredURLs()
+	currentMonitoredURLs := s.GetCurrentlyMonitorUrls()
 
 	// Skip sending aggregated changes during shutdown to avoid confusion
 	s.logger.Info().Msg("Skipping aggregated changes during shutdown...")
@@ -475,7 +493,6 @@ func (s *MonitoringService) processURLContent(url string, content []byte, conten
 // fetchResult will be common.FetchFileContentResult
 func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models.MonitoredFileUpdate, fetchResult *common.FetchFileContentResult) (*models.FileChangeInfo, *models.ContentDiffResult, error) {
 	s.logger.Debug().Str("url", url).Msg("Detecting changes for URL.")
-
 	// Compare with historical data
 	lastRecord, err := s.historyStore.GetLastKnownRecord(url)
 	if err != nil || lastRecord == nil {
@@ -502,8 +519,33 @@ func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models
 			ExtractedPaths: extractedPaths,
 		}
 
+		// Generate diff result for new file (treat entire content as new insertions)
+		var diffResult *models.ContentDiffResult
+		if s.contentDiffer != nil && s.gCfg.MonitorConfig.StoreFullContentOnChange {
+			var diffErr error
+			// Pass empty previous content to treat entire current content as new
+			diffResult, diffErr = s.contentDiffer.GenerateDiff([]byte{}, fetchResult.Content, fetchResult.ContentType, "", processedUpdate.NewHash)
+			if diffErr != nil {
+				s.logger.Error().Err(diffErr).Str("url", url).Msg("Failed to generate content diff for new file")
+			} else {
+				diffResult.ExtractedPaths = extractedPaths
+				s.logger.Info().Str("url", url).Bool("is_identical", diffResult.IsIdentical).Int("diff_count", len(diffResult.Diffs)).Msg("Content diff generated for new file")
+
+				// Generate HTML diff report for new file
+				if s.htmlDiffReporter != nil {
+					reportPath, reportErr := s.htmlDiffReporter.GenerateSingleDiffReport(url, diffResult, "", processedUpdate.NewHash, fetchResult.Content)
+					if reportErr != nil {
+						s.logger.Error().Err(reportErr).Str("url", url).Msg("Failed to generate single HTML diff report for new file")
+					} else {
+						s.logger.Info().Str("url", url).Str("report_path", reportPath).Msg("Single HTML diff report created for new file")
+						changeInfo.DiffReportPath = &reportPath
+					}
+				}
+			}
+		}
+
 		s.logger.Info().Str("url", url).Str("new_hash", processedUpdate.NewHash).Msg("New file detected")
-		return changeInfo, nil, nil
+		return changeInfo, diffResult, nil
 	}
 
 	oldHash := lastRecord.Hash
@@ -533,7 +575,7 @@ func (s *MonitoringService) detectURLChanges(url string, processedUpdate *models
 	}
 
 	var diffResult *models.ContentDiffResult
-	if s.contentDiffer != nil && s.cfg.StoreFullContentOnChange {
+	if s.contentDiffer != nil && s.gCfg.MonitorConfig.StoreFullContentOnChange {
 		var diffErr error
 		diffResult, diffErr = s.contentDiffer.GenerateDiff(lastRecord.Content, fetchResult.Content, fetchResult.ContentType, oldHash, processedUpdate.NewHash)
 		if diffErr != nil {
@@ -631,7 +673,7 @@ func (s *MonitoringService) TriggerCycleEndReport() {
 		// Generate an aggregated report for ALL currently monitored URLs,
 		// not just the ones that changed in this specific interval.
 		// The report itself will highlight which ones had diffs.
-		monitoredNow := s.GetCurrentlyMonitoredURLs()
+		monitoredNow := s.GetCurrentlyMonitorUrls()
 		if len(monitoredNow) > 0 {
 			reportPath, err = s.htmlDiffReporter.GenerateDiffReport(monitoredNow)
 			if err != nil {
@@ -649,7 +691,7 @@ func (s *MonitoringService) TriggerCycleEndReport() {
 
 	// Send notification for the completed cycle with file changes included
 	if s.notificationHelper != nil {
-		monitoredCount := len(s.GetCurrentlyMonitoredURLs())
+		monitoredCount := len(s.GetCurrentlyMonitorUrls())
 		cycleCompleteData := models.MonitorCycleCompleteData{
 			ChangedURLs:    changedURLs,
 			FileChanges:    fileChanges, // Include detailed file changes
@@ -692,12 +734,12 @@ func (s *MonitoringService) getURLCheckMutex(url string) *sync.Mutex {
 
 // cleanupUnusedMutexes removes mutexes for URLs that are no longer monitored
 func (s *MonitoringService) cleanupUnusedMutexes() {
-	s.monitoredURLsMutex.RLock()
+	s.monitoredUrlsRMutex.RLock()
 	monitoredURLs := make(map[string]struct{})
-	for url := range s.monitoredURLs {
+	for url := range s.monitorUrls {
 		monitoredURLs[url] = struct{}{}
 	}
-	s.monitoredURLsMutex.RUnlock()
+	s.monitoredUrlsRMutex.RUnlock()
 
 	s.urlCheckMutexMapLock.Lock()
 	defer s.urlCheckMutexMapLock.Unlock()
