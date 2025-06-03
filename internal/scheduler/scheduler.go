@@ -27,7 +27,8 @@ type Scheduler struct {
 	globalConfig       *config.GlobalConfig
 	db                 *DB
 	logger             zerolog.Logger
-	urlFileOverride    string
+	scanTargetsFile    string
+	monitorTargetsFile string // This is used for monitoring targets, if provided
 	notificationHelper *notifier.NotificationHelper
 	targetManager      *TargetManager
 	orchestrator       *scanner.Scanner
@@ -49,7 +50,8 @@ type Scheduler struct {
 // NewScheduler creates a new Scheduler instance
 func NewScheduler(
 	cfg *config.GlobalConfig,
-	urlFileOverride string,
+	scanTargetsFile string,
+	monitorTargetsFile string,
 	logger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	monitoringService *monitor.MonitoringService,
@@ -93,7 +95,8 @@ func NewScheduler(
 		globalConfig:       cfg,
 		db:                 db,
 		logger:             moduleLogger,
-		urlFileOverride:    urlFileOverride,
+		scanTargetsFile:    scanTargetsFile,
+		monitorTargetsFile: monitorTargetsFile,
 		notificationHelper: notificationHelper,
 		targetManager:      targetManager,
 		orchestrator:       scanner,
@@ -115,8 +118,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.stopChan = make(chan struct{})
 	s.mu.Unlock()
 
-	s.initializeAndStartMonitorWorkersIfNeeded() // This initializes workers and starts the periodic ticker for monitoring.
+	s.initializeMonitorWorkers() // This initializes workers and starts the periodic ticker for monitoring.
 
+	// ? Can move this to executeMonitoringCycle?
 	// If monitoring service is active, trigger an initial monitoring cycle.
 	if s.monitoringService != nil {
 		monitoredURLs := s.monitoringService.GetCurrentlyMonitoredURLs()
@@ -202,7 +206,7 @@ func (s *Scheduler) handleShutdownSignals(ctx context.Context, from string) bool
 
 // waitForNextScan calculates the next scan time and sleeps until then.
 func (s *Scheduler) waitForNextScan(ctx context.Context) (interrupted bool, err error) {
-	if s.urlFileOverride == "" && s.monitoringService != nil && len(s.monitoringService.GetCurrentlyMonitoredURLs()) > 0 {
+	if s.scanTargetsFile == "" && s.monitoringService != nil && len(s.monitoringService.GetCurrentlyMonitoredURLs()) > 0 {
 		s.logger.Info().Msg("Scheduler: No scan targets (-st) provided. Running in monitor-only mode for scheduled tasks. Waiting indefinitely for stop signal or context cancellation while monitor ticker runs.")
 		select {
 		case <-s.stopChan:
@@ -213,7 +217,7 @@ func (s *Scheduler) waitForNextScan(ctx context.Context) (interrupted bool, err 
 			// No specific sleep interruption notification needed here as it wasn't in a scan-specific sleep.
 			return true, nil
 		}
-	} else if s.urlFileOverride == "" {
+	} else if s.scanTargetsFile == "" {
 		s.logger.Info().Msg("Scheduler: No scan targets (-st) and no active periodic monitoring configured through scheduler. Waiting indefinitely for stop/cancellation.")
 		select {
 		case <-s.stopChan:
@@ -268,12 +272,13 @@ func (s *Scheduler) handleShutdownDuringSleep() bool {
 			WithScanSessionID(fmt.Sprintf("scheduler_interrupted_sleep_%s", time.Now().Format("20060102-150405"))).
 			WithStatus(models.ScanStatusInterrupted).
 			WithScanMode("automated").
-			WithErrorMessages([]string{"Scheduler service was interrupted during sleep period by context cancellation."}).
+			WithErrorMessages([]string{"Scheduler service's scan cycle was interrupted during sleep period by context cancellation."}).
 			WithTargetSource("Scheduler").
 			Build()
-		s.logger.Info().Msg("Sending scheduler interruption notification due to context cancellation during sleep.")
+		s.logger.Info().Msg("Sending scheduler scan interruption notification due to context cancellation during sleep.")
+
+		// Send ScanInterruptNotification because this function is called when the scheduler's sleep FOR A SCAN is interrupted.
 		s.notificationHelper.SendScanInterruptNotification(context.Background(), interruptionSummary)
-		s.notificationHelper.SendMonitorInterruptNotification(context.Background(), interruptionSummary)
 	}
 	return true
 }
@@ -303,7 +308,7 @@ func (s *Scheduler) calculateNextScanTime() (time.Time, error) {
 func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlURLs []string, determinedSource string, err error) {
 	s.logger.Info().Msg("Scheduler: Starting to load and prepare scan targets.")
 	targets, detSource, loadErr := s.targetManager.LoadAndSelectTargets(
-		s.urlFileOverride,
+		s.scanTargetsFile,
 		s.globalConfig.InputConfig.InputURLs,
 		s.globalConfig.InputConfig.InputFile,
 	)
@@ -386,6 +391,7 @@ func (s *Scheduler) manageMonitorServiceTasks(ctx context.Context, monitorWG *sy
 			default:
 			}
 
+			//? Why need to execute monitoring cycle here?
 			s.logger.Info().Msg("Scheduler: Triggering immediate monitor cycle after adding URLs.")
 			s.executeMonitoringCycle("post-scan")
 		}()

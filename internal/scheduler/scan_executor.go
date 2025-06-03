@@ -15,7 +15,7 @@ import (
 
 // executeScanCycleWithRetries runs a cycle with retry logic
 func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
-	if s.urlFileOverride == "" {
+	if s.scanTargetsFile == "" {
 		s.logger.Info().Msg("Scheduler: No scan targets (-st) provided. Skipping scan cycle execution. Monitoring (if active) will continue via its own ticker.")
 		return
 	}
@@ -28,7 +28,7 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 	currentScanSessionID := time.Now().Format("20060102-150405")
 
 	_, initialTargetSource, initialTargetsErr := s.targetManager.LoadAndSelectTargets(
-		s.urlFileOverride,
+		s.scanTargetsFile,
 		s.globalConfig.InputConfig.InputURLs,
 		s.globalConfig.InputConfig.InputFile,
 	)
@@ -202,7 +202,7 @@ func (s *Scheduler) executeScanCycle(
 	var finalReportFilePaths []string
 	var overallCycleError error
 
-	htmlURLs, determinedTargetSourceFromLoad, err := s.loadAndPrepareScanTargets(predeterminedTargetSource)
+	urls, determinedTargetSourceFromLoad, err := s.loadAndPrepareScanTargets(predeterminedTargetSource)
 	if err != nil {
 		s.logger.Error().Err(err).Str("scan_session_id", scanSessionID).Msg("Scheduler: Failed to load and prepare scan targets for cycle.")
 		summaryBuilder.WithErrorMessages([]string{fmt.Sprintf("Failed to load/prepare targets: %v", err)})
@@ -214,7 +214,7 @@ func (s *Scheduler) executeScanCycle(
 	}
 	summaryBuilder.WithTargetSource(determinedTargetSourceFromLoad)
 
-	if len(htmlURLs) == 0 {
+	if len(urls) == 0 {
 		s.logger.Info().Str("source", determinedTargetSourceFromLoad).Msg("Scheduler: No targets (HTML or monitor) to process in this cycle after preparation.")
 		summaryBuilder.WithStatus(models.ScanStatusNoTargets)
 		if overallCycleError == nil {
@@ -223,32 +223,33 @@ func (s *Scheduler) executeScanCycle(
 		return summaryBuilder.Build(), nil, overallCycleError
 	}
 
-	summaryBuilder.WithTargets(htmlURLs).WithTotalTargets(len(htmlURLs))
+	summaryBuilder.WithTargets(urls).WithTotalTargets(len(urls))
 
 	// Build summary for start notification
 	tempSummaryForStart := summaryBuilder.Build() // Build a temporary summary for sending start notification
-	s.sendScanStartNotification(ctx, tempSummaryForStart, scanSessionID, htmlURLs)
+	s.sendScanStartNotification(ctx, tempSummaryForStart, scanSessionID, urls)
 
-	dbScanID, dbErr := s.recordScanStartToDB(scanSessionID, determinedTargetSourceFromLoad, htmlURLs, startTime)
+	dbScanID, dbErr := s.recordScanStartToDB(scanSessionID, determinedTargetSourceFromLoad, urls, startTime)
 	if dbErr != nil {
 		s.logger.Error().Err(dbErr).Msg("Scheduler: Failed to record scan start in database for cycle.")
 		summaryBuilder.WithErrorMessages([]string{fmt.Sprintf("DB record start error: %v", dbErr)})
 	}
 
+	//? Why need to manage monitor service tasks?
 	var monitorWG sync.WaitGroup
 	s.manageMonitorServiceTasks(ctx, &monitorWG, scanSessionID, determinedTargetSourceFromLoad)
 
 	var scanWorkflowSummary models.ScanSummaryData
 
-	if len(htmlURLs) > 0 {
-		s.logger.Info().Int("html_count", len(htmlURLs)).Msg("Scheduler: Executing scan workflow for HTML URLs using shared function.")
+	if len(urls) > 0 {
+		s.logger.Info().Int("html_count", len(urls)).Msg("Scheduler: Executing scan workflow for HTML URLs using shared function.")
 		var workflowErr error
 
 		scanWorkflowSummary, _, finalReportFilePaths, workflowErr = s.orchestrator.ExecuteSingleScanWorkflowWithReporting(
 			ctx,
 			s.globalConfig,
 			s.logger.With().Str("component", "ScanWorkflowRunner").Logger(),
-			htmlURLs,
+			urls,
 			scanSessionID,
 			determinedTargetSourceFromLoad,
 			"automated",
@@ -365,7 +366,7 @@ func (s *Scheduler) executeScanCycle(
 	builtSummaryForDB := finalSummaryBuilder.Build() // Build to check status for DB
 
 	if overallCycleError == nil && len(builtSummaryForDB.ErrorMessages) == 0 {
-		if builtSummaryForDB.Status == string(models.ScanStatusCompleted) || builtSummaryForDB.Status == string(models.ScanStatusNoTargets) || (builtSummaryForDB.Status == "" && len(htmlURLs) == 0) {
+		if builtSummaryForDB.Status == string(models.ScanStatusCompleted) || builtSummaryForDB.Status == string(models.ScanStatusNoTargets) || (builtSummaryForDB.Status == "" && len(urls) == 0) {
 			dbStatus = "COMPLETED"
 		}
 	} else if builtSummaryForDB.Status == string(models.ScanStatusFailed) || builtSummaryForDB.Status == string(models.ScanStatusInterrupted) {
@@ -373,7 +374,7 @@ func (s *Scheduler) executeScanCycle(
 	}
 
 	logSummary := fmt.Sprintf("HTML URLs (scanned): %d, Errors: %d, Status: %s",
-		len(htmlURLs), len(builtSummaryForDB.ErrorMessages), builtSummaryForDB.Status)
+		len(urls), len(builtSummaryForDB.ErrorMessages), builtSummaryForDB.Status)
 
 	if dbScanID > 0 {
 		if err := s.db.UpdateScanCompletion(dbScanID, endTime, dbStatus, logSummary,
