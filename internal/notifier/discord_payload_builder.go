@@ -32,21 +32,9 @@ func (b *DiscordMessagePayloadBuilder) WithAvatarURL(avatarURL string) *DiscordM
 	return b
 }
 
-// WithTTS sets the TTS for the DiscordMessagePayload.
-func (b *DiscordMessagePayloadBuilder) WithTTS(tts bool) *DiscordMessagePayloadBuilder {
-	b.payload.TTS = tts
-	return b
-}
-
 // AddEmbed adds a models.DiscordEmbed to the DiscordMessagePayload.
 func (b *DiscordMessagePayloadBuilder) AddEmbed(embed models.DiscordEmbed) *DiscordMessagePayloadBuilder {
 	b.payload.Embeds = append(b.payload.Embeds, embed)
-	return b
-}
-
-// WithEmbeds sets all Embeds for the DiscordMessagePayload, replacing any existing ones.
-func (b *DiscordMessagePayloadBuilder) WithEmbeds(embeds []models.DiscordEmbed) *DiscordMessagePayloadBuilder {
-	b.payload.Embeds = embeds
 	return b
 }
 
