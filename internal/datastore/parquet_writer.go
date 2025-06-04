@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/rs/zerolog"
@@ -243,16 +244,3 @@ func int64PtrOrNilZero(i int64) *int64 {
 	}
 	return &i
 }
-
-// Helper to convert float64 to pointer, or nil if value is 0.0.
-func float64PtrOrNilZero(f float64) *float64 {
-	if f == 0.0 {
-		return nil
-	}
-	return &f
-}
-
-// getParquetCompressionCodec is no longer needed as the logic is inlined in Write.
-// func getParquetCompressionCodec(codecName string) (interface{}, error) {
-// ...
-// }

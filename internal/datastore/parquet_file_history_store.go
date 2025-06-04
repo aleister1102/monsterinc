@@ -370,16 +370,6 @@ func (pfs *ParquetFileHistoryStore) GetLastKnownHash(url string) (string, error)
 	return record.Hash, nil
 }
 
-// Helper function to ensure Parquet schema matches models.FileHistoryRecord
-// This can be called during NewParquetFileHistoryStore or as a sanity check.
-func (pfs *ParquetFileHistoryStore) validateSchemaCompatibility() error {
-	schema := parquet.SchemaOf(models.FileHistoryRecord{})
-	if schema == nil {
-		return fmt.Errorf("failed to generate parquet schema for FileHistoryRecord")
-	}
-	return nil
-}
-
 // scanHistoryFile reads a history file and returns records that have diff data.
 func (pfs *ParquetFileHistoryStore) scanHistoryFile(filePath string) ([]*models.FileHistoryRecord, error) {
 	if strings.Contains(filepath.Base(filePath), "archived") {
