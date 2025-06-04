@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
@@ -235,9 +234,9 @@ func (s *Scheduler) executeScanCycle(
 		summaryBuilder.WithErrorMessages([]string{fmt.Sprintf("DB record start error: %v", dbErr)})
 	}
 
-	//? Why need to manage monitor service tasks?
-	var monitorWG sync.WaitGroup
-	s.manageMonitorServiceTasks(ctx, &monitorWG)
+	// //? Why need to manage monitor service tasks?
+	// var monitorWG sync.WaitGroup
+	// s.manageMonitorServiceTasks(ctx, &monitorWG)
 
 	var scanWorkflowSummary models.ScanSummaryData
 
@@ -284,62 +283,7 @@ func (s *Scheduler) executeScanCycle(
 		}
 	}
 
-	s.logger.Info().Msg("Scheduler: Waiting for monitor service initial setup (if any).")
-	monitorDone := make(chan struct{})
-	go func() {
-		monitorWG.Wait()
-		close(monitorDone)
-	}()
-
 	currentSummaryBuilt := summaryBuilder.Build() // Build before waiting for monitor to have a current state
-
-	select {
-	case <-monitorDone:
-		s.logger.Info().Msg("Scheduler: Monitor service initial setup completed.")
-	case <-ctx.Done():
-		s.logger.Info().Msg("Scheduler: Context cancelled while waiting for monitor service setup.")
-		// Rebuild summary with interruption details
-		summaryBuilderInternal := models.NewScanSummaryDataBuilder().
-			WithScanSessionID(currentSummaryBuilt.ScanSessionID).
-			WithTargetSource(currentSummaryBuilt.TargetSource).
-			WithScanMode(currentSummaryBuilt.ScanMode).
-			WithTargets(currentSummaryBuilt.Targets).
-			WithTotalTargets(currentSummaryBuilt.TotalTargets).
-			WithProbeStats(currentSummaryBuilt.ProbeStats).
-			WithDiffStats(currentSummaryBuilt.DiffStats).
-			WithScanDuration(currentSummaryBuilt.ScanDuration).
-			WithReportPath(currentSummaryBuilt.ReportPath).
-			WithErrorMessages(currentSummaryBuilt.ErrorMessages) // Keep existing
-		if !common.ContainsCancellationError(currentSummaryBuilt.ErrorMessages) {
-			summaryBuilderInternal.WithErrorMessages([]string{"Scheduler cycle interrupted during monitor setup: " + ctx.Err().Error()})
-		}
-		summaryBuilderInternal.WithStatus(models.ScanStatusInterrupted)
-		if overallCycleError == nil {
-			overallCycleError = ctx.Err()
-		}
-		return summaryBuilderInternal.Build(), finalReportFilePaths, overallCycleError
-	case <-s.stopChan:
-		s.logger.Info().Msg("Scheduler: Stop signal received while waiting for monitor service setup.")
-		summaryBuilderInternal := models.NewScanSummaryDataBuilder().
-			WithScanSessionID(currentSummaryBuilt.ScanSessionID).
-			WithTargetSource(currentSummaryBuilt.TargetSource).
-			WithScanMode(currentSummaryBuilt.ScanMode).
-			WithTargets(currentSummaryBuilt.Targets).
-			WithTotalTargets(currentSummaryBuilt.TotalTargets).
-			WithProbeStats(currentSummaryBuilt.ProbeStats).
-			WithDiffStats(currentSummaryBuilt.DiffStats).
-			WithScanDuration(currentSummaryBuilt.ScanDuration).
-			WithReportPath(currentSummaryBuilt.ReportPath).
-			WithErrorMessages(currentSummaryBuilt.ErrorMessages) // Keep existing
-		if !common.ContainsCancellationError(currentSummaryBuilt.ErrorMessages) {
-			summaryBuilderInternal.WithErrorMessages([]string{"Scheduler cycle stopped during monitor setup."})
-		}
-		summaryBuilderInternal.WithStatus(models.ScanStatusInterrupted)
-		if overallCycleError == nil {
-			overallCycleError = errors.New("scheduler stop signal received")
-		}
-		return summaryBuilderInternal.Build(), finalReportFilePaths, overallCycleError
-	}
 
 	endTime := time.Now()
 
@@ -424,6 +368,41 @@ func (s *Scheduler) sendScanStartNotification(ctx context.Context, baseSummary m
 		s.logger.Info().Str("session_id", scanSessionID).Int("html_target_count", len(htmlURLs)).Msg("Scheduler: Sending scan start notification for HTML URLs.")
 		s.notificationHelper.SendScanStartNotification(ctx, startNotificationSummary)
 	}
+}
+
+// loadAndPrepareScanTargets loads targets, classifies them, and returns HTML URLs, monitor URLs, and the determined target source.
+func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlURLs []string, determinedSource string, err error) {
+	s.logger.Info().Msg("Scheduler: Starting to load and prepare scan targets.")
+	targets, detSource, loadErr := s.targetManager.LoadAndSelectTargets(
+		s.scanTargetsFile,
+		s.globalConfig.InputConfig.InputURLs,
+		s.globalConfig.InputConfig.InputFile,
+	)
+	if loadErr != nil {
+		return nil, initialTargetSource, fmt.Errorf("failed to load targets: %w", loadErr)
+	}
+	determinedSource = detSource
+	if determinedSource == "" {
+		determinedSource = "UnknownSource" // Default if not determined
+	}
+
+	if len(targets) == 0 {
+		s.logger.Info().Str("source", determinedSource).Msg("Scheduler: No targets loaded to process.")
+		return nil, determinedSource, fmt.Errorf("no targets to process from source: %s", determinedSource)
+	}
+
+	// Convert targets to string slice
+	allTargetURLs := make([]string, len(targets))
+	for i, target := range targets {
+		allTargetURLs[i] = target.NormalizedURL
+	}
+
+	// Without content type grouping, all loaded URLs are considered for both scanning (as HTML) and monitoring.
+	htmlURLs = make([]string, len(allTargetURLs))
+	copy(htmlURLs, allTargetURLs)
+
+	s.logger.Info().Int("total_targets_loaded", len(allTargetURLs)).Str("determined_source", determinedSource).Msg("Scheduler: Target loading completed. All targets will be used for both scanning and monitoring.")
+	return htmlURLs, determinedSource, nil
 }
 
 // recordScanStartToDB records the start of a scan cycle to the database.
