@@ -111,14 +111,19 @@ func (s *Scheduler) executeMonitoringCycle(ctx context.Context, cycleType string
 		// Continue if stopChan is not closed
 	}
 
+	// Generate new cycle ID for this monitoring cycle
+	newCycleID := s.monitoringService.GenerateNewCycleID()
+	s.monitoringService.SetCurrentCycleID(newCycleID)
+	s.logger.Info().Str("cycle_type", cycleType).Str("cycle_id", newCycleID).Msg("Starting new monitoring cycle with generated ID.")
+
 	targetsToCheck := s.monitoringService.GetCurrentlyMonitorUrls()
 	if len(targetsToCheck) == 0 {
-		s.logger.Info().Str("cycle_type", cycleType).Msg("Scheduler: No targets to check in this monitor cycle. Skipping cycle end report.")
+		s.logger.Info().Str("cycle_type", cycleType).Str("cycle_id", newCycleID).Msg("Scheduler: No targets to check in this monitor cycle. Skipping cycle end report.")
 		// Do not trigger cycle end report if no targets were checked.
 		return
 	}
 
-	s.notificationHelper.SendInitialMonitoredURLsNotification(ctx, targetsToCheck)
+	s.notificationHelper.SendInitialMonitoredURLsNotification(ctx, targetsToCheck, newCycleID)
 
 	s.logger.Info().Str("cycle_type", cycleType).Int("targets", len(targetsToCheck)).Msg("Scheduler: Starting monitor cycle.")
 

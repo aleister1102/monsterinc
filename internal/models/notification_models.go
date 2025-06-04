@@ -107,6 +107,7 @@ type FileChangeInfo struct {
 	ChangeTime     time.Time       // Time the change was detected
 	DiffReportPath *string         // Path to the generated HTML diff report for this specific change
 	ExtractedPaths []ExtractedPath // Paths extracted from the content (for JS files)
+	CycleID        string          // Unique identifier for the monitoring cycle
 }
 
 // MonitorFetchErrorInfo holds information about an error encountered during file fetching or processing.
@@ -115,6 +116,7 @@ type MonitorFetchErrorInfo struct {
 	Error      string    `json:"error"`  // Error message
 	Source     string    `json:"source"` // e.g., "fetch", "process", "store_history"
 	OccurredAt time.Time `json:"occurred_at"`
+	CycleID    string    `json:"cycle_id"` // Unique identifier for the monitoring cycle
 }
 
 // ScanStatus defines the possible states of a scan.
@@ -154,6 +156,7 @@ type MonitorAggregatedStats struct {
 
 // MonitorCycleCompleteData holds data for the monitor service's end-of-cycle notification.
 type MonitorCycleCompleteData struct {
+	CycleID        string           // Unique identifier for the monitoring cycle
 	ChangedURLs    []string         // List of URLs that had changes detected during this cycle.
 	FileChanges    []FileChangeInfo // Detailed information about file changes
 	ReportPath     string           // Path to the aggregated HTML diff report for all monitored URLs.
