@@ -136,8 +136,6 @@ func initializeMonitoringService(
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 ) (*monitor.MonitoringService, error) {
-	var ms *monitor.MonitoringService = nil
-
 	if monitorTargetsFile == "" || !gCfg.MonitorConfig.Enabled {
 		zLogger.Info().Msg("Monitoring service not initialized: no monitor targets file provided or monitoring is disabled in configuration.")
 		return nil, nil // No monitoring service to initialize
@@ -145,7 +143,7 @@ func initializeMonitoringService(
 
 	// Initialize monitoring service
 	monitorLogger := zLogger.With().Str("service", "FileMonitor").Logger()
-	ms = monitor.NewMonitoringService(
+	ms := monitor.NewMonitoringService(
 		gCfg,
 		monitorLogger,
 		notificationHelper,

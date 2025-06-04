@@ -3,12 +3,14 @@ package datastore
 import (
 	"fmt"
 	"io"
-	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	// "regexp" // No longer needed for local sanitization
 
@@ -41,16 +43,16 @@ func (pr *ParquetReader) FindAllProbeResultsForTarget(rootTargetURL string) ([]m
 	pr.logger.Debug().Str("root_target_url", rootTargetURL).Msg("Attempting to find all probe results for target")
 
 	if pr.storageConfig == nil || pr.storageConfig.ParquetBasePath == "" {
-		msg := "ParquetBasePath is not configured. Cannot read Parquet file."
+		msg := "ParquetReader: ParquetBasePath is not configured"
 		pr.logger.Error().Msg(msg)
-		return nil, time.Time{}, fmt.Errorf(msg)
+		return nil, time.Time{}, common.NewError(msg)
 	}
 
 	sanitizedTargetName := urlhandler.SanitizeFilename(rootTargetURL)
 	if sanitizedTargetName == "" {
 		msg := fmt.Sprintf("Root target sanitized to empty string, cannot determine path for Parquet file: %s", rootTargetURL)
 		pr.logger.Error().Str("original_target", rootTargetURL).Msg(msg)
-		return nil, time.Time{}, fmt.Errorf(msg)
+		return nil, time.Time{}, common.NewError(msg)
 	}
 
 	// Path is now <base_path>/<sanitized_rootTarget>.parquet

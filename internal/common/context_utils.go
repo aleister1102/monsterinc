@@ -3,6 +3,8 @@ package common
 import (
 	"context"
 
+	"slices"
+
 	"github.com/rs/zerolog"
 )
 
@@ -39,12 +41,7 @@ func CheckCancellation(ctx context.Context) ContextCheckResult {
 
 // ContainsCancellationError checks if error messages contain cancellation-related errors
 func ContainsCancellationError(messages []string) bool {
-	for _, msg := range messages {
-		if containsCancellationKeywords(msg) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(messages, containsCancellationKeywords)
 }
 
 // containsCancellationKeywords checks for cancellation keywords in a message

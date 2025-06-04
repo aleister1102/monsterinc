@@ -52,6 +52,8 @@ func (ppr *ParquetProbeResult) ToProbeResult() ProbeResult {
 	if ppr.HeadersJSON != nil && *ppr.HeadersJSON != "" {
 		if err := json.Unmarshal([]byte(*ppr.HeadersJSON), &headers); err != nil {
 			// Log or handle error appropriately, for now, headers will be nil
+			headers = nil
+			return ProbeResult{}
 		}
 	}
 

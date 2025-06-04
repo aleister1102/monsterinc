@@ -413,6 +413,7 @@ func (s *MonitoringService) checkURL(url string) {
 				// No, we don't store a new record for 304. We just log and return.
 				// If we wanted to update a "last_polled_at" field without content change,
 				// the data model and store logic would need to support that.
+				// TODO: Add a "last_polled_at" field to the data model and store logic.
 			}
 			return // Important: return if not modified
 		}

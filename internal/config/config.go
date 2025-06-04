@@ -448,7 +448,6 @@ func LoadGlobalConfig(providedPath string) (*GlobalConfig, error) { // providedP
 			}
 			// log.Println("[DEBUG] Config: JSON configuration loaded successfully.")
 		}
-	} else {
 	}
 
 	return cfg, nil
