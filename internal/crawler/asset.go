@@ -11,19 +11,6 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// URLSource is now defined in internal/models/asset.go
-// type URLSource struct {
-// 	Tag       string
-// 	Attribute string
-// }
-
-// ExtractedAsset is now defined in internal/models/asset.go
-// type ExtractedAsset struct {
-// 	AbsoluteURL string
-// 	SourceTag   string // e.g., "a"
-// 	SourceAttr  string // e.g., "href"
-// 	// ContextText string // Optional: text content of the link, or surrounding text
-// }
 
 var assetExtractors = []struct {
 	Tag       string
