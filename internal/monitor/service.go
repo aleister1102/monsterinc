@@ -135,6 +135,11 @@ func NewMonitoringService(
 			htmlDiffReporterInstance = nil // Ensure it's nil on error
 		} else {
 			instanceLogger.Info().Msg("HtmlDiffReporter initialized successfully for MonitoringService.")
+			// Set the HtmlDiffReporter as the DiffReportCleaner for NotificationHelper
+			if notificationHelper != nil {
+				notificationHelper.SetDiffReportCleaner(htmlDiffReporterInstance)
+				instanceLogger.Info().Msg("HtmlDiffReporter set as DiffReportCleaner for NotificationHelper.")
+			}
 		}
 	} else {
 		instanceLogger.Warn().Bool("has_store", historyStore != nil).Msg("HtmlDiffReporter not initialized due to missing mainReporterCfg or historyStore.")
@@ -668,7 +673,7 @@ func (s *MonitoringService) TriggerCycleEndReport() {
 		// The report itself will highlight which ones had diffs.
 		monitoredNow := s.GetCurrentlyMonitorUrls()
 		if len(monitoredNow) > 0 {
-			reportPath, err = s.htmlDiffReporter.GenerateDiffReport(monitoredNow)
+			reportPath, err = s.htmlDiffReporter.GenerateDiffReport(monitoredNow, s.getCurrentCycleID())
 			if err != nil {
 				s.logger.Error().Err(err).Msg("Failed to generate aggregated monitor diff report")
 				// Proceed to send notification without report path if generation failed
