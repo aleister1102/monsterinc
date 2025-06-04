@@ -414,7 +414,7 @@ func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.Notif
 
 // FormatInitialMonitoredURLsMessage creates a Discord message payload for initial monitored URLs.
 func FormatInitialMonitoredURLsMessage(monitoredURLs []string, cycleID string, cfg config.NotificationConfig) models.DiscordMessagePayload {
-	title := ":pencil: Initial File Monitoring Started"
+	title := ":pencil: File Monitoring Started"
 	description := fmt.Sprintf("**Total URLs**: %d now being monitored for changes", len(monitoredURLs))
 	if cycleID != "" {
 		description += fmt.Sprintf("\n**Cycle ID**: `%s`", cycleID)

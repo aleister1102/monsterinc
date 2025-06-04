@@ -123,7 +123,7 @@ func (s *Scheduler) executeMonitoringCycle(ctx context.Context, cycleType string
 		return
 	}
 
-	s.notificationHelper.SendInitialMonitoredURLsNotification(ctx, targetsToCheck, newCycleID)
+	s.notificationHelper.SendMonitoredUrlsNotification(ctx, targetsToCheck, newCycleID)
 
 	s.logger.Info().Str("cycle_type", cycleType).Int("targets", len(targetsToCheck)).Msg("Scheduler: Starting monitor cycle.")
 

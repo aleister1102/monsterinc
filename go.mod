@@ -7,7 +7,6 @@ toolchain go1.24.2
 require (
 	github.com/BishopFox/jsluice v0.0.0-20240110145140-0ddfab153e06
 	github.com/PuerkitoBio/goquery v1.10.3
-	github.com/fsnotify/fsnotify v1.6.0
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/gocolly/colly/v2 v2.2.0
 	github.com/parquet-go/parquet-go v0.25.0
