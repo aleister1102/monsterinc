@@ -212,8 +212,8 @@ func copyEmbedDir(efs embed.FS, srcDir, destDir string) error {
 
 // GenerateDiffReport generates a single HTML report page containing diffs for multiple URLs.
 // It now fetches only the latest diff for currently monitored URLs.
-func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, error) {
-	r.logger.Info().Strs("monitored_urls", monitoredURLs).Int("monitored_count", len(monitoredURLs)).Msg("Generating aggregated HTML diff report for monitored URLs.")
+func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string, cycleID string) (string, error) {
+	r.logger.Info().Strs("monitored_urls", monitoredURLs).Int("monitored_count", len(monitoredURLs)).Str("cycle_id", cycleID).Msg("Generating aggregated HTML diff report for monitored URLs.")
 
 	if r.historyStore == nil {
 		r.logger.Error().Msg("HistoryStore is not available in HtmlDiffReporter. Cannot generate aggregated diff report.")
@@ -268,8 +268,13 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string) (string, e
 		return diffResultsDisplay[i].URL < diffResultsDisplay[j].URL
 	})
 
-	// Define a fixed name for the aggregated report, always in DefaultDiffReportDir
-	aggregatedReportFilename := "aggregated_diff_report.html"
+	// Use cycleID in the aggregated report filename
+	var aggregatedReportFilename string
+	if cycleID != "" {
+		aggregatedReportFilename = fmt.Sprintf("%s-aggregated-report.html", cycleID)
+	} else {
+		aggregatedReportFilename = "aggregated_diff_report.html" // Fallback if no cycleID
+	}
 	outputFilePath := filepath.Join(DefaultDiffReportDir, aggregatedReportFilename) // Use DefaultDiffReportDir
 
 	// Ensure the directory exists (it should have been created by NewHtmlDiffReporter, but double check)
@@ -429,3 +434,55 @@ func createDiffSummary(diffs []models.ContentDiff) string {
 }
 
 // templateFunctions provides helper functions accessible within the HTML template.
+
+// DeleteAllSingleDiffReports deletes all single diff report files in the DefaultDiffReportDir.
+// This is used when auto_delete_single_diff_reports_after_discord_notification is enabled.
+func (r *HtmlDiffReporter) DeleteAllSingleDiffReports() error {
+	r.logger.Info().Str("diff_report_dir", DefaultDiffReportDir).Msg("Starting deletion of all single diff reports.")
+
+	// Read all files in the diff report directory
+	files, err := os.ReadDir(DefaultDiffReportDir)
+	if err != nil {
+		r.logger.Error().Err(err).Str("dir", DefaultDiffReportDir).Msg("Failed to read diff report directory.")
+		return fmt.Errorf("failed to read diff report directory %s: %w", DefaultDiffReportDir, err)
+	}
+
+	deletedCount := 0
+	var deletionErrors []string
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue // Skip directories
+		}
+
+		fileName := file.Name()
+
+		// Skip aggregated reports (they contain "aggregated-report" in the name)
+		if strings.Contains(fileName, "aggregated-report") {
+			r.logger.Debug().Str("file", fileName).Msg("Skipping aggregated report file.")
+			continue
+		}
+
+		// Only delete files that look like single diff reports
+		// Single diff reports typically start with "diff_" and end with ".html"
+		if strings.HasPrefix(fileName, "diff_") && strings.HasSuffix(fileName, ".html") {
+			filePath := filepath.Join(DefaultDiffReportDir, fileName)
+
+			if err := os.Remove(filePath); err != nil {
+				r.logger.Error().Err(err).Str("file", filePath).Msg("Failed to delete single diff report file.")
+				deletionErrors = append(deletionErrors, fmt.Sprintf("failed to delete %s: %v", fileName, err))
+			} else {
+				r.logger.Debug().Str("file", fileName).Msg("Successfully deleted single diff report file.")
+				deletedCount++
+			}
+		}
+	}
+
+	r.logger.Info().Int("deleted_count", deletedCount).Int("error_count", len(deletionErrors)).Msg("Completed deletion of single diff reports.")
+
+	if len(deletionErrors) > 0 {
+		return fmt.Errorf("encountered %d errors while deleting single diff reports: %s", len(deletionErrors), strings.Join(deletionErrors, "; "))
+	}
+
+	return nil
+}

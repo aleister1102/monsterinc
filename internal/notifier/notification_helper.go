@@ -13,21 +13,26 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// NotificationServiceType helps determine which webhook URL to use.
-// This is an internal type for NotificationHelper.
+// NotificationServiceType defines the type of notification service.
 type NotificationServiceType int
 
 const (
 	ScanServiceNotification NotificationServiceType = iota
 	MonitorServiceNotification
-	GenericNotification // For critical errors that might not originate from a specific service
+	GenericNotification
 )
+
+// DiffReportCleaner defines an interface for cleaning up diff reports.
+type DiffReportCleaner interface {
+	DeleteAllSingleDiffReports() error
+}
 
 // NotificationHelper provides a high-level interface for sending various scan-related notifications.
 type NotificationHelper struct {
-	discordNotifier *DiscordNotifier
-	cfg             config.NotificationConfig
-	logger          zerolog.Logger
+	discordNotifier   *DiscordNotifier
+	cfg               config.NotificationConfig
+	logger            zerolog.Logger
+	diffReportCleaner DiffReportCleaner // Added for cleaning up single diff reports
 }
 
 // NewNotificationHelper creates a new NotificationHelper.
@@ -38,6 +43,11 @@ func NewNotificationHelper(dn *DiscordNotifier, cfg config.NotificationConfig, l
 		logger:          logger.With().Str("module", "NotificationHelper").Logger(),
 	}
 	return nh
+}
+
+// SetDiffReportCleaner sets the diff report cleaner for auto-deletion functionality.
+func (nh *NotificationHelper) SetDiffReportCleaner(cleaner DiffReportCleaner) {
+	nh.diffReportCleaner = cleaner
 }
 
 // getWebhookURL selects the appropriate webhook URL based on the service type.
@@ -139,7 +149,7 @@ func (nh *NotificationHelper) SendScanCompletionNotification(ctx context.Context
 				// Optionally, decide if we should stop sending further parts on error
 			} else {
 				nh.logger.Info().Int("part", i+1).Msgf("Scan completion notification (part %d/%d) sent successfully.", i+1, len(reportFilePaths))
-				if reportPath != "" && nh.cfg.AutoDeleteReportAfterDiscordNotification {
+				if reportPath != "" && nh.cfg.AutoDeleteSingleDiffReportsAfterDiscordNotification {
 					// Logic for deleting the specific reportPath part
 					nh.logger.Info().Str("report_part_path", reportPath).Msg("Auto-deleting report file part after successful Discord notification.")
 					if errDel := os.Remove(reportPath); errDel != nil {
@@ -228,21 +238,11 @@ func (nh *NotificationHelper) SendAggregatedFileChangesNotification(ctx context.
 		nh.logger.Error().Err(err).Msg("Failed to send aggregated file changes notification")
 	} else {
 		nh.logger.Info().Msg("Aggregated file changes notification sent successfully.")
-		// Auto-delete logic for the aggregated report
-		if finalReportPath != "" && nh.cfg.AutoDeleteReportAfterDiscordNotification {
-			// Similar to scan completion, assume temporary zip (if any) is handled by SendNotification
-			if finalReportPath == reportFilePath { // Check if it's the original path
-				nh.logger.Info().Str("report_path", reportFilePath).Msg("Auto-deleting aggregated diff report file after successful Discord notification.")
-				if errDel := os.Remove(reportFilePath); errDel != nil {
-					nh.logger.Error().Err(errDel).Str("report_path", reportFilePath).Msg("Failed to auto-delete aggregated diff report file.")
-				}
-			}
-		}
 	}
 }
 
-// SendInitialMonitoredURLsNotification sends a notification listing the initial set of URLs being monitored from MonitorService.
-func (nh *NotificationHelper) SendInitialMonitoredURLsNotification(ctx context.Context, monitoredURLs []string, cycleID string) {
+// SendMonitoredUrlsNotification sends a notification listing the initial set of URLs being monitored from MonitorService.
+func (nh *NotificationHelper) SendMonitoredUrlsNotification(ctx context.Context, monitoredURLs []string, cycleID string) {
 	if nh.discordNotifier == nil || nh.cfg.MonitorServiceDiscordWebhookURL == "" || len(monitoredURLs) == 0 {
 		return
 	}
@@ -324,10 +324,17 @@ func (nh *NotificationHelper) SendMonitorCycleCompleteNotification(ctx context.C
 				nh.logger.Error().Err(err).Int("part", i+1).Msgf("Failed to send monitor cycle complete notification (part %d/%d)", i+1, len(reportFilePaths))
 			} else {
 				nh.logger.Info().Int("part", i+1).Msgf("Monitor cycle complete notification (part %d/%d) sent successfully.", i+1, len(reportFilePaths))
-				if reportPath != "" && nh.cfg.AutoDeleteReportAfterDiscordNotification {
-					nh.logger.Info().Str("report_path", reportPath).Msg("Auto-deleting monitor cycle report file after successful Discord notification.")
-					if errDel := os.Remove(reportPath); errDel != nil {
-						nh.logger.Error().Err(errDel).Str("report_path", reportPath).Msg("Failed to auto-delete monitor cycle report file.")
+				if nh.cfg.AutoDeleteSingleDiffReportsAfterDiscordNotification {
+					// Delete all single diff reports only (keep aggregated report)
+					if nh.diffReportCleaner != nil {
+						nh.logger.Info().Msg("Auto-deleting all single diff reports after successful Discord notification.")
+						if errClean := nh.diffReportCleaner.DeleteAllSingleDiffReports(); errClean != nil {
+							nh.logger.Error().Err(errClean).Msg("Failed to auto-delete single diff reports.")
+						} else {
+							nh.logger.Info().Msg("Successfully auto-deleted all single diff reports.")
+						}
+					} else {
+						nh.logger.Warn().Msg("DiffReportCleaner is not set, cannot auto-delete single diff reports.")
 					}
 				}
 			}
