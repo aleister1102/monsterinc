@@ -158,17 +158,16 @@ func NewMonitoringService(
 		urlCheckMutexes:         make(map[string]*sync.Mutex),
 		urlCheckMutexMapLock:    sync.RWMutex{},
 	}
-
-	// Temporary commented out aggregation worker setup
-	// if s.gCfg.MonitorConfig.AggregationIntervalSeconds <= 0 {
-	// 	s.logger.Warn().Int("interval_seconds", s.gCfg.MonitorConfig.AggregationIntervalSeconds).Msg("Monitor aggregation interval is not configured or invalid. Aggregation worker will not start.")
-	// } else {
-	// 	aggregationDuration := time.Duration(s.gCfg.MonitorConfig.AggregationIntervalSeconds) * time.Second
-	// 	s.aggregationTicker = time.NewTicker(aggregationDuration)
-	// 	s.aggregationWg.Add(1) // Increment WaitGroup before starting worker
-	// 	go s.aggregationWorker()
-	// 	s.logger.Info().Dur("interval", aggregationDuration).Int("max_events", s.gCfg.MonitorConfig.MaxAggregatedEvents).Msg("Aggregation worker started for monitor events.")
-	// }
+	// Setup aggregation worker if interval is configured
+	if s.gCfg.MonitorConfig.AggregationIntervalSeconds <= 0 {
+		s.logger.Warn().Int("interval_seconds", s.gCfg.MonitorConfig.AggregationIntervalSeconds).Msg("Monitor aggregation interval is not configured or invalid. Aggregation worker will not start.")
+	} else {
+		aggregationDuration := time.Duration(s.gCfg.MonitorConfig.AggregationIntervalSeconds) * time.Second
+		s.aggregationTicker = time.NewTicker(aggregationDuration)
+		s.aggregationWg.Add(1) // Increment WaitGroup before starting worker
+		go s.aggregationWorker()
+		s.logger.Info().Dur("interval", aggregationDuration).Int("max_events", s.gCfg.MonitorConfig.MaxAggregatedEvents).Msg("Aggregation worker started for monitor events.")
+	}
 
 	return s
 }
@@ -191,18 +190,6 @@ func (s *MonitoringService) AddMonitorUrl(url string) {
 	}
 }
 
-// RemoveMonitorUrl removes a URL from the monitoring list.
-// No need refactoring ✅
-func (s *MonitoringService) RemoveMonitorUrl(url string) {
-	s.monitoredUrlsRMutex.Lock()
-	defer s.monitoredUrlsRMutex.Unlock()
-
-	if _, exists := s.monitorUrls[url]; exists {
-		delete(s.monitorUrls, url)
-		s.logger.Info().Str("url", url).Msg("Removed target URL from monitoring.")
-	}
-}
-
 // GetCurrentlyMonitorUrls returns a copy of the current list of monitored URLs.
 // This method will be called by the scheduler.
 // No need refactoring ✅
@@ -216,32 +203,6 @@ func (s *MonitoringService) GetCurrentlyMonitorUrls() []string {
 	}
 	return urls
 }
-
-// Start begins the monitoring process.
-// func (s *MonitoringService) Start(initialURLs []string) error {
-// 	s.Preload(initialURLs)
-
-// 	// Send initial list of monitored URLs
-// 	monitoredNow := s.GetCurrentlyMonitorUrls()
-// 	if len(monitoredNow) > 0 && s.notificationHelper != nil {
-// 		s.notificationHelper.SendInitialMonitoredURLsNotification(s.serviceCtx, monitoredNow)
-// 	}
-
-// 	// Perform initial check of all monitored URLs immediately
-// 	if len(monitoredNow) > 0 {
-// 		s.logger.Info().Int("url_count", len(monitoredNow)).Msg("Performing initial check of all monitored URLs...")
-// 		for _, url := range monitoredNow {
-// 			s.CheckURL(url)
-// 		}
-// 		s.logger.Info().Msg("Initial check of all monitored URLs completed.")
-
-// 		// Trigger cycle end report after initial checks to send any changes found
-// 		s.TriggerCycleEndReport()
-// 	}
-
-// 	s.logger.Info().Msg("MonitoringService started successfully.")
-// 	return nil
-// }
 
 func (s *MonitoringService) Preload(initialURLs []string) {
 	for _, u := range initialURLs {
@@ -267,10 +228,11 @@ func (s *MonitoringService) Stop() {
 	// Stop aggregation ticker
 	if s.aggregationTicker != nil {
 		s.aggregationTicker.Stop()
-	}
+	} // Determine if this is an interrupt (context cancelled) or normal shutdown
+	isInterrupt := s.serviceCtx.Err() != nil
 
-	// Send interrupted notification using scan completion format
-	if s.notificationHelper != nil && len(currentMonitoredURLs) > 0 {
+	// Send interrupted notification for monitor service only if interrupted
+	if s.notificationHelper != nil && len(currentMonitoredURLs) > 0 && isInterrupt {
 		s.logger.Info().Int("monitored_url_count", len(currentMonitoredURLs)).Msg("Sending monitor service interrupted notification...")
 
 		// Create ScanSummaryData for interrupted monitor service
@@ -280,12 +242,14 @@ func (s *MonitoringService) Stop() {
 			Targets:       currentMonitoredURLs,
 			TotalTargets:  len(currentMonitoredURLs),
 			Status:        string(models.ScanStatusInterrupted),
-			ErrorMessages: []string{"Monitor service was stopped/interrupted"},
+			ErrorMessages: []string{"Monitor service was interrupted by signal or context cancellation"},
 			Component:     "MonitorService",
 		}
 
 		// Use a background context since serviceCtx might be cancelled
-		s.notificationHelper.SendScanCompletionNotification(context.Background(), interruptedSummary, notifier.MonitorServiceNotification, nil)
+		s.notificationHelper.SendMonitorInterruptNotification(context.Background(), interruptedSummary)
+	} else if len(currentMonitoredURLs) > 0 {
+		s.logger.Info().Int("monitored_url_count", len(currentMonitoredURLs)).Msg("Monitor service stopping normally, no interrupt notification needed.")
 	}
 
 	// Cancel the service-specific context to stop other goroutines like monitorChan listener
@@ -313,49 +277,51 @@ func (s *MonitoringService) Stop() {
 	s.logger.Info().Msg("MonitoringService stopped.")
 }
 
-// func (s *MonitoringService) aggregationWorker() {
-// 	defer s.aggregationWg.Done() // Ensure WaitGroup is decremented when worker exits
-// 	defer s.logger.Info().Msg("Aggregation worker stopped.")
+func (s *MonitoringService) aggregationWorker() {
+	defer s.aggregationWg.Done() // Ensure WaitGroup is decremented when worker exits
+	defer s.logger.Info().Msg("Aggregation worker stopped.")
 
-// 	for {
-// 		select {
-// 		case <-s.aggregationTicker.C:
-// 			s.sendAggregatedChanges()
-// 			s.sendAggregatedErrors()
-// 		case <-s.doneChan:
-// 			s.logger.Info().Msg("Aggregation worker stopping.")
-// 			// Perform final send before exiting if there are pending events
-// 			s.sendAggregatedChanges()
-// 			s.sendAggregatedErrors()
-// 			return
-// 		}
-// 	}
-// }
+	for {
+		select {
+		case <-s.aggregationTicker.C:
+			s.sendAggregatedChanges()
+			s.sendAggregatedErrors()
+		case <-s.doneChan:
+			s.logger.Info().Msg("Aggregation worker stopping.")
+			// Perform final send before exiting if there are pending events
+			s.sendAggregatedChanges()
+			s.sendAggregatedErrors()
+			return
+		}
+	}
+}
 
-// func (s *MonitoringService) sendAggregatedChanges() {
-// 	s.fileChangeEventsMutex.Lock()
-// 	defer s.fileChangeEventsMutex.Unlock()
+func (s *MonitoringService) sendAggregatedChanges() {
+	s.fileChangeEventsMutex.Lock()
+	defer s.fileChangeEventsMutex.Unlock()
 
-// 	s.shutdownMutex.RLock()
-// 	isShuttingDown := s.isShuttingDown
-// 	s.shutdownMutex.RUnlock()
+	s.shutdownMutex.RLock()
+	isShuttingDown := s.isShuttingDown
+	s.shutdownMutex.RUnlock()
 
-// 	if isShuttingDown {
-// 		return
-// 	}
+	if isShuttingDown {
+		return
+	}
 
-// 	if len(s.fileChangeEvents) == 0 {
-// 		return
-// 	}
+	if len(s.fileChangeEvents) == 0 {
+		return
+	}
 
-// 	s.logger.Info().Int("count", len(s.fileChangeEvents)).Msg("Aggregated file changes detected (will be reported in cycle complete).")
+	s.logger.Info().Int("count", len(s.fileChangeEvents)).Msg("Aggregated file changes detected, sending notification.")
 
-// 	// Note: We no longer send notification here, only log the changes
-// 	// The notification will be sent in TriggerCycleEndReport with Monitor Cycle Complete
+	// Send notification for aggregated changes
+	if s.notificationHelper != nil {
+		s.notificationHelper.SendAggregatedFileChangesNotification(s.serviceCtx, s.fileChangeEvents, "")
+	}
 
-// 	s.logger.Info().Msg("Aggregated file changes logged and event list cleared.")
-// 	s.fileChangeEvents = nil
-// }
+	s.logger.Info().Msg("Aggregated file changes notification sent and event list cleared.")
+	s.fileChangeEvents = nil
+}
 
 func (s *MonitoringService) sendAggregatedErrors() {
 	s.aggregatedFetchErrorsMutex.Lock()
@@ -648,12 +614,14 @@ func (s *MonitoringService) TriggerCycleEndReport() {
 
 	// Cleanup unused mutexes to prevent memory leaks
 	s.cleanupUnusedMutexes()
-
-	// Get file changes before clearing them
+	// Get file changes for cycle report (but don't clear them if aggregation is enabled)
 	s.fileChangeEventsMutex.Lock()
 	fileChanges := make([]models.FileChangeInfo, len(s.fileChangeEvents))
 	copy(fileChanges, s.fileChangeEvents)
-	s.fileChangeEvents = nil // Clear the events
+	// Only clear events if aggregation is disabled (let aggregation worker handle them otherwise)
+	if s.gCfg.MonitorConfig.AggregationIntervalSeconds <= 0 {
+		s.fileChangeEvents = nil // Clear the events only if aggregation is disabled
+	}
 	s.fileChangeEventsMutex.Unlock()
 
 	// Send aggregated errors (but not file changes - those will be in cycle complete)
@@ -707,6 +675,16 @@ func (s *MonitoringService) TriggerCycleEndReport() {
 	s.changedURLsInCycle = make(map[string]struct{})
 	s.changedURLsInCycleMutex.Unlock()
 	s.logger.Info().Msg("Cleared changed URLs list for the next monitoring cycle.")
+}
+
+// setParentContext allows setting a parent context for proper interrupt detection
+func (s *MonitoringService) SetParentContext(parentCtx context.Context) {
+	s.logger.Debug().Msg("Setting parent context for MonitoringService")
+	// Cancel the current service context and create a new one derived from the parent
+	if s.serviceCancelFunc != nil {
+		s.serviceCancelFunc()
+	}
+	s.serviceCtx, s.serviceCancelFunc = context.WithCancel(parentCtx)
 }
 
 // getURLCheckMutex returns a mutex for the specific URL to ensure thread-safety
