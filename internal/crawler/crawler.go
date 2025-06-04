@@ -297,6 +297,7 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 
 	if !exists {
 		// HEAD check before queueing
+		// TODO: use http_client.go
 		headReq, err := http.NewRequest("HEAD", normalizedAbsURL, nil)
 		if err == nil {
 			client := &http.Client{Timeout: cr.RequestTimeout}
