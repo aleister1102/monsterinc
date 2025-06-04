@@ -47,67 +47,6 @@ func NormalizeURL(rawURL string) (string, error) {
 	return finalURL, nil
 }
 
-// ValidateURL checks if a URL is valid by attempting to normalize it.
-func ValidateURL(rawURL string) error {
-	_, err := NormalizeURL(rawURL)
-	return err
-}
-
-// ValidateURLs validates a slice of URLs.
-func ValidateURLs(urls []string) map[string]error {
-	errorsMap := make(map[string]error)
-	for _, u := range urls {
-		if err := ValidateURL(u); err != nil {
-			errorsMap[u] = err
-		}
-	}
-	return errorsMap
-}
-
-// NormalizeURLs normalizes a slice of URLs.
-func NormalizeURLs(urls []string) (map[string]string, map[string]error) {
-	normalizedMap := make(map[string]string)
-	errorsMap := make(map[string]error)
-	for _, u := range urls {
-		normalizedURL, err := NormalizeURL(u)
-		if err != nil {
-			errorsMap[u] = err
-			continue
-		}
-		normalizedMap[u] = normalizedURL
-	}
-	return normalizedMap, errorsMap
-}
-
-// IsValidURL is a utility function for a quick validity check.
-func IsValidURL(rawURL string) bool {
-	return ValidateURL(rawURL) == nil
-}
-
-// GetBaseURL returns the base part of a URL (e.g., "http://example.com").
-// Uses NormalizeURL to ensure the input is processed correctly.
-func GetBaseURL(rawURL string) (string, error) {
-	normalizedURLString, err := NormalizeURL(rawURL)
-	if err != nil {
-		return "", err
-	}
-	// Parsing here is guaranteed to succeed because NormalizeURL already did.
-	parsedURL, _ := url.Parse(normalizedURLString)
-	return fmt.Sprintf("%s://%s", parsedURL.Scheme, parsedURL.Host), nil
-}
-
-// IsDomainOrSubdomain checks if domain is equal to baseDomain or is a subdomain of baseDomain.
-func IsDomainOrSubdomain(domain, baseDomain string) bool {
-	// Normalize to lowercase for case-insensitive comparison.
-	domain = strings.ToLower(strings.TrimSpace(domain))
-	baseDomain = strings.ToLower(strings.TrimSpace(baseDomain))
-
-	if domain == "" || baseDomain == "" {
-		return false
-	}
-	return domain == baseDomain || strings.HasSuffix(domain, "."+baseDomain)
-}
-
 // ResolveURL resolves a (possibly relative) URL string against a base URL.
 // The returned URL is also normalized.
 func ResolveURL(href string, base *url.URL) (string, error) {
@@ -260,25 +199,6 @@ func SanitizeFilename(input string) string {
 	return name
 }
 
-// ExtractHostname extracts hostname from a URL string
-func ExtractHostname(urlString string) (string, error) {
-	if strings.TrimSpace(urlString) == "" {
-		return "", fmt.Errorf("URL string is empty")
-	}
-
-	parsedURL, err := url.Parse(urlString)
-	if err != nil {
-		return "", fmt.Errorf("could not parse URL '%s': %w", urlString, err)
-	}
-
-	hostname := parsedURL.Hostname()
-	if hostname == "" {
-		return "", fmt.Errorf("URL has no hostname component: %s", urlString)
-	}
-
-	return strings.ToLower(strings.TrimSpace(hostname)), nil
-}
-
 // ExtractHostnameWithPort extracts hostname:port from a URL string
 // For URLs without explicit port, it returns hostname:default_port (80 for http, 443 for https)
 func ExtractHostnameWithPort(urlString string) (string, error) {
@@ -312,63 +232,6 @@ func ExtractHostnameWithPort(urlString string) (string, error) {
 	return strings.ToLower(strings.TrimSpace(hostname)) + ":" + port, nil
 }
 
-// ExtractHostnamesFromURLs extracts unique hostnames from a list of URLs
-func ExtractHostnamesFromURLs(urls []string) ([]string, map[string]error) {
-	hostnameSet := make(map[string]bool)
-	errors := make(map[string]error)
-
-	for _, urlString := range urls {
-		if strings.TrimSpace(urlString) == "" {
-			continue
-		}
-
-		hostname, err := ExtractHostname(urlString)
-		if err != nil {
-			errors[urlString] = err
-			continue
-		}
-
-		hostnameSet[hostname] = true
-	}
-
-	// Convert map to slice
-	hostnames := make([]string, 0, len(hostnameSet))
-	for hostname := range hostnameSet {
-		hostnames = append(hostnames, hostname)
-	}
-
-	return hostnames, errors
-}
-
-// MergeHostnames merges two slices of hostnames, removing duplicates
-func MergeHostnames(existing, additional []string) []string {
-	hostnameSet := make(map[string]bool)
-
-	// Add existing hostnames
-	for _, hostname := range existing {
-		normalizedHostname := strings.ToLower(strings.TrimSpace(hostname))
-		if normalizedHostname != "" {
-			hostnameSet[normalizedHostname] = true
-		}
-	}
-
-	// Add additional hostnames
-	for _, hostname := range additional {
-		normalizedHostname := strings.ToLower(strings.TrimSpace(hostname))
-		if normalizedHostname != "" {
-			hostnameSet[normalizedHostname] = true
-		}
-	}
-
-	// Convert back to slice
-	mergedHostnames := make([]string, 0, len(hostnameSet))
-	for hostname := range hostnameSet {
-		mergedHostnames = append(mergedHostnames, hostname)
-	}
-
-	return mergedHostnames
-}
-
 // ValidateURLFormat validates URL format using net/url parsing (for config validation)
 func ValidateURLFormat(rawURL string) error {
 	trimmedURL := strings.TrimSpace(rawURL)
@@ -382,46 +245,6 @@ func ValidateURLFormat(rawURL string) error {
 	}
 
 	return nil
-}
-
-// ValidateURLFormats validates a slice of URLs using ParseRequestURI (for config validation)
-func ValidateURLFormats(urls []string) map[string]error {
-	errors := make(map[string]error)
-	for _, u := range urls {
-		if err := ValidateURLFormat(u); err != nil {
-			errors[u] = err
-		}
-	}
-	return errors
-}
-
-// IsAbsoluteURL checks if a URL is absolute (has scheme and hostname)
-func IsAbsoluteURL(urlString string) bool {
-	if strings.TrimSpace(urlString) == "" {
-		return false
-	}
-
-	parsedURL, err := url.Parse(urlString)
-	if err != nil {
-		return false
-	}
-
-	return parsedURL.IsAbs() && parsedURL.Hostname() != ""
-}
-
-// HasValidScheme checks if URL has http or https scheme
-func HasValidScheme(urlString string) bool {
-	if strings.TrimSpace(urlString) == "" {
-		return false
-	}
-
-	parsedURL, err := url.Parse(urlString)
-	if err != nil {
-		return false
-	}
-
-	scheme := strings.ToLower(parsedURL.Scheme)
-	return scheme == "http" || scheme == "https"
 }
 
 // SanitizeHostnamePort creates a safe filename string from hostname:port format.
