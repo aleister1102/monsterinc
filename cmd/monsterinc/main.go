@@ -26,7 +26,7 @@ import (
 func main() {
 	fmt.Println("MonsterInc Crawler starting...")
 
-	flags := parseFlags()
+	flags := ParseFlags()
 
 	gCfg, err := loadConfiguration(flags)
 	if err != nil {
@@ -54,7 +54,7 @@ func main() {
 
 	scanner := initializeScanner(gCfg, zLogger)
 
-	ms, err := initializeMonitoringService(gCfg, flags.monitorTargetsFile, zLogger, notificationHelper)
+	ms, err := initializeMonitoringService(gCfg, flags.MonitorTargetsFile, zLogger, notificationHelper)
 	if err != nil {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize monitoring service.")
 	}
@@ -73,18 +73,18 @@ func main() {
 
 // loadConfiguration loads the global configuration from the specified file,
 // Refactored ✅
-func loadConfiguration(flags appFlags) (*config.GlobalConfig, error) {
-	gCfg, err := config.LoadGlobalConfig(flags.globalConfigFile)
+func loadConfiguration(flags AppFlags) (*config.GlobalConfig, error) {
+	gCfg, err := config.LoadGlobalConfig(flags.GlobalConfigFile)
 	if err != nil {
-		return nil, fmt.Errorf("could not load global config using path '%s': %w", flags.globalConfigFile, err)
+		return nil, fmt.Errorf("could not load global config using path '%s': %w", flags.GlobalConfigFile, err)
 	}
 	if gCfg == nil {
 		return nil, fmt.Errorf("loaded configuration is nil, though no error was reported. This should not happen")
 	}
 	fmt.Println("[INFO] Main: Global configuration loaded successfully.")
 
-	if flags.mode != "" {
-		gCfg.Mode = flags.mode
+	if flags.Mode != "" {
+		gCfg.Mode = flags.Mode
 		fmt.Printf("[INFO] Main: Mode set to '%s' from command line flag.\n", gCfg.Mode)
 	}
 
@@ -210,22 +210,21 @@ func setupSignalHandling(
 func runApplicationLogic(
 	ctx context.Context,
 	gCfg *config.GlobalConfig,
-	flags appFlags,
+	flags AppFlags,
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	scanner *scanner.Scanner,
-	monitoringService *monitor.MonitoringService,
-	schedulerPtr **scheduler.Scheduler,
+	monitoringService *monitor.MonitoringService, schedulerPtr **scheduler.Scheduler,
 ) {
 	scanTargetsFile := ""
-	if flags.scanTargetsFile != "" {
-		scanTargetsFile = flags.scanTargetsFile
+	if flags.ScanTargetsFile != "" {
+		scanTargetsFile = flags.ScanTargetsFile
 		zLogger.Info().Str("file", scanTargetsFile).Msg("Using -st for main scan targets.")
 	}
 
 	monitorTargetsFile := ""
-	if flags.monitorTargetsFile != "" {
-		monitorTargetsFile = flags.monitorTargetsFile
+	if flags.MonitorTargetsFile != "" {
+		monitorTargetsFile = flags.MonitorTargetsFile
 		zLogger.Info().Str("file", monitorTargetsFile).Msg("Using -mt for monitor targets.")
 	}
 
