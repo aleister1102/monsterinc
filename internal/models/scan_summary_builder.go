@@ -81,12 +81,6 @@ func (b *ScanSummaryDataBuilder) WithErrorMessages(errorMessages []string) *Scan
 	return b
 }
 
-// WithComponent sets the Component for the ScanSummaryData.
-func (b *ScanSummaryDataBuilder) WithComponent(component string) *ScanSummaryDataBuilder {
-	b.summary.Component = component
-	return b
-}
-
 // WithRetriesAttempted sets the RetriesAttempted for the ScanSummaryData.
 func (b *ScanSummaryDataBuilder) WithRetriesAttempted(retriesAttempted int) *ScanSummaryDataBuilder {
 	b.summary.RetriesAttempted = retriesAttempted
