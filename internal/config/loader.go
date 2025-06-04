@@ -60,12 +60,3 @@ func GetConfigPath(configFilePathFlag string) string {
 	}
 	return "" // No config file found
 }
-
-// Helper function to check if a file exists
-func fileExists(filename string) bool {
-	info, err := os.Stat(filename)
-	if os.IsNotExist(err) {
-		return false
-	}
-	return !info.IsDir()
-}

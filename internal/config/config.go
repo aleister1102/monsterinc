@@ -9,7 +9,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// --- Default Values ---
 const (
 	// Reporter Defaults
 	DefaultReporterOutputDir    = "reports/scan"
@@ -72,8 +71,6 @@ const (
 	DefaultSchedulerRetryAttempts       = 2
 	DefaultSchedulerSQLiteDBPath        = "database/scheduler/scheduler_history.db"
 )
-
-// --- Nested Configuration Structs ---
 
 type InputConfig struct {
 	InputURLs []string `json:"input_urls,omitempty" yaml:"input_urls,omitempty" validate:"omitempty,dive,url"`
@@ -455,48 +452,6 @@ func LoadGlobalConfig(providedPath string) (*GlobalConfig, error) { // providedP
 	}
 
 	return cfg, nil
-}
-
-// SaveGlobalConfig saves the global configuration to the given file path.
-// It supports both JSON and YAML formats based on file extension.
-func SaveGlobalConfig(cfg *GlobalConfig, filePath string) error {
-	if cfg == nil {
-		return fmt.Errorf("configuration is nil")
-	}
-
-	if filePath == "" {
-		return fmt.Errorf("file path is empty")
-	}
-
-	// Ensure directory exists
-	dir := filepath.Dir(filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory '%s': %w", dir, err)
-	}
-
-	ext := filepath.Ext(filePath)
-	isYAML := ext == ".yaml" || ext == ".yml"
-
-	var data []byte
-	var err error
-
-	if isYAML {
-		data, err = yaml.Marshal(cfg)
-		if err != nil {
-			return fmt.Errorf("failed to marshal configuration to YAML: %w", err)
-		}
-	} else {
-		data, err = json.MarshalIndent(cfg, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
-		}
-	}
-
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write configuration file '%s': %w", filePath, err)
-	}
-
-	return nil
 }
 
 // DiffReporterConfig holds specific settings for diff reports.
