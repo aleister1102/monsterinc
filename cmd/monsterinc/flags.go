@@ -6,14 +6,14 @@ import (
 	"os"
 )
 
-type appFlags struct {
-	scanTargetsFile    string
-	monitorTargetsFile string
-	globalConfigFile   string
-	mode               string
+type AppFlags struct {
+	ScanTargetsFile    string
+	MonitorTargetsFile string
+	GlobalConfigFile   string
+	Mode               string
 }
 
-func parseFlags() appFlags {
+func ParseFlags() AppFlags {
 	scanTargetsFile := flag.String("scan-targets", "", "Path to a text file containing seed URLs for the main scan. Used if --diff-target-file is not set. This flag is for backward compatibility.")
 	scanTargetsFileAlias := flag.String("st", "", "Alias for -scan-targets")
 
@@ -25,39 +25,38 @@ func parseFlags() appFlags {
 
 	modeFlag := flag.String("mode", "", "Mode to run the tool: onetime or automated (overrides config file if set)")
 	modeFlagAlias := flag.String("m", "", "Alias for --mode")
-
 	flag.Parse()
 
-	flags := appFlags{}
+	flags := AppFlags{}
 
 	if *scanTargetsFile != "" {
-		flags.scanTargetsFile = *scanTargetsFile
+		flags.ScanTargetsFile = *scanTargetsFile
 	} else if *scanTargetsFileAlias != "" {
-		flags.scanTargetsFile = *scanTargetsFileAlias
+		flags.ScanTargetsFile = *scanTargetsFileAlias
 	}
 
 	if *monitorTargetsFile != "" {
-		flags.monitorTargetsFile = *monitorTargetsFile
+		flags.MonitorTargetsFile = *monitorTargetsFile
 	} else if *monitorTargetsFileAlias != "" {
-		flags.monitorTargetsFile = *monitorTargetsFileAlias
+		flags.MonitorTargetsFile = *monitorTargetsFileAlias
 	}
 
 	if *globalConfigFile != "" {
-		flags.globalConfigFile = *globalConfigFile
+		flags.GlobalConfigFile = *globalConfigFile
 	} else if *globalConfigFileAlias != "" {
-		flags.globalConfigFile = *globalConfigFileAlias
+		flags.GlobalConfigFile = *globalConfigFileAlias
 	}
 
 	if *modeFlag != "" {
-		flags.mode = *modeFlag
+		flags.Mode = *modeFlag
 	} else if *modeFlagAlias != "" {
-		flags.mode = *modeFlagAlias
+		flags.Mode = *modeFlagAlias
 	}
 
 	// Auto-set mode to automated if using monitor-specific flags
-	if flags.mode == "" {
-		if flags.monitorTargetsFile != "" {
-			flags.mode = "automated"
+	if flags.Mode == "" {
+		if flags.MonitorTargetsFile != "" {
+			flags.Mode = "automated"
 			fmt.Printf("[INFO] Mode automatically set to 'automated' due to monitor-related flags\n")
 		} else {
 			fmt.Fprintln(os.Stderr, "[FATAL] --mode argument is required (onetime or automated)")
@@ -75,8 +74,8 @@ func parseFlags() appFlags {
 }
 
 // validateFlags validates command line flag combinations
-func validateFlags(flags appFlags) error {
-	if flags.monitorTargetsFile != "" && flags.mode == "onetime" {
+func validateFlags(flags AppFlags) error {
+	if flags.MonitorTargetsFile != "" && flags.Mode == "onetime" {
 		return fmt.Errorf("-mt (monitor targets) cannot be used with mode 'onetime'. Use 'automated' mode or omit mode flag")
 	}
 

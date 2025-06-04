@@ -237,7 +237,7 @@ func (s *Scheduler) executeScanCycle(
 
 	//? Why need to manage monitor service tasks?
 	var monitorWG sync.WaitGroup
-	s.manageMonitorServiceTasks(ctx, &monitorWG, scanSessionID, determinedTargetSourceFromLoad)
+	s.manageMonitorServiceTasks(ctx, &monitorWG)
 
 	var scanWorkflowSummary models.ScanSummaryData
 

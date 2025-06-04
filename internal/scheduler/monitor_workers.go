@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -12,15 +13,16 @@ type MonitorJob struct {
 }
 
 // initializeMonitorWorkers initializes and starts monitor workers
-func (s *Scheduler) initializeMonitorWorkers() {
+func (s *Scheduler) initializeMonitorWorkers(ctx context.Context) {
+	// Check if interval is configured and valid
 	if s.globalConfig.MonitorConfig.CheckIntervalSeconds <= 0 {
-		s.logger.Warn().
+		s.logger.Error().
 			Int("configured_interval", s.globalConfig.MonitorConfig.CheckIntervalSeconds).
 			Msg("Monitor CheckIntervalSeconds is not configured or invalid, monitor scheduling disabled.")
 		return
 	}
 
-	// Initialize monitor worker channel
+	// Check if the number of monitor workers are configured and valid
 	numWorkers := s.globalConfig.MonitorConfig.MaxConcurrentChecks
 	if numWorkers <= 0 {
 		numWorkers = 1 // Default to 1 worker if not configured or invalid
@@ -31,7 +33,7 @@ func (s *Scheduler) initializeMonitorWorkers() {
 	}
 
 	// Start monitor workers
-	s.monitorWorkerChan = make(chan MonitorJob, numWorkers)
+	s.monitorWorkerChan = make(chan MonitorJob, numWorkers) // create a buffered channel for monitor jobs
 	s.logger.Info().Int("num_workers", numWorkers).Msg("Starting monitor workers")
 	for i := range numWorkers {
 		s.monitorWorkerWG.Add(1) // Used for waiting for all workers to finish
@@ -40,18 +42,18 @@ func (s *Scheduler) initializeMonitorWorkers() {
 
 	// Start monitor ticker for periodic monitoring
 	intervalDuration := time.Duration(s.globalConfig.MonitorConfig.CheckIntervalSeconds) * time.Second
-	s.logger.Info().Dur("interval", intervalDuration).Msg("Starting monitor ticker.")
 	s.monitorTicker = time.NewTicker(intervalDuration)
 	s.monitorWorkerWG.Add(1) // Add to WG for the ticker goroutine as well
 
 	go func() {
 		defer s.monitorWorkerWG.Done()
-		s.logger.Info().Msg("Monitor ticker goroutine started.")
+
+		s.logger.Info().Dur("interval", intervalDuration).Msg("Monitor ticker goroutine started.")
 		for {
 			select {
 			case <-s.monitorTicker.C:
 				s.logger.Info().Msg("Monitor ticker event received.")
-				s.executeMonitoringCycle("periodic")
+				s.executeMonitoringCycle(ctx, "periodic")
 			case <-s.stopChan: // Listen for the scheduler's main stop signal
 				s.logger.Info().Msg("Monitor ticker stopping due to scheduler's stop signal.")
 				s.monitorTicker.Stop() // Ensure ticker is stopped
@@ -93,7 +95,7 @@ func (s *Scheduler) monitorWorker(id int) {
 }
 
 // executeMonitoringCycle performs a monitoring cycle for all monitored URLs
-func (s *Scheduler) executeMonitoringCycle(cycleType string) {
+func (s *Scheduler) executeMonitoringCycle(ctx context.Context, cycleType string) {
 	// Check if monitoring service is available
 	if s.monitoringService == nil {
 		s.logger.Warn().Str("cycle_type", cycleType).Msg("Scheduler: Monitoring service not available for cycle. Skipping.")
@@ -115,6 +117,8 @@ func (s *Scheduler) executeMonitoringCycle(cycleType string) {
 		// Do not trigger cycle end report if no targets were checked.
 		return
 	}
+
+	s.notificationHelper.SendInitialMonitoredURLsNotification(ctx, targetsToCheck)
 
 	s.logger.Info().Str("cycle_type", cycleType).Int("targets", len(targetsToCheck)).Msg("Scheduler: Starting monitor cycle.")
 

@@ -103,32 +103,21 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.stopChan = make(chan struct{})
 	s.mu.Unlock()
 
-	// Check if the input file for monitor targets is provided
-	if s.monitorTargetsFile != "" {
+	// Initialize and fire up the initial monitoring cycle
+	if s.monitorTargetsFile != "" && s.monitoringService != nil {
 		s.logger.Info().Str("monitor_targets_file", s.monitorTargetsFile).Msg("Scheduler: Monitor targets file provided, will perform monitoring.")
+
+		// This initializes workers and starts the periodic ticker for monitoring.
+		s.initializeMonitorWorkers(ctx)
+
+		// Start the initial monitoring cycle
+		s.logger.Info().Msg("Starting the initial monitoring cycle.")
+		s.executeMonitoringCycle(ctx, "initial")
 	} else {
 		s.logger.Info().Msg("Scheduler: No monitor targets file provided, monitoring will not be initialized.")
 	}
 
-	s.initializeMonitorWorkers() // This initializes workers and starts the periodic ticker for monitoring.
-
-	// If monitoring service is active, start it.
-	// Its Start() method will handle adding initial URLs and performing the first cycle.
-	if s.monitoringService != nil {
-		// URLs should be loaded into monitoringService by initializeMonitorWorkers (if monitorTargetsFile is set)
-		// or could be added by other means if the design evolves.
-		s.logger.Info().Msg("Starting the initial monitoring cycle.")
-		s.executeMonitoringCycle("initial-startup")
-	}
-
-	// // Check if the input file for scan targets is provided
-	// if s.scanTargetsFile == "" {
-	// 	s.logger.Info().Msg("Scheduler: No scan targets provided. Running in monitor-only mode for scheduled tasks.")
-	// 	return nil
-	// }
-	//TODO: do not run scans if no scan targets are provided, only monitoring. The current logic make the main goroutine exits before the monitoring service completes its cycles
-
-	// Start the main loop for scheduled scans.
+	// Main loop used for running scans and handling scheduling
 	s.wg.Add(1)
 	go s.runMainLoop(ctx)
 
@@ -248,7 +237,7 @@ func (s *Scheduler) waitForNextScan(ctx context.Context) (interrupted bool, err 
 
 		select {
 		case <-time.After(sleepDuration):
-			return false, nil
+			return false, nil // return false to indicate no interruption and back to the main loop
 		case <-s.stopChan:
 			s.logger.Info().Msg("Scheduler stopped during sleep period.")
 			return true, nil
@@ -338,7 +327,7 @@ func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlU
 // manageMonitorServiceTasks handles adding URLs to the monitoring service,
 // sending start notifications, and triggering an initial monitoring cycle.
 // It uses a WaitGroup to allow the caller to wait for these initial tasks.
-func (s *Scheduler) manageMonitorServiceTasks(ctx context.Context, monitorWG *sync.WaitGroup, scanSessionID string, determinedSource string) {
+func (s *Scheduler) manageMonitorServiceTasks(ctx context.Context, monitorWG *sync.WaitGroup) {
 	if s.monitoringService == nil {
 		s.logger.Warn().Msg("Scheduler: Monitoring service is not available in manageMonitorServiceTasks, skipping monitor workflow.")
 		return
