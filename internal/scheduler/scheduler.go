@@ -57,6 +57,7 @@ func NewScheduler(
 ) (*Scheduler, error) {
 	schedulerLogger := logger.With().Str("module", "Scheduler").Logger()
 
+	// TODO: move the logic for creating the database to a separate function and only invoke when the scanner is needed
 	if cfg.SchedulerConfig.SQLiteDBPath == "" {
 		schedulerLogger.Error().Msg("SQLiteDBPath is not configured in SchedulerConfig")
 		return nil, fmt.Errorf("sqliteDBPath is required for scheduler")
