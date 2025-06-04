@@ -558,66 +558,6 @@ func FormatAggregatedMonitorErrorsMessage(errors []models.MonitorFetchErrorInfo,
 		Build()
 }
 
-// createStandardFooter creates a standardized footer with optional version info
-func createStandardFooter(baseText string) *models.DiscordEmbedFooter {
-	return &models.DiscordEmbedFooter{
-		Text: baseText,
-		// IconURL: monsterIncIconURL, // Uncomment if you want footer icon
-	}
-}
-
-// createStatusField creates a standardized status field with emoji and text
-func createStatusField(status string, emoji string, inline bool) models.DiscordEmbedField {
-	return models.DiscordEmbedField{
-		Name:   fieldNameStatus,
-		Value:  fmt.Sprintf("%s %s", emoji, status),
-		Inline: inline,
-	}
-}
-
-// createURLField creates a standardized URL field with truncation
-func createURLField(fieldName, url string, maxLength int, inline bool) models.DiscordEmbedField {
-	return models.DiscordEmbedField{
-		Name:   fieldName,
-		Value:  truncateString(url, maxLength),
-		Inline: inline,
-	}
-}
-
-// createErrorField creates a standardized error field with proper formatting
-func createErrorField(errors []string, maxErrorsToShow int) models.DiscordEmbedField {
-	if len(errors) == 0 {
-		return models.DiscordEmbedField{}
-	}
-
-	var errorMsg strings.Builder
-	for i, e := range errors {
-		if i >= maxErrorsToShow {
-			errorMsg.WriteString(fmt.Sprintf("\n... and %d more errors", len(errors)-maxErrorsToShow))
-			break
-		}
-		if i > 0 {
-			errorMsg.WriteString("\n")
-		}
-		errorMsg.WriteString(fmt.Sprintf("• %s", truncateString(e, 200)))
-	}
-
-	return models.DiscordEmbedField{
-		Name:   fieldNameErrors,
-		Value:  truncateString(errorMsg.String(), maxFieldValueLength),
-		Inline: false,
-	}
-}
-
-// createTimestampField creates a standardized timestamp field
-func createTimestampField(fieldName string, timestamp time.Time, inline bool) models.DiscordEmbedField {
-	return models.DiscordEmbedField{
-		Name:   fieldName,
-		Value:  timestamp.Format(timestampFormatReadable),
-		Inline: inline,
-	}
-}
-
 // createCountField creates a standardized count field with formatting
 func createCountField(fieldName string, count int, unit string, inline bool) models.DiscordEmbedField {
 	value := fmt.Sprintf("**%d** %s", count, unit)
@@ -767,61 +707,6 @@ func createSummaryListField(items []string, itemNamePlural string, maxToShow int
 		builder.WriteString(fmt.Sprintf("... and %d more %s.\n", remaining, itemNamePlural))
 	}
 	return strings.TrimSuffix(builder.String(), "\n")
-}
-
-// createBulletedListField formats a list of strings into one or more embed fields.
-// It tries to fit as many items as possible into a field without exceeding Discord's limits.
-// If the list is too long for one field, it creates subsequent fields labeled "(cont.)".
-func createBulletedListFields(title string, items []string, maxItemsPerField int, maxTotalLengthPerField int, inline bool) []models.DiscordEmbedField {
-	if len(items) == 0 {
-		return []models.DiscordEmbedField{}
-	}
-
-	var fields []models.DiscordEmbedField
-	var currentFieldBuilder strings.Builder
-	var itemsInCurrentField int
-
-	baseTitle := title
-
-	for i, item := range items {
-		line := fmt.Sprintf("- %s\n", truncateString(item, maxTotalLengthPerField-5)) // -5 for "- "
-
-		if currentFieldBuilder.Len()+len(line) > maxTotalLengthPerField || itemsInCurrentField >= maxItemsPerField {
-			// Finalize current field
-			fieldValue := strings.TrimSuffix(currentFieldBuilder.String(), "\n")
-			if fieldValue == "" { // Avoid empty field if first item itself is too long
-				fieldValue = "- Item(s) too long to display individually."
-			}
-			fields = append(fields, models.DiscordEmbedField{
-				Name:   baseTitle,
-				Value:  fieldValue,
-				Inline: inline,
-			})
-
-			// Start new field
-			currentFieldBuilder.Reset()
-			itemsInCurrentField = 0
-			baseTitle = fmt.Sprintf("%s (cont.)", title) // Subsequent fields get a "(cont.)"
-		}
-
-		currentFieldBuilder.WriteString(line)
-		itemsInCurrentField++
-
-		// If it's the last item and it hasn't triggered a new field creation, but current field has content
-		if i == len(items)-1 && currentFieldBuilder.Len() > 0 {
-			break // The loop will end, and the last field will be added after the loop
-		}
-	}
-
-	// Add the last or only field
-	if currentFieldBuilder.Len() > 0 {
-		fields = append(fields, models.DiscordEmbedField{
-			Name:   baseTitle,
-			Value:  strings.TrimSuffix(currentFieldBuilder.String(), "\n"),
-			Inline: inline,
-		})
-	}
-	return fields
 }
 
 // FormatSecondaryReportPartMessage creates a minimal Discord message payload for a secondary part of a multi-part report.
