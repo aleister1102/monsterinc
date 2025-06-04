@@ -2,11 +2,9 @@ package urlhandler
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/aleister1102/monsterinc/internal/common"
-
 	"github.com/rs/zerolog"
 )
 
@@ -18,95 +16,76 @@ var (
 	ErrReadingFile    = errors.New("error reading input file")
 )
 
-// ReadURLsFromFile reads a file line by line, normalizes each line as a URL,
-// and returns a slice of valid, normalized URLs.
+// ReadURLsFromFile reads URLs from a file and returns them as a slice of strings
 func ReadURLsFromFile(filePath string, logger zerolog.Logger) ([]string, error) {
-	fileLogger := logger.With().Str("filePath", filePath).Logger()
+	logger.Debug().Str("file", filePath).Msg("Reading URLs from file")
 
-	// Use common file manager for file operations
-	fileManager := common.NewFileManager(fileLogger)
+	// Use FileManager for better file handling
+	fileManager := common.NewFileManager(logger)
 
-	// Check if file exists and get info
+	// Check if file exists
 	if !fileManager.FileExists(filePath) {
-		fileLogger.Error().Msg("Input file not found")
-		return nil, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
+		return nil, common.WrapError(common.ErrNotFound, "file not found: "+filePath)
 	}
 
-	info, err := fileManager.GetFileInfo(filePath)
+	// Get file info for validation
+	fileInfo, err := fileManager.GetFileInfo(filePath)
 	if err != nil {
-		fileLogger.Error().Err(err).Msg("Error getting file info")
-		return nil, fmt.Errorf("error checking file %s: %v", filePath, err)
+		return nil, common.WrapError(err, "failed to get file info for: "+filePath)
 	}
 
-	if info.IsDir {
-		fileLogger.Error().Msg("Input path is a directory, not a file")
-		return nil, fmt.Errorf("input path is a directory, not a file: %s", filePath)
+	if fileInfo.IsDir {
+		return nil, common.NewValidationError("path", filePath, "is a directory, not a file")
 	}
 
-	if info.Size == 0 {
-		fileLogger.Warn().Msg("Input file is empty (0 bytes)")
-		return nil, fmt.Errorf("%w: %s (size is 0)", ErrFileEmpty, filePath)
+	if fileInfo.Size == 0 {
+		return nil, common.NewValidationError("file_size", fileInfo.Size, "file is empty")
 	}
 
-	// Read file lines using common file utilities
-	readOptions := common.DefaultFileReadOptions()
-	readOptions.LineBased = true
-	readOptions.TrimLines = true
-	readOptions.SkipEmpty = true
+	// Read file using FileManager
+	opts := common.DefaultFileReadOptions()
+	opts.LineBased = true
+	opts.TrimLines = true
+	opts.SkipEmpty = true
 
-	lines, err := fileManager.ReadLines(filePath, readOptions)
+	content, err := fileManager.ReadFile(filePath, opts)
 	if err != nil {
-		// Check for specific error types
-		if errors.Is(err, common.ErrNotFound) {
-			fileLogger.Error().Err(err).Msg("Input file not found")
-			return nil, fmt.Errorf("%w: %s", ErrFileNotFound, filePath)
+		return nil, common.WrapError(err, "failed to read file: "+filePath)
+	}
+
+	// Parse URLs from content
+	lines := strings.Split(string(content), "\n")
+	var urls []string
+
+	for lineNum, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue // Skip empty lines and comments
 		}
 
-		// Check if it's a permission error by examining the error message
-		if strings.Contains(err.Error(), "permission denied") {
-			fileLogger.Error().Err(err).Msg("Permission denied reading input file")
-			return nil, fmt.Errorf("%w: %s", ErrFilePermission, filePath)
-		}
-
-		fileLogger.Error().Err(err).Msg("Error reading input file")
-		return nil, fmt.Errorf("%w: %s (cause: %v)", ErrReadingFile, filePath, err)
-	}
-
-	var normalizedURLs []string
-	totalLinesRead := len(lines)
-	successfullyNormalizedCount := 0
-	skippedCount := 0
-	hasValidURL := false
-
-	fileLogger.Debug().Int("total_lines", totalLinesRead).Msg("Starting processing of file")
-
-	for lineNumber, line := range lines {
-		if line == "" {
-			fileLogger.Debug().Int("lineNumber", lineNumber+1).Msg("Skipping empty line")
+		// Validate URL format
+		if err := ValidateURLFormat(trimmed); err != nil {
+			logger.Warn().
+				Str("file", filePath).
+				Int("line", lineNum+1).
+				Str("url", trimmed).
+				Err(err).
+				Msg("Skipping invalid URL")
 			continue
 		}
 
-		normalizedURL, normErr := NormalizeURL(line) // Assuming NormalizeURL doesn't need a logger or handles its own
-		if normErr != nil {
-			fileLogger.Warn().Err(normErr).Int("lineNumber", lineNumber+1).Str("originalURL", line).Msg("Error normalizing URL, skipping")
-			skippedCount++
-			continue
-		}
-		normalizedURLs = append(normalizedURLs, normalizedURL)
-		successfullyNormalizedCount++
-		hasValidURL = true
+		urls = append(urls, trimmed)
 	}
 
-	fileLogger.Debug().
-		Int("totalLinesRead", totalLinesRead).
-		Int("normalizedCount", successfullyNormalizedCount).
-		Int("skippedCount", skippedCount).
-		Msg("Finished processing file")
-
-	if !hasValidURL && totalLinesRead > 0 {
-		fileLogger.Warn().Int("totalLinesRead", totalLinesRead).Msg("Input file contained lines but no valid URLs were found")
-		return nil, fmt.Errorf("%w: %s (no valid URLs found after processing %d lines)", ErrFileEmpty, filePath, totalLinesRead)
+	if len(urls) == 0 {
+		return nil, common.NewValidationError("content", filePath, "no valid URLs found after processing "+string(rune(len(lines)))+" lines")
 	}
 
-	return normalizedURLs, nil
+	logger.Info().
+		Str("file", filePath).
+		Int("total_lines", len(lines)).
+		Int("valid_urls", len(urls)).
+		Msg("Successfully loaded URLs from file")
+
+	return urls, nil
 }

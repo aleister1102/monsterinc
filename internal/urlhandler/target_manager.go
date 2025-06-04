@@ -1,109 +1,98 @@
 package urlhandler
 
 import (
-	"fmt"
-	"strings"
-
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
 
-// TargetManager handles loading, normalizing, and selecting targets based on configuration.
+// TargetManager handles loading and managing targets from various sources
 type TargetManager struct {
 	logger zerolog.Logger
 	// We can add configuration here if needed later, e.g., for concurrent processing
 }
 
-// NewTargetManager creates a new TargetManager.
+// NewTargetManager creates a new TargetManager instance
 func NewTargetManager(logger zerolog.Logger) *TargetManager {
-	return &TargetManager{logger: logger}
+	return &TargetManager{
+		logger: logger.With().Str("component", "TargetManager").Logger(),
+	}
 }
 
-// LoadAndSelectTargets loads target URLs from either a file or configuration and normalizes them.
-// Priority: inputFileOption (from -urlfile flag) > cfgInputFile (from config) > inputConfigUrls (from config)
-//
-// Returns: (normalized Targets slice, source description, error)
+// LoadAndSelectTargets loads targets from the best available source
 func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfigUrls []string, cfgInputFile string) ([]models.Target, string, error) {
-	var rawURLs []string
+	var targets []models.Target
 	var determinedSource string
-	var err error
 
-	// 1. Use inputFileOption (from command line flag) if provided
+	// Priority 1: Command-line file option
 	if inputFileOption != "" {
-		tm.logger.Debug().Str("file", inputFileOption).Msg("Using URL file from command line argument.")
-		rawURLs, err = ReadURLsFromFile(inputFileOption, tm.logger)
+		tm.logger.Info().Str("file", inputFileOption).Msg("Loading targets from command-line file option")
+		urls, err := ReadURLsFromFile(inputFileOption, tm.logger)
+		if err != nil {
+			return nil, determinedSource, common.WrapError(err, "failed to load URLs from file '"+inputFileOption+"'")
+		}
+		targets = tm.convertURLsToTargets(urls)
 		determinedSource = inputFileOption
+		tm.logger.Info().Int("count", len(targets)).Str("source", determinedSource).Msg("Loaded targets from command-line file")
+		return targets, determinedSource, nil
+	}
 
+	// Priority 2: Config input_urls
+	if len(inputConfigUrls) > 0 {
+		tm.logger.Info().Int("count", len(inputConfigUrls)).Msg("Using targets from config input_urls")
+		targets = tm.convertURLsToTargets(inputConfigUrls)
+		determinedSource = "config_input_urls"
+		tm.logger.Info().Int("count", len(targets)).Str("source", determinedSource).Msg("Loaded targets from config input_urls")
+		return targets, determinedSource, nil
+	}
+
+	// Priority 3: Config input_file
+	if cfgInputFile != "" {
+		tm.logger.Info().Str("file", cfgInputFile).Msg("Loading targets from config input_file")
+		urls, err := ReadURLsFromFile(cfgInputFile, tm.logger)
 		if err != nil {
-			tm.logger.Error().Err(err).Str("file", inputFileOption).Msg("Failed to load URLs from file.")
-			return nil, determinedSource, fmt.Errorf("failed to load URLs from file '%s': %w", determinedSource, err)
+			return nil, determinedSource, common.WrapError(err, "failed to load URLs from config input_file '"+cfgInputFile+"'")
 		}
-
-		if len(rawURLs) == 0 {
-			tm.logger.Warn().Str("file", inputFileOption).Msg("Provided URL file was empty. Will attempt to use URLs from config if available.")
-		}
-	}
-
-	// 2. Fallback to inputConfigUrls if no URLs from file argument
-	if len(rawURLs) == 0 && len(inputConfigUrls) > 0 {
-		tm.logger.Debug().Int("count", len(inputConfigUrls)).Msg("Using input_urls from configuration.")
-		rawURLs = inputConfigUrls
-		determinedSource = "config.input_urls"
-	}
-
-	// 3. Fallback to cfgInputFile if still no URLs
-	if len(rawURLs) == 0 && cfgInputFile != "" {
-		tm.logger.Debug().Str("file", cfgInputFile).Msg("Using input_file from configuration.")
-		rawURLs, err = ReadURLsFromFile(cfgInputFile, tm.logger)
+		targets = tm.convertURLsToTargets(urls)
 		determinedSource = cfgInputFile
-
-		if err != nil {
-			tm.logger.Error().Err(err).Str("file", cfgInputFile).Msg("Failed to load URLs from config input_file.")
-			return nil, determinedSource, fmt.Errorf("failed to load URLs from config input_file '%s': %w", determinedSource, err)
-		}
-
-		if len(rawURLs) == 0 {
-			tm.logger.Warn().Str("file", cfgInputFile).Msg("Config input_file was empty.")
-		}
+		tm.logger.Info().Int("count", len(targets)).Str("source", determinedSource).Msg("Loaded targets from config input_file")
+		return targets, determinedSource, nil
 	}
 
-	// Final check - if still no URLs found
-	if len(rawURLs) == 0 {
-		tm.logger.Debug().Msg("No URL input source provided or all sources were empty. Returning empty target list.")
-		return []models.Target{}, "no_input", nil
+	// No input source available
+	tm.logger.Warn().Msg("No input source configured for targets")
+	determinedSource = "no_input"
+
+	// Validate that we have targets
+	if len(targets) == 0 {
+		return nil, determinedSource, common.NewError("no valid URLs found in source: %s", determinedSource)
 	}
 
-	tm.logger.Debug().Int("raw_url_count", len(rawURLs)).Str("source", determinedSource).Msg("Loaded raw URLs.")
-
-	// Filter out empty URLs and normalize
-	var validTargets []models.Target
-	for _, rawURL := range rawURLs {
-		trimmed := strings.TrimSpace(rawURL)
-		if trimmed == "" {
-			continue
-		}
-		normalizedURL, err := NormalizeURL(trimmed)
-		if err != nil {
-			tm.logger.Warn().Str("url", trimmed).Err(err).Msg("TargetManager: Skipping URL due to normalization error")
-			continue
-		}
-		validTargets = append(validTargets, models.Target{OriginalURL: trimmed, NormalizedURL: normalizedURL})
-	}
-
-	if len(validTargets) == 0 {
-		return nil, determinedSource, fmt.Errorf("no valid URLs found in source: %s", determinedSource)
-	}
-
-	tm.logger.Info().Int("count", len(validTargets)).Str("source", determinedSource).Msg("TargetManager: Loaded and normalized valid targets")
-	return validTargets, determinedSource, nil
+	return targets, determinedSource, nil
 }
 
-// GetTargetStrings loads targets using LoadAndSelectTargets and returns a slice of normalized URL strings.
-// This is a convenience method if only the string representation of targets is needed.
-func (tm *TargetManager) GetTargetStrings(targets []models.Target) []string {
-	var urlStrings []string
-	for _, target := range targets {
-		urlStrings = append(urlStrings, target.NormalizedURL)
+// convertURLsToTargets converts a slice of URL strings to Target objects
+func (tm *TargetManager) convertURLsToTargets(urls []string) []models.Target {
+	targets := make([]models.Target, 0, len(urls))
+	for _, url := range urls {
+		normalizedURL, err := NormalizeURL(url)
+		if err != nil {
+			tm.logger.Warn().Str("url", url).Err(err).Msg("Failed to normalize URL, skipping")
+			continue
+		}
+		targets = append(targets, models.Target{
+			OriginalURL:   url,
+			NormalizedURL: normalizedURL,
+		})
 	}
-	return urlStrings
+	return targets
+}
+
+// GetTargetStrings extracts URL strings from Target objects
+func (tm *TargetManager) GetTargetStrings(targets []models.Target) []string {
+	urls := make([]string, len(targets))
+	for i, target := range targets {
+		urls[i] = target.NormalizedURL
+	}
+	return urls
 }

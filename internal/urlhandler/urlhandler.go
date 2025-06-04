@@ -2,11 +2,12 @@ package urlhandler
 
 import (
 	"errors" // Assuming your error model is defined here
-	"fmt"
 	"net"
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/aleister1102/monsterinc/internal/common"
 )
 
 // Regex for cleaning filenames
@@ -15,69 +16,58 @@ var (
 	multipleUnderscoresRegex = regexp.MustCompile(`_+`)
 )
 
-// NormalizeURL normalizes a URL string, ensuring it has a scheme, lowercase host, and no fragment.
+// NormalizeURL normalizes a URL by adding scheme if missing and lowercasing the domain
 func NormalizeURL(rawURL string) (string, error) {
 	trimmedURL := strings.TrimSpace(rawURL)
 	if trimmedURL == "" {
-		return "", errors.New("URL is empty or only whitespace")
+		return "", common.NewError("URL is empty")
 	}
 
 	// Add scheme if missing
-	if !strings.Contains(trimmedURL, "://") && !strings.HasPrefix(trimmedURL, "//") {
-		trimmedURL = "http://" + trimmedURL
+	if !strings.HasPrefix(trimmedURL, "http://") && !strings.HasPrefix(trimmedURL, "https://") {
+		trimmedURL = "https://" + trimmedURL
 	}
 
+	// Parse and validate URL
 	parsedURL, err := url.Parse(trimmedURL)
 	if err != nil {
-		return "", fmt.Errorf("could not parse URL '%s': %w", trimmedURL, err)
+		return "", common.WrapError(err, "could not parse URL '"+trimmedURL+"'")
 	}
 
-	if parsedURL.Host == "" {
-		return "", errors.New("URL lacks a valid hostname")
-	}
+	// Lowercase the hostname
+	parsedURL.Host = strings.ToLower(parsedURL.Host)
 
-	finalURL := parsedURL.String()
-
-	if finalURL == parsedURL.Scheme+"://"+parsedURL.Host && parsedURL.Path == "/" && parsedURL.RawQuery == "" && parsedURL.Fragment == "" {
-		// Base URL like "http://example.com" is valid
-	} else if len(parsedURL.Host) == 0 {
-		return "", errors.New("URL appears to be invalid after parsing")
-	}
-
-	return finalURL, nil
+	return parsedURL.String(), nil
 }
 
-// ResolveURL resolves a (possibly relative) URL string against a base URL.
-// The returned URL is also normalized.
+// ResolveURL resolves a relative or absolute URL against a base URL
 func ResolveURL(href string, base *url.URL) (string, error) {
 	trimmedHref := strings.TrimSpace(href)
 	if trimmedHref == "" {
-		return "", fmt.Errorf("href is empty")
+		return "", common.NewError("href is empty")
 	}
 
-	var resolvedURL *url.URL
+	// Try to parse as absolute URL first
+	if parsedHref, err := url.Parse(trimmedHref); err == nil && parsedHref.IsAbs() {
+		return parsedHref.String(), nil
+	}
 
+	// Handle relative URL
 	if base == nil {
-		// If no base, href must be an absolute URL.
-		parsedHref, parseErr := url.Parse(trimmedHref)
-		if parseErr != nil {
-			return "", fmt.Errorf("error parsing base-less href '%s': %w", trimmedHref, parseErr)
+		// Try to parse as standalone URL
+		if _, parseErr := url.Parse(trimmedHref); parseErr != nil {
+			return "", common.WrapError(parseErr, "error parsing base-less href '"+trimmedHref+"'")
 		}
-		if !parsedHref.IsAbs() {
-			return "", fmt.Errorf("cannot process relative URL '%s' without a base URL", trimmedHref)
-		}
-		resolvedURL = parsedHref
-	} else {
-		// Resolve href against the base URL.
-		resolved, resolveErr := base.Parse(trimmedHref)
-		if resolveErr != nil {
-			return "", fmt.Errorf("error resolving href '%s' with base '%s': %w", trimmedHref, base.String(), resolveErr)
-		}
-		resolvedURL = resolved
+		return "", common.NewError("cannot process relative URL '" + trimmedHref + "' without a base URL")
 	}
 
-	// Normalize the successfully resolved URL.
-	return NormalizeURL(resolvedURL.String())
+	// Resolve relative URL against base
+	resolvedURL := base.ResolveReference(&url.URL{Path: trimmedHref})
+	if resolvedURL == nil {
+		return "", common.NewError("error resolving href '" + trimmedHref + "' with base '" + base.String() + "'")
+	}
+
+	return resolvedURL.String(), nil
 }
 
 // GetRootTargetForURL finds the original seed URL that matches the host of the discoveredURL.
@@ -199,49 +189,34 @@ func SanitizeFilename(input string) string {
 	return name
 }
 
-// ExtractHostnameWithPort extracts hostname:port from a URL string
-// For URLs without explicit port, it returns hostname:default_port (80 for http, 443 for https)
+// ExtractHostnameWithPort extracts hostname with port from a URL string
 func ExtractHostnameWithPort(urlString string) (string, error) {
-	if strings.TrimSpace(urlString) == "" {
-		return "", fmt.Errorf("URL string is empty")
+	if urlString == "" {
+		return "", common.NewError("URL string is empty")
 	}
 
 	parsedURL, err := url.Parse(urlString)
 	if err != nil {
-		return "", fmt.Errorf("could not parse URL '%s': %w", urlString, err)
+		return "", common.WrapError(err, "could not parse URL '"+urlString+"'")
 	}
 
-	hostname := parsedURL.Hostname()
-	if hostname == "" {
-		return "", fmt.Errorf("URL has no hostname component: %s", urlString)
+	if parsedURL.Host == "" {
+		return "", common.NewError("URL has no hostname component: " + urlString)
 	}
 
-	port := parsedURL.Port()
-	if port == "" {
-		// Use default ports for common schemes
-		switch strings.ToLower(parsedURL.Scheme) {
-		case "http":
-			port = "80"
-		case "https":
-			port = "443"
-		default:
-			port = "80" // Default fallback
-		}
-	}
-
-	return strings.ToLower(strings.TrimSpace(hostname)) + ":" + port, nil
+	return parsedURL.Host, nil
 }
 
-// ValidateURLFormat validates URL format using net/url parsing (for config validation)
+// ValidateURLFormat validates if a URL string has proper format
 func ValidateURLFormat(rawURL string) error {
 	trimmedURL := strings.TrimSpace(rawURL)
 	if trimmedURL == "" {
-		return fmt.Errorf("URL is empty")
+		return common.NewError("URL is empty")
 	}
 
-	_, err := url.ParseRequestURI(trimmedURL)
+	_, err := url.Parse(trimmedURL)
 	if err != nil {
-		return fmt.Errorf("invalid URL format '%s': %w", trimmedURL, err)
+		return common.WrapError(err, "invalid URL format '"+trimmedURL+"'")
 	}
 
 	return nil
