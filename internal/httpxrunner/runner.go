@@ -313,24 +313,6 @@ func NewRunner(cfg *Config, rootTargetForThisInstance string, appLogger zerolog.
 	return r, nil
 }
 
-// Close cleans up resources used by the runner, such as closing the httpx engine.
-func (r *Runner) Close() {
-	// Ensure underlying httpx runner is closed first.
-	// This should signal its internal goroutines (like the one calling OnResult) to stop.
-	if r.httpxRunner != nil {
-		r.httpxRunner.Close()
-	}
-
-	// Now, close the channels that our runner exposes.
-	// This signals the goroutines in Run() (for results and errors processing) that no more data will be sent.
-	// It's important to do this after httpxRunner.Close() to avoid sending to a closed channel if OnResult was still somehow active.
-	// Add a sync.Once or check if channels are already closed if Close() could be called multiple times.
-	// For simplicity here, assume Close() is called once by the defer in Run().
-	close(r.results)
-	close(r.errors)
-	r.logger.Info().Msg("Results and Errors channels closed.")
-}
-
 // Run executes the httpx probing against the configured targets.
 func (r *Runner) Run(ctx context.Context) error {
 	if r.httpxRunner == nil {
@@ -388,16 +370,6 @@ func (r *Runner) Run(ctx context.Context) error {
 	return nil
 }
 
-// Results returns a channel from which probe results can be read.
-func (r *Runner) Results() <-chan *models.ProbeResult {
-	return r.results
-}
-
-// Errors returns a channel from which errors during probing can be read.
-func (r *Runner) Errors() <-chan error {
-	return r.errors
-}
-
 // GetResults returns all collected probe results after the run is complete.
 func (r *Runner) GetResults() []models.ProbeResult {
 	r.resultsMutex.Lock()
@@ -413,17 +385,3 @@ func (r *Runner) GetResults() []models.ProbeResult {
 	}
 	return actualResults
 }
-
-// GetOptions returns the current httpx runner.Options. Useful for debugging or advanced scenarios.
-func (r *Runner) GetOptions() *runner.Options {
-	return r.options
-}
-
-// SetTargets is deprecated if targets are part of Config and processed in Initialize/Run.
-// func (r *Runner) SetTargets(targets []string) {
-// 	r.options.InputTargetHost = targets
-// }
-
-// processResults and processErrors are now incorporated into the Run method as goroutines.
-// func (r *Runner) processResults() { ... }
-// func (r *Runner) processErrors() { ... }
