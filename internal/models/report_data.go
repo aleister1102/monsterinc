@@ -186,17 +186,3 @@ type DiffResultDisplay struct {
 	FullContent    string          `json:"full_content,omitempty"`    // Added to display full new content
 	ExtractedPaths []ExtractedPath `json:"extracted_paths,omitempty"` // Added
 }
-
-// GetDefaultDiffReportPageData initializes a DiffReportPageData with some default values.
-func GetDefaultDiffReportPageData() DiffReportPageData {
-	return DiffReportPageData{
-		ReportTitle: "Content Difference Report",
-		GeneratedAt: time.Now().Format("2006-01-02 15:04:05 MST"),
-		DiffResults: []DiffResultDisplay{},
-		// Sensible defaults, can be overridden by config
-		ItemsPerPage:     25,
-		EnableDataTables: true,
-	}
-}
-
-// ScanSummaryData holds summarized information about a scan session for notifications.
