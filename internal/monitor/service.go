@@ -56,10 +56,13 @@ type MonitoringService struct {
 	// Service specific context for operations like notifications
 	serviceCtx        context.Context
 	serviceCancelFunc context.CancelFunc
-
 	// Shutdown flag to prevent sending changes during shutdown
 	isShuttingDown bool
 	shutdownMutex  sync.RWMutex
+
+	// Flag to track if Stop() has already been called
+	isStopped    bool
+	stoppedMutex sync.Mutex
 
 	// Per-URL mutexes to prevent concurrent processing of the same URL
 	urlCheckMutexes      map[string]*sync.Mutex
@@ -134,27 +137,28 @@ func NewMonitoringService(
 	}
 
 	s := &MonitoringService{
-		gCfg:                    gCfg,
-		historyStore:            historyStore,
-		logger:                  instanceLogger,
-		notificationHelper:      notificationHelper,
-		fetcher:                 fetcherInstance,
-		processor:               processorInstance,
-		contentDiffer:           contentDifferInstance,
-		htmlDiffReporter:        htmlDiffReporterInstance,
-		pathExtractor:           pathExtractorInstance,
-		monitorChan:             make(chan string, gCfg.MonitorConfig.MaxConcurrentChecks*2),
-		monitorUrls:             make(map[string]struct{}),
-		monitoredUrlsRMutex:     sync.RWMutex{},
-		fileChangeEvents:        make([]models.FileChangeInfo, 0),
-		aggregatedFetchErrors:   make([]models.MonitorFetchErrorInfo, 0),
-		doneChan:                make(chan struct{}),
-		serviceCtx:              serviceSpecificCtx,
-		serviceCancelFunc:       serviceSpecificCancel,
-		changedURLsInCycle:      make(map[string]struct{}),
+		gCfg:                  gCfg,
+		historyStore:          historyStore,
+		logger:                instanceLogger,
+		notificationHelper:    notificationHelper,
+		fetcher:               fetcherInstance,
+		processor:             processorInstance,
+		contentDiffer:         contentDifferInstance,
+		htmlDiffReporter:      htmlDiffReporterInstance,
+		pathExtractor:         pathExtractorInstance,
+		monitorChan:           make(chan string, gCfg.MonitorConfig.MaxConcurrentChecks*2),
+		monitorUrls:           make(map[string]struct{}),
+		monitoredUrlsRMutex:   sync.RWMutex{},
+		fileChangeEvents:      make([]models.FileChangeInfo, 0),
+		aggregatedFetchErrors: make([]models.MonitorFetchErrorInfo, 0),
+		doneChan:              make(chan struct{}),
+		serviceCtx:            serviceSpecificCtx,
+		serviceCancelFunc:     serviceSpecificCancel, changedURLsInCycle: make(map[string]struct{}),
 		changedURLsInCycleMutex: sync.RWMutex{},
 		isShuttingDown:          false,
 		shutdownMutex:           sync.RWMutex{},
+		isStopped:               false,
+		stoppedMutex:            sync.Mutex{},
 		urlCheckMutexes:         make(map[string]*sync.Mutex),
 		urlCheckMutexMapLock:    sync.RWMutex{},
 	}
@@ -212,6 +216,15 @@ func (s *MonitoringService) Preload(initialURLs []string) {
 
 // Stop signals the MonitoringService to shut down gracefully.
 func (s *MonitoringService) Stop() {
+	s.stoppedMutex.Lock()
+	if s.isStopped {
+		s.stoppedMutex.Unlock()
+		s.logger.Info().Msg("MonitoringService.Stop() called, but service is already stopped. Ignoring.")
+		return
+	}
+	s.isStopped = true
+	s.stoppedMutex.Unlock()
+
 	s.logger.Info().Msg("Attempting to stop MonitoringService...")
 
 	// Set shutdown flag to prevent sending aggregated changes
