@@ -208,66 +208,6 @@ func (b *HTTPClientBuilder) Build() (*http.Client, error) {
 	return NewHTTPClient(b.config, b.logger)
 }
 
-// HTTPClientTransport wraps an HTTP client to add common request modifications
-type HTTPClientTransport struct {
-	client         *http.Client
-	defaultHeaders map[string]string
-	logger         zerolog.Logger
-}
-
-// NewHTTPClientTransport creates a transport wrapper around an HTTP client
-func NewHTTPClientTransport(client *http.Client, defaultHeaders map[string]string, logger zerolog.Logger) *HTTPClientTransport {
-	return &HTTPClientTransport{
-		client:         client,
-		defaultHeaders: defaultHeaders,
-		logger:         logger,
-	}
-}
-
-// Do executes an HTTP request with default headers applied
-func (t *HTTPClientTransport) Do(req *http.Request) (*http.Response, error) {
-	// Apply default headers
-	for key, value := range t.defaultHeaders {
-		if req.Header.Get(key) == "" {
-			req.Header.Set(key, value)
-		}
-	}
-
-	// Log request (debug level)
-	t.logger.Debug().
-		Str("method", req.Method).
-		Str("url", req.URL.String()).
-		Msg("Executing HTTP request")
-
-	start := time.Now()
-	resp, err := t.client.Do(req)
-	duration := time.Since(start)
-
-	if err != nil {
-		t.logger.Error().
-			Err(err).
-			Str("method", req.Method).
-			Str("url", req.URL.String()).
-			Dur("duration", duration).
-			Msg("HTTP request failed")
-		return nil, WrapError(err, "HTTP request failed")
-	}
-
-	t.logger.Debug().
-		Int("status_code", resp.StatusCode).
-		Str("method", req.Method).
-		Str("url", req.URL.String()).
-		Dur("duration", duration).
-		Msg("HTTP request completed")
-
-	return resp, nil
-}
-
-// GetClient returns the underlying HTTP client
-func (t *HTTPClientTransport) GetClient() *http.Client {
-	return t.client
-}
-
 // HTTPClientFactory provides methods to create common HTTP client configurations
 type HTTPClientFactory struct {
 	logger zerolog.Logger
@@ -338,41 +278,6 @@ func (f *HTTPClientFactory) CreateBasicClient(timeout time.Duration) (*http.Clie
 		WithTimeout(timeout).
 		Build()
 }
-
-// ValidateHTTPClientConfig validates an HTTP client configuration
-func ValidateHTTPClientConfig(config HTTPClientConfig) error {
-	var collector ErrorCollector
-
-	if config.Timeout <= 0 {
-		collector.Add(NewValidationError("timeout", config.Timeout, "must be positive"))
-	}
-
-	if config.MaxRedirects < 0 {
-		collector.Add(NewValidationError("max_redirects", config.MaxRedirects, "must be non-negative"))
-	}
-
-	if config.Proxy != "" {
-		if _, err := url.Parse(config.Proxy); err != nil {
-			collector.Add(NewValidationError("proxy", config.Proxy, "must be a valid URL"))
-		}
-	}
-
-	if config.MaxIdleConns < 0 {
-		collector.Add(NewValidationError("max_idle_conns", config.MaxIdleConns, "must be non-negative"))
-	}
-
-	if config.MaxIdleConnsPerHost < 0 {
-		collector.Add(NewValidationError("max_idle_conns_per_host", config.MaxIdleConnsPerHost, "must be non-negative"))
-	}
-
-	if config.MaxConnsPerHost < 0 {
-		collector.Add(NewValidationError("max_conns_per_host", config.MaxConnsPerHost, "must be non-negative"))
-	}
-
-	return collector.Error()
-}
-
-// --- BEGIN Fetcher code ---
 
 // ErrNotModified is returned when content has not been modified (HTTP 304).
 var ErrNotModified = NewError("content not modified")
