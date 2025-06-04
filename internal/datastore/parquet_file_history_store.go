@@ -206,7 +206,7 @@ func (pfs *ParquetFileHistoryStore) createParquetFile(filePath string) (*os.File
 	}
 
 	// Get the compression codec from config string
-	var compressionOption parquet.WriterOption = parquet.Compression(&parquet.Uncompressed) // Default to Uncompressed
+	compressionOption := parquet.Compression(&parquet.Uncompressed) // Default to Uncompressed
 
 	switch strings.ToLower(pfs.storageConfig.CompressionCodec) {
 	case "snappy":

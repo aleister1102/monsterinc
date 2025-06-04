@@ -25,12 +25,6 @@ const (
 	colorNeutral       = 0x95A5A6 // Grey - for neutral/unknown status
 	colorSecurityAlert = 0xE91E63 // Pink - for security-related alerts
 
-	// Legacy color constants (deprecated - use standardized colors above)
-	colorGreen  = colorSuccess
-	colorRed    = colorError
-	colorBlue   = colorInfo
-	colorOrange = colorWarning
-
 	// Standardized Timestamp Formats
 	timestampFormatDiscord  = time.RFC3339          // ISO 8601 format for Discord embed timestamps
 	timestampFormatReadable = time.RFC1123          // Human-readable format for field values
