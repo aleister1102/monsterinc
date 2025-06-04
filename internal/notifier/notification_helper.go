@@ -242,19 +242,19 @@ func (nh *NotificationHelper) SendAggregatedFileChangesNotification(ctx context.
 }
 
 // SendInitialMonitoredURLsNotification sends a notification listing the initial set of URLs being monitored from MonitorService.
-func (nh *NotificationHelper) SendInitialMonitoredURLsNotification(ctx context.Context, monitoredURLs []string) {
+func (nh *NotificationHelper) SendInitialMonitoredURLsNotification(ctx context.Context, monitoredURLs []string, cycleID string) {
 	if nh.discordNotifier == nil || nh.cfg.MonitorServiceDiscordWebhookURL == "" || len(monitoredURLs) == 0 {
 		return
 	}
 
-	nh.logger.Info().Int("url_count", len(monitoredURLs)).Msg("Preparing to send initial monitored URLs notification.")
+	nh.logger.Info().Int("url_count", len(monitoredURLs)).Str("cycle_id", cycleID).Msg("Preparing to send initial monitored URLs notification.")
 
-	payload := FormatInitialMonitoredURLsMessage(monitoredURLs, nh.cfg)
+	payload := FormatInitialMonitoredURLsMessage(monitoredURLs, cycleID, nh.cfg)
 	err := nh.discordNotifier.SendNotification(ctx, nh.cfg.MonitorServiceDiscordWebhookURL, payload, "")
 	if err != nil {
-		nh.logger.Error().Err(err).Int("url_count", len(monitoredURLs)).Msg("Failed to send initial monitored URLs notification.")
+		nh.logger.Error().Err(err).Int("url_count", len(monitoredURLs)).Str("cycle_id", cycleID).Msg("Failed to send initial monitored URLs notification.")
 	} else {
-		nh.logger.Info().Int("url_count", len(monitoredURLs)).Msg("Initial monitored URLs notification sent successfully.")
+		nh.logger.Info().Int("url_count", len(monitoredURLs)).Str("cycle_id", cycleID).Msg("Initial monitored URLs notification sent successfully.")
 	}
 }
 

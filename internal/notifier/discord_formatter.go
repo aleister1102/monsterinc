@@ -413,9 +413,12 @@ func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.Notif
 }
 
 // FormatInitialMonitoredURLsMessage creates a Discord message payload for initial monitored URLs.
-func FormatInitialMonitoredURLsMessage(monitoredURLs []string, cfg config.NotificationConfig) models.DiscordMessagePayload {
+func FormatInitialMonitoredURLsMessage(monitoredURLs []string, cycleID string, cfg config.NotificationConfig) models.DiscordMessagePayload {
 	title := ":pencil: Initial File Monitoring Started"
 	description := fmt.Sprintf("**Total URLs**: %d now being monitored for changes", len(monitoredURLs))
+	if cycleID != "" {
+		description += fmt.Sprintf("\n**Cycle ID**: `%s`", cycleID)
+	}
 
 	embedBuilder := NewDiscordEmbedBuilder().
 		WithTitle(title).
@@ -462,7 +465,13 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 	}
 
 	var descriptionBuilder strings.Builder
-	descriptionBuilder.WriteString(fmt.Sprintf("**%d** file(s) changed. Details for up to %d changes shown below:\n\n", len(changes), maxFileChangesToShowInDiscordSummary))
+	descriptionBuilder.WriteString(fmt.Sprintf("**%d** file(s) changed. Details for up to %d changes shown below:\n", len(changes), maxFileChangesToShowInDiscordSummary))
+
+	// Add cycle ID if available from the first change
+	if len(changes) > 0 && changes[0].CycleID != "" {
+		descriptionBuilder.WriteString(fmt.Sprintf("**Cycle ID**: `%s`\n", changes[0].CycleID))
+	}
+	descriptionBuilder.WriteString("\n")
 
 	uniqueHosts := make(map[string]struct{})
 	var aggregatedStats models.MonitorAggregatedStats
@@ -478,7 +487,7 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 			descriptionBuilder.WriteString(fmt.Sprintf("  - **Type:** `%s`\n", change.ContentType))
 			descriptionBuilder.WriteString(fmt.Sprintf("  - **Time:** %s\n", change.ChangeTime.Format("2006-01-02 15:04:05 MST")))
 			if change.DiffReportPath != nil && *change.DiffReportPath != "" {
-				descriptionBuilder.WriteString(fmt.Sprintf("  - **Diff Report:** Attached (if this is the first part of a multi-part message)\n"))
+				descriptionBuilder.WriteString("  - **Diff Report:** Attached (if this is the first part of a multi-part message)\n")
 			}
 			if len(change.ExtractedPaths) > 0 {
 				descriptionBuilder.WriteString(fmt.Sprintf("  - **Extracted Paths:** %d\n", len(change.ExtractedPaths)))
@@ -515,6 +524,11 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 func FormatAggregatedMonitorErrorsMessage(errors []models.MonitorFetchErrorInfo, cfg config.NotificationConfig) models.DiscordMessagePayload {
 	title := fmt.Sprintf(":x: %d Monitor Error(s) Detected (Monitor)", len(errors))
 	description := fmt.Sprintf("**Total Errors**: %d during file monitoring operations", len(errors))
+
+	// Add cycle ID if available from the first error
+	if len(errors) > 0 && errors[0].CycleID != "" {
+		description += fmt.Sprintf("\n**Cycle ID**: `%s`", errors[0].CycleID)
+	}
 
 	embedBuilder := NewDiscordEmbedBuilder().
 		WithTitle(title).
@@ -633,6 +647,9 @@ func FormatMonitorCycleCompleteMessage(data models.MonitorCycleCompleteData, cfg
 	}
 
 	description := fmt.Sprintf("Monitoring cycle finished at %s.", data.Timestamp.Format("2006-01-02 15:04:05 MST"))
+	if data.CycleID != "" {
+		description += fmt.Sprintf("\n**Cycle ID**: `%s`", data.CycleID)
+	}
 	if len(data.ChangedURLs) > 0 {
 		description += fmt.Sprintf("\n**%d** URL(s) had content changes detected in this cycle.", len(data.ChangedURLs))
 	} else {

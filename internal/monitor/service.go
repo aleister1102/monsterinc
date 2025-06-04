@@ -67,6 +67,10 @@ type MonitoringService struct {
 	// Per-URL mutexes to prevent concurrent processing of the same URL
 	urlCheckMutexes      map[string]*sync.Mutex
 	urlCheckMutexMapLock sync.RWMutex
+
+	// Current monitoring cycle ID
+	currentCycleID string
+	cycleIDMutex   sync.RWMutex
 }
 
 // NewMonitoringService creates a new instance of MonitoringService.
@@ -161,6 +165,8 @@ func NewMonitoringService(
 		stoppedMutex:            sync.Mutex{},
 		urlCheckMutexes:         make(map[string]*sync.Mutex),
 		urlCheckMutexMapLock:    sync.RWMutex{},
+		currentCycleID:          fmt.Sprintf("monitor-init-%s", time.Now().Format("20060102-150405")),
+		cycleIDMutex:            sync.RWMutex{},
 	}
 	// Setup aggregation worker if interval is configured
 	if s.gCfg.MonitorConfig.AggregationIntervalSeconds <= 0 {
@@ -412,6 +418,7 @@ func (s *MonitoringService) checkURL(url string) {
 			Error:      fetchErr.Error(),
 			Source:     "fetch",
 			OccurredAt: time.Now(),
+			CycleID:    s.getCurrentCycleID(),
 		})
 		s.aggregatedFetchErrorsMutex.Unlock()
 		return
@@ -426,6 +433,7 @@ func (s *MonitoringService) checkURL(url string) {
 			Error:      err.Error(),
 			Source:     "process",
 			OccurredAt: time.Now(),
+			CycleID:    s.getCurrentCycleID(),
 		})
 		s.aggregatedFetchErrorsMutex.Unlock()
 		return
@@ -445,6 +453,7 @@ func (s *MonitoringService) checkURL(url string) {
 			Error:      err.Error(),
 			Source:     "store_history",
 			OccurredAt: time.Now(),
+			CycleID:    s.getCurrentCycleID(),
 		})
 		s.aggregatedFetchErrorsMutex.Unlock()
 		return
@@ -452,6 +461,9 @@ func (s *MonitoringService) checkURL(url string) {
 
 	if changeInfo != nil {
 		s.logger.Info().Str("url", url).Msg("Change detected")
+
+		// Add cycle ID to change info
+		changeInfo.CycleID = s.getCurrentCycleID()
 
 		s.fileChangeEventsMutex.Lock()
 		s.fileChangeEvents = append(s.fileChangeEvents, *changeInfo)
@@ -674,6 +686,7 @@ func (s *MonitoringService) TriggerCycleEndReport() {
 	if s.notificationHelper != nil {
 		monitoredCount := len(s.GetCurrentlyMonitorUrls())
 		cycleCompleteData := models.MonitorCycleCompleteData{
+			CycleID:        s.getCurrentCycleID(),
 			ChangedURLs:    changedURLs,
 			FileChanges:    fileChanges, // Include detailed file changes
 			ReportPath:     reportPath,  // This will be empty if report generation failed or was skipped
@@ -740,4 +753,23 @@ func (s *MonitoringService) cleanupUnusedMutexes() {
 			delete(s.urlCheckMutexes, url)
 		}
 	}
+}
+
+// generateNewCycleID creates a new unique cycle ID for monitoring
+func (s *MonitoringService) GenerateNewCycleID() string {
+	return fmt.Sprintf("monitor-cycle-%s", time.Now().Format("20060102-150405"))
+}
+
+// getCurrentCycleID returns the current cycle ID thread-safely
+func (s *MonitoringService) getCurrentCycleID() string {
+	s.cycleIDMutex.RLock()
+	defer s.cycleIDMutex.RUnlock()
+	return s.currentCycleID
+}
+
+// SetCurrentCycleID sets a new cycle ID thread-safely
+func (s *MonitoringService) SetCurrentCycleID(cycleID string) {
+	s.cycleIDMutex.Lock()
+	defer s.cycleIDMutex.Unlock()
+	s.currentCycleID = cycleID
 }
