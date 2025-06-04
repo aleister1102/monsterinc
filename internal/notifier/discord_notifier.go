@@ -275,6 +275,3 @@ func (dn *DiscordNotifier) zipReportFile(sourceFilePath string) (string, error) 
 	// tempZipFile is closed by defer. We need to return its name.
 	return tempZipFile.Name(), nil
 }
-
-// ShouldNotify function is removed as this logic now resides in NotificationHelper directly,
-// which has access to the full NotificationConfig and can select the appropriate webhook URL.
