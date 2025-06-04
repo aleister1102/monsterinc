@@ -254,10 +254,10 @@ notification_config:
   # Default: true
   notify_on_critical_error: true
 
-  # Automatically delete the generated HTML report file after a Discord notification for that report has been successfully sent.
-  # This applies to notifications that include a report_path, like scan completion or diff reports.
+  # Automatically delete single diff report files after a Discord notification has been successfully sent.
+  # This only deletes individual diff reports (diff_*.html), keeping aggregated reports intact.
   # Default: true
-  auto_delete_report_after_discord_notification: true
+  auto_delete_single_diff_reports_after_discord_notification: true
 
 # Logging configuration: Settings for application logging.
 log_config:
