@@ -13,6 +13,7 @@ import (
 	"sync" // For thread-safe access to discoveredURLs
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config" // Import the config package
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
@@ -40,6 +41,7 @@ type Crawler struct {
 	logger           zerolog.Logger
 	config           *config.CrawlerConfig
 	ctx              context.Context // Added context
+	httpClient       *http.Client    // HTTP client for HEAD requests
 }
 
 // configureCollyCollector sets up and configures a new colly.Collector instance based on CrawlerConfig.
@@ -136,7 +138,7 @@ func (cr *Crawler) handleResponse(r *colly.Response) {
 }
 
 // NewCrawler initializes a new Crawler based on the provided configuration.
-func NewCrawler(cfg *config.CrawlerConfig, httpClient *http.Client, appLogger zerolog.Logger) (*Crawler, error) {
+func NewCrawler(cfg *config.CrawlerConfig, appLogger zerolog.Logger) (*Crawler, error) {
 	moduleLogger := appLogger.With().Str("module", "Crawler").Logger()
 
 	if cfg == nil {
@@ -227,6 +229,14 @@ func NewCrawler(cfg *config.CrawlerConfig, httpClient *http.Client, appLogger ze
 		return nil, err
 	}
 
+	// Create HTTP client for HEAD requests using common package
+	httpClientFactory := common.NewHTTPClientFactory(moduleLogger)
+	headClient, err := httpClientFactory.CreateCrawlerClient(crawlerTimeoutDuration, "", nil)
+	if err != nil {
+		moduleLogger.Error().Err(err).Msg("Failed to create HTTP client for HEAD requests")
+		return nil, err
+	}
+
 	cr := &Crawler{
 		Collector:        collector,
 		discoveredURLs:   make(map[string]bool),
@@ -241,6 +251,7 @@ func NewCrawler(cfg *config.CrawlerConfig, httpClient *http.Client, appLogger ze
 		headTimeout:      crawlerTimeoutDuration,
 		logger:           moduleLogger,
 		config:           cfg,
+		httpClient:       headClient, // Use the created HTTP client
 	}
 
 	// Setup Colly Callbacks using the new methods
@@ -296,12 +307,10 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 	cr.mutex.RUnlock()
 
 	if !exists {
-		// HEAD check before queueing
-		// TODO: use http_client.go
+		// HEAD check before queueing using common HTTP client
 		headReq, err := http.NewRequest("HEAD", normalizedAbsURL, nil)
 		if err == nil {
-			client := &http.Client{Timeout: cr.RequestTimeout}
-			resp, err := client.Do(headReq)
+			resp, err := cr.httpClient.Do(headReq)
 			if err != nil {
 				cr.logger.Warn().Str("url", normalizedAbsURL).Err(err).Msg("HEAD request failed")
 				cr.mutex.Lock()

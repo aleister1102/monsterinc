@@ -206,7 +206,6 @@ func (dn *DiscordNotifier) SendNotification(ctx context.Context, webhookURL stri
 		}
 	}
 
-	// TODO: use http_client.go
 	req, err = http.NewRequestWithContext(httpReqCtx, http.MethodPost, webhookURL, body)
 	if err != nil {
 		if shouldCleanupTempZip {
