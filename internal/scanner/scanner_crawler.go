@@ -3,7 +3,6 @@ package scanner
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
@@ -28,19 +27,7 @@ func (so *Scanner) executeCrawler(
 
 		so.logger.Info().Int("seed_count", len(crawlerConfig.SeedURLs)).Str("session_id", scanSessionID).Str("primary_target", primaryRootTargetURL).Msg("Starting crawler")
 
-		// Create HTTP client for crawler using factory
-		httpClientFactory := common.NewHTTPClientFactory(so.logger)
-		crawlerClient, err := httpClientFactory.CreateCrawlerClient(
-			time.Duration(crawlerConfig.RequestTimeoutSecs)*time.Second,
-			"",                      // proxy - crawler config doesn't have proxy field
-			make(map[string]string), // customHeaders - crawler config doesn't have custom headers
-		)
-		if err != nil {
-			so.logger.Error().Err(err).Msg("Failed to create HTTP client for crawler")
-			return nil, fmt.Errorf("orchestrator: failed to create crawler HTTP client: %w", err)
-		}
-
-		crawler, err := crawler.NewCrawler(crawlerConfig, crawlerClient, so.logger)
+		crawler, err := crawler.NewCrawler(crawlerConfig, so.logger)
 		if err != nil {
 			so.logger.Error().Err(err).Msg("Failed to initialize crawler")
 			return nil, fmt.Errorf("orchestrator: failed to initialize crawler: %w", err)
