@@ -2,7 +2,6 @@ package datastore
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,75 +16,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// ParquetWriterConfig holds configuration for ParquetWriter
-type ParquetWriterConfig struct {
-	CompressionType  string
-	BatchSize        int
-	EnableValidation bool
-}
-
-// DefaultParquetWriterConfig returns default configuration
-func DefaultParquetWriterConfig() ParquetWriterConfig {
-	return ParquetWriterConfig{
-		CompressionType:  "zstd",
-		BatchSize:        1000,
-		EnableValidation: true,
-	}
-}
-
 // ParquetWriter handles writing probe results to Parquet files.
 type ParquetWriter struct {
 	config       *config.StorageConfig
 	logger       zerolog.Logger
 	fileManager  *common.FileManager
 	writerConfig ParquetWriterConfig
-}
-
-// ParquetWriterBuilder provides a fluent interface for creating ParquetWriter
-type ParquetWriterBuilder struct {
-	config       *config.StorageConfig
-	logger       zerolog.Logger
-	writerConfig ParquetWriterConfig
-}
-
-// NewParquetWriterBuilder creates a new ParquetWriterBuilder
-func NewParquetWriterBuilder(logger zerolog.Logger) *ParquetWriterBuilder {
-	return &ParquetWriterBuilder{
-		logger:       logger.With().Str("component", "ParquetWriter").Logger(),
-		writerConfig: DefaultParquetWriterConfig(),
-	}
-}
-
-// WithStorageConfig sets the storage configuration
-func (b *ParquetWriterBuilder) WithStorageConfig(cfg *config.StorageConfig) *ParquetWriterBuilder {
-	b.config = cfg
-	return b
-}
-
-// WithWriterConfig sets the writer configuration
-func (b *ParquetWriterBuilder) WithWriterConfig(cfg ParquetWriterConfig) *ParquetWriterBuilder {
-	b.writerConfig = cfg
-	return b
-}
-
-// Build creates a new ParquetWriter instance
-func (b *ParquetWriterBuilder) Build() (*ParquetWriter, error) {
-	if b.config == nil {
-		return nil, common.NewValidationError("config", b.config, "storage config cannot be nil")
-	}
-
-	if b.config.ParquetBasePath == "" {
-		b.logger.Warn().Msg("ParquetBasePath is empty in config")
-	}
-
-	fileManager := common.NewFileManager(b.logger)
-
-	return &ParquetWriter{
-		config:       b.config,
-		logger:       b.logger,
-		fileManager:  fileManager,
-		writerConfig: b.writerConfig,
-	}, nil
 }
 
 // NewParquetWriter creates a new ParquetWriter using builder pattern
@@ -109,79 +45,6 @@ type WriteResult struct {
 	RecordsWritten int
 	FileSize       int64
 	WriteTime      time.Duration
-}
-
-// RecordTransformer handles transformation of records
-type RecordTransformer struct {
-	logger zerolog.Logger
-}
-
-// NewRecordTransformer creates a new RecordTransformer
-func NewRecordTransformer(logger zerolog.Logger) *RecordTransformer {
-	return &RecordTransformer{
-		logger: logger.With().Str("component", "RecordTransformer").Logger(),
-	}
-}
-
-// TransformToParquetResult converts a models.ProbeResult to a models.ParquetProbeResult
-func (rt *RecordTransformer) TransformToParquetResult(pr models.ProbeResult, scanTime time.Time) models.ParquetProbeResult {
-	headersJSON := rt.marshalHeaders(pr.Headers, pr.InputURL)
-	techNames := rt.extractTechnologyNames(pr.Technologies)
-	firstSeen := rt.determineFirstSeenTimestamp(pr.OldestScanTimestamp, scanTime)
-
-	return models.ParquetProbeResult{
-		OriginalURL:   pr.InputURL,
-		FinalURL:      StringPtrOrNil(pr.FinalURL),
-		StatusCode:    Int32PtrOrNilZero(int32(pr.StatusCode)),
-		ContentLength: Int64PtrOrNilZero(pr.ContentLength),
-		ContentType:   StringPtrOrNil(pr.ContentType),
-		Title:         StringPtrOrNil(pr.Title),
-		WebServer:     StringPtrOrNil(pr.WebServer),
-		Technologies:  techNames,
-		IPAddress:     pr.IPs,
-		RootTargetURL: StringPtrOrNil(pr.RootTargetURL),
-		ProbeError:    StringPtrOrNil(pr.Error),
-		Method:        StringPtrOrNil(pr.Method),
-		HeadersJSON:   headersJSON,
-
-		DiffStatus:         StringPtrOrNil(pr.URLStatus),
-		ScanTimestamp:      scanTime.UnixMilli(),
-		FirstSeenTimestamp: models.TimePtrToUnixMilliOptional(firstSeen),
-		LastSeenTimestamp:  models.TimePtrToUnixMilliOptional(scanTime),
-	}
-}
-
-// marshalHeaders converts headers map to JSON string pointer
-func (rt *RecordTransformer) marshalHeaders(headers map[string]string, inputURL string) *string {
-	if len(headers) == 0 {
-		return nil
-	}
-
-	jsonData, err := json.Marshal(headers)
-	if err != nil {
-		rt.logger.Error().Err(err).Str("url", inputURL).Msg("Failed to marshal headers")
-		return nil
-	}
-
-	strData := string(jsonData)
-	return &strData
-}
-
-// extractTechnologyNames extracts technology names from Technology slice
-func (rt *RecordTransformer) extractTechnologyNames(technologies []models.Technology) []string {
-	var techNames []string
-	for _, tech := range technologies {
-		techNames = append(techNames, tech.Name)
-	}
-	return techNames
-}
-
-// determineFirstSeenTimestamp determines the first seen timestamp
-func (rt *RecordTransformer) determineFirstSeenTimestamp(oldestScanTimestamp time.Time, scanTime time.Time) time.Time {
-	if oldestScanTimestamp.IsZero() {
-		return scanTime
-	}
-	return oldestScanTimestamp
 }
 
 // Write takes a slice of ProbeResult and writes them to a Parquet file
