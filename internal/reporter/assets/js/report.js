@@ -65,7 +65,7 @@ $(document).ready(function () {
             // 2. Final URL  
             $row.append($('<td></td>').addClass('truncate-url').attr('title', pr.FinalURL).html(pr.FinalURL ? `<a href="${pr.FinalURL}" target="_blank">${truncateText(pr.FinalURL, 50)}</a>` : '-'));
             // 3. Diff Status
-            $row.append($('<td></td>').addClass('hide-on-mobile').html(pr.diff_status ? `<span class="diff-status-${pr.diff_status.toLowerCase()}">${pr.diff_status}</span>` : '-'));
+            $row.append($('<td></td>').addClass('hide-on-mobile').html(pr.URLStatus ? `<span class="diff-status-${pr.URLStatus.toLowerCase()}">${pr.URLStatus}</span>` : '-'));
             // 4. Status Code
             $row.append($('<td></td>').html(pr.StatusCode ? `<span class="${pr.StatusCode ? `status-${pr.StatusCode}` : ''}">${pr.StatusCode}</span>` : (pr.Error ? 'ERR' : '-')));
             // 5. Title
@@ -118,7 +118,7 @@ $(document).ready(function () {
 
             if (statusCode && (!pr.StatusCode || pr.StatusCode.toString() !== statusCode)) return false;
             if (contentType && (!pr.ContentType || !pr.ContentType.toLowerCase().startsWith(contentType))) return false;
-            if (urlStatusTerm && (!pr.diff_status || pr.diff_status.toLowerCase() !== urlStatusTerm)) return false;
+            if (urlStatusTerm && (!pr.URLStatus || pr.URLStatus.toLowerCase() !== urlStatusTerm)) return false;
 
             if (techTerm) {
                 const techString = Array.isArray(pr.Technologies) ? pr.Technologies.join(', ').toLowerCase() : "";
@@ -333,7 +333,7 @@ $(document).ready(function () {
             let detailsText = "";
             detailsText += `Input URL: ${resultData.InputURL || '-'}\n`;
             detailsText += `Final URL: ${resultData.FinalURL || '-'}\n`;
-            detailsText += `Diff Status: ${resultData.diff_status || '-'}\n`;
+            detailsText += `Diff Status: ${resultData.URLStatus || '-'}\n`;
             detailsText += `Method: ${resultData.Method || '-'}\n`;
             detailsText += `Status Code: ${resultData.StatusCode || '-'}\n`;
             detailsText += `Title: ${resultData.Title || '-'}\n`;

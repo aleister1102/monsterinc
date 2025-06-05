@@ -450,7 +450,7 @@
             </a>
             <div class="collapse navbar-collapse">
                 <span class="navbar-text ms-auto">
-                    <i class="fas fa-clock me-1"></i>Generated at: {{ . }}
+                    <i class="fas fa-clock me-1"></i>Generated at: {{ .GeneratedAt }}
                 </span>
             </div>
         </div>
@@ -552,8 +552,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {{/* KHÔNG lặp ở đây nữa nếu DataTables được cung cấp data từ JS array */}}
-                        {{/* {{if not .ProbeResults}}
+                        {{if not .ProbeResults}}
                         <tr>
                                     <td colspan="8" class="text-center py-5">
                                         <i class="fas fa-search fa-3x text-muted mb-3"></i>
@@ -578,7 +577,7 @@
                                         <i class="fas fa-eye me-1"></i>View
                                     </button></td>
                         </tr>
-                        {{end}} */}}
+                        {{end}}
                     </tbody>
                 </table>
                     </div>

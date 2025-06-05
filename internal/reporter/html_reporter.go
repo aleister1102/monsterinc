@@ -20,6 +20,9 @@ import (
 //go:embed templates/report.html.tmpl
 var defaultTemplate embed.FS
 
+//go:embed assets/*
+var reportAssetsFS embed.FS
+
 //go:embed assets/img/favicon.ico
 var faviconICO []byte
 
@@ -231,7 +234,18 @@ func (r *HtmlReporter) buildOutputPath(baseOutputPath string, partNum, totalPart
 	} else {
 		filename = fmt.Sprintf("%s-part%d.html", baseOutputPath, partNum)
 	}
-	return filepath.Join(r.cfg.OutputDir, filename)
+
+	outputPath := filepath.Join(r.cfg.OutputDir, filename)
+
+	// Debug logging to identify path issue
+	r.logger.Debug().
+		Str("baseOutputPath", baseOutputPath).
+		Str("filename", filename).
+		Str("outputDir", r.cfg.OutputDir).
+		Str("outputPath", outputPath).
+		Msg("buildOutputPath debug")
+
+	return outputPath
 }
 
 // prepareReportData sets up page data structure
@@ -240,7 +254,7 @@ func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, par
 
 	r.setBasicReportInfo(&pageData, partInfo)
 	r.processProbeResults(probeResults, &pageData)
-	r.assetManager.EmbedAssetsIntoPageData(&pageData, assetsFS, assetsFS, r.cfg.EmbedAssets)
+	r.assetManager.EmbedAssetsIntoPageData(&pageData, reportAssetsFS, reportAssetsFS, r.cfg.EmbedAssets)
 
 	pageData.FaviconBase64 = r.favicon
 
@@ -336,6 +350,14 @@ func (r *HtmlReporter) finalizePageData(pageData *models.ReportPageData, display
 	}
 	for rt := range rootTargetsEncountered {
 		pageData.UniqueRootTargets = append(pageData.UniqueRootTargets, rt)
+	}
+
+	// Convert ProbeResults to JSON for JavaScript processing
+	if probeResultsJSON, err := json.Marshal(displayResults); err != nil {
+		r.logger.Error().Err(err).Msg("Failed to marshal probe results to JSON")
+		pageData.ProbeResultsJSON = template.JS("[]")
+	} else {
+		pageData.ProbeResultsJSON = template.JS(probeResultsJSON)
 	}
 }
 
