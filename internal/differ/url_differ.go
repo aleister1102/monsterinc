@@ -1,11 +1,12 @@
 package differ
 
 import (
-	"fmt"
+	"strings"
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/rs/zerolog"
 )
@@ -105,10 +106,23 @@ func (um *URLMapper) CreateMaps(historicalProbes []models.ProbeResult, currentPr
 
 // getURLKey returns the key to use for URL comparison
 func (um *URLMapper) getURLKey(url string) string {
-	if !um.config.CaseSensitive {
-		return fmt.Sprintf("%s_lower", url) // Simple case handling, could be improved
+	key := url
+
+	// Apply URL normalization if enabled
+	if um.config.EnableURLNormalization {
+		if normalized, err := urlhandler.NormalizeURL(url); err == nil {
+			key = normalized
+		} else {
+			um.logger.Warn().Err(err).Str("url", url).Msg("Failed to normalize URL for comparison")
+		}
 	}
-	return url
+
+	// Apply case sensitivity
+	if !um.config.CaseSensitive {
+		key = strings.ToLower(key)
+	}
+
+	return key
 }
 
 // URLStatusAnalyzer analyzes URL status changes
