@@ -204,10 +204,13 @@ func (so *Scanner) processDiffingAndStorage(input ProcessDiffingAndStorageInput)
 		input.ScanSessionID,
 	)
 
-	urlDiffer := differ.NewUrlDiffer(so.parquetReader, so.logger)
 	output := ProcessDiffingAndStorageOutput{
 		URLDiffResults: make(map[string]models.URLDiffResult),
-		// AllProbesToStore will be populated by processTargetGroup
+	}
+
+	urlDiffer, err := differ.NewUrlDiffer(so.parquetReader, so.logger)
+	if err != nil {
+		return output, err
 	}
 
 	for rootTarget, resultsForRoot := range probeResultsByRootTarget {
