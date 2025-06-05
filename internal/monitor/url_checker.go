@@ -103,7 +103,10 @@ func (uc *URLChecker) detectURLChanges(
 
 	// Handle new file case
 	if lastRecord == nil {
-		return uc.createNewFileChangeInfo(url, processedUpdate), nil, nil
+		fileChangeInfo := uc.createNewFileChangeInfo(url, processedUpdate)
+		// Create a special diff result for new files
+		newFileDiffResult := uc.createNewFileDiffResult(url, fetchResult, processedUpdate)
+		return fileChangeInfo, newFileDiffResult, nil
 	}
 
 	// Check if content has changed
@@ -189,6 +192,39 @@ func (uc *URLChecker) createNewFileChangeInfo(url string, processedUpdate *model
 		NewHash:     processedUpdate.NewHash,
 		ContentType: processedUpdate.ContentType,
 		ChangeTime:  processedUpdate.FetchedAt,
+	}
+}
+
+func (uc *URLChecker) createNewFileDiffResult(url string, fetchResult *common.FetchFileContentResult, processedUpdate *models.MonitoredFileUpdate) *models.ContentDiffResult {
+	uc.logger.Debug().Str("url", url).Msg("Creating diff result for new file")
+
+	// Extract paths if it's JavaScript content
+	extractedPaths := uc.extractPathsIfJavaScript(url, fetchResult)
+
+	// Create diffs showing entire content as insertion for new files
+	content := string(fetchResult.Content)
+	var diffs []models.ContentDiff
+	if len(strings.TrimSpace(content)) > 0 {
+		diffs = []models.ContentDiff{
+			{
+				Operation: models.DiffInsert,
+				Text:      content,
+			},
+		}
+	}
+
+	return &models.ContentDiffResult{
+		Timestamp:      processedUpdate.FetchedAt.UnixMilli(),
+		ContentType:    fetchResult.ContentType,
+		OldHash:        "",
+		NewHash:        processedUpdate.NewHash,
+		IsIdentical:    false, // New files are considered as changes
+		LinesAdded:     len(strings.Split(content, "\n")),
+		LinesDeleted:   0,
+		LinesChanged:   0,
+		Diffs:          diffs, // Show entire content as insertion
+		ErrorMessage:   "",
+		ExtractedPaths: extractedPaths,
 	}
 }
 

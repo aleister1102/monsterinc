@@ -211,7 +211,7 @@ func validateMonitoringConfig(gCfg *config.GlobalConfig) error {
 	return nil
 }
 
-func initializeHistoryStore(gCfg *config.GlobalConfig, logger zerolog.Logger) (models.FileHistoryStore, error) {
+func initializeHistoryStore(gCfg *config.GlobalConfig, logger zerolog.Logger) (*datastore.ParquetFileHistory, error) {
 	historyStore, err := datastore.NewParquetFileHistoryStore(&gCfg.StorageConfig, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize ParquetFileHistoryStore: %w", err)
@@ -382,12 +382,21 @@ func (s *MonitoringService) hasChangesToReport(changedURLs []string, monitoredCo
 
 func (s *MonitoringService) generateAndSendCycleReport(monitoredURLs, changedURLs []string, cycleID string) {
 	if s.urlChecker.htmlDiffReporter == nil {
+		s.logger.Warn().Msg("HtmlDiffReporter is not available, sending notification without report")
+		s.sendCycleCompleteNotification(cycleID, changedURLs, "", len(monitoredURLs))
 		return
 	}
 
 	reportPath, err := s.urlChecker.htmlDiffReporter.GenerateDiffReport(monitoredURLs, cycleID)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to generate cycle end diff report")
+		s.sendCycleCompleteNotification(cycleID, changedURLs, "", len(monitoredURLs))
+		return
+	}
+
+	if reportPath == "" {
+		s.logger.Info().Msg("No changes detected - sending notification without report")
+		s.sendCycleCompleteNotification(cycleID, changedURLs, "", len(monitoredURLs))
 		return
 	}
 
