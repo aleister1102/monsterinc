@@ -74,7 +74,9 @@ func main() {
 // loadConfiguration loads the global configuration from the specified file,
 // Refactored ✅
 func loadConfiguration(flags AppFlags) (*config.GlobalConfig, error) {
-	gCfg, err := config.LoadGlobalConfig(flags.GlobalConfigFile)
+	// Use a basic logger for config loading
+	basicLogger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	gCfg, err := config.LoadGlobalConfig(flags.GlobalConfigFile, basicLogger)
 	if err != nil {
 		return nil, fmt.Errorf("could not load global config using path '%s': %w", flags.GlobalConfigFile, err)
 	}
