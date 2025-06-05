@@ -3,7 +3,8 @@ package models
 import (
 	"encoding/json"
 	"time"
-	// "github.com/aleister1102/monsterinc/internal/utils" // Removed: Imported and not used, and caused naming conflict
+
+	"github.com/aleister1102/monsterinc/internal/common"
 )
 
 // Required for TLSCertExpiry potentially if it becomes time.Time
@@ -66,7 +67,7 @@ func (ppr *ParquetProbeResult) ToProbeResult() ProbeResult {
 		InputURL:            ppr.OriginalURL,
 		FinalURL:            StringFromPtr(ppr.FinalURL),
 		Method:              StringFromPtr(ppr.Method),
-		Timestamp:           UnixMilliToTimeOptional(ppr.LastSeenTimestamp), // Corrected: Call directly from models package
+		Timestamp:           common.UnixMilliToTimeOptional(ppr.LastSeenTimestamp), // Corrected: Call directly from models package
 		Error:               StringFromPtr(ppr.ProbeError),
 		RootTargetURL:       StringFromPtr(ppr.RootTargetURL),
 		StatusCode:          int(Int32FromPtr(ppr.StatusCode)),
@@ -78,7 +79,7 @@ func (ppr *ParquetProbeResult) ToProbeResult() ProbeResult {
 		IPs:                 ppr.IPAddress,
 		Technologies:        technologies,
 		URLStatus:           StringFromPtr(ppr.DiffStatus),
-		OldestScanTimestamp: UnixMilliToTimeOptional(ppr.FirstSeenTimestamp), // Corrected: Call directly from models package
+		OldestScanTimestamp: common.UnixMilliToTimeOptional(ppr.FirstSeenTimestamp), // Corrected: Call directly from models package
 	}
 }
 

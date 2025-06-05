@@ -1,6 +1,22 @@
 package models
 
-import "time"
+import (
+	"fmt"
+	"time"
+
+	"github.com/aleister1102/monsterinc/internal/common"
+)
+
+// Discord color constants for different types of notifications
+const (
+	DiscordColorSuccess   = 0x00ff00 // Green
+	DiscordColorError     = 0xff0000 // Red
+	DiscordColorWarning   = 0xffa500 // Orange
+	DiscordColorInfo      = 0x0099ff // Blue
+	DiscordColorDefault   = 0x36393f // Discord default gray
+	DiscordColorCritical  = 0x8b0000 // Dark red
+	DiscordColorCompleted = 0x228b22 // Forest green
+)
 
 // DiscordMessagePayload represents the JSON payload sent to a Discord webhook.
 type DiscordMessagePayload struct {
@@ -21,6 +37,116 @@ type AllowedMentions struct {
 	RepliedUser bool     `json:"replied_user,omitempty"` // For replies, whether to mention the author of the message being replied to
 }
 
+// AllowedMentionsBuilder builds AllowedMentions objects
+type AllowedMentionsBuilder struct {
+	mentions AllowedMentions
+}
+
+// NewAllowedMentionsBuilder creates a new allowed mentions builder
+func NewAllowedMentionsBuilder() *AllowedMentionsBuilder {
+	return &AllowedMentionsBuilder{
+		mentions: AllowedMentions{},
+	}
+}
+
+// WithParse sets parse types
+func (amb *AllowedMentionsBuilder) WithParse(parse []string) *AllowedMentionsBuilder {
+	amb.mentions.Parse = make([]string, len(parse))
+	copy(amb.mentions.Parse, parse)
+	return amb
+}
+
+// WithRoles sets roles to mention
+func (amb *AllowedMentionsBuilder) WithRoles(roles []string) *AllowedMentionsBuilder {
+	amb.mentions.Roles = make([]string, len(roles))
+	copy(amb.mentions.Roles, roles)
+	return amb
+}
+
+// WithUsers sets users to mention
+func (amb *AllowedMentionsBuilder) WithUsers(users []string) *AllowedMentionsBuilder {
+	amb.mentions.Users = make([]string, len(users))
+	copy(amb.mentions.Users, users)
+	return amb
+}
+
+// WithRepliedUser sets replied user mention
+func (amb *AllowedMentionsBuilder) WithRepliedUser(replied bool) *AllowedMentionsBuilder {
+	amb.mentions.RepliedUser = replied
+	return amb
+}
+
+// Build returns the constructed AllowedMentions
+func (amb *AllowedMentionsBuilder) Build() AllowedMentions {
+	return amb.mentions
+}
+
+// DiscordEmbedField represents a field in an embed.
+type DiscordEmbedField struct {
+	Name   string `json:"name"`             // Name of the field
+	Value  string `json:"value"`            // Value of the field
+	Inline bool   `json:"inline,omitempty"` // Whether or not this field should display inline
+}
+
+// NewDiscordEmbedField creates a new Discord embed field
+func NewDiscordEmbedField(name, value string, inline bool) DiscordEmbedField {
+	return DiscordEmbedField{
+		Name:   name,
+		Value:  value,
+		Inline: inline,
+	}
+}
+
+// DiscordEmbedFooter represents the footer of an embed.
+type DiscordEmbedFooter struct {
+	Text    string `json:"text"`               // Footer text
+	IconURL string `json:"icon_url,omitempty"` // URL of footer icon (only supports http(s) and attachments)
+}
+
+// NewDiscordEmbedFooter creates a new Discord embed footer
+func NewDiscordEmbedFooter(text, iconURL string) *DiscordEmbedFooter {
+	return &DiscordEmbedFooter{
+		Text:    text,
+		IconURL: iconURL,
+	}
+}
+
+// DiscordEmbedImage represents the image of an embed.
+type DiscordEmbedImage struct {
+	URL string `json:"url"` // Source URL of image (only supports http(s) and attachments)
+}
+
+// NewDiscordEmbedImage creates a new Discord embed image
+func NewDiscordEmbedImage(url string) *DiscordEmbedImage {
+	return &DiscordEmbedImage{URL: url}
+}
+
+// DiscordEmbedThumbnail represents the thumbnail of an embed.
+type DiscordEmbedThumbnail struct {
+	URL string `json:"url"` // Source URL of thumbnail (only supports http(s) and attachments)
+}
+
+// NewDiscordEmbedThumbnail creates a new Discord embed thumbnail
+func NewDiscordEmbedThumbnail(url string) *DiscordEmbedThumbnail {
+	return &DiscordEmbedThumbnail{URL: url}
+}
+
+// DiscordEmbedAuthor represents the author of an embed.
+type DiscordEmbedAuthor struct {
+	Name    string `json:"name"`               // Name of author
+	URL     string `json:"url,omitempty"`      // URL of author (only supports http(s))
+	IconURL string `json:"icon_url,omitempty"` // URL of author icon (only supports http(s) and attachments)
+}
+
+// NewDiscordEmbedAuthor creates a new Discord embed author
+func NewDiscordEmbedAuthor(name, url, iconURL string) *DiscordEmbedAuthor {
+	return &DiscordEmbedAuthor{
+		Name:    name,
+		URL:     url,
+		IconURL: iconURL,
+	}
+}
+
 // DiscordEmbed represents a Discord embed object.
 type DiscordEmbed struct {
 	Title       string                 `json:"title,omitempty"`       // Title of embed
@@ -35,34 +161,183 @@ type DiscordEmbed struct {
 	Fields      []DiscordEmbedField    `json:"fields,omitempty"` // Array of embed field objects
 }
 
-// DiscordEmbedFooter represents the footer of an embed.
-type DiscordEmbedFooter struct {
-	Text    string `json:"text"`               // Footer text
-	IconURL string `json:"icon_url,omitempty"` // URL of footer icon (only supports http(s) and attachments)
+// DiscordEmbedValidator validates Discord embed objects
+type DiscordEmbedValidator struct{}
+
+// NewDiscordEmbedValidator creates a new embed validator
+func NewDiscordEmbedValidator() *DiscordEmbedValidator {
+	return &DiscordEmbedValidator{}
 }
 
-// DiscordEmbedImage represents the image of an embed.
-type DiscordEmbedImage struct {
-	URL string `json:"url"` // Source URL of image (only supports http(s) and attachments)
+// ValidateEmbed validates a Discord embed
+func (dev *DiscordEmbedValidator) ValidateEmbed(embed DiscordEmbed) error {
+	if len(embed.Title) > 256 {
+		return common.NewValidationError("title", embed.Title, "title cannot exceed 256 characters")
+	}
+
+	if len(embed.Description) > 4096 {
+		return common.NewValidationError("description", embed.Description, "description cannot exceed 4096 characters")
+	}
+
+	if len(embed.Fields) > 25 {
+		return common.NewValidationError("fields", embed.Fields, "cannot have more than 25 fields")
+	}
+
+	// Validate fields
+	for i, field := range embed.Fields {
+		if len(field.Name) > 256 {
+			return common.NewValidationError("field_name", field.Name, fmt.Sprintf("field %d name cannot exceed 256 characters", i))
+		}
+		if len(field.Value) > 1024 {
+			return common.NewValidationError("field_value", field.Value, fmt.Sprintf("field %d value cannot exceed 1024 characters", i))
+		}
+		if field.Name == "" {
+			return common.NewValidationError("field_name", field.Name, fmt.Sprintf("field %d name cannot be empty", i))
+		}
+		if field.Value == "" {
+			return common.NewValidationError("field_value", field.Value, fmt.Sprintf("field %d value cannot be empty", i))
+		}
+	}
+
+	if embed.Footer != nil && len(embed.Footer.Text) > 2048 {
+		return common.NewValidationError("footer_text", embed.Footer.Text, "footer text cannot exceed 2048 characters")
+	}
+
+	if embed.Author != nil && len(embed.Author.Name) > 256 {
+		return common.NewValidationError("author_name", embed.Author.Name, "author name cannot exceed 256 characters")
+	}
+
+	return nil
 }
 
-// DiscordEmbedThumbnail represents the thumbnail of an embed.
-type DiscordEmbedThumbnail struct {
-	URL string `json:"url"` // Source URL of thumbnail (only supports http(s) and attachments)
+// DiscordEmbedBuilder builds Discord embed objects
+type DiscordEmbedBuilder struct {
+	embed     DiscordEmbed
+	validator *DiscordEmbedValidator
 }
 
-// DiscordEmbedAuthor represents the author of an embed.
-type DiscordEmbedAuthor struct {
-	Name    string `json:"name"`               // Name of author
-	URL     string `json:"url,omitempty"`      // URL of author (only supports http(s))
-	IconURL string `json:"icon_url,omitempty"` // URL of author icon (only supports http(s) and attachments)
+// NewDiscordEmbedBuilder creates a new Discord embed builder
+func NewDiscordEmbedBuilder() *DiscordEmbedBuilder {
+	return &DiscordEmbedBuilder{
+		embed:     DiscordEmbed{},
+		validator: NewDiscordEmbedValidator(),
+	}
 }
 
-// DiscordEmbedField represents a field in an embed.
-type DiscordEmbedField struct {
-	Name   string `json:"name"`             // Name of the field
-	Value  string `json:"value"`            // Value of the field
-	Inline bool   `json:"inline,omitempty"` // Whether or not this field should display inline
+// WithTitle sets the embed title
+func (deb *DiscordEmbedBuilder) WithTitle(title string) *DiscordEmbedBuilder {
+	deb.embed.Title = title
+	return deb
+}
+
+// WithDescription sets the embed description
+func (deb *DiscordEmbedBuilder) WithDescription(description string) *DiscordEmbedBuilder {
+	deb.embed.Description = description
+	return deb
+}
+
+// WithURL sets the embed URL
+func (deb *DiscordEmbedBuilder) WithURL(url string) *DiscordEmbedBuilder {
+	deb.embed.URL = url
+	return deb
+}
+
+// WithTimestamp sets the embed timestamp
+func (deb *DiscordEmbedBuilder) WithTimestamp(timestamp time.Time) *DiscordEmbedBuilder {
+	deb.embed.Timestamp = timestamp.Format(time.RFC3339)
+	return deb
+}
+
+// WithCurrentTimestamp sets the embed timestamp to current time
+func (deb *DiscordEmbedBuilder) WithCurrentTimestamp() *DiscordEmbedBuilder {
+	return deb.WithTimestamp(time.Now())
+}
+
+// WithColor sets the embed color
+func (deb *DiscordEmbedBuilder) WithColor(color int) *DiscordEmbedBuilder {
+	deb.embed.Color = color
+	return deb
+}
+
+// WithSuccessColor sets success color
+func (deb *DiscordEmbedBuilder) WithSuccessColor() *DiscordEmbedBuilder {
+	return deb.WithColor(DiscordColorSuccess)
+}
+
+// WithErrorColor sets error color
+func (deb *DiscordEmbedBuilder) WithErrorColor() *DiscordEmbedBuilder {
+	return deb.WithColor(DiscordColorError)
+}
+
+// WithWarningColor sets warning color
+func (deb *DiscordEmbedBuilder) WithWarningColor() *DiscordEmbedBuilder {
+	return deb.WithColor(DiscordColorWarning)
+}
+
+// WithInfoColor sets info color
+func (deb *DiscordEmbedBuilder) WithInfoColor() *DiscordEmbedBuilder {
+	return deb.WithColor(DiscordColorInfo)
+}
+
+// WithFooter sets the embed footer
+func (deb *DiscordEmbedBuilder) WithFooter(text, iconURL string) *DiscordEmbedBuilder {
+	deb.embed.Footer = NewDiscordEmbedFooter(text, iconURL)
+	return deb
+}
+
+// WithImage sets the embed image
+func (deb *DiscordEmbedBuilder) WithImage(url string) *DiscordEmbedBuilder {
+	deb.embed.Image = NewDiscordEmbedImage(url)
+	return deb
+}
+
+// WithThumbnail sets the embed thumbnail
+func (deb *DiscordEmbedBuilder) WithThumbnail(url string) *DiscordEmbedBuilder {
+	deb.embed.Thumbnail = NewDiscordEmbedThumbnail(url)
+	return deb
+}
+
+// WithAuthor sets the embed author
+func (deb *DiscordEmbedBuilder) WithAuthor(name, url, iconURL string) *DiscordEmbedBuilder {
+	deb.embed.Author = NewDiscordEmbedAuthor(name, url, iconURL)
+	return deb
+}
+
+// AddField adds a field to the embed
+func (deb *DiscordEmbedBuilder) AddField(name, value string, inline bool) *DiscordEmbedBuilder {
+	field := NewDiscordEmbedField(name, value, inline)
+	deb.embed.Fields = append(deb.embed.Fields, field)
+	return deb
+}
+
+// AddFields adds multiple fields to the embed
+func (deb *DiscordEmbedBuilder) AddFields(fields []DiscordEmbedField) *DiscordEmbedBuilder {
+	deb.embed.Fields = append(deb.embed.Fields, fields...)
+	return deb
+}
+
+// ClearFields clears all fields
+func (deb *DiscordEmbedBuilder) ClearFields() *DiscordEmbedBuilder {
+	deb.embed.Fields = []DiscordEmbedField{}
+	return deb
+}
+
+// Validate validates the current embed
+func (deb *DiscordEmbedBuilder) Validate() error {
+	return deb.validator.ValidateEmbed(deb.embed)
+}
+
+// Build builds the Discord embed with validation
+func (deb *DiscordEmbedBuilder) Build() (DiscordEmbed, error) {
+	if err := deb.Validate(); err != nil {
+		return DiscordEmbed{}, common.WrapError(err, "embed validation failed")
+	}
+	return deb.embed, nil
+}
+
+// BuildUnsafe builds the Discord embed without validation
+func (deb *DiscordEmbedBuilder) BuildUnsafe() DiscordEmbed {
+	return deb.embed
 }
 
 // ScanSummaryData holds all relevant information about a scan to be used in notifications.
@@ -133,6 +408,37 @@ const (
 	ScanStatusNoTargets           ScanStatus = "NO_TARGETS"
 	ScanStatusCompletedWithIssues ScanStatus = "COMPLETED_WITH_ISSUES"
 )
+
+// IsSuccess checks if scan status indicates success
+func (ss ScanStatus) IsSuccess() bool {
+	return ss == ScanStatusCompleted
+}
+
+// IsFailure checks if scan status indicates failure
+func (ss ScanStatus) IsFailure() bool {
+	return ss == ScanStatusFailed || ss == ScanStatusCriticalError
+}
+
+// IsInProgress checks if scan status indicates in progress
+func (ss ScanStatus) IsInProgress() bool {
+	return ss == ScanStatusStarted
+}
+
+// GetColor returns appropriate Discord color for the status
+func (ss ScanStatus) GetColor() int {
+	switch ss {
+	case ScanStatusCompleted:
+		return DiscordColorSuccess
+	case ScanStatusFailed, ScanStatusCriticalError:
+		return DiscordColorError
+	case ScanStatusPartialComplete, ScanStatusCompletedWithIssues:
+		return DiscordColorWarning
+	case ScanStatusStarted:
+		return DiscordColorInfo
+	default:
+		return DiscordColorDefault
+	}
+}
 
 // GetDefaultScanSummaryData initializes a ScanSummaryData with default/empty values.
 func GetDefaultScanSummaryData() ScanSummaryData {

@@ -3,6 +3,8 @@ package models
 import (
 	"html/template"
 	"time"
+
+	"github.com/aleister1102/monsterinc/internal/common"
 )
 
 // ProbeResultDisplay is a struct tailored for displaying probe results in the HTML report.
@@ -109,7 +111,7 @@ func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
 		Headers:         pr.Headers,
 		Body:            pr.Body, // Consider snippet or link
 		Error:           pr.Error,
-		Timestamp:       FormatTimeOptional(pr.Timestamp, "2006-01-02 15:04:05 MST"),
+		Timestamp:       common.FormatTimeOptional(pr.Timestamp, "2006-01-02 15:04:05 MST"),
 		IsSuccess:       isSuccess,
 		HasTechnologies: len(technologies) > 0,
 		HasASN:          pr.ASN != 0,
