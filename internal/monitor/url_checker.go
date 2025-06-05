@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -60,10 +61,25 @@ type CheckResult struct {
 
 // CheckURL checks a single URL for changes
 func (uc *URLChecker) CheckURL(url string, cycleID string) CheckResult {
+	return uc.CheckURLWithContext(nil, url, cycleID)
+}
+
+// CheckURLWithContext checks a single URL for changes with context support
+func (uc *URLChecker) CheckURLWithContext(ctx context.Context, url string, cycleID string) CheckResult {
 	uc.logger.Debug().Str("url", url).Str("cycle_id", cycleID).Msg("Starting URL check")
 
+	// Check for context cancellation before starting
+	if ctx != nil {
+		select {
+		case <-ctx.Done():
+			uc.logger.Debug().Str("url", url).Msg("URL check cancelled due to context cancellation")
+			return uc.createErrorResult(url, cycleID, "context_cancelled", ctx.Err())
+		default:
+		}
+	}
+
 	// Fetch content from URL
-	fetchResult, err := uc.fetchURLContent(url)
+	fetchResult, err := uc.fetchURLContentWithContext(ctx, url)
 	if err != nil {
 		return uc.createErrorResult(url, cycleID, "fetch", err)
 	}
@@ -156,8 +172,11 @@ func (uc *URLChecker) storeURLRecord(
 
 // Private helper methods for URL fetching and processing
 
-func (uc *URLChecker) fetchURLContent(url string) (*common.FetchFileContentResult, error) {
-	fetchResult, err := uc.fetcher.FetchFileContent(common.FetchFileContentInput{URL: url})
+func (uc *URLChecker) fetchURLContentWithContext(ctx context.Context, url string) (*common.FetchFileContentResult, error) {
+	fetchResult, err := uc.fetcher.FetchFileContent(common.FetchFileContentInput{
+		URL:     url,
+		Context: ctx,
+	})
 	if err != nil {
 		uc.logger.Error().Err(err).Str("url", url).Msg("Failed to fetch URL content")
 		return nil, err

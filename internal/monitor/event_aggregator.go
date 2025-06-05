@@ -25,6 +25,7 @@ type EventAggregator struct {
 	maxAggregatedEvents   int
 	isShuttingDown        bool
 	shutdownMutex         sync.RWMutex
+	parentCtx             context.Context // Thêm context để có thể cancel
 }
 
 // NewEventAggregator creates a new EventAggregator
@@ -43,6 +44,7 @@ func NewEventAggregator(
 		maxAggregatedEvents: maxAggregatedEvents,
 		isShuttingDown:      false,
 		shutdownMutex:       sync.RWMutex{},
+		parentCtx:           context.Background(), // Default context
 	}
 
 	ea.startAggregationWorker(aggregationInterval)
@@ -72,10 +74,16 @@ func (ea *EventAggregator) AddFetchErrorEvent(errorInfo models.MonitorFetchError
 
 // Stop gracefully stops the event aggregator
 func (ea *EventAggregator) Stop() {
+	ea.logger.Info().Msg("Stopping event aggregator...")
 	ea.initiateShutdown()
 	ea.waitForWorkerCompletion()
-	ea.sendRemainingEvents()
+	// Don't send remaining events during forced shutdown to avoid delays
 	ea.logger.Info().Msg("Event aggregator stopped")
+}
+
+// SetParentContext updates the parent context for notifications
+func (ea *EventAggregator) SetParentContext(ctx context.Context) {
+	ea.parentCtx = ctx
 }
 
 // GetEventCounts returns current event counts for monitoring
@@ -157,7 +165,13 @@ func (ea *EventAggregator) checkMaxEventsReached() {
 		ea.logger.Info().
 			Int("event_count", currentCount).
 			Msg("Max aggregated events reached, triggering immediate send")
-		go ea.sendAggregatedChanges()
+
+		// Check if we should still send notifications
+		if ea.shouldAcceptEvent() {
+			go ea.sendAggregatedChanges()
+		} else {
+			ea.logger.Debug().Msg("Skipping immediate send due to shutdown")
+		}
 	}
 }
 
@@ -194,11 +208,6 @@ func (ea *EventAggregator) waitForWorkerCompletion() {
 	ea.aggregationWg.Wait()
 }
 
-func (ea *EventAggregator) sendRemainingEvents() {
-	ea.sendAggregatedChanges()
-	ea.sendAggregatedErrors()
-}
-
 // Private worker methods
 
 func (ea *EventAggregator) aggregationWorker() {
@@ -209,8 +218,14 @@ func (ea *EventAggregator) aggregationWorker() {
 		case <-ea.doneChan:
 			ea.logger.Debug().Msg("Aggregation worker stopped via done channel")
 			return
+		case <-ea.parentCtx.Done():
+			ea.logger.Debug().Msg("Aggregation worker stopped via parent context cancellation")
+			return
 		case <-ea.aggregationTicker.C:
-			ea.handleAggregationTick()
+			// Check if we should still process ticks
+			if ea.shouldAcceptEvent() {
+				ea.handleAggregationTick()
+			}
 		}
 	}
 }
@@ -274,12 +289,27 @@ func (ea *EventAggregator) sendFileChangesNotification(changes []models.FileChan
 		return
 	}
 
+	// Don't send notifications if shutting down
+	if !ea.shouldAcceptEvent() {
+		ea.logger.Debug().Msg("Skipping file changes notification due to shutdown")
+		return
+	}
+
+	// Check if context is cancelled
+	ctx := ea.getOperationContext()
+	select {
+	case <-ctx.Done():
+		ea.logger.Debug().Msg("Skipping file changes notification due to context cancellation")
+		return
+	default:
+	}
+
 	ea.logger.Info().
 		Int("change_count", len(changes)).
 		Msg("Sending aggregated file changes notification")
 
 	ea.notificationHelper.SendAggregatedFileChangesNotification(
-		ea.getOperationContext(),
+		ctx,
 		changes,
 		"",
 	)
@@ -290,17 +320,35 @@ func (ea *EventAggregator) sendFetchErrorsNotification(errors []models.MonitorFe
 		return
 	}
 
+	// Don't send notifications if shutting down
+	if !ea.shouldAcceptEvent() {
+		ea.logger.Debug().Msg("Skipping fetch errors notification due to shutdown")
+		return
+	}
+
+	// Check if context is cancelled
+	ctx := ea.getOperationContext()
+	select {
+	case <-ctx.Done():
+		ea.logger.Debug().Msg("Skipping fetch errors notification due to context cancellation")
+		return
+	default:
+	}
+
 	ea.logger.Info().
 		Int("error_count", len(errors)).
 		Msg("Sending aggregated fetch errors notification")
 
 	ea.notificationHelper.SendAggregatedMonitorErrorsNotification(
-		ea.getOperationContext(),
+		ctx,
 		errors,
 	)
 }
 
 func (ea *EventAggregator) getOperationContext() context.Context {
-	// In a real implementation, this should be passed from the service or use a proper context
+	// Use parent context if available, otherwise use background
+	if ea.parentCtx != nil {
+		return ea.parentCtx
+	}
 	return context.Background()
 }

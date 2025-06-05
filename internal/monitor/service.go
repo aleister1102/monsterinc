@@ -133,10 +133,34 @@ func (s *MonitoringService) LoadAndMonitorFromSources(inputFileOption string, in
 
 // CheckURL checks a single URL for changes
 func (s *MonitoringService) CheckURL(url string) {
+	// Check if service is stopped or context cancelled before starting
+	if s.isStopped {
+		return
+	}
+
+	if s.serviceCtx != nil {
+		select {
+		case <-s.serviceCtx.Done():
+			s.logger.Debug().Str("url", url).Msg("URL check cancelled due to context cancellation")
+			return
+		default:
+		}
+	}
+
 	if !s.acquireURLMutex() {
 		return
 	}
 	defer s.releaseURLMutex(url)
+
+	// Check again after acquiring mutex
+	if s.serviceCtx != nil {
+		select {
+		case <-s.serviceCtx.Done():
+			s.logger.Debug().Str("url", url).Msg("URL check cancelled after acquiring mutex")
+			return
+		default:
+		}
+	}
 
 	result := s.performURLCheck(url)
 	s.handleCheckResult(url, result)
@@ -293,7 +317,7 @@ func initializeHtmlDiffReporter(
 
 func createInitialCycleTracker(logger zerolog.Logger) *CycleTracker {
 	initialCycleID := fmt.Sprintf("monitor-init-%s", time.Now().Format("20060102-150405"))
-	return NewCycleTracker(logger, initialCycleID)
+	return NewCycleTracker(initialCycleID)
 }
 
 func initializeEventAggregator(
@@ -345,7 +369,7 @@ func (s *MonitoringService) performURLCheck(url string) CheckResult {
 	defer urlMutex.Unlock()
 
 	cycleID := s.cycleTracker.GetCurrentCycleID()
-	return s.urlChecker.CheckURL(url, cycleID)
+	return s.urlChecker.CheckURLWithContext(s.serviceCtx, url, cycleID)
 }
 
 func (s *MonitoringService) handleCheckResult(url string, result CheckResult) {
@@ -449,6 +473,12 @@ func (s *MonitoringService) cleanupResources() {
 func (s *MonitoringService) updateServiceContext(parentCtx context.Context) {
 	s.cancelServiceContext()
 	s.serviceCtx, s.serviceCancelFunc = context.WithCancel(parentCtx)
+
+	// Update event aggregator context as well
+	if s.eventAggregator != nil {
+		s.eventAggregator.SetParentContext(s.serviceCtx)
+	}
+
 	s.logger.Debug().Msg("Updated service context with new parent")
 }
 
