@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
@@ -23,102 +24,298 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// File history store constants
 const (
 	fileHistoryArchiveSubDir            = "archive"
 	fileHistoryCurrentFile              = "current_history.parquet"
-	monitorDataDir                      = "monitor" // New constant for monitor data subdirectory
+	monitorDataDir                      = "monitor"
 	currentMonitorHistoryFile           = "all_monitor_history.parquet"
-	archivedMonitorHistoryFormat        = "%s_%s_monitor_history.parquet" // timestamp, original_basename_no_ext
+	archivedMonitorHistoryFormat        = "%s_%s_monitor_history.parquet"
 	monitorHistoryTimestampLayout       = "2006-01-02_15-04-05"
 	maxMonitorHistoryFileSize     int64 = 100 * 1024 * 1024 // 100MB
 	monitorHistoryFileGlobPattern       = "*_monitor_history.parquet"
 )
+
+// ParquetFileHistoryStoreConfig holds configuration for the file history store
+type ParquetFileHistoryStoreConfig struct {
+	MaxFileSize       int64
+	EnableCompression bool
+	CompressionCodec  string
+	EnableURLMutexes  bool
+	CleanupInterval   int
+}
+
+// DefaultParquetFileHistoryStoreConfig returns default configuration
+func DefaultParquetFileHistoryStoreConfig() ParquetFileHistoryStoreConfig {
+	return ParquetFileHistoryStoreConfig{
+		MaxFileSize:       maxMonitorHistoryFileSize,
+		EnableCompression: true,
+		CompressionCodec:  "zstd",
+		EnableURLMutexes:  true,
+		CleanupInterval:   3600, // 1 hour in seconds
+	}
+}
+
+// URLHashGenerator handles URL hash generation
+type URLHashGenerator struct {
+	hashLength int
+}
+
+// NewURLHashGenerator creates a new URL hash generator
+func NewURLHashGenerator(hashLength int) *URLHashGenerator {
+	if hashLength <= 0 || hashLength > 64 {
+		hashLength = 16 // Default hash length
+	}
+	return &URLHashGenerator{
+		hashLength: hashLength,
+	}
+}
+
+// GenerateHash creates a unique hash for the URL
+func (uhg *URLHashGenerator) GenerateHash(url string) string {
+	hasher := sha256.New()
+	hasher.Write([]byte(url))
+	return hex.EncodeToString(hasher.Sum(nil))[:uhg.hashLength]
+}
 
 // ParquetFileHistoryStore implements the models.FileHistoryStore interface using Parquet files.
 // Each monitored URL will have its history stored in a separate Parquet file.
 type ParquetFileHistoryStore struct {
 	storageConfig *config.StorageConfig
 	logger        zerolog.Logger
-	// Add mutex map for per-URL locking
+	fileManager   *common.FileManager
+	urlHashGen    *URLHashGenerator
+	config        ParquetFileHistoryStoreConfig
+
+	// Thread-safety components
+	mutexManager *URLMutexManager
 	urlMutexes   map[string]*sync.Mutex
 	mutexMapLock sync.RWMutex
 }
 
-// NewParquetFileHistoryStore creates a new ParquetFileHistoryStore.
-func NewParquetFileHistoryStore(cfg *config.StorageConfig, logger zerolog.Logger) (*ParquetFileHistoryStore, error) {
+// ParquetFileHistoryStoreBuilder provides a fluent interface for creating ParquetFileHistoryStore
+type ParquetFileHistoryStoreBuilder struct {
+	storageConfig *config.StorageConfig
+	logger        zerolog.Logger
+	config        ParquetFileHistoryStoreConfig
+}
+
+// NewParquetFileHistoryStoreBuilder creates a new builder
+func NewParquetFileHistoryStoreBuilder(logger zerolog.Logger) *ParquetFileHistoryStoreBuilder {
+	return &ParquetFileHistoryStoreBuilder{
+		logger: logger.With().Str("component", "ParquetFileHistoryStore").Logger(),
+		config: DefaultParquetFileHistoryStoreConfig(),
+	}
+}
+
+// WithStorageConfig sets the storage configuration
+func (b *ParquetFileHistoryStoreBuilder) WithStorageConfig(cfg *config.StorageConfig) *ParquetFileHistoryStoreBuilder {
+	b.storageConfig = cfg
+	return b
+}
+
+// WithConfig sets the store configuration
+func (b *ParquetFileHistoryStoreBuilder) WithConfig(cfg ParquetFileHistoryStoreConfig) *ParquetFileHistoryStoreBuilder {
+	b.config = cfg
+	return b
+}
+
+// Build creates a new ParquetFileHistoryStore instance
+func (b *ParquetFileHistoryStoreBuilder) Build() (*ParquetFileHistoryStore, error) {
+	if b.storageConfig == nil {
+		return nil, common.NewValidationError("storage_config", b.storageConfig, "storage config cannot be nil")
+	}
+
+	basePath := b.storageConfig.ParquetBasePath
+	if err := os.MkdirAll(basePath, 0755); err != nil {
+		return nil, common.WrapError(err, "failed to ensure monitor history base directory: "+basePath)
+	}
+
+	mutexManager := NewURLMutexManager(b.config.EnableURLMutexes, b.logger)
+
 	store := &ParquetFileHistoryStore{
-		storageConfig: cfg,
-		logger:        logger.With().Str("component", "ParquetFileHistoryStore").Logger(),
+		storageConfig: b.storageConfig,
+		logger:        b.logger,
+		fileManager:   common.NewFileManager(b.logger),
+		urlHashGen:    NewURLHashGenerator(16),
+		config:        b.config,
+		mutexManager:  mutexManager,
 		urlMutexes:    make(map[string]*sync.Mutex),
 	}
 
-	basePath := cfg.ParquetBasePath
-	if err := os.MkdirAll(basePath, 0755); err != nil {
-		return nil, fmt.Errorf("failed to ensure monitor history base directory '%s': %w", basePath, err)
-	}
-	store.logger.Info().Str("path", basePath).Msg("Monitor history base directory ensured.")
+	b.logger.Info().Str("path", basePath).Msg("Monitor history base directory ensured")
 	return store, nil
 }
 
-// getURLMutex returns a mutex for the specific URL to ensure thread-safety
-func (pfs *ParquetFileHistoryStore) getURLMutex(url string) *sync.Mutex {
-	pfs.mutexMapLock.RLock()
-	mutex, exists := pfs.urlMutexes[url]
-	pfs.mutexMapLock.RUnlock()
+// NewParquetFileHistoryStore creates a new ParquetFileHistoryStore using builder pattern
+func NewParquetFileHistoryStore(cfg *config.StorageConfig, logger zerolog.Logger) (*ParquetFileHistoryStore, error) {
+	return NewParquetFileHistoryStoreBuilder(logger).
+		WithStorageConfig(cfg).
+		Build()
+}
+
+// URLMutexManager handles URL-specific mutex management
+type URLMutexManager struct {
+	mutexes map[string]*sync.Mutex
+	mapLock sync.RWMutex
+	enabled bool
+	logger  zerolog.Logger
+}
+
+// NewURLMutexManager creates a new URL mutex manager
+func NewURLMutexManager(enabled bool, logger zerolog.Logger) *URLMutexManager {
+	return &URLMutexManager{
+		mutexes: make(map[string]*sync.Mutex),
+		enabled: enabled,
+		logger:  logger.With().Str("component", "URLMutexManager").Logger(),
+	}
+}
+
+// GetMutex returns a mutex for the specific URL to ensure thread-safety
+func (umm *URLMutexManager) GetMutex(url string) *sync.Mutex {
+	if !umm.enabled {
+		// Return a dummy mutex that's safe to use but doesn't provide locking
+		return &sync.Mutex{}
+	}
+
+	umm.mapLock.RLock()
+	mutex, exists := umm.mutexes[url]
+	umm.mapLock.RUnlock()
 
 	if exists {
 		return mutex
 	}
 
-	pfs.mutexMapLock.Lock()
-	defer pfs.mutexMapLock.Unlock()
+	umm.mapLock.Lock()
+	defer umm.mapLock.Unlock()
 
 	// Double-check after acquiring write lock
-	if mutex, exists := pfs.urlMutexes[url]; exists {
+	if mutex, exists := umm.mutexes[url]; exists {
 		return mutex
 	}
 
 	mutex = &sync.Mutex{}
-	pfs.urlMutexes[url] = mutex
+	umm.mutexes[url] = mutex
 	return mutex
 }
 
-// generateURLHash creates a unique hash for the URL to use as filename
-func (pfs *ParquetFileHistoryStore) generateURLHash(url string) string {
-	hasher := sha256.New()
-	hasher.Write([]byte(url))
-	return hex.EncodeToString(hasher.Sum(nil))[:16] // Use first 16 chars for shorter filename
-}
-
-// getHistoryFilePath returns the path to the Parquet file for a specific URL.
-// Now creates a unique file for each URL using URL hash.
-func (pfs *ParquetFileHistoryStore) getHistoryFilePath(recordURL string) (string, error) {
-	hostnameWithPort, err := urlhandler.ExtractHostnameWithPort(recordURL)
-	if err != nil {
-		pfs.logger.Error().Err(err).Str("url", recordURL).Msg("Failed to extract hostname:port for history file path")
-		return "", fmt.Errorf("extracting hostname:port from URL '%s': %w", recordURL, err)
+// CleanupUnusedMutexes removes mutexes for URLs that are no longer needed
+func (umm *URLMutexManager) CleanupUnusedMutexes(activeURLs []string) {
+	if !umm.enabled {
+		return
 	}
 
-	// Sanitize hostname:port for directory name using specialized function
+	activeSet := make(map[string]struct{})
+	for _, url := range activeURLs {
+		activeSet[url] = struct{}{}
+	}
+
+	umm.mapLock.Lock()
+	defer umm.mapLock.Unlock()
+
+	for url := range umm.mutexes {
+		if _, active := activeSet[url]; !active {
+			delete(umm.mutexes, url)
+		}
+	}
+
+	umm.logger.Debug().
+		Int("active_mutexes", len(umm.mutexes)).
+		Msg("Cleaned up unused URL mutexes")
+}
+
+// getURLMutex returns a mutex for the specific URL to ensure thread-safety
+func (pfs *ParquetFileHistoryStore) getURLMutex(url string) *sync.Mutex {
+	if pfs.mutexManager == nil {
+		// Fallback to original implementation
+		pfs.mutexMapLock.RLock()
+		mutex, exists := pfs.urlMutexes[url]
+		pfs.mutexMapLock.RUnlock()
+
+		if exists {
+			return mutex
+		}
+
+		pfs.mutexMapLock.Lock()
+		defer pfs.mutexMapLock.Unlock()
+
+		if mutex, exists := pfs.urlMutexes[url]; exists {
+			return mutex
+		}
+
+		mutex = &sync.Mutex{}
+		pfs.urlMutexes[url] = mutex
+		return mutex
+	}
+
+	return pfs.mutexManager.GetMutex(url)
+}
+
+// FilePathGenerator handles file path generation for history files
+type FilePathGenerator struct {
+	logger     zerolog.Logger
+	urlHashGen *URLHashGenerator
+	basePath   string
+}
+
+// NewFilePathGenerator creates a new file path generator
+func NewFilePathGenerator(basePath string, urlHashGen *URLHashGenerator, logger zerolog.Logger) *FilePathGenerator {
+	return &FilePathGenerator{
+		logger:     logger.With().Str("component", "FilePathGenerator").Logger(),
+		urlHashGen: urlHashGen,
+		basePath:   basePath,
+	}
+}
+
+// GenerateHistoryFilePath returns the path to the Parquet file for a specific URL
+func (fpg *FilePathGenerator) GenerateHistoryFilePath(recordURL string) (string, error) {
+	hostnameWithPort, err := fpg.extractHostnamePort(recordURL)
+	if err != nil {
+		return "", err
+	}
+
 	sanitizedHostPort := urlhandler.SanitizeHostnamePort(hostnameWithPort)
-
-	// Generate unique hash for this specific URL
-	urlHash := pfs.generateURLHash(recordURL)
-
-	// Create filename: <url_hash>_history.parquet
+	urlHash := fpg.urlHashGen.GenerateHash(recordURL)
 	fileName := fmt.Sprintf("%s_history.parquet", urlHash)
 
-	// Base path for all monitor data: <storageConfig.ParquetBasePath>/monitor/<sanitizedHostPort>/<url_hash>_history.parquet
-	urlSpecificDir := filepath.Join(pfs.storageConfig.ParquetBasePath, monitorDataDir, sanitizedHostPort)
-	if err := os.MkdirAll(urlSpecificDir, 0755); err != nil {
-		pfs.logger.Error().Err(err).Str("directory", urlSpecificDir).Msg("Failed to create URL-specific directory for history file")
-		return "", fmt.Errorf("creating directory '%s': %w", urlSpecificDir, err)
+	urlSpecificDir := filepath.Join(fpg.basePath, monitorDataDir, sanitizedHostPort)
+	if err := fpg.ensureDirectoryExists(urlSpecificDir); err != nil {
+		return "", err
 	}
 
 	filePath := filepath.Join(urlSpecificDir, fileName)
-	pfs.logger.Debug().Str("url", recordURL).Str("file_path", filePath).Str("url_hash", urlHash).Msg("Generated history file path")
+	fpg.logger.Debug().
+		Str("url", recordURL).
+		Str("file_path", filePath).
+		Str("url_hash", urlHash).
+		Msg("Generated history file path")
 
 	return filePath, nil
+}
+
+// extractHostnamePort extracts hostname:port from URL
+func (fpg *FilePathGenerator) extractHostnamePort(recordURL string) (string, error) {
+	hostnameWithPort, err := urlhandler.ExtractHostnameWithPort(recordURL)
+	if err != nil {
+		fpg.logger.Error().Err(err).Str("url", recordURL).Msg("Failed to extract hostname:port for history file path")
+		return "", common.WrapError(err, "failed to extract hostname:port from URL: "+recordURL)
+	}
+	return hostnameWithPort, nil
+}
+
+// ensureDirectoryExists creates directory if it doesn't exist
+func (fpg *FilePathGenerator) ensureDirectoryExists(directory string) error {
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		fpg.logger.Error().Err(err).Str("directory", directory).Msg("Failed to create URL-specific directory for history file")
+		return common.WrapError(err, "failed to create directory: "+directory)
+	}
+	return nil
+}
+
+// getHistoryFilePath returns the path to the Parquet file for a specific URL
+func (pfs *ParquetFileHistoryStore) getHistoryFilePath(recordURL string) (string, error) {
+	fpg := NewFilePathGenerator(pfs.storageConfig.ParquetBasePath, pfs.urlHashGen, pfs.logger)
+	return fpg.GenerateHistoryFilePath(recordURL)
 }
 
 // getAndSortRecordsForURL is an internal helper to get the file path for a URL,
