@@ -573,9 +573,9 @@ func addErrorSamplesField(embedBuilder *DiscordEmbedBuilder, errors []models.Mon
 	}
 
 	var errorsText strings.Builder
-	for i := 0; i < sampleSize; i++ {
+	for i := range sampleSize {
 		error := errors[i]
-		errorsText.WriteString(fmt.Sprintf("• **%s**\n  `%s`\n", error.URL, error.Error))
+		errorsText.WriteString(fmt.Sprintf("• **%s**\n  ```%s```\n", error.URL, error.Error))
 	}
 
 	if len(errors) > sampleSize {
