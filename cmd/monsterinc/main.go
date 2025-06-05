@@ -145,11 +145,14 @@ func initializeMonitoringService(
 
 	// Initialize monitoring service
 	monitorLogger := zLogger.With().Str("service", "FileMonitor").Logger()
-	ms := monitor.NewMonitoringService(
+	ms, err := monitor.NewMonitoringService(
 		gCfg,
 		monitorLogger,
 		notificationHelper,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize monitoring service: %w", err)
+	}
 	zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service initialized.")
 
 	// Preload monitor targets if provided
