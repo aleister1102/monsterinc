@@ -334,6 +334,23 @@ func (s *Scheduler) runMonitorService(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			s.logger.Info().Msg("Monitor service stopping due to context cancellation.")
+			// Send monitor interrupt notification when context is cancelled
+			if s.notificationHelper != nil {
+				interruptionSummary, err := models.NewScanSummaryDataBuilder().
+					WithScanSessionID(fmt.Sprintf("monitor_interrupted_ctx_%s", time.Now().Format("20060102-150405"))).
+					WithStatus(models.ScanStatusInterrupted).
+					WithScanMode("automated").
+					WithErrorMessages([]string{"Monitor service was interrupted by context cancellation."}).
+					WithTargetSource("Monitor").
+					WithComponent("MonitorService").
+					Build()
+				if err != nil {
+					s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for monitor interrupt notification.")
+				} else {
+					s.logger.Info().Msg("Sending monitor interruption notification due to context cancellation.")
+					s.notificationHelper.SendMonitorInterruptNotification(context.Background(), interruptionSummary)
+				}
+			}
 			return
 		case <-s.stopChan:
 			s.logger.Info().Msg("Monitor service stopping due to explicit Stop() call.")
