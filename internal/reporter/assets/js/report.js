@@ -4,8 +4,15 @@ $(document).ready(function () {
     const $resultsTable = $('#resultsTable');
     const $tableBody = $resultsTable.find('tbody');
     let allRowsData = [];
+    
+    // Load data from Go template injection
     if (typeof window.reportSettings !== 'undefined' && window.reportSettings.initialProbeResults) {
         allRowsData = window.reportSettings.initialProbeResults;
+        console.log("Loaded data from Go template:", allRowsData.length, "items");
+        console.log("First item:", allRowsData[0]);
+    } else {
+        console.warn("No data found in window.reportSettings.initialProbeResults");
+        console.log("window.reportSettings:", window.reportSettings);
     }
 
     // const $globalSearchInput = $('#globalSearchInput'); // Global search disabled
@@ -384,10 +391,3 @@ $(document).ready(function () {
 
     console.log("MonsterInc Report JS (jQuery) Loaded. Initial results: " + allRowsData.length);
 });
-
-// Dummy ReportData for environments where Go template doesn't inject it (e.g. static serving for dev)
-if (typeof ReportData === 'undefined') {
-    var ReportData = {
-        itemsPerPage: 25 // Default if not injected by Go template
-    };
-}

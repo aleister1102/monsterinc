@@ -231,6 +231,23 @@ func (r *HtmlReporter) buildOutputPath(baseOutputPath string, partNum, totalPart
 	} else {
 		filename = fmt.Sprintf("%s-part%d.html", baseOutputPath, partNum)
 	}
+	// Check if baseOutputPath is already an absolute path or includes directory
+	// If it contains path separators, treat it as a full path
+	if filepath.IsAbs(baseOutputPath) || strings.Contains(baseOutputPath, string(filepath.Separator)) {
+		// baseOutputPath already contains the full path, just add extension if needed
+		if totalParts == 1 {
+			if !strings.HasSuffix(baseOutputPath, ".html") {
+				return baseOutputPath + ".html"
+			}
+			return baseOutputPath
+		} else {
+			// Remove .html extension if present, then add part number
+			basePath := strings.TrimSuffix(baseOutputPath, ".html")
+			return fmt.Sprintf("%s-part%d.html", basePath, partNum)
+		}
+	}
+
+	// baseOutputPath is just a filename, join with OutputDir
 	return filepath.Join(r.cfg.OutputDir, filename)
 }
 
@@ -336,6 +353,14 @@ func (r *HtmlReporter) finalizePageData(pageData *models.ReportPageData, display
 	}
 	for rt := range rootTargetsEncountered {
 		pageData.UniqueRootTargets = append(pageData.UniqueRootTargets, rt)
+	}
+
+	// Convert ProbeResults to JSON for JavaScript
+	if jsonData, err := json.Marshal(displayResults); err != nil {
+		r.logger.Error().Err(err).Msg("Failed to marshal probe results to JSON")
+		pageData.ProbeResultsJSON = template.JS("[]")
+	} else {
+		pageData.ProbeResultsJSON = template.JS(jsonData)
 	}
 }
 
