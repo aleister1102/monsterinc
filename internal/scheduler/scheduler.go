@@ -183,19 +183,23 @@ func (s *Scheduler) runScanner(ctx context.Context) {
 	}
 }
 
-// handleShutdownSignals checks for context cancellation or stop signals and handles them appropriately.
+// handleShutdownSignals checks for context cancellation and logs appropriately
 func (s *Scheduler) handleShutdownSignals(ctx context.Context, from string) bool {
 	select {
 	case <-ctx.Done():
 		s.logger.Info().Str("source", from).Msg("Scheduler stopping due to context cancellation.")
 		if s.notificationHelper != nil {
-			interruptionSummary := models.NewScanSummaryDataBuilder().
+			interruptionSummary, err := models.NewScanSummaryDataBuilder().
 				WithScanSessionID(fmt.Sprintf("scheduler_interrupted_ctx_%s_%s", from, time.Now().Format("20060102-150405"))).
 				WithStatus(models.ScanStatusInterrupted).
 				WithScanMode("automated").
 				WithErrorMessages([]string{fmt.Sprintf("Scheduler service was interrupted by context cancellation (from %s).", from)}).
 				WithTargetSource("Scheduler").
 				Build()
+			if err != nil {
+				s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+				return true
+			}
 			s.logger.Info().Msg("Sending scheduler interruption notification due to context cancellation.")
 			s.notificationHelper.SendScanInterruptNotification(context.Background(), interruptionSummary)
 		}
@@ -208,7 +212,7 @@ func (s *Scheduler) handleShutdownSignals(ctx context.Context, from string) bool
 	}
 }
 
-// waitForNextScan calculates the next scan time and sleeps until then (scan service only)
+// waitForNextScan waits for the next scan cycle or context cancellation
 func (s *Scheduler) waitForNextScan(ctx context.Context) (interrupted bool, err error) {
 	// This method now only handles scan scheduling, not monitor-only mode
 	if s.scanTargetsFile == "" {
@@ -253,7 +257,7 @@ func (s *Scheduler) waitForNextScan(ctx context.Context) (interrupted bool, err 
 
 // calculateNextScanTime determines when the next scan should run
 func (s *Scheduler) calculateNextScanTime() (time.Time, error) {
-	lastScanTime, err := s.db.GetLastScanTime()
+	lastScanStartTime, err := s.db.GetLastScanTime()
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			s.logger.Info().Msg("No previous completed scan found in history. Scheduling next scan immediately.")
@@ -263,11 +267,20 @@ func (s *Scheduler) calculateNextScanTime() (time.Time, error) {
 	}
 
 	intervalDuration := time.Duration(s.globalConfig.SchedulerConfig.CycleMinutes) * time.Minute
-	nextScanTime := lastScanTime.Add(intervalDuration)
+	now := time.Now()
 
-	if nextScanTime.Before(time.Now()) {
-		return time.Now(), nil
+	// Calculate the next scheduled time based on the cycle interval
+	// Find the next cycle time that's after the current time
+	nextScanTime := *lastScanStartTime
+	for nextScanTime.Before(now) || nextScanTime.Equal(now) {
+		nextScanTime = nextScanTime.Add(intervalDuration)
 	}
+
+	s.logger.Debug().
+		Time("last_scan_start", *lastScanStartTime).
+		Time("next_scan_time", nextScanTime).
+		Dur("interval", intervalDuration).
+		Msg("Calculated next scan time based on fixed interval scheduling")
 
 	return nextScanTime, nil
 }
@@ -276,13 +289,17 @@ func (s *Scheduler) calculateNextScanTime() (time.Time, error) {
 func (s *Scheduler) handleShutdownDuringSleep() bool {
 	s.logger.Info().Msg("Scheduler context cancelled during sleep period.")
 	if s.notificationHelper != nil {
-		interruptionSummary := models.NewScanSummaryDataBuilder().
+		interruptionSummary, err := models.NewScanSummaryDataBuilder().
 			WithScanSessionID(fmt.Sprintf("scheduler_interrupted_sleep_%s", time.Now().Format("20060102-150405"))).
 			WithStatus(models.ScanStatusInterrupted).
 			WithScanMode("automated").
 			WithErrorMessages([]string{"Scheduler service's scan cycle was interrupted during sleep period by context cancellation."}).
 			WithTargetSource("Scheduler").
 			Build()
+		if err != nil {
+			s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+			return true
+		}
 		s.logger.Info().Msg("Sending scheduler scan interruption notification due to context cancellation during sleep.")
 
 		// Send ScanInterruptNotification because this function is called when the scheduler's sleep FOR A SCAN is interrupted.
@@ -305,7 +322,7 @@ func (s *Scheduler) runMonitorService(ctx context.Context) {
 
 	s.logger.Info().Msg("Starting monitor service...")
 
-	// Initialize monitor workers and ticker
+	// Initialize monitor workers (this already includes ticker logic)
 	s.initializeMonitorWorkers(ctx)
 
 	// Start the initial monitoring cycle

@@ -123,24 +123,20 @@ func (d *DB) UpdateScanCompletion(dbScanID int64, endTime time.Time, status stri
 	return nil
 }
 
-// GetLastScanTime retrieves the scan_end_time of the most recent scan attempt
+// GetLastScanTime retrieves the scan_start_time of the most recent scan attempt
 func (d *DB) GetLastScanTime() (*time.Time, error) {
-	query := `SELECT scan_end_time FROM scan_history WHERE status = ? ORDER BY scan_end_time DESC LIMIT 1`
-	var nullableTime sql.NullTime
-	err := d.db.QueryRow(query, "COMPLETED").Scan(&nullableTime)
+	query := `SELECT scan_start_time FROM scan_history WHERE status = ? ORDER BY scan_start_time DESC LIMIT 1`
+	var scanStartTime time.Time
+	err := d.db.QueryRow(query, "COMPLETED").Scan(&scanStartTime)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			d.logger.Info().Msg("No completed scan found in history.")
 			return nil, err
 		}
-		d.logger.Error().Err(err).Str("query", query).Msg("Failed to query last scan time")
-		return nil, fmt.Errorf("failed to query last scan time: %w", err)
+		d.logger.Error().Err(err).Str("query", query).Msg("Failed to query last scan start time")
+		return nil, fmt.Errorf("failed to query last scan start time: %w", err)
 	}
 
-	if nullableTime.Valid {
-		d.logger.Debug().Time("last_scan_time", nullableTime.Time).Msg("Found last scan time.")
-		return &nullableTime.Time, nil
-	}
-	d.logger.Info().Msg("Last scan time was NULL in DB (likely an incomplete scan was the latest). Treat as no scan found.")
-	return nil, sql.ErrNoRows
+	d.logger.Debug().Time("last_scan_start_time", scanStartTime).Msg("Found last scan start time.")
+	return &scanStartTime, nil
 }
