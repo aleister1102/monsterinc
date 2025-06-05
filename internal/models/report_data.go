@@ -183,3 +183,25 @@ type DiffResultDisplay struct {
 	FullContent    string          `json:"full_content,omitempty"`    // Added to display full new content
 	ExtractedPaths []ExtractedPath `json:"extracted_paths,omitempty"` // Added
 }
+
+// SetCustomCSS sets the custom CSS for the report page
+func (rpd *ReportPageData) SetCustomCSS(css template.CSS) {
+	rpd.CustomCSS = css
+}
+
+// SetReportJs sets the report JavaScript for the report page
+func (rpd *ReportPageData) SetReportJs(js template.JS) {
+	rpd.ReportJs = js
+}
+
+// SetCustomCSS sets the custom CSS for the diff report page
+func (drpd *DiffReportPageData) SetCustomCSS(css template.CSS) {
+	// DiffReportPageData doesn't have CustomCSS field, but we need the interface
+	// This is a no-op for now
+}
+
+// SetReportJs sets the report JavaScript for the diff report page
+func (drpd *DiffReportPageData) SetReportJs(js template.JS) {
+	// DiffReportPageData doesn't have ReportJs field, but we need the interface
+	// This is a no-op for now
+}
