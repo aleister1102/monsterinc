@@ -153,8 +153,8 @@ func (hae *HTMLAssetExtractor) parseSrcsetURLs(srcset string) []string {
 	parts := strings.Split(srcset, ",")
 
 	for _, part := range parts {
-		if url := hae.extractURLFromSrcsetPart(strings.TrimSpace(part)); url != "" {
-			urls = append(urls, url)
+		if extractedURL := hae.extractURLFromSrcsetPart(strings.TrimSpace(part)); extractedURL != "" {
+			urls = append(urls, extractedURL)
 		}
 	}
 
@@ -233,16 +233,65 @@ func (hae *HTMLAssetExtractor) createAssetFromURL(
 }
 
 // shouldSkipURL checks if URL should be skipped from extraction
-func (hae *HTMLAssetExtractor) shouldSkipURL(url string) bool {
-	if url == "" {
+func (hae *HTMLAssetExtractor) shouldSkipURL(urlStr string) bool {
+	if urlStr == "" {
 		return true
 	}
 
 	skipPrefixes := []string{"data:", "mailto:", "tel:", "javascript:"}
 	for _, prefix := range skipPrefixes {
-		if strings.HasPrefix(url, prefix) {
+		if strings.HasPrefix(urlStr, prefix) {
 			return true
 		}
+	}
+
+	// Check for infinite loop patterns (repeated path segments)
+	if hae.hasRepeatedPathSegments(urlStr) {
+		hae.crawlerInstance.logger.Warn().
+			Str("url", urlStr).
+			Msg("Skipping URL with repeated path segments (potential infinite loop)")
+		return true
+	}
+
+	return false
+}
+
+// hasRepeatedPathSegments detects URLs with repeated path segments that might indicate an infinite loop
+func (hae *HTMLAssetExtractor) hasRepeatedPathSegments(urlStr string) bool {
+	err := urlhandler.ValidateURLFormat(urlStr)
+	if err != nil {
+		return false
+	}
+
+	parsed, err := urlhandler.NormalizeURL(urlStr)
+	if err != nil {
+		return false
+	}
+
+	// Parse URL to extract path
+	u, err := url.Parse(parsed)
+	if err != nil {
+		return false
+	}
+
+	// Check for patterns like /vendor/vendor/vendor or /path/path/path
+	path := strings.Trim(u.Path, "/")
+	if path == "" {
+		return false
+	}
+
+	segments := strings.Split(path, "/")
+
+	// Look for 3+ consecutive identical segments
+	for i := 0; i < len(segments)-2; i++ {
+		if segments[i] != "" && segments[i] == segments[i+1] && segments[i] == segments[i+2] {
+			return true
+		}
+	}
+
+	// Check if we have more than 10 segments (also suspicious)
+	if len(segments) > 10 {
+		return true
 	}
 
 	return false
