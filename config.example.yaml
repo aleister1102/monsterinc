@@ -85,6 +85,9 @@ httpx_runner_config:
   # Extract IP addresses of hosts.
   # Default: true
   extract_ips: true
+  # Extract ASN (Autonomous System Number) information.
+  # Default: true
+  extract_asn: true
   # Extract HTTP response body (can be large, use with caution).
   # Default: false
   extract_body: false

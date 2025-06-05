@@ -36,6 +36,7 @@ const (
 	DefaultHTTPXRateLimit            = 0
 	DefaultHTTPXSkipDefaultPorts     = false
 	DefaultHTTPXDenyInternalIPs      = false
+	DefaultHTTPXExtractASN           = true
 
 	// Crawler Defaults
 	DefaultCrawlerUserAgent             = "MonsterIncCrawler/1.0"
@@ -183,6 +184,7 @@ type InputConfig struct {
 type HttpxRunnerConfig struct {
 	CustomHeaders        map[string]string `json:"custom_headers,omitempty" yaml:"custom_headers,omitempty"`
 	DenyInternalIPs      bool              `json:"deny_internal_ips" yaml:"deny_internal_ips"`
+	ExtractASN           bool              `json:"extract_asn" yaml:"extract_asn"`
 	ExtractBody          bool              `json:"extract_body" yaml:"extract_body"`
 	ExtractContentLength bool              `json:"extract_content_length" yaml:"extract_content_length"`
 	ExtractContentType   bool              `json:"extract_content_type" yaml:"extract_content_type"`
@@ -212,6 +214,7 @@ func NewDefaultHTTPXRunnerConfig() HttpxRunnerConfig {
 	return HttpxRunnerConfig{
 		CustomHeaders:        make(map[string]string),
 		DenyInternalIPs:      DefaultHTTPXDenyInternalIPs,
+		ExtractASN:           DefaultHTTPXExtractASN,
 		ExtractBody:          DefaultHTTPXExtractBody,
 		ExtractContentLength: DefaultHTTPXExtractContentLength,
 		ExtractContentType:   DefaultHTTPXExtractContentType,

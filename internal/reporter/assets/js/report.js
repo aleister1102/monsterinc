@@ -351,6 +351,16 @@ $(document).ready(function () {
             detailsText += "\n";
 
             detailsText += `IPs: ${(resultData.IPs || []).join(', ')}\n`;
+            
+            // ASN Information
+            if (resultData.ASN && resultData.ASN !== 0) {
+                detailsText += `ASN: ${resultData.ASN}\n`;
+                if (resultData.ASNOrg) {
+                    detailsText += `ASN Organization: ${resultData.ASNOrg}\n`;
+                }
+            } else {
+                detailsText += `ASN: -\n`;
+            }
             detailsText += "\n";
 
             detailsText += `Technologies: ${(Array.isArray(resultData.Technologies) ? resultData.Technologies.join(', ') : '') || '-'}\n\n`;

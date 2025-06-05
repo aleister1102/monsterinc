@@ -50,6 +50,7 @@ func (cb *ConfigBuilder) BuildHTTPXConfig(targets []string) *httpxrunner.Config 
 		CustomHeaders:        httpxCfg.CustomHeaders,
 		Verbose:              httpxCfg.Verbose,
 		TechDetect:           httpxCfg.TechDetect,
+		ExtractASN:           httpxCfg.ExtractASN,
 		ExtractTitle:         httpxCfg.ExtractTitle,
 		ExtractStatusCode:    httpxCfg.ExtractStatusCode,
 		ExtractLocation:      httpxCfg.ExtractLocation,
