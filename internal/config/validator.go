@@ -7,161 +7,279 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
-
 	"github.com/go-playground/validator/v10"
+	"github.com/rs/zerolog"
 )
+
+// ConfigValidator handles configuration validation
+type ConfigValidator struct {
+	validator *validator.Validate
+	logger    zerolog.Logger
+}
+
+// NewConfigValidator creates a new ConfigValidator with registered custom validations
+func NewConfigValidator(logger zerolog.Logger) *ConfigValidator {
+	cv := &ConfigValidator{
+		validator: validator.New(),
+		logger:    logger,
+	}
+
+	cv.registerCustomValidations()
+	return cv
+}
 
 // ValidateConfig performs validation on the GlobalConfig structure.
 func ValidateConfig(cfg *GlobalConfig) error {
-	validate := validator.New()
+	logger := zerolog.Nop() // Use nop logger for backward compatibility
+	validator := NewConfigValidator(logger)
+	return validator.Validate(cfg)
+}
 
-	// Register custom validation for file existence
-	_ = validate.RegisterValidation("fileexists", func(fl validator.FieldLevel) bool {
-		filePath := fl.Field().String()
-		if filePath == "" {
-			return true // Optional field, valid if empty
-		}
-		_, err := os.Stat(filePath)
-		return !os.IsNotExist(err) // True if file exists or other error (e.g. permission denied)
+// Validate performs validation on the GlobalConfig structure
+func (cv *ConfigValidator) Validate(cfg *GlobalConfig) error {
+	validationView := cv.createValidationView(cfg)
+
+	if err := cv.validator.Struct(validationView); err != nil {
+		return cv.handleValidationError(err)
+	}
+
+	cv.logger.Debug().Msg("Configuration validation completed successfully")
+	return nil
+}
+
+// registerCustomValidations registers all custom validation rules
+func (cv *ConfigValidator) registerCustomValidations() {
+	cv.registerFileValidations()
+	cv.registerURLValidations()
+	cv.registerLogValidations()
+	cv.registerModeValidations()
+	cv.registerSchedulerValidations()
+}
+
+// registerFileValidations registers file-related custom validations
+func (cv *ConfigValidator) registerFileValidations() {
+	// File existence validation
+	cv.validator.RegisterValidation("fileexists", func(fl validator.FieldLevel) bool {
+		return cv.validateFileExists(fl.Field().String())
 	})
 
-	// Register custom validation for directory path existence (basic check)
-	_ = validate.RegisterValidation("dirpath", func(fl validator.FieldLevel) bool {
-		dirPath := fl.Field().String()
-		if dirPath == "" {
-			return true // Optional field
-		}
-		info, err := os.Stat(dirPath)
-		if os.IsNotExist(err) {
+	// Directory path validation
+	cv.validator.RegisterValidation("dirpath", func(fl validator.FieldLevel) bool {
+		return cv.validateDirectoryPath(fl.Field().String())
+	})
+
+	// File path format validation
+	cv.validator.RegisterValidation("filepath", func(fl validator.FieldLevel) bool {
+		return cv.validateFilePath(fl.Field().String())
+	})
+}
+
+// registerURLValidations registers URL-related custom validations
+func (cv *ConfigValidator) registerURLValidations() {
+	cv.validator.RegisterValidation("urls", func(fl validator.FieldLevel) bool {
+		return cv.validateURLSlice(fl.Field())
+	})
+}
+
+// registerLogValidations registers logging-related custom validations
+func (cv *ConfigValidator) registerLogValidations() {
+	cv.validator.RegisterValidation("loglevel", func(fl validator.FieldLevel) bool {
+		return cv.validateLogLevel(fl.Field().String())
+	})
+
+	cv.validator.RegisterValidation("logformat", func(fl validator.FieldLevel) bool {
+		return cv.validateLogFormat(fl.Field().String())
+	})
+}
+
+// registerModeValidations registers mode-related custom validations
+func (cv *ConfigValidator) registerModeValidations() {
+	cv.validator.RegisterValidation("mode", func(fl validator.FieldLevel) bool {
+		return cv.validateMode(fl.Field().String())
+	})
+}
+
+// registerSchedulerValidations registers scheduler-related custom validations
+func (cv *ConfigValidator) registerSchedulerValidations() {
+	cv.validator.RegisterValidation("scanintervaldays", func(fl validator.FieldLevel) bool {
+		return fl.Field().Int() >= 1
+	})
+
+	cv.validator.RegisterValidation("retryattempts", func(fl validator.FieldLevel) bool {
+		return fl.Field().Int() >= 0
+	})
+
+	cv.validator.RegisterValidation("sqlitepath", func(fl validator.FieldLevel) bool {
+		return fl.Field().String() != ""
+	})
+}
+
+// validateFileExists checks if a file exists
+func (cv *ConfigValidator) validateFileExists(filePath string) bool {
+	if filePath == "" {
+		return true // Optional field, valid if empty
+	}
+
+	fileManager := common.NewFileManager(cv.logger)
+	return fileManager.FileExists(filePath)
+}
+
+// validateDirectoryPath checks if a directory path exists
+func (cv *ConfigValidator) validateDirectoryPath(dirPath string) bool {
+	if dirPath == "" {
+		return true // Optional field
+	}
+
+	info, err := os.Stat(dirPath)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return err == nil && info.IsDir()
+}
+
+// validateFilePath validates file path format
+func (cv *ConfigValidator) validateFilePath(filePath string) bool {
+	// Basic non-empty check for now, can be enhanced for path validity
+	return filePath != ""
+}
+
+// validateURLSlice validates a slice of URLs
+func (cv *ConfigValidator) validateURLSlice(field reflect.Value) bool {
+	if field.Kind() != reflect.Slice {
+		return false
+	}
+
+	slice, ok := field.Interface().([]string)
+	if !ok {
+		return false
+	}
+
+	for _, url := range slice {
+		if err := urlhandler.ValidateURLFormat(url); err != nil {
+			cv.logger.Debug().Str("url", url).Err(err).Msg("Invalid URL format")
 			return false
 		}
-		return err == nil && info.IsDir()
-	})
+	}
+	return true
+}
 
-	// Register custom validation for general file path (does not check existence, just format - can be extended)
-	_ = validate.RegisterValidation("filepath", func(fl validator.FieldLevel) bool {
-		// For now, a basic non-empty check. Can be enhanced for path validity.
-		return fl.Field().String() != "" || !fl.Parent().FieldByName(fl.FieldName()).IsValid() // Valid if field is not empty or is optional and not set
-	})
+// validateLogLevel validates log level values
+func (cv *ConfigValidator) validateLogLevel(level string) bool {
+	normalizedLevel := strings.ToLower(level)
+	validLevels := []string{"", "debug", "info", "warn", "error", "fatal", "panic"}
 
-	// Register custom validation for slices of URLs (ensure they are valid URLs)
-	_ = validate.RegisterValidation("urls", func(fl validator.FieldLevel) bool {
-		if fl.Field().Kind() != reflect.Slice {
-			return false
-		}
-		slice, ok := fl.Field().Interface().([]string)
-		if !ok {
-			return false // Should not happen if struct tag is on a []string
-		}
-		for _, s := range slice {
-			if err := urlhandler.ValidateURLFormat(s); err != nil {
-				return false
-			}
-		}
-		return true
-	})
-
-	// Register custom validation for LogLevel
-	_ = validate.RegisterValidation("loglevel", func(fl validator.FieldLevel) bool {
-		level := strings.ToLower(fl.Field().String())
-		switch level {
-		case "", "debug", "info", "warn", "error", "fatal", "panic": // Allow empty for omitempty
+	for _, validLevel := range validLevels {
+		if normalizedLevel == validLevel {
 			return true
-		default:
-			return false
 		}
-	})
+	}
+	return false
+}
 
-	// Register custom validation for LogFormat
-	_ = validate.RegisterValidation("logformat", func(fl validator.FieldLevel) bool {
-		format := strings.ToLower(fl.Field().String())
-		switch format {
-		case "", "console", "text", "json": // Allow empty for omitempty
+// validateLogFormat validates log format values
+func (cv *ConfigValidator) validateLogFormat(format string) bool {
+	normalizedFormat := strings.ToLower(format)
+	validFormats := []string{"", "console", "text", "json"}
+
+	for _, validFormat := range validFormats {
+		if normalizedFormat == validFormat {
 			return true
-		default:
-			return false
 		}
-	})
+	}
+	return false
+}
 
-	// Register custom validation for Mode
-	_ = validate.RegisterValidation("mode", func(fl validator.FieldLevel) bool {
-		mode := strings.ToLower(fl.Field().String())
-		switch mode {
-		case "", "onetime", "automated": // Allow empty for omitempty, or specific values
+// validateMode validates mode values
+func (cv *ConfigValidator) validateMode(mode string) bool {
+	normalizedMode := strings.ToLower(mode)
+	validModes := []string{"", "onetime", "automated"}
+
+	for _, validMode := range validModes {
+		if normalizedMode == validMode {
 			return true
-		default:
-			return false
 		}
-	})
+	}
+	return false
+}
 
-	// Register custom validation for SchedulerConfig fields
-	_ = validate.RegisterValidation("scanintervaldays", func(fl validator.FieldLevel) bool {
-		days := fl.Field().Int()
-		return days >= 1
-	})
-	_ = validate.RegisterValidation("retryattempts", func(fl validator.FieldLevel) bool {
-		attempts := fl.Field().Int()
-		return attempts >= 0
-	})
-	_ = validate.RegisterValidation("sqlitepath", func(fl validator.FieldLevel) bool {
-		path := fl.Field().String()
-		return path != ""
-	})
-
-	validationView := struct {
+// createValidationView creates a validation view struct for the config
+func (cv *ConfigValidator) createValidationView(cfg *GlobalConfig) interface{} {
+	return struct {
 		PreviousScanLookbackDays int      `validate:"min=1"`
 		JSFileExtensions         []string `validate:"dive,required"`
 		HTMLFileExtensions       []string `validate:"dive,required"`
-		// SchedulerConfig fields - struct tags in SchedulerConfig itself handle validation rules.
-		// These are here to ensure they appear in user-friendly error messages if validation fails.
-		CycleMinutes  int    `validate:"-"` // Validation handled by tag in SchedulerConfig
-		RetryAttempts int    `validate:"-"` // Validation handled by tag in SchedulerConfig
-		SQLiteDBPath  string `validate:"-"` // Validation handled by tag in SchedulerConfig
+		CycleMinutes             int      `validate:"-"`
+		RetryAttempts            int      `validate:"-"`
+		SQLiteDBPath             string   `validate:"-"`
 	}{
 		PreviousScanLookbackDays: cfg.DiffConfig.PreviousScanLookbackDays,
 		JSFileExtensions:         cfg.MonitorConfig.JSFileExtensions,
 		HTMLFileExtensions:       cfg.MonitorConfig.HTMLFileExtensions,
-		// Add SchedulerConfig fields for validation error reporting
-		CycleMinutes:  cfg.SchedulerConfig.CycleMinutes,
-		RetryAttempts: cfg.SchedulerConfig.RetryAttempts,
-		SQLiteDBPath:  cfg.SchedulerConfig.SQLiteDBPath,
+		CycleMinutes:             cfg.SchedulerConfig.CycleMinutes,
+		RetryAttempts:            cfg.SchedulerConfig.RetryAttempts,
+		SQLiteDBPath:             cfg.SchedulerConfig.SQLiteDBPath,
+	}
+}
+
+// handleValidationError processes validation errors and returns a meaningful error
+func (cv *ConfigValidator) handleValidationError(err error) error {
+	var validationErrors validator.ValidationErrors
+	if !errors.As(err, &validationErrors) {
+		return common.WrapError(err, "configuration validation error")
 	}
 
-	err := validate.Struct(validationView)
-	if err != nil {
-		var errs validator.ValidationErrors
-		if errors.As(err, &errs) {
-			var validationErrorMessages []string
-			for _, e := range errs {
-				fieldName := e.StructNamespace()
-				// Attempt to get the actual field name if it's nested
-				if strings.Contains(fieldName, ".") {
-					parts := strings.Split(fieldName, ".")
-					// Heuristic: find the field name that matches e.Field()
-					// This might need refinement for complex nested structs
-					for i := len(parts) - 1; i >= 0; i-- {
-						if strings.EqualFold(parts[i], e.Field()) {
-							fieldName = strings.Join(parts[i:], ".")
-							break
-						}
-					}
-					if !strings.HasPrefix(fieldName, e.Field()) { // Fallback if heuristic fails
-						fieldName = e.Field()
-					}
-				}
-				msg := fmt.Sprintf("Validation failed for '%s': rule '%s'", fieldName, e.Tag())
-				if e.Param() != "" {
-					msg += fmt.Sprintf(" (expected: %s)", e.Param())
-				}
-				if e.Value() != nil && e.Value() != "" {
-					msg += fmt.Sprintf(", actual: '%v'", e.Value())
-				}
-				validationErrorMessages = append(validationErrorMessages, msg)
-			}
-			return fmt.Errorf("configuration validation failed:\n  %s", strings.Join(validationErrorMessages, "\n  "))
-		}
-		return fmt.Errorf("configuration validation error: %w", err)
+	errorMessages := cv.formatValidationErrors(validationErrors)
+	return common.NewError("configuration validation failed:\n  %s", strings.Join(errorMessages, "\n  "))
+}
+
+// formatValidationErrors formats validation errors into readable messages
+func (cv *ConfigValidator) formatValidationErrors(errors validator.ValidationErrors) []string {
+	var messages []string
+
+	for _, err := range errors {
+		fieldName := cv.getFieldName(err)
+		message := cv.formatSingleValidationError(err, fieldName)
+		messages = append(messages, message)
 	}
-	return nil
+
+	return messages
+}
+
+// getFieldName extracts a readable field name from validation error
+func (cv *ConfigValidator) getFieldName(err validator.FieldError) string {
+	fieldName := err.StructNamespace()
+
+	if strings.Contains(fieldName, ".") {
+		parts := strings.Split(fieldName, ".")
+		// Find the field name that matches the error field
+		for i := len(parts) - 1; i >= 0; i-- {
+			if strings.EqualFold(parts[i], err.Field()) {
+				fieldName = strings.Join(parts[i:], ".")
+				break
+			}	
+		}
+
+		if !strings.HasPrefix(fieldName, err.Field()) {
+			fieldName = err.Field()
+		}
+	}
+
+	return fieldName
+}
+
+// formatSingleValidationError formats a single validation error
+func (cv *ConfigValidator) formatSingleValidationError(err validator.FieldError, fieldName string) string {
+	msg := fmt.Sprintf("Validation failed for '%s': rule '%s'", fieldName, err.Tag())
+
+	if err.Param() != "" {
+		msg += fmt.Sprintf(" (expected: %s)", err.Param())
+	}
+
+	if err.Value() != nil && err.Value() != "" {
+		msg += fmt.Sprintf(", actual: '%v'", err.Value())
+	}
+
+	return msg
 }
