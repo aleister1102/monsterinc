@@ -26,7 +26,7 @@ type Scheduler struct {
 	db                 *DB
 	logger             zerolog.Logger
 	scanTargetsFile    string
-	monitorTargetsFile string // This is used for monitoring targets, if provided
+	monitorTargetsFile string
 	notificationHelper *notifier.NotificationHelper
 	targetManager      *urlhandler.TargetManager
 	scanner            *scanner.Scanner
@@ -36,16 +36,13 @@ type Scheduler struct {
 	isRunning          bool
 	mu                 sync.Mutex
 
-	// Monitor scheduling fields are now primarily managed in monitor_workers.go
-	// but the Scheduler struct still needs to hold references to the channel and WG
-	// for coordination, especially during shutdown.
-	monitorWorkerChan chan MonitorJob // MonitorJob is defined in monitor_workers.go
+	// Monitor worker coordination
+	monitorWorkerChan chan MonitorJob
 	monitorWorkerWG   sync.WaitGroup
 	monitorTicker     *time.Ticker
 }
 
 // NewScheduler creates a new Scheduler instance
-// Refactored ✅
 func NewScheduler(
 	cfg *config.GlobalConfig,
 	scanTargetsFile string,
@@ -57,25 +54,10 @@ func NewScheduler(
 ) (*Scheduler, error) {
 	schedulerLogger := logger.With().Str("module", "Scheduler").Logger()
 
-	// TODO: move the logic for creating the database to a separate function and only invoke when the scanner is needed
-	if cfg.SchedulerConfig.SQLiteDBPath == "" {
-		schedulerLogger.Error().Msg("SQLiteDBPath is not configured in SchedulerConfig")
-		return nil, fmt.Errorf("sqliteDBPath is required for scheduler")
-	}
-
-	dbDir := filepath.Dir(cfg.SchedulerConfig.SQLiteDBPath)
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
-		schedulerLogger.Error().Err(err).Str("path", dbDir).Msg("Failed to create directory for SQLite database")
-		return nil, fmt.Errorf("failed to create directory for sqlite database '%s': %w", dbDir, err)
-	}
-
-	db, err := NewDB(cfg.SchedulerConfig.SQLiteDBPath, schedulerLogger)
+	db, err := initializeDatabase(cfg.SchedulerConfig.SQLiteDBPath, schedulerLogger)
 	if err != nil {
-		schedulerLogger.Error().Err(err).Msg("Failed to initialize scheduler database")
-		return nil, fmt.Errorf("failed to initialize scheduler database: %w", err)
+		return nil, err
 	}
-
-	targetManager := urlhandler.NewTargetManager(schedulerLogger)
 
 	return &Scheduler{
 		globalConfig:       cfg,
@@ -84,355 +66,320 @@ func NewScheduler(
 		scanTargetsFile:    scanTargetsFile,
 		monitorTargetsFile: monitorTargetsFile,
 		notificationHelper: notificationHelper,
-		targetManager:      targetManager,
+		targetManager:      urlhandler.NewTargetManager(schedulerLogger),
 		scanner:            scanner,
 		monitoringService:  monitoringService,
 		stopChan:           make(chan struct{}),
 	}, nil
 }
 
+func initializeDatabase(dbPath string, logger zerolog.Logger) (*DB, error) {
+	if dbPath == "" {
+		return nil, fmt.Errorf("sqliteDBPath is required for scheduler")
+	}
+
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create directory for sqlite database '%s': %w", dbDir, err)
+	}
+
+	db, err := NewDB(dbPath, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize scheduler database: %w", err)
+	}
+
+	return db, nil
+}
+
 // Start begins the scheduler's main loop
 func (s *Scheduler) Start(ctx context.Context) error {
-	// Ensure the scheduler is not already running
-	s.mu.Lock()
-	if s.isRunning {
-		s.mu.Unlock()
-		s.logger.Warn().Msg("Scheduler is already running.")
+	if !s.setRunningState(true) {
 		return fmt.Errorf("scheduler is already running")
 	}
-	s.isRunning = true
+	defer s.setRunningState(false)
+
+	s.resetStopChannel()
+
+	if err := s.startConfiguredServices(ctx); err != nil {
+		return err
+	}
+
+	s.wg.Wait()
+	return s.checkContextError(ctx)
+}
+
+func (s *Scheduler) setRunningState(running bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if running && s.isRunning {
+		return false
+	}
+	s.isRunning = running
+	return true
+}
+
+func (s *Scheduler) resetStopChannel() {
 	s.stopChan = make(chan struct{})
-	s.mu.Unlock()
+}
 
-	// Start scan service if scan targets are configured
-	if s.scanTargetsFile != "" {
-		s.logger.Info().Str("scan_targets_file", s.scanTargetsFile).Msg("Scheduler: Scan targets file provided, will perform scanning.")
+func (s *Scheduler) startConfiguredServices(ctx context.Context) error {
+	scanStarted := s.tryStartScanService(ctx)
+	monitorStarted := s.tryStartMonitorService(ctx)
 
-		s.wg.Add(1)
-		go s.runScanner(ctx)
-
-		s.logger.Info().Msg("Scheduler scan service started.")
-	} else {
-		s.logger.Info().Msg("Scheduler: No scan targets file provided, scanning will not be initialized.")
-	}
-	// Start monitor service independently if configured
-	if s.monitorTargetsFile != "" && s.monitoringService != nil {
-		s.logger.Info().Str("monitor_targets_file", s.monitorTargetsFile).Msg("Scheduler: Monitor targets file provided, will perform monitoring.")
-
-		// Set parent context for proper interrupt detection
-		s.monitoringService.SetParentContext(ctx)
-		s.logger.Debug().Msg("Parent context set for MonitoringService")
-
-		// Initialize and start monitoring service independently
-		s.wg.Add(1)
-		go s.runMonitorService(ctx)
-
-		s.logger.Info().Msg("Monitor service started independently.")
-	} else {
-		s.logger.Info().Msg("Scheduler: No monitor targets file provided, monitoring will not be initialized.")
-	}
-
-	// If neither scan nor monitor is configured, log and return
-	if s.scanTargetsFile == "" && (s.monitorTargetsFile == "" || s.monitoringService == nil) {
-		s.logger.Warn().Msg("Scheduler: Neither scan targets nor monitor targets are configured. Nothing to do.")
-		s.mu.Lock()
-		s.isRunning = false
-		s.mu.Unlock()
+	if !scanStarted && !monitorStarted {
 		return fmt.Errorf("no services configured to run")
 	}
 
-	s.logger.Info().Msg("Scheduler services started, waiting for completion...")
-	s.wg.Wait() // Block until all services finish
-	s.logger.Info().Msg("Scheduler Start method is returning as all services have finished.")
+	return nil
+}
 
+func (s *Scheduler) tryStartScanService(ctx context.Context) bool {
+	if s.scanTargetsFile == "" {
+		return false
+	}
+
+	s.wg.Add(1)
+	go s.runScanner(ctx)
+	return true
+}
+
+func (s *Scheduler) tryStartMonitorService(ctx context.Context) bool {
+	if s.monitorTargetsFile == "" {
+		s.logger.Info().Msg("Monitor targets file not configured, skipping monitor service")
+		return false
+	}
+
+	if s.monitoringService == nil {
+		s.logger.Error().Msg("Monitoring service is nil, cannot start monitor service")
+		return false
+	}
+
+	s.logger.Info().Str("targets_file", s.monitorTargetsFile).Msg("Starting monitor service")
+	s.monitoringService.SetParentContext(ctx)
+	s.wg.Add(1)
+	go s.runMonitorService(ctx)
+	return true
+}
+
+func (s *Scheduler) checkContextError(ctx context.Context) error {
 	if ctx.Err() != nil && !errors.Is(ctx.Err(), context.Canceled) {
 		return ctx.Err()
 	}
 	return nil
 }
 
-// runScanner is the core execution loop for scan operations only
+// runScanner executes scan operations loop
 func (s *Scheduler) runScanner(ctx context.Context) {
 	defer s.wg.Done()
-	defer func() {
-		s.logger.Info().Msg("Scheduler scan service has stopped.")
-	}()
-
-	s.logger.Info().Msg("Starting scan service main loop...")
 
 	for {
-		if s.handleShutdownSignals(ctx, "scanLoop_start") {
+		if s.shouldStopScanning(ctx) {
 			return
 		}
 
-		interrupted, err := s.waitForNextScan(ctx)
-		if interrupted {
-			return
-		}
-		if err != nil {
+		if interrupted, err := s.waitForNextScan(ctx); interrupted || err != nil {
+			if interrupted {
+				return
+			}
 			continue
 		}
 
-		if s.handleShutdownSignals(ctx, "scanLoop_postWait") {
+		if s.shouldStopScanning(ctx) {
 			return
 		}
-
-		s.logger.Info().Msg("Scheduler starting new scan cycle.")
 
 		s.executeScanCycleWithRetries(ctx)
 	}
 }
 
-// handleShutdownSignals checks for context cancellation and logs appropriately
-func (s *Scheduler) handleShutdownSignals(ctx context.Context, from string) bool {
+func (s *Scheduler) shouldStopScanning(ctx context.Context) bool {
 	select {
 	case <-ctx.Done():
-		s.logger.Info().Str("source", from).Msg("Scheduler stopping due to context cancellation.")
-		if s.notificationHelper != nil {
-			interruptionSummary, err := models.NewScanSummaryDataBuilder().
-				WithScanSessionID(fmt.Sprintf("scheduler_interrupted_ctx_%s_%s", from, time.Now().Format("20060102-150405"))).
-				WithStatus(models.ScanStatusInterrupted).
-				WithScanMode("automated").
-				WithErrorMessages([]string{fmt.Sprintf("Scheduler service was interrupted by context cancellation (from %s).", from)}).
-				WithTargetSource("Scheduler").
-				Build()
-			if err != nil {
-				s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
-				return true
-			}
-			s.logger.Info().Msg("Sending scheduler interruption notification due to context cancellation.")
-			s.notificationHelper.SendScanInterruptNotification(context.Background(), interruptionSummary)
-		}
-		return true
-	case <-s.stopChan:
-		s.logger.Info().Str("source", from).Msg("Scheduler stopping due to explicit Stop() call.")
+		s.handleScanContextCancellation()
 		return true
 	default:
 		return false
 	}
 }
 
-// waitForNextScan waits for the next scan cycle or context cancellation
+func (s *Scheduler) handleScanContextCancellation() {
+	// Don't send notification here because scan_executor will handle it
+	// This prevents double interrupt notifications
+	s.logger.Debug().Msg("Scan context cancelled - interrupt notification will be handled by scan executor")
+}
+
 func (s *Scheduler) waitForNextScan(ctx context.Context) (interrupted bool, err error) {
-	// This method now only handles scan scheduling, not monitor-only mode
-	if s.scanTargetsFile == "" {
-		s.logger.Error().Msg("waitForNextScan called but no scan targets configured - this should not happen")
-		return true, fmt.Errorf("no scan targets configured")
-	}
-
-	nextScanTime, errCalc := s.calculateNextScanTime()
-	if errCalc != nil {
-		s.logger.Error().Err(errCalc).Msg("Failed to calculate next scan time. Retrying after 1 minute.")
-		select {
-		case <-time.After(1 * time.Minute):
-			return false, errCalc
-		case <-s.stopChan:
-			s.logger.Info().Msg("Scan service stopped during error-induced sleep period.")
-			return true, nil
-		case <-ctx.Done():
-			s.logger.Info().Msg("Scan service context cancelled during error-induced sleep period.")
-			s.handleShutdownDuringSleep()
-			return true, nil
-		}
-	}
-
-	now := time.Now()
-	if now.Before(nextScanTime) {
-		sleepDuration := nextScanTime.Sub(now)
-		s.logger.Info().Time("next_scan_at", nextScanTime).Dur("sleep_duration", sleepDuration).Msg("Scan service waiting for next scan cycle.")
-
-		select {
-		case <-time.After(sleepDuration):
-			return false, nil // return false to indicate no interruption and back to the main loop
-		case <-s.stopChan:
-			s.logger.Info().Msg("Scan service stopped during sleep period.")
-			return true, nil
-		case <-ctx.Done():
-			_ = s.handleShutdownDuringSleep()
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// calculateNextScanTime determines when the next scan should run
-func (s *Scheduler) calculateNextScanTime() (time.Time, error) {
-	lastScanStartTime, err := s.db.GetLastScanTime()
+	nextScanTime, err := s.calculateNextScanTime()
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			s.logger.Info().Msg("No previous completed scan found in history. Scheduling next scan immediately.")
-			return time.Now(), nil
-		}
-		return time.Time{}, err
+		return false, err
 	}
 
-	intervalDuration := time.Duration(s.globalConfig.SchedulerConfig.CycleMinutes) * time.Minute
-	now := time.Now()
-
-	// Calculate the next scheduled time based on the cycle interval
-	// Find the next cycle time that's after the current time
-	nextScanTime := *lastScanStartTime
-	for nextScanTime.Before(now) || nextScanTime.Equal(now) {
-		nextScanTime = nextScanTime.Add(intervalDuration)
+	sleepDuration := time.Until(nextScanTime)
+	if sleepDuration <= 0 {
+		s.logger.Info().Msg("No sleep needed, starting scan immediately")
+		return false, nil
 	}
 
-	s.logger.Debug().
-		Time("last_scan_start", *lastScanStartTime).
+	s.logger.Info().
+		Dur("sleep_duration", sleepDuration).
 		Time("next_scan_time", nextScanTime).
-		Dur("interval", intervalDuration).
-		Msg("Calculated next scan time based on fixed interval scheduling")
+		Msg("Waiting for next scan cycle")
 
-	return nextScanTime, nil
-}
-
-// handleShutdownDuringSleep specifically handles shutdown signals received while waiting for the next scan.
-func (s *Scheduler) handleShutdownDuringSleep() bool {
-	s.logger.Info().Msg("Scheduler context cancelled during sleep period.")
-	if s.notificationHelper != nil {
-		interruptionSummary, err := models.NewScanSummaryDataBuilder().
-			WithScanSessionID(fmt.Sprintf("scheduler_interrupted_sleep_%s", time.Now().Format("20060102-150405"))).
-			WithStatus(models.ScanStatusInterrupted).
-			WithScanMode("automated").
-			WithErrorMessages([]string{"Scheduler service's scan cycle was interrupted during sleep period by context cancellation."}).
-			WithTargetSource("Scheduler").
-			Build()
-		if err != nil {
-			s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
-			return true
-		}
-		s.logger.Info().Msg("Sending scheduler scan interruption notification due to context cancellation during sleep.")
-
-		// Send ScanInterruptNotification because this function is called when the scheduler's sleep FOR A SCAN is interrupted.
-		s.notificationHelper.SendScanInterruptNotification(context.Background(), interruptionSummary)
+	select {
+	case <-time.After(sleepDuration):
+		s.logger.Info().Msg("Wait completed, starting next scan")
+		return false, nil
+	case <-ctx.Done():
+		s.logger.Info().Msg("Context cancelled during wait")
+		return true, nil
+	case <-s.stopChan:
+		s.logger.Info().Msg("Stop signal received during wait")
+		return true, nil
 	}
-	return true
 }
 
-// runMonitorService runs the monitoring service independently
+func (s *Scheduler) calculateNextScanTime() (time.Time, error) {
+	lastScanTime, err := s.db.GetLastScanTime()
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, fmt.Errorf("failed to get last scan time: %w", err)
+	}
+
+	cycleDuration := time.Duration(s.globalConfig.SchedulerConfig.CycleMinutes) * time.Minute
+
+	if lastScanTime == nil {
+		return time.Now(), nil
+	}
+
+	return lastScanTime.Add(cycleDuration), nil
+}
+
 func (s *Scheduler) runMonitorService(ctx context.Context) {
 	defer s.wg.Done()
-	defer func() {
-		s.logger.Info().Msg("Monitor service has stopped.")
-		// Ensure MonitoringService.Stop() is called when monitor service exits
-		if s.monitoringService != nil {
-			s.logger.Info().Msg("Calling MonitoringService.Stop() from runMonitorService defer...")
-			s.monitoringService.Stop()
-		}
-	}()
 
-	s.logger.Info().Msg("Starting monitor service...")
+	s.logger.Info().Msg("Monitor service starting")
 
-	// Initialize monitor workers (this already includes ticker logic)
+	if err := s.loadInitialMonitorTargets(); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to load initial monitor targets, monitor will continue without them")
+	}
+
+	s.logger.Info().Msg("Calling initializeMonitorWorkers")
 	s.initializeMonitorWorkers(ctx)
 
-	// Start the initial monitoring cycle
-	s.logger.Info().Msg("Starting the initial monitoring cycle.")
-	s.executeMonitoringCycle(ctx, "initial")
+	s.logger.Info().Msg("Monitor workers initialized, waiting for shutdown")
+	interrupted := s.waitForMonitorShutdown(ctx)
 
-	// Keep monitor service running until shutdown
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Info().Msg("Monitor service stopping due to context cancellation.")
-			// Send monitor interrupt notification when context is cancelled
-			if s.notificationHelper != nil {
-				interruptionSummary, err := models.NewScanSummaryDataBuilder().
-					WithScanSessionID(fmt.Sprintf("monitor_interrupted_ctx_%s", time.Now().Format("20060102-150405"))).
-					WithStatus(models.ScanStatusInterrupted).
-					WithScanMode("automated").
-					WithErrorMessages([]string{"Monitor service was interrupted by context cancellation."}).
-					WithTargetSource("Monitor").
-					WithComponent("MonitorService").
-					Build()
-				if err != nil {
-					s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for monitor interrupt notification.")
-				} else {
-					s.logger.Info().Msg("Sending monitor interruption notification due to context cancellation.")
-					s.notificationHelper.SendMonitorInterruptNotification(context.Background(), interruptionSummary)
-				}
-			}
-			return
-		case <-s.stopChan:
-			s.logger.Info().Msg("Monitor service stopping due to explicit Stop() call.")
-			return
-		case <-time.After(1 * time.Minute):
-			// Periodic health check or maintenance can be added here
-			// For now, just continue the loop to keep the service alive
-			continue
-		}
+	// Send interrupt notification if needed
+	if interrupted {
+		s.handleMonitorContextCancellation()
 	}
 }
 
-// Stop gracefully stops the scheduler
-func (s *Scheduler) Stop() {
+func (s *Scheduler) loadInitialMonitorTargets() error {
+	if err := s.monitoringService.LoadAndMonitorFromSources(
+		s.monitorTargetsFile,
+		s.globalConfig.MonitorConfig.InputURLs,
+		s.globalConfig.MonitorConfig.InputFile,
+	); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to load initial monitor targets")
+		return err
+	}
+	return nil
+}
+
+func (s *Scheduler) waitForMonitorShutdown(ctx context.Context) bool {
+	// Wait for either stop signal or context cancellation
+	var interrupted bool
+	select {
+	case <-s.stopChan:
+		s.logger.Info().Msg("Monitor shutdown via stop channel")
+		interrupted = false
+	case <-ctx.Done():
+		s.logger.Info().Msg("Monitor shutdown via context cancellation")
+		interrupted = true
+	}
+
+	// Stop monitoring service first
+	if s.monitoringService != nil {
+		s.logger.Info().Msg("Stopping monitoring service from scheduler")
+		s.monitoringService.Stop()
+	}
+
+	if s.monitorTicker != nil {
+		s.monitorTicker.Stop()
+	}
+
+	// Safe close of worker channel
 	s.mu.Lock()
-	if !s.isRunning {
-		s.mu.Unlock()
-		s.logger.Info().Msg("Scheduler is not running, no action needed for Stop().")
+	if s.monitorWorkerChan != nil {
+		close(s.monitorWorkerChan)
+		s.monitorWorkerChan = nil
+	}
+	s.mu.Unlock()
+
+	s.monitorWorkerWG.Wait()
+	return interrupted
+}
+
+// handleMonitorContextCancellation handles monitor service interruption notification
+func (s *Scheduler) handleMonitorContextCancellation() {
+	s.logger.Info().Msg("Sending monitor interrupt notification due to context cancellation")
+
+	if s.notificationHelper == nil {
+		s.logger.Warn().Msg("No notification helper available for monitor interrupt notification")
 		return
 	}
 
-	s.logger.Info().Msg("Scheduler Stop() called, attempting to stop all services gracefully...")
-
-	// Signal all services to stop
-	if s.stopChan != nil {
-		select {
-		case _, ok := <-s.stopChan:
-			if !ok {
-				s.logger.Info().Msg("stopChan was already closed.")
-			}
-		default:
-			close(s.stopChan)
-			s.logger.Info().Msg("stopChan successfully closed.")
-		}
-	}
-	s.mu.Unlock()
-	// Stop monitor service components
+	// Get current monitored URLs
+	var monitoredURLs []string
 	if s.monitoringService != nil {
-		s.logger.Info().Msg("Stopping monitor workers and ticker...")
-		if s.monitorTicker != nil {
-			s.monitorTicker.Stop()
-			s.logger.Info().Msg("Monitor ticker stopped.")
-		}
-		if s.monitorWorkerChan != nil {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						s.logger.Warn().Interface("panic_info", r).Msg("Recovered from panic while trying to close monitorWorkerChan. It might have been closed already.")
-					}
-				}()
-
-				close(s.monitorWorkerChan)
-				s.logger.Info().Msg("Monitor worker channel closed.")
-			}()
-		}
-		s.monitorWorkerWG.Wait()
-		s.logger.Info().Msg("All monitor workers and ticker goroutine stopped.")
-
-		// Call MonitoringService.Stop() to send interruption notification and cleanup
-		s.logger.Info().Msg("Calling MonitoringService.Stop() to send interruption notification...")
-		s.monitoringService.Stop()
-		s.logger.Info().Msg("MonitoringService.Stop() completed.")
+		monitoredURLs = s.monitoringService.GetCurrentlyMonitorUrls()
 	}
 
-	// Wait for all services (both scan and monitor) to complete
-	s.logger.Info().Msg("Waiting for all scheduler services to complete...")
-	s.wg.Wait()
+	// Build summary data for monitor interrupt notification
+	interruptSummary := models.GetDefaultScanSummaryData()
+	interruptSummary.ScanMode = "monitor"
+	interruptSummary.TargetSource = "monitoring_service"
+	interruptSummary.Targets = monitoredURLs
+	interruptSummary.TotalTargets = len(monitoredURLs)
+	interruptSummary.Status = string(models.ScanStatusInterrupted)
+	interruptSummary.Component = "MonitoringService"
+	interruptSummary.ErrorMessages = []string{"Monitor service interrupted by user signal (Ctrl+C)"}
 
+	// Send monitor interrupt notification
+	s.notificationHelper.SendMonitorInterruptNotification(
+		context.Background(), // Use background context since main context is cancelled
+		interruptSummary,
+	)
+}
+
+// Stop gracefully shuts down the scheduler
+func (s *Scheduler) Stop() {
 	s.mu.Lock()
-	s.isRunning = false
-	s.logger.Info().Msg("All scheduler services confirmed finished.")
+	defer s.mu.Unlock()
 
-	if s.db != nil {
-		s.logger.Info().Msg("Closing scheduler database connection...")
-		if err := s.db.Close(); err != nil {
-			s.logger.Error().Err(err).Msg("Error closing scheduler database")
-		} else {
-			s.logger.Info().Msg("Scheduler database closed successfully.")
-		}
-		s.db = nil
+	if !s.isRunning {
+		return
 	}
-	s.mu.Unlock()
 
-	s.logger.Info().Msg("Scheduler has been stopped and all resources cleaned up.")
+	s.logger.Info().Msg("Stopping scheduler...")
+
+	// Stop monitoring service first if not already stopped
+	if s.monitoringService != nil {
+		s.logger.Info().Msg("Stopping monitoring service from Stop()")
+		s.monitoringService.Stop()
+	}
+
+	close(s.stopChan)
+
+	// Force cleanup of monitor workers if they exist
+	if s.monitorTicker != nil {
+		s.monitorTicker.Stop()
+	}
+	if s.monitorWorkerChan != nil {
+		close(s.monitorWorkerChan)
+		s.monitorWorkerChan = nil
+	}
+
+	s.logger.Info().Msg("Scheduler stopped")
 }

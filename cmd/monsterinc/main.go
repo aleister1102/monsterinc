@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -65,10 +64,15 @@ func main() {
 	setupSignalHandling(cancel, zLogger)
 
 	var schedulerPtr *scheduler.Scheduler
+
+	// Set parent context for monitoring service to handle cancellation
+	if ms != nil {
+		ms.SetParentContext(ctx)
+	}
+
 	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, scanner, ms, &schedulerPtr)
 
-	var monitorWg sync.WaitGroup
-	shutdownServices(ms, schedulerPtr, &monitorWg, zLogger, ctx)
+	shutdownServices(ms, schedulerPtr, zLogger, ctx)
 }
 
 // loadConfiguration loads the global configuration from the specified file,
@@ -424,25 +428,45 @@ func runAutomatedScan(
 func shutdownServices(
 	ms *monitor.MonitoringService,
 	scheduler *scheduler.Scheduler,
-	monitorWg *sync.WaitGroup,
 	zLogger zerolog.Logger,
 	ctx context.Context,
 ) {
-	if ms != nil {
-		zLogger.Info().Msg("Waiting for file monitoring service to shut down completely...")
-		monitorWg.Wait() // This ensures its goroutine finishes, which includes calling its Stop()
-		zLogger.Info().Msg("File monitoring service has shut down.")
-	}
+	shutdownTimeout := 30 * time.Second // Tăng timeout lên 30 giây
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer shutdownCancel()
 
-	if scheduler != nil {
-		zLogger.Info().Msg("Ensuring scheduler is stopped as part of final shutdown sequence...")
-		scheduler.Stop() // Call Stop here if not already stopped by interrupt logic in runApplicationLogic
-		zLogger.Info().Msg("Scheduler confirmed stopped in shutdownServices.")
-	}
+	// Create a done channel to signal completion
+	done := make(chan struct{})
 
-	if ctx.Err() == context.Canceled {
-		zLogger.Info().Msg("Application shutting down due to context cancellation.")
-	} else {
-		zLogger.Info().Msg("Application finished.")
+	go func() {
+		defer close(done)
+
+		// Stop scheduler first (it will stop monitoring service internally)
+		if scheduler != nil {
+			zLogger.Info().Msg("Stopping scheduler...")
+			scheduler.Stop()
+			zLogger.Info().Msg("Scheduler stopped.")
+		} else if ms != nil {
+			// If no scheduler but monitoring service exists, stop it directly
+			zLogger.Info().Msg("Stopping monitoring service...")
+			ms.Stop()
+			zLogger.Info().Msg("Monitoring service stopped.")
+		}
+
+		// Give a bit of time for final cleanup
+		time.Sleep(1 * time.Second)
+		zLogger.Info().Msg("Shutdown sequence completed.")
+	}()
+
+	// Wait for either shutdown completion or timeout
+	select {
+	case <-done:
+		if ctx.Err() == context.Canceled {
+			zLogger.Info().Msg("Application shutting down due to context cancellation.")
+		} else {
+			zLogger.Info().Msg("Application finished.")
+		}
+	case <-shutdownCtx.Done():
+		zLogger.Warn().Dur("timeout", shutdownTimeout).Msg("Shutdown timeout reached, forcing exit")
 	}
 }

@@ -12,61 +12,91 @@ type MonitorJob struct {
 	CycleWG *sync.WaitGroup
 }
 
+type monitorConfig struct {
+	intervalSeconds     int
+	maxConcurrentChecks int
+}
+
 // initializeMonitorWorkers initializes and starts monitor workers
 func (s *Scheduler) initializeMonitorWorkers(ctx context.Context) {
-	// Check if interval is configured and valid
-	if s.globalConfig.MonitorConfig.CheckIntervalSeconds <= 0 {
-		s.logger.Error().
-			Int("configured_interval", s.globalConfig.MonitorConfig.CheckIntervalSeconds).
-			Msg("Monitor CheckIntervalSeconds is not configured or invalid, monitor scheduling disabled.")
+	config := s.getMonitorConfig()
+	if !s.isValidMonitorConfig(config) {
 		return
 	}
 
-	// Check if the number of monitor workers are configured and valid
-	numWorkers := s.globalConfig.MonitorConfig.MaxConcurrentChecks
-	if numWorkers <= 0 {
-		numWorkers = 1 // Default to 1 worker if not configured or invalid
-		s.logger.Warn().
-			Int("configured_workers", s.globalConfig.MonitorConfig.MaxConcurrentChecks).
-			Int("default_workers", numWorkers).
-			Msg("MaxConcurrentChecks is not configured or invalid, defaulting to 1 worker.")
-	}
+	s.startMonitorWorkers(ctx, config.maxConcurrentChecks)
+	s.startMonitorTicker(ctx, config.intervalSeconds)
+}
 
-	// Start monitor workers
-	s.monitorWorkerChan = make(chan MonitorJob, numWorkers) // create a buffered channel for monitor jobs
-	s.logger.Info().Int("num_workers", numWorkers).Msg("Starting monitor workers")
-	for i := range numWorkers {
-		s.monitorWorkerWG.Add(1) // Used for waiting for all workers to finish
-		go s.monitorWorker(i)    // Start each worker in a goroutine for running concurrently
+func (s *Scheduler) getMonitorConfig() monitorConfig {
+	return monitorConfig{
+		intervalSeconds:     s.globalConfig.MonitorConfig.CheckIntervalSeconds,
+		maxConcurrentChecks: s.globalConfig.MonitorConfig.MaxConcurrentChecks,
 	}
+}
 
-	// Start monitor ticker for periodic monitoring
-	intervalDuration := time.Duration(s.globalConfig.MonitorConfig.CheckIntervalSeconds) * time.Second
+func (s *Scheduler) isValidMonitorConfig(config monitorConfig) bool {
+	if config.intervalSeconds <= 0 {
+		s.logger.Error().
+			Int("configured_interval", config.intervalSeconds).
+			Msg("Monitor CheckIntervalSeconds is not configured or invalid")
+		return false
+	}
+	return true
+}
+
+func (s *Scheduler) startMonitorWorkers(ctx context.Context, maxWorkers int) {
+	numWorkers := s.normalizeWorkerCount(maxWorkers)
+	s.monitorWorkerChan = make(chan MonitorJob, numWorkers)
+
+	for i := 0; i < numWorkers; i++ {
+		s.monitorWorkerWG.Add(1)
+		go s.monitorWorker(ctx, i)
+	}
+}
+
+func (s *Scheduler) normalizeWorkerCount(configured int) int {
+	if configured <= 0 {
+		return DefaultWorkerCount
+	}
+	return configured
+}
+
+func (s *Scheduler) startMonitorTicker(ctx context.Context, intervalSeconds int) {
+	intervalDuration := time.Duration(intervalSeconds) * time.Second
 	s.monitorTicker = time.NewTicker(intervalDuration)
-	s.monitorWorkerWG.Add(1) // Add to WG for the ticker goroutine as well
+	s.monitorWorkerWG.Add(1)
 
+	// Trigger immediate first cycle
 	go func() {
-		defer s.monitorWorkerWG.Done()
-
-		s.logger.Info().Dur("interval", intervalDuration).Msg("Monitor ticker goroutine started.")
-		for {
-			select {
-			case <-s.monitorTicker.C:
-				s.logger.Info().Msg("Monitor ticker event received.")
-				s.executeMonitoringCycle(ctx, "periodic")
-			case <-s.stopChan: // Listen for the scheduler's main stop signal
-				s.logger.Info().Msg("Monitor ticker stopping due to scheduler's stop signal.")
-				s.monitorTicker.Stop() // Ensure ticker is stopped
-				return
-			}
-		}
+		s.executeMonitoringCycle(ctx, "initial")
+		s.runMonitorTicker(ctx)
 	}()
+}
 
-	s.logger.Info().Msg("Monitor workers and ticker started successfully.")
+func (s *Scheduler) runMonitorTicker(ctx context.Context) {
+	defer s.monitorWorkerWG.Done()
+	s.logger.Info().Msg("Monitor ticker goroutine started")
+
+	for {
+		select {
+		case <-s.monitorTicker.C:
+			s.logger.Info().Msg("Monitor ticker fired, executing cycle")
+			s.executeMonitoringCycle(ctx, "periodic")
+		case <-s.stopChan:
+			s.logger.Info().Msg("Monitor ticker received stop signal")
+			s.monitorTicker.Stop()
+			return
+		case <-ctx.Done():
+			s.logger.Info().Msg("Monitor ticker received context cancellation")
+			s.monitorTicker.Stop()
+			return
+		}
+	}
 }
 
 // monitorWorker processes monitor jobs
-func (s *Scheduler) monitorWorker(id int) {
+func (s *Scheduler) monitorWorker(ctx context.Context, id int) {
 	defer s.monitorWorkerWG.Done()
 	s.logger.Info().Int("worker_id", id).Msg("Monitor worker started")
 
@@ -78,6 +108,20 @@ func (s *Scheduler) monitorWorker(id int) {
 				s.logger.Info().Int("worker_id", id).Msg("Monitor worker stopping as channel closed.")
 				return
 			}
+
+			// Check if we should stop before processing
+			select {
+			case <-s.stopChan:
+				s.logger.Info().Int("worker_id", id).Msg("Monitor worker stopping due to scheduler's stop signal.")
+				job.CycleWG.Done()
+				return
+			case <-ctx.Done():
+				s.logger.Info().Int("worker_id", id).Msg("Monitor worker stopping due to context cancellation.")
+				job.CycleWG.Done()
+				return
+			default:
+			}
+
 			s.logger.Info().Int("worker_id", id).Str("url", job.URL).Msg("Monitor worker processing job.")
 			// Ensure monitoringService is not nil before calling CheckURL
 			if s.monitoringService != nil {
@@ -90,134 +134,131 @@ func (s *Scheduler) monitorWorker(id int) {
 		case <-s.stopChan: // Listen for the scheduler's main stop signal
 			s.logger.Info().Int("worker_id", id).Msg("Monitor worker stopping due to scheduler's stop signal.")
 			return
+		case <-ctx.Done():
+			s.logger.Info().Int("worker_id", id).Msg("Monitor worker stopping due to context cancellation.")
+			return
 		}
 	}
 }
 
 // executeMonitoringCycle performs a monitoring cycle for all monitored URLs
 func (s *Scheduler) executeMonitoringCycle(ctx context.Context, cycleType string) {
-	// Check if monitoring service is available
-	if s.monitoringService == nil {
-		s.logger.Warn().Str("cycle_type", cycleType).Msg("Scheduler: Monitoring service not available for cycle. Skipping.")
+	s.logger.Info().Str("cycle_type", cycleType).Msg("Starting monitor cycle")
+
+	if !s.canExecuteMonitorCycle(ctx) {
 		return
 	}
 
-	// Check if scheduler is stopping before starting the cycle
-	select {
-	case <-s.stopChan:
-		s.logger.Info().Str("cycle_type", cycleType).Msg("Scheduler: Stop signal received before starting monitor cycle. Skipping.")
-		return
-	default:
-		// Continue if stopChan is not closed
-	}
+	cycleID := s.initializeMonitorCycle()
+	targets := s.monitoringService.GetCurrentlyMonitorUrls()
 
-	// Generate new cycle ID for this monitoring cycle
-	newCycleID := s.monitoringService.GenerateNewCycleID()
-	s.monitoringService.SetCurrentCycleID(newCycleID)
-	s.logger.Info().Str("cycle_type", cycleType).Str("cycle_id", newCycleID).Msg("Starting new monitoring cycle with generated ID.")
+	s.logger.Info().
+		Str("cycle_type", cycleType).
+		Str("cycle_id", cycleID).
+		Int("target_count", len(targets)).
+		Msg("Retrieved targets for monitoring cycle")
 
-	targetsToCheck := s.monitoringService.GetCurrentlyMonitorUrls()
-	if len(targetsToCheck) == 0 {
-		s.logger.Info().Str("cycle_type", cycleType).Str("cycle_id", newCycleID).Msg("Scheduler: No targets to check in this monitor cycle. Skipping cycle end report.")
-		// Do not trigger cycle end report if no targets were checked.
+	if len(targets) == 0 {
+		s.logger.Info().Str("cycle_type", cycleType).Str("cycle_id", cycleID).Msg("No targets to check in this monitor cycle. Skipping cycle end report.")
 		return
 	}
 
-	s.notificationHelper.SendMonitoredUrlsNotification(ctx, targetsToCheck, newCycleID)
+	s.notificationHelper.SendMonitoredUrlsNotification(ctx, targets, cycleID)
 
-	s.logger.Info().Str("cycle_type", cycleType).Int("targets", len(targetsToCheck)).Msg("Scheduler: Starting monitor cycle.")
+	jobsDispatched, stopped := s.dispatchMonitorJobs(ctx, targets)
 
-	var cycleWG sync.WaitGroup
-	jobsDispatched, stoppedPrematurely := s.dispatchMonitorJobs(cycleType, targetsToCheck, &cycleWG)
-
-	if stoppedPrematurely {
-		s.logger.Info().
-			Str("cycle_type", cycleType).
-			Int("jobs_dispatched_before_stop", jobsDispatched).
-			Int("targets_intended", len(targetsToCheck)).
-			Msg("Scheduler: Monitor job dispatch was stopped prematurely by a signal.")
-	}
-
-	if jobsDispatched == 0 && len(targetsToCheck) > 0 {
-		s.logger.Info().
-			Str("cycle_type", cycleType).
-			Int("targets_intended", len(targetsToCheck)).
-			Bool("dispatch_stopped_prematurely", stoppedPrematurely).
-			Msg("Scheduler: No monitor jobs were dispatched in this cycle.")
-	}
+	s.logger.Info().
+		Str("cycle_type", cycleType).
+		Str("cycle_id", cycleID).
+		Int("jobs_dispatched", jobsDispatched).
+		Bool("stopped_early", stopped).
+		Msg("Monitor cycle completed")
 
 	if jobsDispatched > 0 {
-		s.logger.Info().Str("cycle_type", cycleType).Int("jobs_dispatched", jobsDispatched).Msg("Scheduler: Waiting for dispatched monitor jobs to complete.")
-		cycleWG.Wait() // Wait for all successfully dispatched jobs to complete
-		s.logger.Info().Str("cycle_type", cycleType).Int("jobs_completed", jobsDispatched).Msg("Scheduler: All dispatched monitor jobs completed.")
-	} else {
-		s.logger.Info().Str("cycle_type", cycleType).Msg("Scheduler: No monitor jobs were active in this cycle to wait for.")
+		s.waitForJobsAndTriggerReport(jobsDispatched, stopped)
+	}
+}
+
+func (s *Scheduler) canExecuteMonitorCycle(ctx context.Context) bool {
+	if s.monitoringService == nil {
+		s.logger.Warn().Str("cycle_type", "periodic").Msg("Scheduler: Monitoring service not available for cycle. Skipping.")
+		return false
 	}
 
-	// After waiting (if any jobs were dispatched), check stopChan again before triggering report
 	select {
 	case <-s.stopChan:
-		s.logger.Info().
-			Str("cycle_type", cycleType).
-			Int("jobs_processed_before_stop", jobsDispatched).
-			Msg("Stop signal active after monitor cycle processing. Report not triggered.")
+		s.logger.Info().Str("cycle_type", "periodic").Msg("Scheduler: Stop signal received before starting monitor cycle. Skipping.")
+		return false
+	case <-ctx.Done():
+		s.logger.Info().Str("cycle_type", "periodic").Msg("Scheduler: Context cancelled before starting monitor cycle. Skipping.")
+		return false
 	default:
-		// Trigger report only if jobs were dispatched and completed.
-		if jobsDispatched > 0 {
-			s.logger.Info().
-				Str("cycle_type", cycleType).
-				Int("targets_processed", jobsDispatched).
-				Msg("All checks for the monitor cycle completed. Triggering report.")
+		return true
+	}
+}
+
+func (s *Scheduler) initializeMonitorCycle() string {
+	cycleID := s.monitoringService.GenerateNewCycleID()
+	s.monitoringService.SetCurrentCycleID(cycleID)
+	s.logger.Info().Str("cycle_type", "periodic").Str("cycle_id", cycleID).Msg("Starting new monitoring cycle with generated ID.")
+	return cycleID
+}
+
+func (s *Scheduler) waitForJobsAndTriggerReport(jobsDispatched int, stoppedPrematurely bool) {
+	select {
+	case <-s.stopChan:
+		return
+	default:
+		if jobsDispatched > 0 && !stoppedPrematurely {
 			s.monitoringService.TriggerCycleEndReport()
-		} else {
-			s.logger.Info().
-				Str("cycle_type", cycleType).
-				Int("targets_intended", len(targetsToCheck)).
-				Int("jobs_dispatched_and_completed", jobsDispatched). // Will be 0 if this branch is hit
-				Bool("dispatch_stopped_prematurely", stoppedPrematurely).
-				Msg("No monitor jobs were processed to completion in this cycle. Report not triggered.")
 		}
 	}
 }
 
-// dispatchMonitorJobs attempts to dispatch all monitor jobs for the given targets.
-// It returns the number of jobs successfully dispatched and a boolean indicating if the dispatching
-// was stopped prematurely due to a signal on s.stopChan.
 func (s *Scheduler) dispatchMonitorJobs(
-	cycleType string,
-	targetsToCheck []string,
-	cycleWG *sync.WaitGroup,
+	ctx context.Context,
+	targets []string,
 ) (jobsDispatched int, stoppedPrematurely bool) {
-	s.logger.Debug().Str("cycle_type", cycleType).Int("targets_to_dispatch", len(targetsToCheck)).Msg("Attempting to dispatch monitor jobs.")
+	var cycleWG sync.WaitGroup
 
-	for _, url := range targetsToCheck {
-		// Check for stop signal before attempting to create and dispatch each job
-		select {
-		case <-s.stopChan:
-			s.logger.Info().Str("cycle_type", cycleType).Msg("Stop signal received before dispatching next job. Halting further job dispatch for this cycle.")
-			return jobsDispatched, true // Stopped prematurely
-		default:
-			// Continue to dispatch job
+	for _, url := range targets {
+		if s.shouldStopDispatching(ctx) {
+			return jobsDispatched, true
 		}
 
-		job := MonitorJob{URL: url, CycleWG: cycleWG}
-		// Increment WaitGroup *before* attempting to send, to ensure Done() is called if send fails due to stop.
-		cycleWG.Add(1)
-
-		// Attempt to send job to monitor worker channel
-		select {
-		case s.monitorWorkerChan <- job:
+		if s.tryDispatchJob(url, &cycleWG) {
 			jobsDispatched++
-			s.logger.Debug().Str("url", url).Str("cycle_type", cycleType).Msg("Successfully dispatched monitor job.")
-		case <-s.stopChan:
-			s.logger.Info().
-				Str("url", url).
-				Str("cycle_type", cycleType).
-				Msg("Stop signal received while attempting to dispatch job. Job not dispatched.")
-			cycleWG.Done()              // Decrement WG as this job won't be processed by a worker
-			return jobsDispatched, true // Stopped prematurely
 		}
 	}
-	s.logger.Debug().Str("cycle_type", cycleType).Int("jobs_dispatched", jobsDispatched).Msg("Finished dispatching monitor jobs for this cycle.")
-	return jobsDispatched, false // All jobs dispatched (or targets list exhausted) without premature stop
+
+	cycleWG.Wait()
+	return jobsDispatched, false
+}
+
+func (s *Scheduler) shouldStopDispatching(ctx context.Context) bool {
+	select {
+	case <-s.stopChan:
+		return true
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Scheduler) tryDispatchJob(url string, cycleWG *sync.WaitGroup) bool {
+	job := MonitorJob{
+		URL:     url,
+		CycleWG: cycleWG,
+	}
+
+	cycleWG.Add(1)
+
+	select {
+	case s.monitorWorkerChan <- job:
+		return true
+	default:
+		cycleWG.Done()
+		return false
+	}
 }
