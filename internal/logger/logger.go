@@ -3,98 +3,182 @@ package logger
 import (
 	"io"
 	stdlog "log" // Standard Go log package, aliased to avoid conflict with zerolog field
-	"os"
-	"strings"
-	"time"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 
 	"github.com/rs/zerolog"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// New initializes a new zerolog.Logger instance based on the provided LogConfig.
-func New(cfg config.LogConfig) (zerolog.Logger, error) {
-	var finalLogger zerolog.Logger
-	var outputWriters []io.Writer
+// Logger represents the main logger with configuration
+type Logger struct {
+	zerolog   zerolog.Logger
+	config    LoggerConfig
+	factory   *WriterFactory
+	converter *ConfigConverter
+}
 
-	// Preliminary logger for setup issues (before finalLogger is fully configured)
-	prelimLogger := zerolog.New(os.Stderr).With().Timestamp().Logger()
+// LoggerBuilder provides fluent interface for building loggers
+type LoggerBuilder struct {
+	config    LoggerConfig
+	factory   *WriterFactory
+	converter *ConfigConverter
+}
 
-	// Set log level
-	level, err := zerolog.ParseLevel(strings.ToLower(cfg.LogLevel))
+// NewLoggerBuilder creates a new logger builder
+func NewLoggerBuilder() *LoggerBuilder {
+	return &LoggerBuilder{
+		config:    DefaultLoggerConfig(),
+		factory:   NewWriterFactory(),
+		converter: NewConfigConverter(),
+	}
+}
+
+// WithConfig sets the logger configuration
+func (lb *LoggerBuilder) WithConfig(cfg config.LogConfig) *LoggerBuilder {
+	loggerConfig, _ := lb.converter.ConvertConfig(cfg)
+	lb.config = loggerConfig
+	return lb
+}
+
+// WithLevel sets the log level
+func (lb *LoggerBuilder) WithLevel(level zerolog.Level) *LoggerBuilder {
+	lb.config.Level = level
+	return lb
+}
+
+// WithFormat sets the log format
+func (lb *LoggerBuilder) WithFormat(format LogFormat) *LoggerBuilder {
+	lb.config.Format = format
+	return lb
+}
+
+// WithFile enables file logging
+func (lb *LoggerBuilder) WithFile(filePath string, maxSizeMB, maxBackups int) *LoggerBuilder {
+	lb.config.EnableFile = true
+	lb.config.FilePath = filePath
+	lb.config.MaxSizeMB = maxSizeMB
+	lb.config.MaxBackups = maxBackups
+	return lb
+}
+
+// WithConsole enables/disables console logging
+func (lb *LoggerBuilder) WithConsole(enabled bool) *LoggerBuilder {
+	lb.config.EnableConsole = enabled
+	return lb
+}
+
+// Build creates the logger instance
+func (lb *LoggerBuilder) Build() (*Logger, error) {
+	if err := lb.validateConfig(); err != nil {
+		return nil, err
+	}
+
+	writers := lb.createWriters()
+	if len(writers) == 0 {
+		return nil, common.NewError("no output writers configured")
+	}
+
+	multiWriter := zerolog.MultiLevelWriter(writers...)
+	zerologInstance := zerolog.New(multiWriter).
+		Level(lb.config.Level).
+		With().
+		Timestamp().
+		Logger()
+
+	// Configure global settings
+	zerolog.SetGlobalLevel(lb.config.Level)
+	lb.configureStandardLog(zerologInstance)
+
+	logger := &Logger{
+		zerolog:   zerologInstance,
+		config:    lb.config,
+		factory:   lb.factory,
+		converter: lb.converter,
+	}
+
+	return logger, nil
+}
+
+// validateConfig validates the logger configuration
+func (lb *LoggerBuilder) validateConfig() error {
+	if lb.config.EnableFile && lb.config.FilePath == "" {
+		return common.NewValidationError("file_path", lb.config.FilePath, "file path required when file logging enabled")
+	}
+
+	if lb.config.MaxSizeMB <= 0 {
+		return common.NewValidationError("max_size_mb", lb.config.MaxSizeMB, "max size must be positive")
+	}
+
+	return nil
+}
+
+// createWriters creates the appropriate writers based on configuration
+func (lb *LoggerBuilder) createWriters() []io.Writer {
+	var writers []io.Writer
+
+	if lb.config.EnableConsole {
+		consoleWriter := lb.factory.CreateConsoleWriter(lb.config.Format)
+		writers = append(writers, consoleWriter)
+	}
+
+	if lb.config.EnableFile {
+		fileWriter := lb.factory.CreateFileWriter(lb.config)
+		writers = append(writers, fileWriter)
+	}
+
+	return writers
+}
+
+// configureStandardLog configures standard Go log package
+func (lb *LoggerBuilder) configureStandardLog(logger zerolog.Logger) {
+	stdlog.SetOutput(logger)
+	stdlog.SetFlags(0)
+}
+
+// GetZerolog returns the underlying zerolog instance
+func (l *Logger) GetZerolog() zerolog.Logger {
+	return l.zerolog
+}
+
+// GetConfig returns the logger configuration
+func (l *Logger) GetConfig() LoggerConfig {
+	return l.config
+}
+
+// Reconfigure reconfigures the logger with new settings
+func (l *Logger) Reconfigure(cfg config.LogConfig) error {
+	newConfig, err := l.converter.ConvertConfig(cfg)
 	if err != nil {
-		prelimLogger.Warn().Str("provided_level", cfg.LogLevel).Err(err).Msg("Invalid log level, defaulting to 'info'")
-		level = zerolog.InfoLevel
-	}
-	zerolog.SetGlobalLevel(level) // This affects the global level for all zerolog instances if not overridden
-
-	// Configure console writer (always to stderr for primary console output)
-	var consoleWriter io.Writer
-	switch strings.ToLower(cfg.LogFormat) {
-	case "console":
-		consoleWriter = zerolog.ConsoleWriter{
-			Out:        os.Stderr,
-			TimeFormat: time.RFC3339,
-			NoColor:    false,
-		}
-	case "json":
-		consoleWriter = os.Stderr // Raw JSON to stderr
-	case "text":
-		consoleWriter = zerolog.ConsoleWriter{
-			Out:        os.Stderr,
-			TimeFormat: time.RFC3339,
-			NoColor:    true, // Plain text is console writer without color
-			// PartsExclude: []string{zerolog.CallerFieldName}, // Optionally exclude caller for cleaner text
-		}
-	default:
-		prelimLogger.Warn().Str("provided_format", cfg.LogFormat).Msg("Unknown log format, defaulting to 'console'")
-		cfg.LogFormat = "console" // Correct the format for subsequent logic
-		consoleWriter = zerolog.ConsoleWriter{
-			Out:        os.Stderr,
-			TimeFormat: time.RFC3339,
-			NoColor:    false,
-		}
-	}
-	// Only add consoleWriter to outputWriters if LogFile is not set OR if LogFile is set but we want duplicate console output.
-	// Current behavior: if LogFile is set, console output still happens based on cfg.LogFormat.
-	// If cfg.LogFile is "" (empty), then consoleWriter is the ONLY writer unless LogFormat was json (raw to stderr).
-	// This logic seems to ensure consoleWriter is always considered for stderr.
-	outputWriters = append(outputWriters, consoleWriter)
-
-	// Configure file writer if LogFile is specified
-	if cfg.LogFile != "" {
-		lumberjackLogger := &lumberjack.Logger{
-			Filename:   cfg.LogFile,
-			MaxSize:    cfg.MaxLogSizeMB,
-			MaxBackups: cfg.MaxLogBackups,
-			LocalTime:  true,
-		}
-
-		var fileLogTargetWriter io.Writer = lumberjackLogger // Default to lumberjack for JSON
-		switch strings.ToLower(cfg.LogFormat) {
-		case "console":
-			fileLogTargetWriter = zerolog.ConsoleWriter{Out: lumberjackLogger, TimeFormat: time.RFC3339, NoColor: true}
-		case "text":
-			fileLogTargetWriter = zerolog.ConsoleWriter{Out: lumberjackLogger, TimeFormat: time.RFC3339, NoColor: true /* PartsExclude: []string{zerolog.CallerFieldName} */}
-			// case "json": // Default, lumberjackLogger is already set for JSON output by zerolog.New()
-		}
-		outputWriters = append(outputWriters, fileLogTargetWriter)
+		return common.WrapError(err, "failed to convert config")
 	}
 
-	if len(outputWriters) == 0 {
-		// This should ideally not be reached if consoleWriter is always added to outputWriters initially.
-		// However, as a safeguard:
-		prelimLogger.Error().Msg("No output writers configured for logger, defaulting to stderr for finalLogger.")
-		outputWriters = append(outputWriters, os.Stderr)
+	builder := NewLoggerBuilder().
+		WithLevel(newConfig.Level).
+		WithFormat(newConfig.Format).
+		WithConsole(newConfig.EnableConsole)
+
+	if newConfig.EnableFile {
+		builder = builder.WithFile(newConfig.FilePath, newConfig.MaxSizeMB, newConfig.MaxBackups)
 	}
 
-	multiWriter := zerolog.MultiLevelWriter(outputWriters...)
-	finalLogger = zerolog.New(multiWriter).Level(level).With().Timestamp().Logger() // Ensure level is set on the final logger
+	newLogger, err := builder.Build()
+	if err != nil {
+		return common.WrapError(err, "failed to build new logger")
+	}
 
-	// Replace standard log package's output
-	stdlog.SetOutput(finalLogger) // Redirect Go's standard log to zerolog
-	stdlog.SetFlags(0)            // Disable standard log's prefix and timestamp, as zerolog handles it
+	// Update current logger
+	l.zerolog = newLogger.zerolog
+	l.config = newLogger.config
 
-	return finalLogger, nil
+	return nil
+}
+
+// New creates a new logger instance - maintains backward compatibility
+func New(cfg config.LogConfig) (zerolog.Logger, error) {
+	logger, err := NewLoggerBuilder().WithConfig(cfg).Build()
+	if err != nil {
+		return zerolog.Logger{}, err
+	}
+	return logger.GetZerolog(), nil
 }
