@@ -12,245 +12,533 @@ import (
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
-	// fmt might be needed if unique urlTypes per regex are desired later
-	// "fmt"
-
 	"github.com/BishopFox/jsluice"
 	"github.com/rs/zerolog"
 )
 
-// PathExtractor is responsible for extracting paths from content.
-// It uses jsluice for JavaScript AST-based analysis and then applies
-// custom regexes from config for a full-content scan.
-type PathExtractor struct {
-	config           config.ExtractorConfig
-	logger           zerolog.Logger
-	customRegexes    []*regexp.Regexp // For manual full-content scanning
-	allowlistRegexes []*regexp.Regexp // For allowlist scanning
-	denylistRegexes  []*regexp.Regexp // For denylist scanning
+// PathExtractorConfig holds additional configuration for PathExtractor
+type PathExtractorConfig struct {
+	EnableJSluiceAnalysis bool
+	EnableManualRegex     bool
+	MaxContentSize        int64
+	ContextSnippetSize    int
 }
 
-// NewPathExtractor creates a new PathExtractor.
-// Custom regexes from config are compiled for manual scanning.
-func NewPathExtractor(extractorCfg config.ExtractorConfig, logger zerolog.Logger) (*PathExtractor, error) {
-	pe := &PathExtractor{
-		config:           extractorCfg,
-		logger:           logger.With().Str("component", "PathExtractor").Logger(),
-		customRegexes:    make([]*regexp.Regexp, 0),
-		allowlistRegexes: make([]*regexp.Regexp, 0),
-		denylistRegexes:  make([]*regexp.Regexp, 0),
+// DefaultPathExtractorConfig returns default configuration
+func DefaultPathExtractorConfig() PathExtractorConfig {
+	return PathExtractorConfig{
+		EnableJSluiceAnalysis: true,
+		EnableManualRegex:     true,
+		MaxContentSize:        10 * 1024 * 1024, // 10MB
+		ContextSnippetSize:    100,
 	}
+}
+
+// RegexCompiler handles compilation of regular expressions
+type RegexCompiler struct {
+	logger zerolog.Logger
+}
+
+// NewRegexCompiler creates a new regex compiler
+func NewRegexCompiler(logger zerolog.Logger) *RegexCompiler {
+	return &RegexCompiler{
+		logger: logger.With().Str("component", "RegexCompiler").Logger(),
+	}
+}
+
+// CompiledRegexSet holds sets of compiled regular expressions
+type CompiledRegexSet struct {
+	CustomRegexes    []*regexp.Regexp
+	AllowlistRegexes []*regexp.Regexp
+	DenylistRegexes  []*regexp.Regexp
+}
+
+// CompileRegexSets compiles all regex sets from configuration
+func (rc *RegexCompiler) CompileRegexSets(extractorCfg config.ExtractorConfig) CompiledRegexSet {
+	regexSet := CompiledRegexSet{}
 
 	if len(extractorCfg.CustomRegexes) > 0 {
-		pe.customRegexes = common.CompileRegexes(extractorCfg.CustomRegexes, pe.logger)
-		pe.logger.Debug().Int("compiled_count", len(pe.customRegexes)).Msg("Finished compiling custom regexes for manual scan.")
-	} else {
-		pe.logger.Debug().Msg("No custom regexes provided in configuration for manual scan.")
+		regexSet.CustomRegexes = common.CompileRegexes(extractorCfg.CustomRegexes, rc.logger)
+		rc.logger.Debug().Int("compiled_count", len(regexSet.CustomRegexes)).Msg("Compiled custom regexes")
 	}
 
-	// Compile Allowlist regexes
 	if len(extractorCfg.Allowlist) > 0 {
-		pe.allowlistRegexes = common.CompileRegexes(extractorCfg.Allowlist, pe.logger)
-		pe.logger.Debug().Int("compiled_count", len(pe.allowlistRegexes)).Msg("Finished compiling allowlist regexes.")
-	} else {
-		pe.logger.Debug().Msg("No allowlist regexes provided in configuration.")
+		regexSet.AllowlistRegexes = common.CompileRegexes(extractorCfg.Allowlist, rc.logger)
+		rc.logger.Debug().Int("compiled_count", len(regexSet.AllowlistRegexes)).Msg("Compiled allowlist regexes")
 	}
 
-	// Compile Denylist regexes
 	if len(extractorCfg.Denylist) > 0 {
-		pe.denylistRegexes = common.CompileRegexes(extractorCfg.Denylist, pe.logger)
-		pe.logger.Debug().Int("compiled_count", len(pe.denylistRegexes)).Msg("Finished compiling denylist regexes.")
-	} else {
-		pe.logger.Debug().Msg("No denylist regexes provided in configuration.")
+		regexSet.DenylistRegexes = common.CompileRegexes(extractorCfg.Denylist, rc.logger)
+		rc.logger.Debug().Int("compiled_count", len(regexSet.DenylistRegexes)).Msg("Compiled denylist regexes")
 	}
 
-	pe.logger.Info().Msg("PathExtractor initialized.")
-	return pe, nil
+	return regexSet
 }
 
-// validateAndResolveURL validates and resolves a raw path to an absolute URL
-func (pe *PathExtractor) validateAndResolveURL(rawPath string, base *url.URL, sourceURL string) (string, bool) {
+// URLValidator handles URL validation and resolution
+type URLValidator struct {
+	logger zerolog.Logger
+}
+
+// NewURLValidator creates a new URL validator
+func NewURLValidator(logger zerolog.Logger) *URLValidator {
+	return &URLValidator{
+		logger: logger.With().Str("component", "URLValidator").Logger(),
+	}
+}
+
+// ValidationResult holds the result of URL validation
+type ValidationResult struct {
+	AbsoluteURL string
+	IsValid     bool
+	Error       error
+}
+
+// ValidateAndResolveURL validates and resolves a raw path to an absolute URL
+func (uv *URLValidator) ValidateAndResolveURL(rawPath string, base *url.URL, sourceURL string) ValidationResult {
 	rawPath = strings.TrimSpace(rawPath)
 	if rawPath == "" {
-		return "", false
+		return ValidationResult{IsValid: false, Error: common.NewValidationError("raw_path", rawPath, "path cannot be empty")}
 	}
 
-	absoluteURL := rawPath
+	// Check if already absolute URL
+	if result := uv.validateAbsoluteURL(rawPath); result.IsValid {
+		return result
+	}
 
-	// Attempt to parse the matched string as a URL to validate it roughly
-	parsedMatch, _ := url.Parse(rawPath)
-
-	if parsedMatch != nil && parsedMatch.Scheme != "" && parsedMatch.Host != "" {
-		// Already an absolute URL, check host validity
-		if !strings.Contains(parsedMatch.Host, ".") {
-			pe.logger.Debug().Str("match", rawPath).Str("host", parsedMatch.Host).Msg("URL is absolute but host seems invalid (no dot), skipping.")
-			return "", false
-		}
-		// absoluteURL is already rawPath and is absolute
-	} else if base != nil {
-		// If not absolute, try to resolve if base is available
-		resolved, resolveErr := urlhandler.ResolveURL(rawPath, base)
-		if resolveErr == nil {
-			absoluteURL = resolved
+	// Try to resolve relative URL
+	if base != nil {
+		if resolved, err := urlhandler.ResolveURL(rawPath, base); err == nil {
+			return uv.validateResolvedURL(resolved)
 		} else {
-			pe.logger.Warn().Err(resolveErr).Str("raw_path", rawPath).Str("base_url", base.String()).Msg("Failed to resolve path, using original as absoluteURL")
-			// absoluteURL remains rawPath
+			uv.logger.Warn().Err(err).Str("raw_path", rawPath).Str("base_url", base.String()).Msg("Failed to resolve path")
 		}
-	} else if !strings.HasPrefix(rawPath, "http://") && !strings.HasPrefix(rawPath, "https://") && !strings.HasPrefix(rawPath, "//") {
-		// Base is nil and path is relative, cannot resolve
-		pe.logger.Warn().Str("raw_path", rawPath).Str("source_url", sourceURL).Msg("SourceURL failed to parse, and path is relative. Cannot resolve, skipping.")
-		return "", false
 	}
 
-	// Final validation of the (potentially resolved) absoluteURL
-	finalParsed, finalParseErr := url.Parse(absoluteURL)
-	if finalParseErr != nil || finalParsed.Scheme == "" || finalParsed.Host == "" || !strings.Contains(finalParsed.Host, ".") {
-		pe.logger.Debug().Str("absolute_url_candidate", absoluteURL).Err(finalParseErr).Msg("Skipping path: final URL is invalid or host seems malformed.")
-		return "", false
+	// Handle special cases for relative URLs without base
+	if uv.isRelativeWithoutBase(rawPath, sourceURL) {
+		return ValidationResult{IsValid: false, Error: common.NewError("cannot resolve relative path without valid base URL")}
 	}
 
-	return absoluteURL, true
+	// Final validation attempt
+	return uv.validateResolvedURL(rawPath)
 }
 
-// extractContextSnippet extracts context around a match in the content
-func (pe *PathExtractor) extractContextSnippet(contentStr string, match string) string {
+// validateAbsoluteURL checks if a URL is already absolute and valid
+func (uv *URLValidator) validateAbsoluteURL(rawPath string) ValidationResult {
+	parsedMatch, err := url.Parse(rawPath)
+	if err != nil {
+		return ValidationResult{IsValid: false, Error: common.WrapError(err, "failed to parse URL")}
+	}
+
+	if parsedMatch.Scheme != "" && parsedMatch.Host != "" {
+		if !strings.Contains(parsedMatch.Host, ".") {
+			uv.logger.Debug().Str("url", rawPath).Str("host", parsedMatch.Host).Msg("URL host seems invalid")
+			return ValidationResult{IsValid: false, Error: common.NewValidationError("host", parsedMatch.Host, "host appears invalid")}
+		}
+		return ValidationResult{AbsoluteURL: rawPath, IsValid: true}
+	}
+
+	return ValidationResult{IsValid: false}
+}
+
+// validateResolvedURL performs final validation on a resolved URL
+func (uv *URLValidator) validateResolvedURL(absoluteURL string) ValidationResult {
+	finalParsed, err := url.Parse(absoluteURL)
+	if err != nil {
+		return ValidationResult{IsValid: false, Error: common.WrapError(err, "failed to parse resolved URL")}
+	}
+
+	if finalParsed.Scheme == "" || finalParsed.Host == "" || !strings.Contains(finalParsed.Host, ".") {
+		return ValidationResult{IsValid: false, Error: common.NewValidationError("resolved_url", absoluteURL, "resolved URL is invalid")}
+	}
+
+	return ValidationResult{AbsoluteURL: absoluteURL, IsValid: true}
+}
+
+// isRelativeWithoutBase checks if path is relative and cannot be resolved without base
+func (uv *URLValidator) isRelativeWithoutBase(rawPath, sourceURL string) bool {
+	hasProtocol := strings.HasPrefix(rawPath, "http://") || strings.HasPrefix(rawPath, "https://") || strings.HasPrefix(rawPath, "//")
+	if !hasProtocol {
+		uv.logger.Warn().Str("raw_path", rawPath).Str("source_url", sourceURL).Msg("Relative path without valid base")
+		return true
+	}
+	return false
+}
+
+// ContextExtractor handles extraction of context snippets
+type ContextExtractor struct {
+	logger      zerolog.Logger
+	snippetSize int
+}
+
+// NewContextExtractor creates a new context extractor
+func NewContextExtractor(snippetSize int, logger zerolog.Logger) *ContextExtractor {
+	return &ContextExtractor{
+		logger:      logger.With().Str("component", "ContextExtractor").Logger(),
+		snippetSize: snippetSize,
+	}
+}
+
+// ExtractContext extracts context around a match in the content
+func (ce *ContextExtractor) ExtractContext(contentStr string, match string) string {
 	matchStartIndex := strings.Index(contentStr, match)
 	if matchStartIndex == -1 {
+		ce.logger.Debug().Str("match", match).Msg("Match not found in content")
 		return ""
 	}
 
-	start := matchStartIndex - 50
+	start := matchStartIndex - ce.snippetSize
 	if start < 0 {
 		start = 0
 	}
-	end := matchStartIndex + len(match) + 50
+
+	end := matchStartIndex + len(match) + ce.snippetSize
 	if end > len(contentStr) {
 		end = len(contentStr)
 	}
 
-	return contentStr[start:end]
+	context := contentStr[start:end]
+	ce.logger.Debug().Str("match", match).Int("context_length", len(context)).Msg("Extracted context")
+
+	return context
 }
 
-// processJSluiceResults processes jsluice analysis results and extracts paths
-func (pe *PathExtractor) processJSluiceResults(sourceURL string, content []byte, base *url.URL, seenAbsPaths map[string]struct{}) []models.ExtractedPath {
-	var extractedPaths []models.ExtractedPath
+// JSluiceAnalyzer handles JavaScript analysis using jsluice
+type JSluiceAnalyzer struct {
+	logger     zerolog.Logger
+	validator  *URLValidator
+	contextExt *ContextExtractor
+}
 
-	pe.logger.Debug().Str("source_url", sourceURL).Msg("Analyzing JS content with jsluice (default matchers)...")
+// NewJSluiceAnalyzer creates a new jsluice analyzer
+func NewJSluiceAnalyzer(validator *URLValidator, contextExt *ContextExtractor, logger zerolog.Logger) *JSluiceAnalyzer {
+	return &JSluiceAnalyzer{
+		logger:     logger.With().Str("component", "JSluiceAnalyzer").Logger(),
+		validator:  validator,
+		contextExt: contextExt,
+	}
+}
+
+// AnalysisResult holds the result of jsluice analysis
+type AnalysisResult struct {
+	ExtractedPaths []models.ExtractedPath
+	ProcessedCount int
+}
+
+// AnalyzeJavaScript processes JavaScript content using jsluice
+func (jsa *JSluiceAnalyzer) AnalyzeJavaScript(sourceURL string, content []byte, base *url.URL, seenPaths map[string]struct{}) AnalysisResult {
+	jsa.logger.Debug().Str("source_url", sourceURL).Msg("Starting jsluice analysis")
+
 	analyzer := jsluice.NewAnalyzer(content)
-
 	jsluiceResults := analyzer.GetURLs()
-	pe.logger.Debug().Int("jsluice_default_url_count", len(jsluiceResults)).Msg("jsluice analysis (default matchers) finished.")
+
+	jsa.logger.Debug().Int("jsluice_url_count", len(jsluiceResults)).Msg("Jsluice analysis completed")
+
+	var extractedPaths []models.ExtractedPath
+	processedCount := 0
 
 	for _, jsluiceRes := range jsluiceResults {
-		rawPath := jsluiceRes.URL
-		absoluteURL, valid := pe.validateAndResolveURL(rawPath, base, sourceURL)
-		if !valid {
+		result := jsa.validator.ValidateAndResolveURL(jsluiceRes.URL, base, sourceURL)
+		if !result.IsValid {
+			jsa.logger.Debug().Str("url", jsluiceRes.URL).Err(result.Error).Msg("Invalid URL from jsluice")
 			continue
 		}
 
-		if _, exists := seenAbsPaths[absoluteURL]; !exists {
-			pathType := jsluiceRes.Type
-			if pathType == "" {
-				pathType = "jsluice_default_unknown_type"
-			}
-			codeContext := jsluiceRes.Source
-
-			extractedPath := models.ExtractedPath{
-				SourceURL:            sourceURL,
-				ExtractedRawPath:     rawPath,
-				ExtractedAbsoluteURL: absoluteURL,
-				Context:              codeContext,
-				Type:                 pathType,
-				DiscoveryTimestamp:   time.Now(),
-			}
-			extractedPaths = append(extractedPaths, extractedPath)
-			seenAbsPaths[absoluteURL] = struct{}{}
-			pe.logger.Debug().Str("source_url", sourceURL).Str("absolute_url", absoluteURL).Str("type", pathType).Msg("Processed and added path from jsluice (default matchers)")
-		} else {
-			pe.logger.Debug().Str("absolute_url", absoluteURL).Msg("Skipping duplicate path from jsluice (default matchers).")
+		if _, exists := seenPaths[result.AbsoluteURL]; exists {
+			jsa.logger.Debug().Str("absolute_url", result.AbsoluteURL).Msg("Duplicate URL from jsluice")
+			continue
 		}
+
+		pathType := jsluiceRes.Type
+		if pathType == "" {
+			pathType = "jsluice_default_unknown_type"
+		}
+
+		extractedPath := models.ExtractedPath{
+			SourceURL:            sourceURL,
+			ExtractedRawPath:     jsluiceRes.URL,
+			ExtractedAbsoluteURL: result.AbsoluteURL,
+			Context:              jsluiceRes.Source,
+			Type:                 pathType,
+			DiscoveryTimestamp:   time.Now(),
+		}
+
+		extractedPaths = append(extractedPaths, extractedPath)
+		seenPaths[result.AbsoluteURL] = struct{}{}
+		processedCount++
+
+		jsa.logger.Debug().
+			Str("source_url", sourceURL).
+			Str("absolute_url", result.AbsoluteURL).
+			Str("type", pathType).
+			Msg("Added path from jsluice")
 	}
 
-	return extractedPaths
+	return AnalysisResult{
+		ExtractedPaths: extractedPaths,
+		ProcessedCount: processedCount,
+	}
 }
 
-// processManualRegexScan processes manual regex scanning and extracts paths
-func (pe *PathExtractor) processManualRegexScan(sourceURL string, content []byte, base *url.URL, seenAbsPaths map[string]struct{}) []models.ExtractedPath {
-	var extractedPaths []models.ExtractedPath
+// ManualRegexAnalyzer handles manual regex-based analysis
+type ManualRegexAnalyzer struct {
+	logger        zerolog.Logger
+	validator     *URLValidator
+	contextExt    *ContextExtractor
+	customRegexes []*regexp.Regexp
+}
 
-	if len(pe.customRegexes) == 0 || len(content) == 0 {
-		if len(pe.customRegexes) > 0 && len(content) == 0 {
-			pe.logger.Debug().Msg("Custom regexes configured, but content is empty. Skipping manual scan.")
-		}
-		return extractedPaths
+// NewManualRegexAnalyzer creates a new manual regex analyzer
+func NewManualRegexAnalyzer(customRegexes []*regexp.Regexp, validator *URLValidator, contextExt *ContextExtractor, logger zerolog.Logger) *ManualRegexAnalyzer {
+	return &ManualRegexAnalyzer{
+		logger:        logger.With().Str("component", "ManualRegexAnalyzer").Logger(),
+		validator:     validator,
+		contextExt:    contextExt,
+		customRegexes: customRegexes,
+	}
+}
+
+// AnalyzeWithRegex processes content using manual regex patterns
+func (mra *ManualRegexAnalyzer) AnalyzeWithRegex(sourceURL string, content []byte, base *url.URL, seenPaths map[string]struct{}) AnalysisResult {
+	if len(mra.customRegexes) == 0 || len(content) == 0 {
+		mra.logger.Debug().Msg("Skipping manual regex analysis - no regexes or empty content")
+		return AnalysisResult{}
 	}
 
 	contentStr := string(content)
-	pe.logger.Debug().Int("custom_regex_count", len(pe.customRegexes)).Msg("Starting manual full-content scan with custom config regexes...")
+	mra.logger.Debug().
+		Int("custom_regex_count", len(mra.customRegexes)).
+		Int("content_length", len(content)).
+		Msg("Starting manual regex scan")
 
-	for i, customRegex := range pe.customRegexes {
+	var extractedPaths []models.ExtractedPath
+	processedCount := 0
+
+	for i, customRegex := range mra.customRegexes {
 		matches := customRegex.FindAllString(contentStr, -1)
 		if len(matches) == 0 {
 			continue
 		}
-		pe.logger.Debug().Str("regex", customRegex.String()).Int("match_count", len(matches)).Msg("Manual config regex found matches.")
+
+		mra.logger.Debug().
+			Str("regex", customRegex.String()).
+			Int("match_count", len(matches)).
+			Msg("Regex found matches")
 
 		for _, match := range matches {
-			absoluteURL, valid := pe.validateAndResolveURL(match, base, sourceURL)
-			if !valid {
+			result := mra.validator.ValidateAndResolveURL(match, base, sourceURL)
+			if !result.IsValid {
+				mra.logger.Debug().Str("match", match).Err(result.Error).Msg("Invalid match from regex")
 				continue
 			}
 
-			if _, exists := seenAbsPaths[absoluteURL]; !exists {
-				contextSnippet := pe.extractContextSnippet(contentStr, match)
-
-				extractedPath := models.ExtractedPath{
-					SourceURL:            sourceURL,
-					ExtractedRawPath:     strings.TrimSpace(match),
-					ExtractedAbsoluteURL: absoluteURL,
-					Context:              contextSnippet,
-					Type:                 fmt.Sprintf("manual_config_regex_%d", i),
-					DiscoveryTimestamp:   time.Now(),
-				}
-				extractedPaths = append(extractedPaths, extractedPath)
-				seenAbsPaths[absoluteURL] = struct{}{}
-				pe.logger.Debug().Str("source_url", sourceURL).Str("absolute_url", absoluteURL).Str("type", extractedPath.Type).Msg("Processed and added path from manual config regex")
-			} else {
-				pe.logger.Debug().Str("absolute_url", absoluteURL).Msg("Skipping duplicate path from manual config regex.")
+			if _, exists := seenPaths[result.AbsoluteURL]; exists {
+				mra.logger.Debug().Str("absolute_url", result.AbsoluteURL).Msg("Duplicate URL from regex")
+				continue
 			}
+
+			contextSnippet := mra.contextExt.ExtractContext(contentStr, match)
+			pathType := fmt.Sprintf("manual_config_regex_%d", i)
+
+			extractedPath := models.ExtractedPath{
+				SourceURL:            sourceURL,
+				ExtractedRawPath:     strings.TrimSpace(match),
+				ExtractedAbsoluteURL: result.AbsoluteURL,
+				Context:              contextSnippet,
+				Type:                 pathType,
+				DiscoveryTimestamp:   time.Now(),
+			}
+
+			extractedPaths = append(extractedPaths, extractedPath)
+			seenPaths[result.AbsoluteURL] = struct{}{}
+			processedCount++
+
+			mra.logger.Debug().
+				Str("source_url", sourceURL).
+				Str("absolute_url", result.AbsoluteURL).
+				Str("type", pathType).
+				Msg("Added path from manual regex")
 		}
 	}
 
-	return extractedPaths
+	return AnalysisResult{
+		ExtractedPaths: extractedPaths,
+		ProcessedCount: processedCount,
+	}
 }
 
-// ExtractPaths uses jsluice for JavaScript AST-based analysis, then applies
-// custom regexes from config for a full-content scan on the original content.
+// ContentTypeAnalyzer determines if content should be analyzed
+type ContentTypeAnalyzer struct {
+	logger zerolog.Logger
+}
+
+// NewContentTypeAnalyzer creates a new content type analyzer
+func NewContentTypeAnalyzer(logger zerolog.Logger) *ContentTypeAnalyzer {
+	return &ContentTypeAnalyzer{
+		logger: logger.With().Str("component", "ContentTypeAnalyzer").Logger(),
+	}
+}
+
+// ShouldAnalyzeWithJSluice determines if content should be analyzed with jsluice
+func (cta *ContentTypeAnalyzer) ShouldAnalyzeWithJSluice(sourceURL, contentType string) bool {
+	isJavaScript := strings.Contains(contentType, "javascript") || strings.HasSuffix(sourceURL, ".js")
+
+	cta.logger.Debug().
+		Str("source_url", sourceURL).
+		Str("content_type", contentType).
+		Bool("is_javascript", isJavaScript).
+		Msg("Content type analysis for jsluice")
+
+	return isJavaScript
+}
+
+// PathExtractor is responsible for extracting paths from content
+type PathExtractor struct {
+	config              config.ExtractorConfig
+	extractorConfig     PathExtractorConfig
+	logger              zerolog.Logger
+	regexSet            CompiledRegexSet
+	urlValidator        *URLValidator
+	contextExtractor    *ContextExtractor
+	jsluiceAnalyzer     *JSluiceAnalyzer
+	manualRegexAnalyzer *ManualRegexAnalyzer
+	contentTypeAnalyzer *ContentTypeAnalyzer
+}
+
+// PathExtractorBuilder provides a fluent interface for creating PathExtractor
+type PathExtractorBuilder struct {
+	config          config.ExtractorConfig
+	extractorConfig PathExtractorConfig
+	logger          zerolog.Logger
+}
+
+// NewPathExtractorBuilder creates a new builder
+func NewPathExtractorBuilder(logger zerolog.Logger) *PathExtractorBuilder {
+	return &PathExtractorBuilder{
+		logger:          logger.With().Str("component", "PathExtractor").Logger(),
+		extractorConfig: DefaultPathExtractorConfig(),
+	}
+}
+
+// WithExtractorConfig sets the extractor configuration
+func (b *PathExtractorBuilder) WithExtractorConfig(cfg config.ExtractorConfig) *PathExtractorBuilder {
+	b.config = cfg
+	return b
+}
+
+// WithPathExtractorConfig sets the path extractor specific configuration
+func (b *PathExtractorBuilder) WithPathExtractorConfig(cfg PathExtractorConfig) *PathExtractorBuilder {
+	b.extractorConfig = cfg
+	return b
+}
+
+// Build creates a new PathExtractor instance
+func (b *PathExtractorBuilder) Build() (*PathExtractor, error) {
+	// Compile regex sets
+	regexCompiler := NewRegexCompiler(b.logger)
+	regexSet := regexCompiler.CompileRegexSets(b.config)
+
+	// Create components
+	urlValidator := NewURLValidator(b.logger)
+	contextExtractor := NewContextExtractor(b.extractorConfig.ContextSnippetSize, b.logger)
+	jsluiceAnalyzer := NewJSluiceAnalyzer(urlValidator, contextExtractor, b.logger)
+	manualRegexAnalyzer := NewManualRegexAnalyzer(regexSet.CustomRegexes, urlValidator, contextExtractor, b.logger)
+	contentTypeAnalyzer := NewContentTypeAnalyzer(b.logger)
+
+	pathExtractor := &PathExtractor{
+		config:              b.config,
+		extractorConfig:     b.extractorConfig,
+		logger:              b.logger,
+		regexSet:            regexSet,
+		urlValidator:        urlValidator,
+		contextExtractor:    contextExtractor,
+		jsluiceAnalyzer:     jsluiceAnalyzer,
+		manualRegexAnalyzer: manualRegexAnalyzer,
+		contentTypeAnalyzer: contentTypeAnalyzer,
+	}
+
+	b.logger.Info().Msg("PathExtractor initialized successfully")
+	return pathExtractor, nil
+}
+
+// NewPathExtractor creates a new PathExtractor using builder pattern
+func NewPathExtractor(extractorCfg config.ExtractorConfig, logger zerolog.Logger) (*PathExtractor, error) {
+	return NewPathExtractorBuilder(logger).
+		WithExtractorConfig(extractorCfg).
+		Build()
+}
+
+// validateInputs validates the input parameters for path extraction
+func (pe *PathExtractor) validateInputs(sourceURL string, content []byte, contentType string) error {
+	if sourceURL == "" {
+		return common.NewValidationError("source_url", sourceURL, "source URL cannot be empty")
+	}
+
+	if content == nil {
+		return common.NewValidationError("content", content, "content cannot be nil")
+	}
+
+	if pe.extractorConfig.MaxContentSize > 0 && int64(len(content)) > pe.extractorConfig.MaxContentSize {
+		return common.NewValidationError("content", len(content),
+			fmt.Sprintf("content too large (%d bytes > %d bytes limit)", len(content), pe.extractorConfig.MaxContentSize))
+	}
+
+	return nil
+}
+
+// parseBaseURL parses the source URL to get base URL for resolution
+func (pe *PathExtractor) parseBaseURL(sourceURL string) (*url.URL, error) {
+	base, err := url.Parse(sourceURL)
+	if err != nil {
+		pe.logger.Error().Err(err).Str("source_url", sourceURL).Msg("Failed to parse source URL")
+		return nil, common.WrapError(err, "failed to parse source URL: "+sourceURL)
+	}
+	return base, nil
+}
+
+// ExtractPaths uses jsluice for JavaScript AST-based analysis, then applies custom regexes
 func (pe *PathExtractor) ExtractPaths(sourceURL string, content []byte, contentType string) ([]models.ExtractedPath, error) {
+	// Validate inputs
+	if err := pe.validateInputs(sourceURL, content, contentType); err != nil {
+		return nil, common.WrapError(err, "failed to validate path extraction inputs")
+	}
+
 	var extractedPaths []models.ExtractedPath
-	seenAbsPaths := make(map[string]struct{}) // To deduplicate absolute paths
+	seenPaths := make(map[string]struct{})
 
-	base, errURLParse := url.Parse(sourceURL)
-	if errURLParse != nil {
-		pe.logger.Error().Err(errURLParse).Str("source_url", sourceURL).Msg("Failed to parse sourceURL, cannot resolve relative paths robustly.")
-		// Continue, but relative path resolution might be affected or impossible.
+	// Parse base URL for relative path resolution
+	base, err := pe.parseBaseURL(sourceURL)
+	if err != nil {
+		pe.logger.Warn().Err(err).Msg("Failed to parse base URL, relative path resolution may be affected")
+		// Continue with base as nil
 	}
 
-	// Step 1: jsluice AST-based analysis (primarily for JavaScript)
-	if strings.Contains(contentType, "javascript") || strings.HasSuffix(sourceURL, ".js") {
-		jsluicePaths := pe.processJSluiceResults(sourceURL, content, base, seenAbsPaths)
-		extractedPaths = append(extractedPaths, jsluicePaths...)
+	// Step 1: JSluice AST-based analysis (primarily for JavaScript)
+	if pe.extractorConfig.EnableJSluiceAnalysis && pe.contentTypeAnalyzer.ShouldAnalyzeWithJSluice(sourceURL, contentType) {
+		jsluiceResult := pe.jsluiceAnalyzer.AnalyzeJavaScript(sourceURL, content, base, seenPaths)
+		extractedPaths = append(extractedPaths, jsluiceResult.ExtractedPaths...)
+		pe.logger.Debug().Int("jsluice_paths", len(jsluiceResult.ExtractedPaths)).Msg("JSluice analysis completed")
 	} else {
-		pe.logger.Debug().Str("source_url", sourceURL).Str("content_type", contentType).Msg("Content is not JavaScript, skipping jsluice AST-based analysis.")
+		pe.logger.Debug().
+			Str("source_url", sourceURL).
+			Str("content_type", contentType).
+			Bool("jsluice_enabled", pe.extractorConfig.EnableJSluiceAnalysis).
+			Msg("Skipping jsluice analysis")
 	}
 
-	// Step 2: Manual full-content scan using custom regexes from config
-	manualPaths := pe.processManualRegexScan(sourceURL, content, base, seenAbsPaths)
-	extractedPaths = append(extractedPaths, manualPaths...)
+	// Step 2: Manual regex-based scanning
+	if pe.extractorConfig.EnableManualRegex {
+		regexResult := pe.manualRegexAnalyzer.AnalyzeWithRegex(sourceURL, content, base, seenPaths)
+		extractedPaths = append(extractedPaths, regexResult.ExtractedPaths...)
+		pe.logger.Debug().Int("regex_paths", len(regexResult.ExtractedPaths)).Msg("Manual regex analysis completed")
+	}
 
-	pe.logger.Info().Str("source_url", sourceURL).Int("total_unique_extracted_count", len(extractedPaths)).Msg("Finished extracting paths (jsluice defaults + manual config regexes).")
+	pe.logger.Info().
+		Str("source_url", sourceURL).
+		Int("total_unique_extracted_count", len(extractedPaths)).
+		Int("content_length", len(content)).
+		Msg("Path extraction completed successfully")
+
 	return extractedPaths, nil
 }
-
-// loadDefaultJSRegexes is no longer needed and can be removed.
-// compileRegex is no longer needed and can be removed.
