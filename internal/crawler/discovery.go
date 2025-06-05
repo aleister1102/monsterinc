@@ -84,6 +84,7 @@ func (cr *Crawler) isURLAlreadyDiscovered(normalizedURL string) bool {
 
 // shouldSkipURLByContentLength performs HEAD request to check content length
 func (cr *Crawler) shouldSkipURLByContentLength(normalizedURL string) bool {
+	// ? Why this is too slow
 	headReq, err := http.NewRequest("HEAD", normalizedURL, nil)
 	if err != nil {
 		return false
