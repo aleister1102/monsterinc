@@ -8,278 +8,502 @@ import (
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
+	"slices"
 )
 
-// ScopeSettings defines the rules for what URLs the crawler should visit.
+// ScopeSettings defines the rules for what URLs the crawler should visit
 type ScopeSettings struct {
-	AllowedHostnames       []string
-	AllowedSubdomains      []string
-	DisallowedHostnames    []string
-	DisallowedSubdomains   []string
-	AllowedPathPatterns    []*regexp.Regexp
-	DisallowedPathPatterns []*regexp.Regexp
+	allowedHostnames       []string
+	allowedSubdomains      []string
+	disallowedHostnames    []string
+	disallowedSubdomains   []string
+	allowedPathPatterns    []*regexp.Regexp
+	disallowedPathPatterns []*regexp.Regexp
 	logger                 zerolog.Logger
+	includeSubdomains      bool
+	originalSeedDomains    []string
+}
 
-	// New fields for subdomain handling based on original seeds
-	IncludeSubdomains   bool
-	OriginalSeedDomains []string // Stores base domains of original seeds
+// ScopeValidator provides methods for URL scope validation
+type ScopeValidator struct {
+	settings *ScopeSettings
+}
+
+// NewScopeValidator creates a new ScopeValidator instance
+func NewScopeValidator(settings *ScopeSettings) *ScopeValidator {
+	return &ScopeValidator{
+		settings: settings,
+	}
 }
 
 // NewScopeSettings creates a new ScopeSettings instance with compiled regex patterns
 func NewScopeSettings(
-	rootURLHostname string, // This is typically the hostname of the first seed URL
+	rootURLHostname string,
 	allowedHostnames, disallowedHostnames []string,
 	allowedSubdomains, disallowedSubdomains []string,
 	allowedPathRegexes, disallowedPathRegexes []string,
 	logger zerolog.Logger,
-	includeSubdomains bool, // New parameter
-	originalSeedURLs []string, // New parameter
+	includeSubdomains bool,
+	originalSeedURLs []string,
 ) (*ScopeSettings, error) {
 	scopeLogger := logger.With().Str("component", "ScopeSettings").Logger()
 
-	// Extract base domains from original seed URLs for subdomain checking
-	var originalSeedDomains []string
-	if includeSubdomains {
-		for _, seedURL := range originalSeedURLs {
-			if hostname := ExtractHostnamesFromSeedURLs([]string{seedURL}, scopeLogger); len(hostname) > 0 {
-				originalSeedDomains = append(originalSeedDomains, hostname[0])
-			}
-		}
-		originalSeedDomains = unique(originalSeedDomains)
-		scopeLogger.Debug().Strs("original_seed_domains", originalSeedDomains).Msg("Extracted base domains from seed URLs")
-	}
+	builder := NewScopeSettingsBuilder(scopeLogger).
+		WithHostnames(allowedHostnames, disallowedHostnames).
+		WithSubdomains(allowedSubdomains, disallowedSubdomains).
+		WithPathRegexes(allowedPathRegexes, disallowedPathRegexes).
+		WithSubdomainPolicy(includeSubdomains).
+		WithSeedURLs(originalSeedURLs)
 
-	// Compile regex patterns using common utility
-	allowedPathPatterns := common.CompileRegexes(allowedPathRegexes, scopeLogger)
-	disallowedPathPatterns := common.CompileRegexes(disallowedPathRegexes, scopeLogger)
-
-	scopeSettings := &ScopeSettings{
-		AllowedHostnames:       allowedHostnames,
-		AllowedSubdomains:      allowedSubdomains,
-		DisallowedHostnames:    disallowedHostnames,
-		DisallowedSubdomains:   disallowedSubdomains,
-		AllowedPathPatterns:    allowedPathPatterns,
-		DisallowedPathPatterns: disallowedPathPatterns,
-		logger:                 scopeLogger,
-		IncludeSubdomains:      includeSubdomains,
-		OriginalSeedDomains:    originalSeedDomains,
-	}
-
-	scopeLogger.Info().
-		Strs("allowed_hostnames", allowedHostnames).
-		Strs("disallowed_hostnames", disallowedHostnames).
-		Strs("allowed_subdomains", allowedSubdomains).
-		Strs("disallowed_subdomains", disallowedSubdomains).
-		Int("allowed_path_patterns", len(allowedPathPatterns)).
-		Int("disallowed_path_patterns", len(disallowedPathPatterns)).
-		Bool("include_subdomains", includeSubdomains).
-		Strs("original_seed_domains", originalSeedDomains).
-		Msg("ScopeSettings initialized")
-
-	return scopeSettings, nil
+	return builder.Build()
 }
 
-// CheckHostnameScope checks if a given hostname is within the defined scope.
-// It prioritizes disallowed lists, then checks allowed lists and subdomain rules.
+// ScopeSettingsBuilder provides a fluent interface for creating ScopeSettings
+type ScopeSettingsBuilder struct {
+	settings *ScopeSettings
+	logger   zerolog.Logger
+}
+
+// NewScopeSettingsBuilder creates a new ScopeSettingsBuilder instance
+func NewScopeSettingsBuilder(logger zerolog.Logger) *ScopeSettingsBuilder {
+	return &ScopeSettingsBuilder{
+		settings: &ScopeSettings{},
+		logger:   logger,
+	}
+}
+
+// WithHostnames sets allowed and disallowed hostnames
+func (sb *ScopeSettingsBuilder) WithHostnames(allowed, disallowed []string) *ScopeSettingsBuilder {
+	sb.settings.allowedHostnames = allowed
+	sb.settings.disallowedHostnames = disallowed
+	return sb
+}
+
+// WithSubdomains sets allowed and disallowed subdomains
+func (sb *ScopeSettingsBuilder) WithSubdomains(allowed, disallowed []string) *ScopeSettingsBuilder {
+	sb.settings.allowedSubdomains = allowed
+	sb.settings.disallowedSubdomains = disallowed
+	return sb
+}
+
+// WithPathRegexes sets allowed and disallowed path regex patterns
+func (sb *ScopeSettingsBuilder) WithPathRegexes(allowed, disallowed []string) *ScopeSettingsBuilder {
+	sb.settings.allowedPathPatterns = common.CompileRegexes(allowed, sb.logger)
+	sb.settings.disallowedPathPatterns = common.CompileRegexes(disallowed, sb.logger)
+	return sb
+}
+
+// WithSubdomainPolicy sets the subdomain inclusion policy
+func (sb *ScopeSettingsBuilder) WithSubdomainPolicy(includeSubdomains bool) *ScopeSettingsBuilder {
+	sb.settings.includeSubdomains = includeSubdomains
+	return sb
+}
+
+// WithSeedURLs sets the original seed URLs for domain extraction
+func (sb *ScopeSettingsBuilder) WithSeedURLs(seedURLs []string) *ScopeSettingsBuilder {
+	if sb.settings.includeSubdomains {
+		sb.settings.originalSeedDomains = sb.extractSeedDomains(seedURLs)
+	}
+	return sb
+}
+
+// extractSeedDomains extracts base domains from seed URLs
+func (sb *ScopeSettingsBuilder) extractSeedDomains(seedURLs []string) []string {
+	var domains []string
+	for _, seedURL := range seedURLs {
+		if hostnames := ExtractHostnamesFromSeedURLs([]string{seedURL}, sb.logger); len(hostnames) > 0 {
+			domains = append(domains, hostnames[0])
+		}
+	}
+
+	uniqueDomains := removeDuplicates(domains)
+	sb.logger.Debug().Strs("original_seed_domains", uniqueDomains).Msg("Extracted base domains from seed URLs")
+
+	return uniqueDomains
+}
+
+// Build creates the final ScopeSettings instance
+func (sb *ScopeSettingsBuilder) Build() (*ScopeSettings, error) {
+	sb.settings.logger = sb.logger
+
+	sb.logConfiguration()
+	return sb.settings, nil
+}
+
+// logConfiguration logs the scope configuration
+func (sb *ScopeSettingsBuilder) logConfiguration() {
+	sb.logger.Info().
+		Strs("allowed_hostnames", sb.settings.allowedHostnames).
+		Strs("disallowed_hostnames", sb.settings.disallowedHostnames).
+		Strs("allowed_subdomains", sb.settings.allowedSubdomains).
+		Strs("disallowed_subdomains", sb.settings.disallowedSubdomains).
+		Int("allowed_path_patterns", len(sb.settings.allowedPathPatterns)).
+		Int("disallowed_path_patterns", len(sb.settings.disallowedPathPatterns)).
+		Bool("include_subdomains", sb.settings.includeSubdomains).
+		Strs("original_seed_domains", sb.settings.originalSeedDomains).
+		Msg("ScopeSettings initialized")
+}
+
+// CheckHostnameScope checks if a given hostname is within the defined scope
 func (s *ScopeSettings) CheckHostnameScope(hostname string) bool {
-	// 1. Check DisallowedHostnames: Exact matches for disallowed hostnames.
-	if isStringInSlice(hostname, s.DisallowedHostnames) {
-		s.logger.Debug().Str("hostname", hostname).Msg("Hostname explicitly disallowed.")
+	validator := NewHostnameValidator(s)
+	return validator.IsAllowed(hostname)
+}
+
+// HostnameValidator handles hostname scope validation logic
+type HostnameValidator struct {
+	settings *ScopeSettings
+}
+
+// NewHostnameValidator creates a new HostnameValidator instance
+func NewHostnameValidator(settings *ScopeSettings) *HostnameValidator {
+	return &HostnameValidator{
+		settings: settings,
+	}
+}
+
+// IsAllowed checks if hostname is allowed based on scope rules
+func (hv *HostnameValidator) IsAllowed(hostname string) bool {
+	// Priority: disallowed > specific allowed > subdomain policies > default allow
+
+	if hv.isExplicitlyDisallowed(hostname) {
 		return false
 	}
 
-	// 2. Check DisallowedSubdomains:
-	//    A hostname is disallowed if it's a subdomain of a DisallowedHostname,
-	//    OR if its specific subdomain part is listed in DisallowedSubdomains for a matching base domain.
-	for _, disallowedHost := range s.DisallowedHostnames {
-		if strings.HasSuffix(hostname, "."+disallowedHost) && hostname != disallowedHost {
-			s.logger.Debug().Str("hostname", hostname).Str("disallowed_base", disallowedHost).Msg("Hostname is a subdomain of an explicitly disallowed host.")
-			return false
-		}
+	if hv.isDisallowedSubdomain(hostname) {
+		return false
 	}
 
-	hostnameBase, err := urlhandler.GetBaseDomain(hostname)
-	if err == nil && hostnameBase != "" {
-		isPotentiallyAllowedBase := isStringInSlice(hostnameBase, s.AllowedHostnames) || (s.IncludeSubdomains && isStringInSlice(hostnameBase, s.OriginalSeedDomains))
-		// If hostname is a subdomain of an explicitly allowed host, it's also potentially allowed based on its base.
-		if !isPotentiallyAllowedBase && hostname != hostnameBase {
-			for _, allowedHost := range s.AllowedHostnames {
-				if hostnameBase == allowedHost { // hostname = sub.example.com, hostnameBase = example.com, allowedHost = example.com
-					isPotentiallyAllowedBase = true
-					break
-				}
-			}
-		}
-
-		if isPotentiallyAllowedBase {
-			subdomainPart := strings.TrimSuffix(hostname, "."+hostnameBase)
-			if hostname != hostnameBase && subdomainPart != hostname && isStringInSlice(subdomainPart, s.DisallowedSubdomains) {
-				s.logger.Debug().Str("hostname", hostname).Str("subdomain_part", subdomainPart).Msg("Subdomain part is in DisallowedSubdomains for an otherwise allowed base domain.")
-				return false
-			}
-		}
+	if hv.settings.includeSubdomains && hv.isAllowedBySeedDomains(hostname) {
+		return true
 	}
 
-	// 3. If IncludeSubdomains is true, check against OriginalSeedDomains
-	if s.IncludeSubdomains {
-		for _, seedBaseDomain := range s.OriginalSeedDomains {
-			if hostname == seedBaseDomain || strings.HasSuffix(hostname, "."+seedBaseDomain) {
-				// Check if this specific subdomain is disallowed
-				if hostname != seedBaseDomain {
-					subdomainPart := strings.TrimSuffix(hostname, "."+seedBaseDomain)
-					if isStringInSlice(subdomainPart, s.DisallowedSubdomains) {
-						s.logger.Debug().Str("hostname", hostname).Str("seed_base", seedBaseDomain).Str("subdomain_part", subdomainPart).Msg("Allowed by IncludeSubdomains, but specific subdomain part is disallowed.")
-						return false
-					}
-				}
-				s.logger.Debug().Str("hostname", hostname).Str("seed_base_domain", seedBaseDomain).Msg("Hostname allowed by IncludeSubdomains policy.")
-				return true
-			}
-		}
+	if len(hv.settings.allowedHostnames) > 0 {
+		return hv.isInAllowedHostnames(hostname)
 	}
 
-	// 4. Check AllowedHostnames: If this list is populated, the hostname MUST be in it or be an allowed subdomain of one of its entries.
-	if len(s.AllowedHostnames) > 0 {
-		if isStringInSlice(hostname, s.AllowedHostnames) {
-			s.logger.Debug().Str("hostname", hostname).Msg("Hostname explicitly allowed.")
+	hv.settings.logger.Debug().Str("hostname", hostname).Msg("Hostname allowed by default")
+	return true
+}
+
+// isExplicitlyDisallowed checks if hostname is explicitly disallowed
+func (hv *HostnameValidator) isExplicitlyDisallowed(hostname string) bool {
+	if containsString(hostname, hv.settings.disallowedHostnames) {
+		hv.settings.logger.Debug().Str("hostname", hostname).Msg("Hostname explicitly disallowed")
+		return true
+	}
+	return false
+}
+
+// isDisallowedSubdomain checks if hostname is a disallowed subdomain
+func (hv *HostnameValidator) isDisallowedSubdomain(hostname string) bool {
+	// Check if hostname is subdomain of disallowed hostname
+	for _, disallowedHost := range hv.settings.disallowedHostnames {
+		if hv.isSubdomainOf(hostname, disallowedHost) {
+			hv.settings.logger.Debug().
+				Str("hostname", hostname).
+				Str("disallowed_base", disallowedHost).
+				Msg("Hostname is subdomain of disallowed host")
 			return true
 		}
-		// Check if it's an allowed subdomain of an explicitly AllowedHostname
-		for _, allowedHost := range s.AllowedHostnames {
-			if strings.HasSuffix(hostname, "."+allowedHost) && hostname != allowedHost {
-				subdomainPart := strings.TrimSuffix(hostname, "."+allowedHost)
-				if subdomainPart != "" && subdomainPart != hostname { // Ensure it's a real subdomain part
-					if isStringInSlice(subdomainPart, s.AllowedSubdomains) {
-						// Check if this specific subdomain is also in DisallowedSubdomains
-						if isStringInSlice(subdomainPart, s.DisallowedSubdomains) {
-							s.logger.Debug().Str("hostname", hostname).Str("base", allowedHost).Str("subdomain_part", subdomainPart).Msg("Allowed subdomain, but also in DisallowedSubdomains list.")
-							return false
-						}
-						s.logger.Debug().Str("hostname", hostname).Str("base", allowedHost).Str("subdomain_part", subdomainPart).Msg("Hostname is an allowed subdomain of an explicitly allowed host.")
-						return true
-					}
-				}
-			}
-		}
-		// If AllowedHostnames is populated and hostname didn't match any rule above, it's disallowed.
-		s.logger.Debug().Str("hostname", hostname).Strs("allowed_hostnames", s.AllowedHostnames).Msg("Hostname not in allowed list and not an allowed subdomain (when AllowedHostnames is restrictive).")
+	}
+
+	// Check subdomain parts against disallowed subdomains
+	return hv.hasDisallowedSubdomainPart(hostname)
+}
+
+// isSubdomainOf checks if hostname is a subdomain of baseHostname
+func (hv *HostnameValidator) isSubdomainOf(hostname, baseHostname string) bool {
+	return strings.HasSuffix(hostname, "."+baseHostname) && hostname != baseHostname
+}
+
+// hasDisallowedSubdomainPart checks if hostname has disallowed subdomain parts
+func (hv *HostnameValidator) hasDisallowedSubdomainPart(hostname string) bool {
+	hostnameBase, err := urlhandler.GetBaseDomain(hostname)
+	if err != nil || hostnameBase == "" {
 		return false
 	}
 
-	// 5. Default allow: If no AllowedHostnames are specified (list is empty), and not disallowed by previous rules.
-	s.logger.Debug().Str("hostname", hostname).Msg("Hostname allowed by default (no specific allow/disallow host rule matched, and AllowedHostnames is not restrictive).")
-	return true
+	if !hv.isBaseAllowed(hostnameBase, hostname) {
+		return false
+	}
+
+	if hostname == hostnameBase {
+		return false
+	}
+
+	subdomainPart := strings.TrimSuffix(hostname, "."+hostnameBase)
+	if subdomainPart == hostname || containsString(subdomainPart, hv.settings.disallowedSubdomains) {
+		hv.settings.logger.Debug().
+			Str("hostname", hostname).
+			Str("subdomain_part", subdomainPart).
+			Msg("Subdomain part is disallowed")
+		return true
+	}
+
+	return false
 }
 
-// checkPathScope checks if a given URL path is within the defined scope using regex patterns.
-func (s *ScopeSettings) checkPathScope(path string) bool {
-	// Check disallowed patterns first
-	for _, re := range s.DisallowedPathPatterns {
-		if re.MatchString(path) {
-			s.logger.Debug().Str("path", path).Str("regex", re.String()).Msg("Path matches disallowed regex pattern.")
-			return false // Path is disallowed
+// isBaseAllowed checks if the base domain is allowed
+func (hv *HostnameValidator) isBaseAllowed(hostnameBase, originalHostname string) bool {
+	// Check if base is in allowed hostnames
+	if containsString(hostnameBase, hv.settings.allowedHostnames) {
+		return true
+	}
+
+	// Check if base is in original seed domains (when includeSubdomains is true)
+	if hv.settings.includeSubdomains && containsString(hostnameBase, hv.settings.originalSeedDomains) {
+		return true
+	}
+
+	// Check if original hostname has an allowed base in allowed hostnames
+	for _, allowedHost := range hv.settings.allowedHostnames {
+		if hostnameBase == allowedHost {
+			return true
 		}
 	}
 
-	// If allowed patterns are defined, path must match at least one
-	if len(s.AllowedPathPatterns) > 0 {
-		for _, re := range s.AllowedPathPatterns {
-			if re.MatchString(path) {
-				s.logger.Debug().Str("path", path).Str("regex", re.String()).Msg("Path matches allowed regex pattern.")
-				return true // Path is allowed
-			}
-		}
-		s.logger.Debug().Str("path", path).Msg("Path does not match any allowed regex pattern (when allowed patterns are defined).")
-		return false // Path is not in the allowed list
-	}
-
-	// Default: If no allowed patterns, allow (unless disallowed)
-	s.logger.Debug().Str("path", path).Msg("Path allowed by default (no specific path patterns matched or defined).")
-	return true
+	return false
 }
 
-// IsURLAllowed checks if a given URL string is within the defined scope.
-func (s *ScopeSettings) IsURLAllowed(urlString string) (bool, error) {
-	parsedURL, err := url.Parse(strings.TrimSpace(urlString))
-	if err != nil {
-		s.logger.Warn().Str("url", urlString).Err(err).Msg("Failed to parse URL for scope check.")
-		return false, err
-	}
-
-	hostname := parsedURL.Hostname()
-	if !s.CheckHostnameScope(hostname) {
-		// s.logger.Debug().Str("url", urlString).Str("hostname", hostname).Msg("URL disallowed by hostname scope.")
-		return false, nil
-	}
-
-	if !s.checkPathScope(parsedURL.Path) {
-		// s.logger.Debug().Str("url", urlString).Str("path", parsedURL.Path).Msg("URL disallowed by path scope.")
-		return false, nil
-	}
-
-	// s.logger.Debug().Str("url", urlString).Msg("URL is within scope.")
-	return true, nil
-}
-
-// unique returns a slice with unique strings from the input slice.
-func unique(slice []string) []string {
-	if len(slice) == 0 {
-		return []string{}
-	}
-	keys := make(map[string]bool)
-	list := []string{}
-	for _, entry := range slice {
-		if _, value := keys[entry]; !value {
-			keys[entry] = true
-			list = append(list, entry)
-		}
-	}
-	return list
-}
-
-// isStringInSlice checks if a string exists in a slice of strings.
-// Helper function for scope checking.
-func isStringInSlice(str string, slice []string) bool {
-	for _, item := range slice {
-		if item == str {
+// isAllowedBySeedDomains checks if hostname is allowed by seed domain policy
+func (hv *HostnameValidator) isAllowedBySeedDomains(hostname string) bool {
+	for _, seedBaseDomain := range hv.settings.originalSeedDomains {
+		if hv.matchesSeedDomain(hostname, seedBaseDomain) {
 			return true
 		}
 	}
 	return false
 }
 
-// ExtractHostnamesFromSeedURLs extracts unique hostnames from a list of seed URLs.
-func ExtractHostnamesFromSeedURLs(seedURLs []string, logger zerolog.Logger) []string {
-	hostnames := make(map[string]bool)
-	for _, seed := range seedURLs {
-		parsedURL, err := url.Parse(seed)
-		if err != nil {
-			logger.Warn().Str("seed_url", seed).Err(err).Msg("Failed to parse seed URL for hostname extraction")
-			continue
-		}
-		if parsedURL.Hostname() != "" {
-			hostnames[parsedURL.Hostname()] = true
-		}
+// matchesSeedDomain checks if hostname matches or is subdomain of seed domain
+func (hv *HostnameValidator) matchesSeedDomain(hostname, seedBaseDomain string) bool {
+	if hostname == seedBaseDomain {
+		return true
 	}
-	uniqueHostnames := make([]string, 0, len(hostnames))
-	for host := range hostnames {
-		uniqueHostnames = append(uniqueHostnames, host)
+
+	if !strings.HasSuffix(hostname, "."+seedBaseDomain) {
+		return false
 	}
-	return uniqueHostnames
+
+	// Check if specific subdomain is disallowed
+	subdomainPart := strings.TrimSuffix(hostname, "."+seedBaseDomain)
+	if containsString(subdomainPart, hv.settings.disallowedSubdomains) {
+		hv.settings.logger.Debug().
+			Str("hostname", hostname).
+			Str("seed_base", seedBaseDomain).
+			Str("subdomain_part", subdomainPart).
+			Msg("Allowed by seed domains, but subdomain part is disallowed")
+		return false
+	}
+
+	hv.settings.logger.Debug().
+		Str("hostname", hostname).
+		Str("seed_base_domain", seedBaseDomain).
+		Msg("Hostname allowed by seed domain policy")
+	return true
 }
 
-// MergeAllowedHostnames merges two slices of hostnames, ensuring uniqueness.
-func MergeAllowedHostnames(existingHostnames, seedHostnames []string) []string {
-	merged := make(map[string]bool)
-	for _, h := range existingHostnames {
-		merged[h] = true
+// isInAllowedHostnames checks if hostname is in allowed hostnames list
+func (hv *HostnameValidator) isInAllowedHostnames(hostname string) bool {
+	// Check exact match
+	if containsString(hostname, hv.settings.allowedHostnames) {
+		hv.settings.logger.Debug().Str("hostname", hostname).Msg("Hostname explicitly allowed")
+		return true
 	}
-	for _, h := range seedHostnames {
-		merged[h] = true
+
+	// Check if it's allowed subdomain
+	return hv.isAllowedSubdomainOfAllowedHost(hostname)
+}
+
+// isAllowedSubdomainOfAllowedHost checks if hostname is allowed subdomain of explicitly allowed host
+func (hv *HostnameValidator) isAllowedSubdomainOfAllowedHost(hostname string) bool {
+	for _, allowedHost := range hv.settings.allowedHostnames {
+		if hv.isAllowedSubdomainOf(hostname, allowedHost) {
+			return true
+		}
 	}
-	result := make([]string, 0, len(merged))
-	for h := range merged {
-		result = append(result, h)
+
+	hv.settings.logger.Debug().
+		Str("hostname", hostname).
+		Strs("allowed_hostnames", hv.settings.allowedHostnames).
+		Msg("Hostname not in allowed list")
+	return false
+}
+
+// isAllowedSubdomainOf checks if hostname is an allowed subdomain of baseHost
+func (hv *HostnameValidator) isAllowedSubdomainOf(hostname, baseHost string) bool {
+	if !hv.isSubdomainOf(hostname, baseHost) {
+		return false
 	}
+
+	subdomainPart := strings.TrimSuffix(hostname, "."+baseHost)
+	if subdomainPart == "" || subdomainPart == hostname {
+		return false
+	}
+
+	if !containsString(subdomainPart, hv.settings.allowedSubdomains) {
+		return false
+	}
+
+	if containsString(subdomainPart, hv.settings.disallowedSubdomains) {
+		hv.settings.logger.Debug().
+			Str("hostname", hostname).
+			Str("base", baseHost).
+			Str("subdomain_part", subdomainPart).
+			Msg("Allowed subdomain, but also in disallowed list")
+		return false
+	}
+
+	hv.settings.logger.Debug().
+		Str("hostname", hostname).
+		Str("base", baseHost).
+		Str("subdomain_part", subdomainPart).
+		Msg("Hostname is allowed subdomain of allowed host")
+	return true
+}
+
+// checkPathScope checks if a given URL path is within the defined scope using regex patterns
+func (s *ScopeSettings) checkPathScope(path string) bool {
+	pathValidator := NewPathValidator(s)
+	return pathValidator.IsAllowed(path)
+}
+
+// PathValidator handles path scope validation logic
+type PathValidator struct {
+	settings *ScopeSettings
+}
+
+// NewPathValidator creates a new PathValidator instance
+func NewPathValidator(settings *ScopeSettings) *PathValidator {
+	return &PathValidator{
+		settings: settings,
+	}
+}
+
+// IsAllowed checks if path is allowed based on regex patterns
+func (pv *PathValidator) IsAllowed(path string) bool {
+	// Check disallowed patterns first
+	if pv.matchesDisallowedPattern(path) {
+		return false
+	}
+
+	// If allowed patterns exist, path must match at least one
+	if len(pv.settings.allowedPathPatterns) > 0 {
+		return pv.matchesAllowedPattern(path)
+	}
+
+	pv.settings.logger.Debug().Str("path", path).Msg("Path allowed by default")
+	return true
+}
+
+// matchesDisallowedPattern checks if path matches any disallowed pattern
+func (pv *PathValidator) matchesDisallowedPattern(path string) bool {
+	for _, regex := range pv.settings.disallowedPathPatterns {
+		if regex.MatchString(path) {
+			pv.settings.logger.Debug().
+				Str("path", path).
+				Str("regex", regex.String()).
+				Msg("Path matches disallowed pattern")
+			return true
+		}
+	}
+	return false
+}
+
+// matchesAllowedPattern checks if path matches any allowed pattern
+func (pv *PathValidator) matchesAllowedPattern(path string) bool {
+	for _, regex := range pv.settings.allowedPathPatterns {
+		if regex.MatchString(path) {
+			pv.settings.logger.Debug().
+				Str("path", path).
+				Str("regex", regex.String()).
+				Msg("Path matches allowed pattern")
+			return true
+		}
+	}
+
+	pv.settings.logger.Debug().Str("path", path).Msg("Path does not match any allowed pattern")
+	return false
+}
+
+// IsURLAllowed checks if a URL is allowed based on hostname and path scope
+func (s *ScopeSettings) IsURLAllowed(urlString string) (bool, error) {
+	parsedURL, err := url.Parse(urlString)
+	if err != nil {
+		return false, common.WrapError(err, "failed to parse URL for scope check")
+	}
+
+	hostname := parsedURL.Hostname()
+	if hostname == "" {
+		return false, common.NewValidationError("hostname", hostname, "hostname cannot be empty")
+	}
+
+	if !s.CheckHostnameScope(hostname) {
+		return false, nil
+	}
+
+	if !s.checkPathScope(parsedURL.Path) {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// Utility functions
+
+// removeDuplicates removes duplicate strings from slice
+func removeDuplicates(slice []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0)
+
+	for _, item := range slice {
+		if !seen[item] {
+			seen[item] = true
+			result = append(result, item)
+		}
+	}
+
 	return result
+}
+
+// containsString checks if string exists in slice
+func containsString(str string, slice []string) bool {
+	return slices.Contains(slice, str)
+}
+
+// ExtractHostnamesFromSeedURLs extracts hostnames from a list of seed URLs
+func ExtractHostnamesFromSeedURLs(seedURLs []string, logger zerolog.Logger) []string {
+	var hostnames []string
+
+	for _, seedURL := range seedURLs {
+		if hostname := extractSingleHostname(seedURL, logger); hostname != "" {
+			hostnames = append(hostnames, hostname)
+		}
+	}
+
+	return removeDuplicates(hostnames)
+}
+
+// extractSingleHostname extracts hostname from a single URL
+func extractSingleHostname(seedURL string, logger zerolog.Logger) string {
+	parsed, err := url.Parse(seedURL)
+	if err != nil {
+		logger.Warn().Str("seed_url", seedURL).Err(err).Msg("Failed to parse seed URL")
+		return ""
+	}
+
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		logger.Warn().Str("seed_url", seedURL).Msg("Empty hostname in seed URL")
+		return ""
+	}
+
+	return hostname
+}
+
+// MergeAllowedHostnames merges existing hostnames with seed hostnames, removing duplicates
+func MergeAllowedHostnames(existingHostnames, seedHostnames []string) []string {
+	merged := append(existingHostnames, seedHostnames...)
+	return removeDuplicates(merged)
 }

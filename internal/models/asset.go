@@ -35,6 +35,3 @@ type Asset struct {
 	DiscoveredAt   time.Time `json:"discovered_at,omitempty"`
 	DiscoveredFrom string    `json:"discovered_from,omitempty"` // URL of the page where this asset was found
 }
-
-// Note: Consider adding more fields to Asset if needed for reporting or analysis,
-// such as the original relative URL, depth of discovery, etc.
