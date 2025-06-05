@@ -631,6 +631,8 @@ func addChangedURLsSummaryField(embedBuilder *DiscordEmbedBuilder, changedURLs [
 func addCycleReportField(embedBuilder *DiscordEmbedBuilder, reportPath string) {
 	if reportPath != "" {
 		embedBuilder.AddField("📄 Report", "Cycle report is attached below.", false)
+	} else {
+		embedBuilder.AddField("📄 Report", "No changes detected - no report generated.", false)
 	}
 }
 

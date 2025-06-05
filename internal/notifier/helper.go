@@ -228,6 +228,12 @@ func (nh *NotificationHelper) canSendMonitorNotification() bool {
 
 // sendMonitorNotificationWithCleanup sends a monitor notification and handles file cleanup
 func (nh *NotificationHelper) sendMonitorNotificationWithCleanup(ctx context.Context, payload models.DiscordMessagePayload, reportFilePath, notificationType string) {
+	if reportFilePath == "" {
+		nh.logger.Info().Msgf("Sending %s notification without report attachment", notificationType)
+	} else {
+		nh.logger.Info().Str("report_path", reportFilePath).Msgf("Sending %s notification with report attachment", notificationType)
+	}
+
 	err := nh.discordNotifier.SendNotification(ctx, nh.cfg.MonitorServiceDiscordWebhookURL, payload, reportFilePath)
 	if err != nil {
 		nh.logger.Error().Err(err).Msgf("Failed to send %s notification", notificationType)
@@ -314,7 +320,7 @@ func (nh *NotificationHelper) SendAggregatedMonitorErrorsNotification(ctx contex
 	nh.logger.Info().Int("error_count", len(errors)).Msg("Preparing to send aggregated monitor errors notification.")
 
 	payload := FormatAggregatedMonitorErrorsMessage(errors, nh.cfg)
-	nh.sendSimpleMonitorNotification(ctx, payload, "aggregated monitor errors")
+	nh.sendSimpleMonitorNotification(ctx, payload, "Aggregated monitor errors")
 }
 
 // SendMonitorCycleCompleteNotification sends a notification when a monitor cycle completes.
@@ -326,7 +332,7 @@ func (nh *NotificationHelper) SendMonitorCycleCompleteNotification(ctx context.C
 	nh.logger.Info().Str("cycle_id", data.CycleID).Int("total_monitored", data.TotalMonitored).Int("changed_count", len(data.ChangedURLs)).Msg("Preparing to send monitor cycle complete notification.")
 
 	payload := FormatMonitorCycleCompleteMessage(data, nh.cfg)
-	nh.sendMonitorNotificationWithCleanup(ctx, payload, data.ReportPath, "monitor cycle complete")
+	nh.sendMonitorNotificationWithCleanup(ctx, payload, data.ReportPath, "Monitor cycle complete")
 }
 
 // SendMonitorInterruptNotification sends a notification when monitoring is interrupted.
