@@ -105,10 +105,6 @@ func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
 		CNAMEs:          pr.CNAMEs,
 		ASN:             pr.ASN,
 		ASNOrg:          pr.ASNOrg,
-		TLSVersion:      pr.TLSVersion,
-		TLSCipher:       pr.TLSCipher,
-		TLSCertIssuer:   pr.TLSCertIssuer,
-		TLSCertExpiry:   FormatTimeOptional(pr.TLSCertExpiry, "2006-01-02"),
 		Duration:        pr.Duration,
 		Headers:         pr.Headers,
 		Body:            pr.Body, // Consider snippet or link
@@ -116,7 +112,6 @@ func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
 		Timestamp:       FormatTimeOptional(pr.Timestamp, "2006-01-02 15:04:05 MST"),
 		IsSuccess:       isSuccess,
 		HasTechnologies: len(technologies) > 0,
-		HasTLS:          pr.TLSVersion != "",
 		HasASN:          pr.ASN != 0,
 		HasCNAMEs:       len(pr.CNAMEs) > 0,
 		HasIPs:          len(pr.IPs) > 0,

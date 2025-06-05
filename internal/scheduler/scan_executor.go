@@ -37,6 +37,18 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 	}
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Check for cancellation before each attempt
+		if result := common.CheckCancellationWithLog(ctx, s.logger, fmt.Sprintf("scan attempt %d", attempt+1)); result.Cancelled {
+			s.logger.Info().Int("attempt", attempt+1).Msg("Scan cancelled before attempt")
+			return
+		}
+
+		s.logger.Info().
+			Str("scan_session_id", currentScanSessionID).
+			Int("attempt", attempt+1).
+			Int("max_attempts", maxRetries+1).
+			Msg("Starting scan cycle attempt")
+
 		summaryBuilderBase := models.NewScanSummaryDataBuilder().
 			WithScanSessionID(currentScanSessionID).
 			WithScanMode("automated").
@@ -154,7 +166,6 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 
 			s.logger.Info().Msg("Scheduler: Sending interrupt notification to both scan and monitor services.")
 			s.notificationHelper.SendScanInterruptNotification(context.Background(), scanSummary)
-			s.notificationHelper.SendMonitorInterruptNotification(context.Background(), scanSummary)
 			return
 		}
 
@@ -379,7 +390,7 @@ func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlU
 		s.globalConfig.InputConfig.InputFile,
 	)
 	if loadErr != nil {
-		return nil, initialTargetSource, fmt.Errorf("failed to load targets: %w", loadErr)
+		return nil, initialTargetSource, common.WrapError(loadErr, "failed to load targets")
 	}
 	determinedSource = detSource
 	if determinedSource == "" {
@@ -388,7 +399,7 @@ func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlU
 
 	if len(targets) == 0 {
 		s.logger.Info().Str("source", determinedSource).Msg("Scheduler: No targets loaded to process.")
-		return nil, determinedSource, fmt.Errorf("no targets to process from source: %s", determinedSource)
+		return nil, determinedSource, common.NewError("no targets to process from source: %s", determinedSource)
 	}
 
 	// Convert targets to string slice
@@ -414,7 +425,7 @@ func (s *Scheduler) recordScanStartToDB(
 ) (int64, error) {
 	dbScanID, err := s.db.RecordScanStart(scanSessionID, targetSource, len(htmlURLs), startTime)
 	if err != nil {
-		return 0, fmt.Errorf("scheduler failed to record scan start in DB for session %s: %w", scanSessionID, err)
+		return 0, common.WrapError(err, fmt.Sprintf("scheduler failed to record scan start in DB for session %s", scanSessionID))
 	}
 	s.logger.Info().Int64("db_scan_id", dbScanID).Str("scan_session_id", scanSessionID).Msg("Scheduler: Recorded scan start in database.")
 	return dbScanID, nil
