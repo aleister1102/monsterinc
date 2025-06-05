@@ -146,7 +146,7 @@ notification_config:
   notify_on_failure: true
   notify_on_critical_error: true
   mention_role_ids: ["123456789"]
-  auto_delete_single_diff_reports_after_discord_notification: true
+  auto_delete_partial_diff_reports: true
 ```
 
 ## Message Formatting

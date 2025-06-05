@@ -257,7 +257,7 @@ notification_config:
   # Automatically delete single diff report files after a Discord notification has been successfully sent.
   # This only deletes individual diff reports (diff_*.html), keeping aggregated reports intact.
   # Default: true
-  auto_delete_single_diff_reports_after_discord_notification: true
+  auto_delete_partial_diff_reports: true
 
 # Logging configuration: Settings for application logging.
 log_config:
@@ -374,12 +374,6 @@ monitor_config:
   # Default: 10
   max_aggregated_events: 5
 
-# NormalizerConfig: Configuration related to URL normalization (currently minimal).
-# This section might be expanded in the future if more complex normalization rules are needed.
-normalizer_config: {}
-  # Default scheme to assume if a URL is provided without one (e.g., "example.com" -> "http://example.com").
-  # Default: "http" (This was an example, ensure it aligns with actual NormalizerConfig struct if present)
-  # default_scheme: "http"
 
 # Scheduler configuration: Settings for automated periodic scans (when mode is "automated").
 scheduler_config:

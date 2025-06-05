@@ -326,19 +326,19 @@ func NewDefaultStorageConfig() StorageConfig {
 }
 
 type NotificationConfig struct {
-	AutoDeleteSingleDiffReportsAfterDiscordNotification bool     `json:"auto_delete_single_diff_reports_after_discord_notification" yaml:"auto_delete_single_diff_reports_after_discord_notification"`
-	MentionRoleIDs                                      []string `json:"mention_role_ids,omitempty" yaml:"mention_role_ids,omitempty"`
-	MonitorServiceDiscordWebhookURL                     string   `json:"monitor_service_discord_webhook_url,omitempty" yaml:"monitor_service_discord_webhook_url,omitempty" validate:"omitempty,url"`
-	NotifyOnCriticalError                               bool     `json:"notify_on_critical_error" yaml:"notify_on_critical_error"`
-	NotifyOnFailure                                     bool     `json:"notify_on_failure" yaml:"notify_on_failure"`
-	NotifyOnScanStart                                   bool     `json:"notify_on_scan_start" yaml:"notify_on_scan_start"`
-	NotifyOnSuccess                                     bool     `json:"notify_on_success" yaml:"notify_on_success"`
-	ScanServiceDiscordWebhookURL                        string   `json:"scan_service_discord_webhook_url,omitempty" yaml:"scan_service_discord_webhook_url,omitempty" validate:"omitempty,url"`
+	AutoDeletePartialDiffReports    bool     `json:"auto_delete_partial_diff_reports" yaml:"auto_delete_partial_diff_reports"`
+	MentionRoleIDs                  []string `json:"mention_role_ids,omitempty" yaml:"mention_role_ids,omitempty"`
+	MonitorServiceDiscordWebhookURL string   `json:"monitor_service_discord_webhook_url,omitempty" yaml:"monitor_service_discord_webhook_url,omitempty" validate:"omitempty,url"`
+	NotifyOnCriticalError           bool     `json:"notify_on_critical_error" yaml:"notify_on_critical_error"`
+	NotifyOnFailure                 bool     `json:"notify_on_failure" yaml:"notify_on_failure"`
+	NotifyOnScanStart               bool     `json:"notify_on_scan_start" yaml:"notify_on_scan_start"`
+	NotifyOnSuccess                 bool     `json:"notify_on_success" yaml:"notify_on_success"`
+	ScanServiceDiscordWebhookURL    string   `json:"scan_service_discord_webhook_url,omitempty" yaml:"scan_service_discord_webhook_url,omitempty" validate:"omitempty,url"`
 }
 
 func NewDefaultNotificationConfig() NotificationConfig {
 	return NotificationConfig{
-		AutoDeleteSingleDiffReportsAfterDiscordNotification: false,
+		AutoDeletePartialDiffReports:    false,
 		MentionRoleIDs:                  []string{},
 		MonitorServiceDiscordWebhookURL: "",
 		NotifyOnCriticalError:           true,

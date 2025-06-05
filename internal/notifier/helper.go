@@ -213,10 +213,16 @@ func (nh *NotificationHelper) adjustPayloadForNoAttachments(payload models.Disco
 
 // cleanupReportFile removes report file if auto-deletion is enabled
 func (nh *NotificationHelper) cleanupReportFile(reportPath string) {
-	if reportPath != "" && nh.cfg.AutoDeleteSingleDiffReportsAfterDiscordNotification {
-		nh.logger.Info().Str("report_path", reportPath).Msg("Auto-deleting report file after successful Discord notification.")
+	// This method is for scan service reports - no auto-deletion
+	// Scan reports should be kept for manual review
+}
+
+// cleanupMonitorDiffReportFile removes monitor diff report file if auto-deletion is enabled
+func (nh *NotificationHelper) cleanupMonitorDiffReportFile(reportPath string) {
+	if reportPath != "" && nh.cfg.AutoDeletePartialDiffReports {
+		nh.logger.Info().Str("report_path", reportPath).Msg("Auto-deleting monitor diff report file after successful Discord notification.")
 		if errDel := os.Remove(reportPath); errDel != nil {
-			nh.logger.Error().Err(errDel).Str("report_path", reportPath).Msg("Failed to auto-delete report file.")
+			nh.logger.Error().Err(errDel).Str("report_path", reportPath).Msg("Failed to auto-delete monitor diff report file.")
 		}
 	}
 }
@@ -239,7 +245,7 @@ func (nh *NotificationHelper) sendMonitorNotificationWithCleanup(ctx context.Con
 		nh.logger.Error().Err(err).Msgf("Failed to send %s notification", notificationType)
 	} else {
 		nh.logger.Info().Msgf("%s notification sent successfully.", notificationType)
-		nh.cleanupReportFile(reportFilePath)
+		nh.cleanupMonitorDiffReportFile(reportFilePath)
 	}
 }
 
