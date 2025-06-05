@@ -291,7 +291,3 @@ func (pr *ParquetReader) convertParquetRecord(row models.ParquetProbeResult, con
 
 	return probeResult
 }
-
-// Note: FindMostRecentScanURLs has been removed as the concept of "most recent scan file"
-// is replaced by a single, consolidated Parquet file per target. The `LastSeenTimestamp`
-// within the records of this consolidated file indicates recency for each specific URL.
