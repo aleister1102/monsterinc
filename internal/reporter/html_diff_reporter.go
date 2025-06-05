@@ -234,7 +234,27 @@ func (r *HtmlDiffReporter) generateReport(displayResults []models.DiffResultDisp
 func (r *HtmlDiffReporter) generateReportPath(cycleID string, isAggregated bool) string {
 	var filename string
 	if isAggregated && cycleID != "" {
-		filename = fmt.Sprintf("%s-aggregated-report.html", cycleID)
+		// Extract timestamp from cycleID format: monitor-init-20241231-161213 or monitor-20241231-161213
+		timestamp := time.Now().Format("20060102-150405") // fallback to current time
+
+		// Split by '-' and look for timestamp parts
+		if strings.Contains(cycleID, "-") {
+			parts := strings.Split(cycleID, "-")
+			// Look for the last two parts that could form YYYYMMDD-HHMMSS
+			if len(parts) >= 2 {
+				lastTwoParts := parts[len(parts)-2:]
+				if len(lastTwoParts) == 2 &&
+					len(lastTwoParts[0]) == 8 && len(lastTwoParts[1]) == 6 {
+					// Validate that these look like date and time
+					if _, err := time.Parse("20060102", lastTwoParts[0]); err == nil {
+						if _, err := time.Parse("150405", lastTwoParts[1]); err == nil {
+							timestamp = lastTwoParts[0] + "-" + lastTwoParts[1]
+						}
+					}
+				}
+			}
+		}
+		filename = fmt.Sprintf("%s_monitor_report.html", timestamp)
 	} else {
 		filename = "aggregated_diff_report.html"
 	}

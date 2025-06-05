@@ -15,7 +15,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/reporter"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/rs/zerolog"
 )
@@ -129,7 +128,7 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 			return summaryData, probeResults, nil, common.NewError(msg)
 		}
 
-		baseReportFilename := fmt.Sprintf("%s_%s_%s_report.html", scanSessionID, scanMode, urlhandler.SanitizeFilename(targetSource))
+		baseReportFilename := fmt.Sprintf("%s_scan_report.html", scanSessionID)
 		baseReportPath := filepath.Join(gCfg.ReporterConfig.OutputDir, baseReportFilename)
 
 		probeResultsPtr := make([]*models.ProbeResult, len(probeResults))

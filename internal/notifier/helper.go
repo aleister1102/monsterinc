@@ -302,7 +302,7 @@ func (nh *NotificationHelper) SendAggregatedFileChangesNotification(ctx context.
 	nh.logger.Info().Int("change_count", len(changes)).Str("report_path", reportFilePath).Msg("Preparing to send aggregated file changes notification.")
 
 	payload := FormatAggregatedFileChangesMessage(changes, nh.cfg)
-	nh.sendMonitorNotificationWithCleanup(ctx, payload, reportFilePath, "aggregated file changes")
+	nh.sendSimpleMonitorNotification(ctx, payload, "aggregated file changes")
 }
 
 // SendMonitoredUrlsNotification sends a notification about monitored URLs.
@@ -338,7 +338,31 @@ func (nh *NotificationHelper) SendMonitorCycleCompleteNotification(ctx context.C
 	nh.logger.Info().Str("cycle_id", data.CycleID).Int("total_monitored", data.TotalMonitored).Int("changed_count", len(data.ChangedURLs)).Msg("Preparing to send monitor cycle complete notification.")
 
 	payload := FormatMonitorCycleCompleteMessage(data, nh.cfg)
-	nh.sendMonitorNotificationWithCleanup(ctx, payload, data.ReportPath, "Monitor cycle complete")
+
+	// Send notification with report attachment but DON'T cleanup the aggregated report
+	if data.ReportPath == "" {
+		nh.logger.Info().Msg("Sending monitor cycle complete notification without report attachment")
+		nh.sendSimpleMonitorNotification(ctx, payload, "monitor cycle complete")
+	} else {
+		nh.logger.Info().Str("report_path", data.ReportPath).Msg("Sending monitor cycle complete notification with report attachment")
+		// Send notification with attachment but don't auto-delete the aggregated report
+		webhookURL := nh.getWebhookURL(MonitorServiceNotification)
+		if err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, data.ReportPath); err != nil {
+			nh.logger.Error().Err(err).Str("webhook_url", webhookURL).Str("notification_type", "monitor cycle complete").Msg("Failed to send monitor notification with attachment")
+		} else {
+			nh.logger.Info().Str("webhook_url", webhookURL).Str("notification_type", "monitor cycle complete").Msg("Successfully sent monitor notification with attachment")
+		}
+	}
+
+	// Clean up ONLY partial diff reports if cleanup is enabled
+	if nh.cfg.AutoDeletePartialDiffReports && nh.diffReportCleaner != nil {
+		nh.logger.Info().Msg("Cleaning up partial diff reports after monitor cycle complete notification")
+		if err := nh.diffReportCleaner.DeleteAllSingleDiffReports(); err != nil {
+			nh.logger.Error().Err(err).Msg("Failed to cleanup partial diff reports")
+		} else {
+			nh.logger.Info().Msg("Successfully cleaned up all partial diff reports")
+		}
+	}
 }
 
 // SendMonitorInterruptNotification sends a notification when monitoring is interrupted.
