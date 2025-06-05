@@ -151,17 +151,28 @@ func (cv *ConfigValidator) validateURLSlice(field reflect.Value) bool {
 		return false
 	}
 
-	slice, ok := field.Interface().([]string)
-	if !ok {
-		return false
-	}
+	for i := 0; i < field.Len(); i++ {
+		urlValue := field.Index(i)
+		if urlValue.Kind() != reflect.String {
+			continue
+		}
 
-	for _, url := range slice {
-		if err := urlhandler.ValidateURLFormat(url); err != nil {
-			cv.logger.Debug().Str("url", url).Err(err).Msg("Invalid URL format")
+		urlStr := urlValue.String()
+		if urlStr == "" {
+			continue
+		}
+
+		// Use urlhandler for consistent URL validation
+		if err := urlhandler.ValidateURLFormat(urlStr); err != nil {
+			cv.logger.Debug().
+				Str("url", urlStr).
+				Int("index", i).
+				Err(err).
+				Msg("Invalid URL in slice")
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -258,7 +269,7 @@ func (cv *ConfigValidator) getFieldName(err validator.FieldError) string {
 			if strings.EqualFold(parts[i], err.Field()) {
 				fieldName = strings.Join(parts[i:], ".")
 				break
-			}	
+			}
 		}
 
 		if !strings.HasPrefix(fieldName, err.Field()) {

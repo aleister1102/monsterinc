@@ -2,6 +2,7 @@ package urlhandler
 
 import (
 	"errors" // Assuming your error model is defined here
+	"fmt"
 	"net"
 	"net/url"
 	"regexp"
@@ -243,4 +244,65 @@ func RestoreHostnamePort(sanitizedHostnamePort string) string {
 
 	// Replace the last underscore with colon to restore hostname:port format
 	return sanitizedHostnamePort[:lastUnderscore] + ":" + sanitizedHostnamePort[lastUnderscore+1:]
+}
+
+// ExtractHostname extracts hostname without port from a URL string
+func ExtractHostname(urlString string) (string, error) {
+	if urlString == "" {
+		return "", common.NewError("URL string is empty")
+	}
+
+	parsedURL, err := url.Parse(urlString)
+	if err != nil {
+		return "", common.WrapError(err, "could not parse URL '"+urlString+"'")
+	}
+
+	hostname := parsedURL.Hostname()
+	if hostname == "" {
+		return "", common.NewError("URL has no hostname component: " + urlString)
+	}
+
+	return hostname, nil
+}
+
+// IsAbsoluteURL checks if a URL is absolute
+func IsAbsoluteURL(urlString string) bool {
+	if urlString == "" {
+		return false
+	}
+
+	parsedURL, err := url.Parse(urlString)
+	if err != nil {
+		return false
+	}
+
+	return parsedURL.IsAbs()
+}
+
+// CompareHostnames compares two hostnames with optional case sensitivity
+func CompareHostnames(hostname1, hostname2 string, caseSensitive bool) bool {
+	if !caseSensitive {
+		return strings.EqualFold(hostname1, hostname2)
+	}
+	return hostname1 == hostname2
+}
+
+// NormalizeURLSlice normalizes a slice of URLs
+func NormalizeURLSlice(urls []string) ([]string, error) {
+	normalized := make([]string, 0, len(urls))
+	var errors []string
+
+	for _, rawURL := range urls {
+		if normalizedURL, err := NormalizeURL(rawURL); err == nil {
+			normalized = append(normalized, normalizedURL)
+		} else {
+			errors = append(errors, fmt.Sprintf("URL '%s': %v", rawURL, err))
+		}
+	}
+
+	if len(errors) > 0 {
+		return normalized, common.NewError("failed to normalize some URLs: %s", strings.Join(errors, "; "))
+	}
+
+	return normalized, nil
 }

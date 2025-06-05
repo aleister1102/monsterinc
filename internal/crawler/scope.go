@@ -5,10 +5,11 @@ import (
 	"regexp"
 	"strings"
 
+	"slices"
+
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
-	"slices"
 )
 
 // ScopeSettings defines the rules for what URLs the crawler should visit
@@ -487,19 +488,20 @@ func ExtractHostnamesFromSeedURLs(seedURLs []string, logger zerolog.Logger) []st
 
 // extractSingleHostname extracts hostname from a single URL
 func extractSingleHostname(seedURL string, logger zerolog.Logger) string {
+	// Validate URL format using urlhandler
+	if err := urlhandler.ValidateURLFormat(seedURL); err != nil {
+		logger.Warn().Str("seed_url", seedURL).Err(err).Msg("Invalid URL format")
+		return ""
+	}
+
+	// Extract hostname without port for scope validation
 	parsed, err := url.Parse(seedURL)
 	if err != nil {
 		logger.Warn().Str("seed_url", seedURL).Err(err).Msg("Failed to parse seed URL")
 		return ""
 	}
 
-	hostname := parsed.Hostname()
-	if hostname == "" {
-		logger.Warn().Str("seed_url", seedURL).Msg("Empty hostname in seed URL")
-		return ""
-	}
-
-	return hostname
+	return parsed.Hostname()
 }
 
 // MergeAllowedHostnames merges existing hostnames with seed hostnames, removing duplicates

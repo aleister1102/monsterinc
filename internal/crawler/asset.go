@@ -8,6 +8,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -249,39 +250,16 @@ func (hae *HTMLAssetExtractor) shouldSkipURL(url string) bool {
 
 // resolveURL resolves a URL against the base page URL
 func (hae *HTMLAssetExtractor) resolveURL(rawURL string) string {
-	if hae.basePageURL != nil {
-		return hae.resolveAgainstBase(rawURL)
-	}
-
-	return hae.validateAbsoluteURL(rawURL)
-}
-
-// resolveAgainstBase resolves URL against base page URL
-func (hae *HTMLAssetExtractor) resolveAgainstBase(rawURL string) string {
-	resolved, err := hae.basePageURL.Parse(rawURL)
+	// Use urlhandler.ResolveURL for consistent URL resolution
+	resolved, err := urlhandler.ResolveURL(rawURL, hae.basePageURL)
 	if err != nil {
 		hae.crawlerInstance.logger.Debug().
 			Str("url", rawURL).
-			Str("base", hae.basePageURL.String()).
 			Err(err).
-			Msg("Failed to resolve URL against base")
+			Msg("Failed to resolve URL using urlhandler")
 		return ""
 	}
-
-	return resolved.String()
-}
-
-// validateAbsoluteURL validates and returns absolute URL
-func (hae *HTMLAssetExtractor) validateAbsoluteURL(rawURL string) string {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || !parsed.IsAbs() {
-		hae.crawlerInstance.logger.Debug().
-			Str("url", rawURL).
-			Msg("URL is relative but no base URL provided, or unparsable")
-		return ""
-	}
-
-	return parsed.String()
+	return resolved
 }
 
 // getTagName safely extracts tag name from selection
