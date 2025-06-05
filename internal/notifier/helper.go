@@ -3,7 +3,6 @@ package notifier
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -217,36 +216,9 @@ func (nh *NotificationHelper) cleanupReportFile(reportPath string) {
 	// Scan reports should be kept for manual review
 }
 
-// cleanupMonitorDiffReportFile removes monitor diff report file if auto-deletion is enabled
-func (nh *NotificationHelper) cleanupMonitorDiffReportFile(reportPath string) {
-	if reportPath != "" && nh.cfg.AutoDeletePartialDiffReports {
-		nh.logger.Info().Str("report_path", reportPath).Msg("Auto-deleting monitor diff report file after successful Discord notification.")
-		if errDel := os.Remove(reportPath); errDel != nil {
-			nh.logger.Error().Err(errDel).Str("report_path", reportPath).Msg("Failed to auto-delete monitor diff report file.")
-		}
-	}
-}
-
 // canSendMonitorNotification checks if monitor notifications can be sent
 func (nh *NotificationHelper) canSendMonitorNotification() bool {
 	return nh.discordNotifier != nil && nh.cfg.MonitorServiceDiscordWebhookURL != ""
-}
-
-// sendMonitorNotificationWithCleanup sends a monitor notification and handles file cleanup
-func (nh *NotificationHelper) sendMonitorNotificationWithCleanup(ctx context.Context, payload models.DiscordMessagePayload, reportFilePath, notificationType string) {
-	if reportFilePath == "" {
-		nh.logger.Info().Msgf("Sending %s notification without report attachment", notificationType)
-	} else {
-		nh.logger.Info().Str("report_path", reportFilePath).Msgf("Sending %s notification with report attachment", notificationType)
-	}
-
-	err := nh.discordNotifier.SendNotification(ctx, nh.cfg.MonitorServiceDiscordWebhookURL, payload, reportFilePath)
-	if err != nil {
-		nh.logger.Error().Err(err).Msgf("Failed to send %s notification", notificationType)
-	} else {
-		nh.logger.Info().Msgf("%s notification sent successfully.", notificationType)
-		nh.cleanupMonitorDiffReportFile(reportFilePath)
-	}
 }
 
 // sendSimpleMonitorNotification sends a monitor notification without file attachment

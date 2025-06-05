@@ -3,6 +3,7 @@ package httpxrunner
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/models"
@@ -46,12 +47,27 @@ func (r *Runner) validateRunState() error {
 }
 
 // executeRunner executes the httpx runner in a goroutine
-func (r *Runner) executeRunner() {
+func (r *Runner) executeRunner(ctx context.Context) {
 	defer r.wg.Done()
 
 	r.logger.Debug().Msg("Starting httpx enumeration")
-	r.httpxRunner.RunEnumeration()
-	r.logger.Debug().Msg("Httpx enumeration completed")
+
+	// Run enumeration in a separate goroutine to allow cancellation
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.httpxRunner.RunEnumeration()
+	}()
+
+	// Wait for either completion or cancellation
+	select {
+	case <-done:
+		r.logger.Debug().Msg("Httpx enumeration completed")
+	case <-ctx.Done():
+		r.logger.Info().Msg("Httpx enumeration cancelled")
+		// Note: httpx doesn't support graceful shutdown, so we just log the cancellation
+		return
+	}
 }
 
 // waitForCompletion waits for runner completion or context cancellation
@@ -73,6 +89,13 @@ func (r *Runner) waitForCompletion(ctx context.Context) error {
 		result := common.CheckCancellationWithLog(ctx, r.logger, "HTTPX runner execution")
 		if result.Cancelled {
 			r.logger.Info().Msg("HTTPX runner cancelled by context")
+			// Give a grace period for ongoing operations to complete
+			select {
+			case <-done:
+				r.logger.Info().Msg("HTTPX runner completed during grace period")
+			case <-time.After(5 * time.Second):
+				r.logger.Warn().Msg("HTTPX runner did not complete within grace period")
+			}
 			return result.Error
 		}
 		return nil
@@ -93,7 +116,7 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	// Execute runner
 	r.wg.Add(1)
-	go r.executeRunner()
+	go r.executeRunner(ctx)
 
 	// Wait for completion
 	return r.waitForCompletion(ctx)

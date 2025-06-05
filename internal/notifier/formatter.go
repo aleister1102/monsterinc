@@ -687,36 +687,3 @@ func buildSecondaryReportPayload(embed models.DiscordEmbed, content string) mode
 		AddEmbed(embed).
 		Build()
 }
-
-// Helper functions
-func createCountField(fieldName string, count int, unit string, inline bool) models.DiscordEmbedField {
-	return models.DiscordEmbedField{
-		Name:   fieldName,
-		Value:  fmt.Sprintf("%d %s", count, unit),
-		Inline: inline,
-	}
-}
-
-func createStandardWebhookPayload(embed models.DiscordEmbed, cfg config.NotificationConfig, content string) models.DiscordMessagePayload {
-	return NewDiscordMessagePayloadBuilder().
-		WithUsername(DiscordUsername).
-		WithAvatarURL(DiscordAvatarURL).
-		WithContent(content).
-		AddEmbed(embed).
-		Build()
-}
-
-func createWebhookPayloadWithMentions(embed models.DiscordEmbed, cfg config.NotificationConfig) models.DiscordMessagePayload {
-	content := buildMentions(cfg.MentionRoleIDs)
-
-	return NewDiscordMessagePayloadBuilder().
-		WithUsername(DiscordUsername).
-		WithAvatarURL(DiscordAvatarURL).
-		WithContent(content).
-		AddEmbed(embed).
-		WithAllowedMentions(models.AllowedMentions{
-			Parse: []string{"roles"},
-			Roles: cfg.MentionRoleIDs,
-		}).
-		Build()
-}

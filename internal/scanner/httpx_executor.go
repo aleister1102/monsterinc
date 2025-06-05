@@ -1,0 +1,147 @@
+package scanner
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
+	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
+	"github.com/rs/zerolog"
+)
+
+// HTTPXExecutor handles the execution of the HTTPX probing component
+// Separates HTTPX execution logic from the main scanner
+type HTTPXExecutor struct {
+	logger zerolog.Logger
+}
+
+// NewHTTPXExecutor creates a new HTTPX executor
+func NewHTTPXExecutor(logger zerolog.Logger) *HTTPXExecutor {
+	return &HTTPXExecutor{
+		logger: logger.With().Str("module", "HTTPXExecutor").Logger(),
+	}
+}
+
+// HTTPXExecutionInput holds the parameters for HTTPX probing execution
+// Reduces function parameter count according to refactor principles
+type HTTPXExecutionInput struct {
+	Context              context.Context
+	DiscoveredURLs       []string
+	SeedURLs             []string
+	PrimaryRootTargetURL string
+	ScanSessionID        string
+	HttpxRunnerConfig    *httpxrunner.Config
+}
+
+// HTTPXExecutionResult contains the results from HTTPX execution
+type HTTPXExecutionResult struct {
+	ProbeResults []models.ProbeResult
+	Error        error
+}
+
+// Execute runs HTTPX probing on discovered URLs and returns probe results
+// Renamed from executeHTTPXProbing for clarity and moved to dedicated executor
+func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResult {
+	result := &HTTPXExecutionResult{}
+
+	if len(input.DiscoveredURLs) == 0 {
+		he.logger.Info().Str("session_id", input.ScanSessionID).Msg("No URLs for probing, skipping HTTPX")
+		return result
+	}
+
+	// Check context cancellation early
+	if cancelled := common.CheckCancellation(input.Context); cancelled.Cancelled {
+		result.Error = cancelled.Error
+		return result
+	}
+
+	he.logger.Info().Int("url_count", len(input.DiscoveredURLs)).Str("session_id", input.ScanSessionID).Msg("Starting HTTPX probing")
+
+	runnerResults, err := he.runHTTPXRunner(input.Context, input.HttpxRunnerConfig, input.PrimaryRootTargetURL, input.ScanSessionID)
+
+	// Handle context cancellation during execution
+	if err != nil && input.Context.Err() == context.Canceled {
+		he.logger.Info().Str("session_id", input.ScanSessionID).Msg("HTTPX probing cancelled")
+		result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
+		result.Error = input.Context.Err()
+		return result
+	} else if err != nil {
+		result.Error = err
+		return result
+	}
+
+	// Check context cancellation after completion
+	if cancelled := common.CheckCancellation(input.Context); cancelled.Cancelled {
+		result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
+		result.Error = cancelled.Error
+		return result
+	}
+
+	result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
+	he.logger.Info().Int("count", len(result.ProbeResults)).Str("session_id", input.ScanSessionID).Msg("HTTPX probing completed")
+
+	return result
+}
+
+// runHTTPXRunner creates and runs the httpx runner
+// Encapsulates the logic for setting up and executing the httpx tool
+func (he *HTTPXExecutor) runHTTPXRunner(ctx context.Context, runnerConfig *httpxrunner.Config, primaryRootTargetURL, scanSessionID string) ([]models.ProbeResult, error) {
+	runner, err := httpxrunner.NewRunner(runnerConfig, primaryRootTargetURL, he.logger)
+	if err != nil {
+		he.logger.Error().Err(err).Str("session_id", scanSessionID).Msg("Failed to create HTTPX runner")
+		return nil, fmt.Errorf("failed to create HTTPX runner for session %s: %w", scanSessionID, err)
+	}
+
+	if err := runner.Run(ctx); err != nil {
+		he.logger.Warn().Err(err).Str("session_id", scanSessionID).Msg("HTTPX probing encountered errors")
+
+		// Continue with partial results unless cancelled
+		if ctx.Err() == context.Canceled {
+			he.logger.Info().Str("session_id", scanSessionID).Msg("HTTPX cancelled")
+			return runner.GetResults(), ctx.Err()
+		}
+
+		return runner.GetResults(), fmt.Errorf("httpx execution failed for session %s: %w", scanSessionID, err)
+	}
+
+	return runner.GetResults(), nil
+}
+
+// processHTTPXResults maps the raw httpx results to models.ProbeResult and assigns RootTargetURL
+// Handles cases where no probe result is found for a discovered URL
+func (he *HTTPXExecutor) processHTTPXResults(
+	runnerResults []models.ProbeResult,
+	discoveredURLs []string,
+	seedURLs []string,
+) []models.ProbeResult {
+	// Pre-allocate slice with exact capacity
+	processedResults := make([]models.ProbeResult, 0, len(discoveredURLs))
+
+	// Create map for O(1) lookup instead of nested loops
+	probeResultMap := make(map[string]models.ProbeResult, len(runnerResults))
+	for _, r := range runnerResults {
+		probeResultMap[r.InputURL] = r
+	}
+
+	for _, urlString := range discoveredURLs {
+		rootTargetForThisURL := urlhandler.GetRootTargetForURL(urlString, seedURLs)
+
+		if r, exists := probeResultMap[urlString]; exists {
+			r.RootTargetURL = rootTargetForThisURL
+			processedResults = append(processedResults, r)
+		} else {
+			// Create error entry for missing probe result
+			processedResults = append(processedResults, models.ProbeResult{
+				InputURL:      urlString,
+				Error:         "No response from httpx probe",
+				Timestamp:     time.Now(),
+				RootTargetURL: rootTargetForThisURL,
+			})
+		}
+	}
+
+	return processedResults
+}
