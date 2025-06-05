@@ -23,7 +23,6 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 	retryDelay := 5 * time.Minute
 
 	var lastErr error
-	var scanSummary models.ScanSummaryData
 	currentScanSessionID := time.Now().Format("20060102-150405")
 
 	_, initialTargetSource, initialTargetsErr := s.targetManager.LoadAndSelectTargets(
@@ -54,7 +53,11 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 			WithScanMode("automated").
 			WithTargetSource(initialTargetSource).
 			WithRetriesAttempted(attempt)
-		scanSummary = summaryBuilderBase.Build()
+		scanSummary, err := summaryBuilderBase.Build()
+		if err != nil {
+			s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+			return
+		}
 
 		select {
 		case <-ctx.Done():
@@ -77,7 +80,11 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 				if !common.ContainsCancellationError(scanSummary.ErrorMessages) {
 					updatedSummary.WithErrorMessages([]string{fmt.Sprintf("Scheduler cycle aborted during retries due to context cancellation. Last error: %v", lastErr)})
 				}
-				scanSummary = updatedSummary.Build()
+				scanSummary, err := updatedSummary.Build()
+				if err != nil {
+					s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+					return
+				}
 				s.notificationHelper.SendScanInterruptNotification(context.Background(), scanSummary)
 			}
 			return
@@ -101,7 +108,11 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 					if !common.ContainsCancellationError(scanSummary.ErrorMessages) {
 						updatedSummary.WithErrorMessages([]string{fmt.Sprintf("Scheduler cycle aborted during retry delay due to context cancellation. Last error: %v", lastErr)})
 					}
-					scanSummary = updatedSummary.Build()
+					scanSummary, err := updatedSummary.Build()
+					if err != nil {
+						s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+						return
+					}
 					s.notificationHelper.SendScanInterruptNotification(context.Background(), scanSummary)
 				}
 				return
@@ -134,7 +145,11 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 		} else {
 			summaryUpdater.WithStatus(models.ScanStatusFailed) // Default to failed if error and no specific status
 		}
-		scanSummary = summaryUpdater.Build()
+		scanSummary, err = summaryUpdater.Build()
+		if err != nil {
+			s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+			return
+		}
 
 		if lastErr == nil {
 			s.logger.Info().Str("scan_session_id", currentScanSessionID).Msg("Scheduler: Cycle completed successfully.")
@@ -162,7 +177,11 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 			if !common.ContainsCancellationError(scanSummary.ErrorMessages) {
 				updatedSummary.WithErrorMessages([]string{fmt.Sprintf("Scheduler cycle interrupted: %v", lastErr)})
 			}
-			scanSummary = updatedSummary.Build()
+			scanSummary, err = updatedSummary.Build()
+			if err != nil {
+				s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+				return
+			}
 
 			s.logger.Info().Msg("Scheduler: Sending interrupt notification to both scan and monitor services.")
 			s.notificationHelper.SendScanInterruptNotification(context.Background(), scanSummary)
@@ -190,7 +209,11 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 			if !common.ContainsCancellationError(scanSummary.ErrorMessages) {
 				updatedSummary.WithErrorMessages([]string{fmt.Sprintf("All %d retry attempts failed. Last error: %v", maxRetries+1, lastErr)})
 			}
-			scanSummary = updatedSummary.Build()
+			scanSummary, err = updatedSummary.Build()
+			if err != nil {
+				s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+				return
+			}
 			s.notificationHelper.SendScanInterruptNotification(context.Background(), scanSummary)
 		}
 	}
@@ -218,7 +241,12 @@ func (s *Scheduler) executeScanCycle(
 		summaryBuilder.WithErrorMessages([]string{fmt.Sprintf("Failed to load/prepare targets: %v", err)})
 		if strings.Contains(err.Error(), "failed to load targets") || strings.Contains(err.Error(), "no valid URLs found") {
 			summaryBuilder.WithStatus(models.ScanStatusFailed)
-			return summaryBuilder.Build(), nil, err
+			summary, err := summaryBuilder.Build()
+			if err != nil {
+				s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+				return summary, nil, err
+			}
+			return summary, nil, err
 		}
 		overallCycleError = err
 	}
@@ -230,13 +258,22 @@ func (s *Scheduler) executeScanCycle(
 		if overallCycleError == nil {
 			summaryBuilder.WithErrorMessages([]string{"No targets available for scanning or monitoring after preparation."})
 		}
-		return summaryBuilder.Build(), nil, overallCycleError
+		summary, err := summaryBuilder.Build()
+		if err != nil {
+			s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+			return summary, nil, overallCycleError
+		}
+		return summary, nil, overallCycleError
 	}
 
 	summaryBuilder.WithTargets(urls).WithTotalTargets(len(urls))
 
 	// Build summary for start notification
-	tempSummaryForStart := summaryBuilder.Build() // Build a temporary summary for sending start notification
+	tempSummaryForStart, err := summaryBuilder.Build() // Build a temporary summary for sending start notification
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+		return tempSummaryForStart, nil, err
+	}
 	s.sendScanStartNotification(ctx, tempSummaryForStart, scanSessionID, urls)
 
 	dbScanID, dbErr := s.recordScanStartToDB(scanSessionID, determinedTargetSourceFromLoad, urls, startTime)
@@ -278,7 +315,12 @@ func (s *Scheduler) executeScanCycle(
 
 			if errors.Is(workflowErr, context.Canceled) || errors.Is(workflowErr, context.DeadlineExceeded) {
 				s.logger.Info().Msg("Scheduler: Scan workflow cancelled, propagating error up.")
-				return summaryBuilder.Build(), finalReportFilePaths, workflowErr
+				summary, err := summaryBuilder.Build()
+				if err != nil {
+					s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+					return summary, finalReportFilePaths, workflowErr
+				}
+				return summary, finalReportFilePaths, workflowErr
 			}
 		} else {
 			s.logger.Info().Int("probe_results_count", scanWorkflowSummary.ProbeStats.TotalProbed).Msg("Scheduler: Scan workflow (via shared function) completed.")
@@ -294,7 +336,11 @@ func (s *Scheduler) executeScanCycle(
 		}
 	}
 
-	currentSummaryBuilt := summaryBuilder.Build() // Build before waiting for monitor to have a current state
+	currentSummaryBuilt, err := summaryBuilder.Build() // Build before waiting for monitor to have a current state
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+		return currentSummaryBuilt, finalReportFilePaths, overallCycleError
+	}
 
 	endTime := time.Now()
 
@@ -318,7 +364,11 @@ func (s *Scheduler) executeScanCycle(
 	}
 
 	dbStatus := "COMPLETED_WITH_ISSUES"
-	builtSummaryForDB := finalSummaryBuilder.Build() // Build to check status for DB
+	builtSummaryForDB, err := finalSummaryBuilder.Build() // Build to check status for DB
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+		return builtSummaryForDB, finalReportFilePaths, overallCycleError
+	}
 
 	if overallCycleError == nil && len(builtSummaryForDB.ErrorMessages) == 0 {
 		if builtSummaryForDB.Status == string(models.ScanStatusCompleted) || builtSummaryForDB.Status == string(models.ScanStatusNoTargets) || (builtSummaryForDB.Status == "" && len(urls) == 0) {
@@ -344,7 +394,11 @@ func (s *Scheduler) executeScanCycle(
 
 	// Final status determination
 	// Re-build summary with potentially new DB error, and re-evaluate status
-	summaryForFinalStatus := finalSummaryBuilder.Build()
+	summaryForFinalStatus, err := finalSummaryBuilder.Build()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+		return summaryForFinalStatus, finalReportFilePaths, overallCycleError
+	}
 
 	if overallCycleError != nil {
 		if errors.Is(overallCycleError, context.Canceled) || errors.Is(overallCycleError, context.DeadlineExceeded) {
@@ -360,7 +414,11 @@ func (s *Scheduler) executeScanCycle(
 		finalSummaryBuilder.WithStatus(models.ScanStatusCompleted)
 	}
 
-	finalSummary := finalSummaryBuilder.Build()
+	finalSummary, err := finalSummaryBuilder.Build()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+		return finalSummary, finalReportFilePaths, overallCycleError
+	}
 	s.logger.Info().Str("session_id", scanSessionID).Dur("duration", finalSummary.ScanDuration).Str("final_status", finalSummary.Status).Msg("Scheduler: Cycle processing finished.")
 	return finalSummary, finalReportFilePaths, overallCycleError
 }
@@ -368,7 +426,7 @@ func (s *Scheduler) executeScanCycle(
 // sendScanStartNotification sends a notification when a scan cycle starts.
 func (s *Scheduler) sendScanStartNotification(ctx context.Context, baseSummary models.ScanSummaryData, scanSessionID string, htmlURLs []string) {
 	if s.notificationHelper != nil && len(htmlURLs) > 0 {
-		startNotificationSummary := models.NewScanSummaryDataBuilder().
+		startNotificationSummary, err := models.NewScanSummaryDataBuilder().
 			WithScanSessionID(scanSessionID). // Use the direct scanSessionID for this specific notification
 			WithTargetSource(baseSummary.TargetSource).
 			WithScanMode(baseSummary.ScanMode).
@@ -376,6 +434,10 @@ func (s *Scheduler) sendScanStartNotification(ctx context.Context, baseSummary m
 			WithTargets(htmlURLs).
 			WithTotalTargets(len(htmlURLs)).
 			Build()
+		if err != nil {
+			s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
+			return
+		}
 		s.logger.Info().Str("session_id", scanSessionID).Int("html_target_count", len(htmlURLs)).Msg("Scheduler: Sending scan start notification for HTML URLs.")
 		s.notificationHelper.SendScanStartNotification(ctx, startNotificationSummary)
 	}
