@@ -62,9 +62,7 @@ func NewFileManager(logger zerolog.Logger) *FileManager {
 // FileExists checks if a file or directory exists
 func (fm *FileManager) FileExists(path string) bool {
 	_, err := os.Stat(path)
-	exists := !os.IsNotExist(err)
-	fm.logger.Debug().Str("path", path).Bool("exists", exists).Msg("File existence check")
-	return exists
+	return !os.IsNotExist(err)
 }
 
 // GetFileInfo returns information about a file
@@ -86,20 +84,11 @@ func (fm *FileManager) GetFileInfo(path string) (*FileInfo, error) {
 		Permissions: stat.Mode(),
 	}
 
-	fm.logger.Debug().
-		Str("path", path).
-		Int64("size", info.Size).
-		Bool("is_dir", info.IsDir).
-		Time("mod_time", info.ModTime).
-		Msg("Retrieved file info")
-
 	return info, nil
 }
 
 // ReadFile reads a file with the given options
 func (fm *FileManager) ReadFile(path string, opts FileReadOptions) ([]byte, error) {
-	fm.logger.Debug().Str("path", path).Msg("Starting file read operation")
-
 	// Validate file and options
 	_, err := fm.validateFileForReading(path, opts)
 	if err != nil {
@@ -117,7 +106,12 @@ func (fm *FileManager) ReadFile(path string, opts FileReadOptions) ([]byte, erro
 	if err != nil {
 		return nil, WrapError(err, fmt.Sprintf("failed to open file: %s", path))
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			fm.logger.Error().Err(err).Str("path", path).Msg("Failed to close file.")
+		}
+	}()
 
 	// Create buffered reader if buffer size is specified
 	reader := fm.createBufferedReader(file, opts.BufferSize)
@@ -127,11 +121,6 @@ func (fm *FileManager) ReadFile(path string, opts FileReadOptions) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-
-	fm.logger.Debug().
-		Str("path", path).
-		Int("bytes_read", len(content)).
-		Msg("File read completed successfully")
 
 	return content, nil
 }

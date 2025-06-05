@@ -312,14 +312,7 @@ diff_reporter_config:
   # Files larger than this will still be reported as changed, but without a detailed diff.
   # Default: 5
   max_diff_file_size_mb: 5
-  # Whether to attempt to beautify HTML content before diffing to reduce noise.
-  # Requires a suitable beautifier library/logic to be implemented and enabled.
-  # Default: false
-  beautify_html_for_diff: false
-  # Whether to attempt to beautify JavaScript content before diffing to reduce noise.
-  # Requires a suitable beautifier library/logic to be implemented and enabled.
-  # Default: false
-  beautify_js_for_diff: false
+
 
 # MonitorConfig: Configuration for monitoring JS/HTML files for changes.
 monitor_config:

@@ -36,7 +36,6 @@ func (um *URLManager) AddURL(url string) {
 	defer um.urlsMutex.Unlock()
 
 	um.monitorUrls[url] = struct{}{}
-	um.logURLAdded(url)
 }
 
 // GetCurrentURLs returns a copy of currently monitored URLs
@@ -107,7 +106,6 @@ func (um *URLManager) RemoveURL(url string) bool {
 
 	if _, exists := um.monitorUrls[url]; exists {
 		delete(um.monitorUrls, url)
-		um.logger.Debug().Str("url", url).Msg("URL removed from monitor list")
 		return true
 	}
 	return false
@@ -117,10 +115,6 @@ func (um *URLManager) RemoveURL(url string) bool {
 
 func (um *URLManager) isValidURL(url string) bool {
 	return url != ""
-}
-
-func (um *URLManager) logURLAdded(url string) {
-	um.logger.Debug().Str("url", url).Msg("URL added to monitor list")
 }
 
 func (um *URLManager) extractURLsFromMap() []string {
@@ -171,5 +165,3 @@ func (um *URLManager) logPreloadedURLs(validCount, totalCount int) {
 		Int("total_count", totalCount).
 		Msg("Preloaded URLs for monitoring")
 }
-
-

@@ -94,7 +94,12 @@ func (cr *Crawler) shouldSkipURLByContentLength(normalizedURL string) bool {
 		cr.logger.Warn().Str("url", normalizedURL).Err(err).Msg("HEAD request failed")
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			cr.logger.Error().Err(err).Str("url", normalizedURL).Msg("Failed to close response body")
+		}
+	}()
 
 	return cr.checkContentLength(resp, normalizedURL)
 }

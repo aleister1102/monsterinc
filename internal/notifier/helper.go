@@ -177,7 +177,6 @@ func (nh *NotificationHelper) sendReportPart(ctx context.Context, summary models
 		nh.logger.Error().Err(err).Int("part", partNum).Msgf("Failed to send scan completion notification (part %d/%d)", partNum, totalParts)
 	} else {
 		nh.logger.Info().Int("part", partNum).Msgf("Scan completion notification (part %d/%d) sent successfully.", partNum, totalParts)
-		nh.cleanupReportFile(reportPath)
 	}
 }
 
@@ -192,7 +191,7 @@ func (nh *NotificationHelper) sendSingleReport(ctx context.Context, summary mode
 	if err != nil {
 		nh.logger.Error().Err(err).Msg("Failed to send scan completion notification")
 	} else {
-		nh.logger.Info().Msg("Scan completion notification sent successfully.")
+
 	}
 }
 
@@ -210,12 +209,6 @@ func (nh *NotificationHelper) adjustPayloadForNoAttachments(payload models.Disco
 	}
 }
 
-// cleanupReportFile removes report file if auto-deletion is enabled
-func (nh *NotificationHelper) cleanupReportFile(reportPath string) {
-	// This method is for scan service reports - no auto-deletion
-	// Scan reports should be kept for manual review
-}
-
 // canSendMonitorNotification checks if monitor notifications can be sent
 func (nh *NotificationHelper) canSendMonitorNotification() bool {
 	return nh.discordNotifier != nil && nh.cfg.MonitorServiceDiscordWebhookURL != ""
@@ -226,8 +219,6 @@ func (nh *NotificationHelper) sendSimpleMonitorNotification(ctx context.Context,
 	err := nh.discordNotifier.SendNotification(ctx, nh.cfg.MonitorServiceDiscordWebhookURL, payload, "")
 	if err != nil {
 		nh.logger.Error().Err(err).Msgf("Failed to send %s notification", notificationType)
-	} else {
-		nh.logger.Info().Msgf("%s notification sent successfully.", notificationType)
 	}
 }
 
@@ -313,26 +304,21 @@ func (nh *NotificationHelper) SendMonitorCycleCompleteNotification(ctx context.C
 
 	// Send notification with report attachment but DON'T cleanup the aggregated report
 	if data.ReportPath == "" {
-		nh.logger.Info().Msg("Sending monitor cycle complete notification without report attachment")
+
 		nh.sendSimpleMonitorNotification(ctx, payload, "monitor cycle complete")
 	} else {
-		nh.logger.Info().Str("report_path", data.ReportPath).Msg("Sending monitor cycle complete notification with report attachment")
+
 		// Send notification with attachment but don't auto-delete the aggregated report
 		webhookURL := nh.getWebhookURL(MonitorServiceNotification)
 		if err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, data.ReportPath); err != nil {
 			nh.logger.Error().Err(err).Str("webhook_url", webhookURL).Str("notification_type", "monitor cycle complete").Msg("Failed to send monitor notification with attachment")
-		} else {
-			nh.logger.Info().Str("webhook_url", webhookURL).Str("notification_type", "monitor cycle complete").Msg("Successfully sent monitor notification with attachment")
 		}
 	}
 
 	// Clean up ONLY partial diff reports if cleanup is enabled
 	if nh.cfg.AutoDeletePartialDiffReports && nh.diffReportCleaner != nil {
-		nh.logger.Info().Msg("Cleaning up partial diff reports after monitor cycle complete notification")
 		if err := nh.diffReportCleaner.DeleteAllSingleDiffReports(); err != nil {
 			nh.logger.Error().Err(err).Msg("Failed to cleanup partial diff reports")
-		} else {
-			nh.logger.Info().Msg("Successfully cleaned up all partial diff reports")
 		}
 	}
 }
@@ -371,7 +357,5 @@ func (nh *NotificationHelper) sendSimpleScanNotification(ctx context.Context, pa
 	err := nh.discordNotifier.SendNotification(ctx, nh.cfg.ScanServiceDiscordWebhookURL, payload, "")
 	if err != nil {
 		nh.logger.Error().Err(err).Msgf("Failed to send %s notification", notificationType)
-	} else {
-		nh.logger.Info().Msgf("%s notification sent successfully.", notificationType)
 	}
 }

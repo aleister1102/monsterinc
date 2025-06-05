@@ -27,7 +27,7 @@ func (cr *Crawler) Start(ctx context.Context) {
 func (cr *Crawler) processSeedURLs() {
 	for _, seed := range cr.seedURLs {
 		if cr.isContextCancelled() {
-			cr.logger.Info().Msg("Context cancelled during seed processing, stopping crawler start")
+
 			return
 		}
 
@@ -53,7 +53,7 @@ func (cr *Crawler) waitForCompletion() {
 	cr.collector.Wait()
 
 	if cr.isContextCancelled() {
-		cr.logger.Info().Msg("Context cancelled while waiting for collector to finish")
+
 	}
 }
 

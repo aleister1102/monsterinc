@@ -50,8 +50,6 @@ func (r *Runner) validateRunState() error {
 func (r *Runner) executeRunner(ctx context.Context) {
 	defer r.wg.Done()
 
-	r.logger.Debug().Msg("Starting httpx enumeration")
-
 	// Run enumeration in a separate goroutine to allow cancellation
 	done := make(chan struct{})
 	go func() {
@@ -62,9 +60,7 @@ func (r *Runner) executeRunner(ctx context.Context) {
 	// Wait for either completion or cancellation
 	select {
 	case <-done:
-		r.logger.Debug().Msg("Httpx enumeration completed")
 	case <-ctx.Done():
-		r.logger.Info().Msg("Httpx enumeration cancelled")
 		// Note: httpx doesn't support graceful shutdown, so we just log the cancellation
 		return
 	}
@@ -80,19 +76,13 @@ func (r *Runner) waitForCompletion(ctx context.Context) error {
 
 	select {
 	case <-done:
-		resultCount := r.collector.GetResultsCount()
-		r.logger.Info().
-			Int("results_collected", resultCount).
-			Msg("HTTPX runner completed successfully")
 		return nil
 	case <-ctx.Done():
 		result := common.CheckCancellationWithLog(ctx, r.logger, "HTTPX runner execution")
 		if result.Cancelled {
-			r.logger.Info().Msg("HTTPX runner cancelled by context")
 			// Give a grace period for ongoing operations to complete
 			select {
 			case <-done:
-				r.logger.Info().Msg("HTTPX runner completed during grace period")
 			case <-time.After(5 * time.Second):
 				r.logger.Warn().Msg("HTTPX runner did not complete within grace period")
 			}

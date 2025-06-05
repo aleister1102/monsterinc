@@ -39,7 +39,7 @@ func NewError(format string, args ...interface{}) error {
 // ValidationError represents validation errors with field-specific information
 type ValidationError struct {
 	Field   string
-	Value   interface{}
+	Value   any
 	Message string
 }
 
@@ -48,7 +48,7 @@ func (e *ValidationError) Error() string {
 }
 
 // NewValidationError creates a new validation error
-func NewValidationError(field string, value interface{}, message string) *ValidationError {
+func NewValidationError(field string, value any, message string) *ValidationError {
 	return &ValidationError{
 		Field:   field,
 		Value:   value,

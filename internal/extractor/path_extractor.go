@@ -76,7 +76,6 @@ func (b *PathExtractorBuilder) Build() (*PathExtractor, error) {
 		contentTypeAnalyzer: contentTypeAnalyzer,
 	}
 
-	b.logger.Info().Msg("PathExtractor initialized successfully")
 	return pathExtractor, nil
 }
 
@@ -136,27 +135,15 @@ func (pe *PathExtractor) ExtractPaths(sourceURL string, content []byte, contentT
 	if pe.extractorConfig.EnableJSluiceAnalysis && pe.contentTypeAnalyzer.ShouldAnalyzeWithJSluice(sourceURL, contentType) {
 		jsluiceResult := pe.jsluiceAnalyzer.AnalyzeJavaScript(sourceURL, content, base, seenPaths)
 		extractedPaths = append(extractedPaths, jsluiceResult.ExtractedPaths...)
-		pe.logger.Debug().Int("jsluice_paths", len(jsluiceResult.ExtractedPaths)).Msg("JSluice analysis completed")
-	} else {
-		pe.logger.Debug().
-			Str("source_url", sourceURL).
-			Str("content_type", contentType).
-			Bool("jsluice_enabled", pe.extractorConfig.EnableJSluiceAnalysis).
-			Msg("Skipping jsluice analysis")
 	}
 
 	// Step 2: Manual regex-based scanning
 	if pe.extractorConfig.EnableManualRegex {
 		regexResult := pe.manualRegexAnalyzer.AnalyzeWithRegex(sourceURL, content, base, seenPaths)
 		extractedPaths = append(extractedPaths, regexResult.ExtractedPaths...)
-		pe.logger.Debug().Int("regex_paths", len(regexResult.ExtractedPaths)).Msg("Manual regex analysis completed")
 	}
 
-	pe.logger.Info().
-		Str("source_url", sourceURL).
-		Int("total_unique_extracted_count", len(extractedPaths)).
-		Int("content_length", len(content)).
-		Msg("Path extraction completed successfully")
+	// TODO: Add other analyzers here
 
 	return extractedPaths, nil
 }

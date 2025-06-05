@@ -105,7 +105,6 @@ func (cfl *ConfigFileLocator) checkDefaultLocations() string {
 		}
 	}
 
-	cfl.logger.Debug().Msg("No config file found in default locations")
 	return ""
 }
 

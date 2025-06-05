@@ -28,12 +28,8 @@ func NewJSluiceAnalyzer(validator *URLValidator, contextExt *ContextExtractor, l
 
 // AnalyzeJavaScript processes JavaScript content using jsluice
 func (jsa *JSluiceAnalyzer) AnalyzeJavaScript(sourceURL string, content []byte, base *url.URL, seenPaths map[string]struct{}) AnalysisResult {
-	jsa.logger.Debug().Str("source_url", sourceURL).Msg("Starting jsluice analysis")
-
 	analyzer := jsluice.NewAnalyzer(content)
 	jsluiceResults := analyzer.GetURLs()
-
-	jsa.logger.Debug().Int("jsluice_url_count", len(jsluiceResults)).Msg("Jsluice analysis completed")
 
 	var extractedPaths []models.ExtractedPath
 	processedCount := 0
@@ -41,12 +37,10 @@ func (jsa *JSluiceAnalyzer) AnalyzeJavaScript(sourceURL string, content []byte, 
 	for _, jsluiceRes := range jsluiceResults {
 		result := jsa.validator.ValidateAndResolveURL(jsluiceRes.URL, base, sourceURL)
 		if !result.IsValid {
-			jsa.logger.Debug().Str("url", jsluiceRes.URL).Err(result.Error).Msg("Invalid URL from jsluice")
 			continue
 		}
 
 		if _, exists := seenPaths[result.AbsoluteURL]; exists {
-			jsa.logger.Debug().Str("absolute_url", result.AbsoluteURL).Msg("Duplicate URL from jsluice")
 			continue
 		}
 
@@ -67,12 +61,6 @@ func (jsa *JSluiceAnalyzer) AnalyzeJavaScript(sourceURL string, content []byte, 
 		extractedPaths = append(extractedPaths, extractedPath)
 		seenPaths[result.AbsoluteURL] = struct{}{}
 		processedCount++
-
-		jsa.logger.Debug().
-			Str("source_url", sourceURL).
-			Str("absolute_url", result.AbsoluteURL).
-			Str("type", pathType).
-			Msg("Added path from jsluice")
 	}
 
 	return AnalysisResult{

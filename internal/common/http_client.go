@@ -1,6 +1,7 @@
 package common
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -312,6 +313,7 @@ type FetchFileContentInput struct {
 	URL                  string
 	PreviousETag         string
 	PreviousLastModified string
+	Context              context.Context // Optional context for cancellation
 }
 
 // FetchFileContentResult holds results from FetchFileContent.
@@ -327,7 +329,12 @@ type FetchFileContentResult struct {
 // It returns the content, content type, new ETag, new LastModified, and any error encountered.
 // If the server returns 304 Not Modified, it returns ErrNotModified.
 func (f *Fetcher) FetchFileContent(input FetchFileContentInput) (*FetchFileContentResult, error) {
-	req, err := http.NewRequest("GET", input.URL, nil)
+	ctx := input.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", input.URL, nil)
 	if err != nil {
 		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to create new HTTP request")
 		return nil, WrapError(err, fmt.Sprintf("creating request for %s", input.URL))
@@ -346,7 +353,12 @@ func (f *Fetcher) FetchFileContent(input FetchFileContentInput) (*FetchFileConte
 		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to execute HTTP request")
 		return nil, NewNetworkError(input.URL, "HTTP request failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to close response body")
+		}
+	}()
 
 	result := &FetchFileContentResult{
 		ETag:           resp.Header.Get("ETag"),

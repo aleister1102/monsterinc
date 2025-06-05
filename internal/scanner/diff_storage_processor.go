@@ -114,7 +114,6 @@ func (dsp *DiffStorageProcessor) ProcessDiffingAndStorage(input ProcessDiffingAn
 	targetGroups, originalIndices := dsp.groupProbeResultsByRootTarget(
 		input.CurrentScanProbeResults,
 		input.PrimaryRootTargetURL,
-		input.SeedURLs,
 	)
 
 	// OPTIMIZATION: Work with original slice directly instead of copying
@@ -236,7 +235,6 @@ func (dsp *DiffStorageProcessor) updateProcessedProbeResults(
 func (dsp *DiffStorageProcessor) groupProbeResultsByRootTarget(
 	currentScanProbeResults []models.ProbeResult,
 	primaryRootTargetURL string,
-	seedURLs []string,
 ) (map[string][]models.ProbeResult, map[string][]int) {
 	targetGroups := make(map[string][]models.ProbeResult)
 	originalIndices := make(map[string][]int)

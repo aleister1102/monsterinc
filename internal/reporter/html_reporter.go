@@ -62,7 +62,6 @@ func NewHtmlReporter(cfg *config.ReporterConfig, appLogger zerolog.Logger) (*Htm
 
 	reporter.initializeFavicon()
 
-	moduleLogger.Info().Msg("HtmlReporter initialized successfully.")
 	return reporter, nil
 }
 
@@ -70,7 +69,6 @@ func NewHtmlReporter(cfg *config.ReporterConfig, appLogger zerolog.Logger) (*Htm
 func (r *HtmlReporter) initializeOutputDirectory() error {
 	if r.cfg.OutputDir == "" {
 		r.cfg.OutputDir = config.DefaultReporterOutputDir
-		r.logger.Info().Str("default_dir", r.cfg.OutputDir).Msg("OutputDir not specified, using default.")
 	}
 
 	return r.directoryMgr.EnsureOutputDirectories(r.cfg.OutputDir)
@@ -106,8 +104,6 @@ func (r *HtmlReporter) createTemplateFunctionMap() template.FuncMap {
 
 // loadCustomTemplate loads template from file path
 func (r *HtmlReporter) loadCustomTemplate(tmpl *template.Template) error {
-	r.logger.Info().Str("template_path", r.cfg.TemplatePath).Msg("Loading custom report template from file.")
-
 	customTmpl := template.New(filepath.Base(r.cfg.TemplatePath)).Funcs(r.createTemplateFunctionMap())
 	_, err := customTmpl.ParseFiles(r.cfg.TemplatePath)
 	if err != nil {
@@ -121,8 +117,6 @@ func (r *HtmlReporter) loadCustomTemplate(tmpl *template.Template) error {
 
 // loadEmbeddedTemplate loads the default embedded template
 func (r *HtmlReporter) loadEmbeddedTemplate(tmpl *template.Template) error {
-	r.logger.Info().Msg("Loading embedded default report template.")
-
 	templateContent, err := defaultTemplate.ReadFile("templates/report.html.tmpl")
 	if err != nil {
 		r.logger.Error().Err(err).Msg("Failed to read embedded default report template.")
@@ -137,7 +131,6 @@ func (r *HtmlReporter) loadEmbeddedTemplate(tmpl *template.Template) error {
 	}
 
 	r.template = tmpl
-	r.logger.Debug().Str("parsed_template_name", tmpl.Name()).Msg("Template loaded successfully")
 	return nil
 }
 
@@ -186,7 +179,6 @@ func (r *HtmlReporter) generateSingleReport(probeResults []*models.ProbeResult, 
 		return nil, fmt.Errorf("failed to write report: %w", err)
 	}
 
-	r.logger.Info().Str("path", outputPath).Int("results", len(probeResults)).Msg("Single HTML report generated")
 	return []string{outputPath}, nil
 }
 
@@ -216,10 +208,8 @@ func (r *HtmlReporter) generateChunkedReports(probeResults []*models.ProbeResult
 		}
 
 		outputPaths = append(outputPaths, outputPath)
-		r.logger.Debug().Int("chunk", i+1).Str("path", outputPath).Msg("Chunked report generated")
 	}
 
-	r.logger.Info().Int("total_files", len(outputPaths)).Int("total_results", len(probeResults)).Msg("Multi-part HTML report generated")
 	return outputPaths, nil
 }
 

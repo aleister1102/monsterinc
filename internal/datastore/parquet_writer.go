@@ -185,13 +185,23 @@ func (pw *ParquetWriter) writeToParquetFile(filePath string, parquetResults []mo
 	if err != nil {
 		return 0, err
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			pw.logger.Error().Err(err).Str("file", filePath).Msg("Failed to close Parquet file")
+		}
+	}()
 
 	writer, err := pw.createParquetWriter(file)
 	if err != nil {
 		return 0, err
 	}
-	defer writer.Close()
+	defer func() {
+		err := writer.Close()
+		if err != nil {
+			pw.logger.Error().Err(err).Str("file", filePath).Msg("Failed to close Parquet writer")
+		}
+	}()
 
 	recordsWritten, err := pw.writeRecords(writer, parquetResults)
 	if err != nil {

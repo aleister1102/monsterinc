@@ -117,7 +117,6 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string, cycleID st
 
 	displayResults := r.processDiffResults(diffResults)
 	if len(displayResults) == 0 {
-		r.logger.Info().Msg("No relevant (non-identical) diffs found for monitored URLs")
 		return "", nil
 	}
 
@@ -338,7 +337,11 @@ func (r *HtmlDiffReporter) writeReportToFile(pageData models.DiffReportPageData,
 		r.logger.Error().Err(err).Str("path", outputFilePath).Msg("Failed to create diff report file")
 		return "", fmt.Errorf("failed to create file %s: %w", outputFilePath, err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			r.logger.Error().Err(err).Str("path", outputFilePath).Msg("Failed to close diff report file")
+		}
+	}()
 
 	if err := r.template.ExecuteTemplate(file, "diff_report.html.tmpl", pageData); err != nil {
 		r.logger.Error().Err(err).Msg("Failed to execute template for diff report")

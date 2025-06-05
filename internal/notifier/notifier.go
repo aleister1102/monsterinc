@@ -49,7 +49,6 @@ func NewDiscordNotifier(logger zerolog.Logger, httpClient *http.Client) (*Discor
 		}
 	}
 
-	moduleLogger.Info().Msg("DiscordNotifier initialized (webhook URL will be provided per send call).")
 	return &DiscordNotifier{
 		logger:     moduleLogger,
 		httpClient: httpClient,
@@ -146,14 +145,20 @@ func (dn *DiscordNotifier) validateZippedFile(tempZipPath string, result *Attach
 	if err != nil {
 		dn.logger.Error().Err(err).Str("zip_path", tempZipPath).Msg("Failed to stat temporary zip file. Sending notification without attachment.")
 		result.UpdatedPayload = dn.addReportStatusField(result.UpdatedPayload, "Report file was too large, zipping seemed to work but could not verify zip. Not attached.")
-		os.Remove(tempZipPath)
+		err = os.Remove(tempZipPath)
+		if err != nil {
+			dn.logger.Error().Err(err).Str("zip_path", tempZipPath).Msg("Failed to remove temporary zip file.")
+		}
 		return result, nil
 	}
 
 	if zipInfo.Size() > discordAttachmentSizeLimitBytes {
 		dn.logger.Warn().Str("zip_path", tempZipPath).Int64("size_bytes", zipInfo.Size()).Msg("Zipped report file still exceeds Discord size limit. Sending notification without attachment.")
 		result.UpdatedPayload = dn.addReportStatusField(result.UpdatedPayload, "Report file was too large, and the zipped version is also too large. Not attached.")
-		os.Remove(tempZipPath)
+		err = os.Remove(tempZipPath)
+		if err != nil {
+			dn.logger.Error().Err(err).Str("zip_path", tempZipPath).Msg("Failed to remove temporary zip file.")
+		}
 		return result, nil
 	}
 
@@ -219,7 +224,12 @@ func (dn *DiscordNotifier) prepareHTTPRequest(ctx context.Context, webhookURL st
 func (dn *DiscordNotifier) createMultipartRequest(attachmentResult *AttachmentProcessingResult) (*bytes.Buffer, string, error) {
 	body := new(bytes.Buffer)
 	writer := multipart.NewWriter(body)
-	defer writer.Close()
+	defer func() {
+		err := writer.Close()
+		if err != nil {
+			dn.logger.Error().Err(err).Msg("Failed to close multipart writer.")
+		}
+	}()
 
 	// Add JSON payload
 	if err := dn.addJSONPayloadToForm(writer, attachmentResult.UpdatedPayload); err != nil {
@@ -270,7 +280,12 @@ func (dn *DiscordNotifier) addFileToForm(writer *multipart.Writer, filePath stri
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			dn.logger.Error().Err(err).Str("file_path", filePath).Msg("Failed to close file.")
+		}
+	}()
 
 	part, err := writer.CreateFormFile("file[0]", filepath.Base(filePath))
 	if err != nil {
@@ -290,7 +305,12 @@ func (dn *DiscordNotifier) sendHTTPRequest(req *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("failed to send HTTP request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			dn.logger.Error().Err(err).Msg("Failed to close HTTP response body.")
+		}
+	}()
 
 	return dn.processHTTPResponse(resp)
 }
@@ -309,7 +329,10 @@ func (dn *DiscordNotifier) processHTTPResponse(resp *http.Response) error {
 // cleanupTempFiles removes temporary files if needed
 func (dn *DiscordNotifier) cleanupTempFiles(attachmentResult *AttachmentProcessingResult) {
 	if attachmentResult.ShouldCleanupZip && attachmentResult.TempZipPath != "" {
-		os.Remove(attachmentResult.TempZipPath)
+		err := os.Remove(attachmentResult.TempZipPath)
+		if err != nil {
+			dn.logger.Error().Err(err).Str("zip_path", attachmentResult.TempZipPath).Msg("Failed to remove temporary zip file.")
+		}
 	}
 }
 
@@ -321,10 +344,20 @@ func (dn *DiscordNotifier) zipReportFile(sourceFilePath string) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("failed to create zip file: %w", err)
 	}
-	defer zipFile.Close()
+	defer func() {
+		err := zipFile.Close()
+		if err != nil {
+			dn.logger.Error().Err(err).Str("zip_file", zipFilePath).Msg("Failed to close zip file.")
+		}
+	}()
 
 	zipWriter := zip.NewWriter(zipFile)
-	defer zipWriter.Close()
+	defer func() {
+		err := zipWriter.Close()
+		if err != nil {
+			dn.logger.Error().Err(err).Str("zip_file", zipFilePath).Msg("Failed to close zip writer.")
+		}
+	}()
 
 	return zipFilePath, dn.addFileToZip(zipWriter, sourceFilePath)
 }
@@ -345,7 +378,12 @@ func (dn *DiscordNotifier) addFileToZip(zipWriter *zip.Writer, sourceFilePath st
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer fileToZip.Close()
+	defer func() {
+		err := fileToZip.Close()
+		if err != nil {
+			dn.logger.Error().Err(err).Str("source_file", sourceFilePath).Msg("Failed to close source file.")
+		}
+	}()
 
 	info, err := fileToZip.Stat()
 	if err != nil {

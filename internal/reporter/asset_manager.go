@@ -87,7 +87,6 @@ func (am *AssetManager) EmbedAssetContent(cssFS, jsFS embed.FS, isCSS bool) (str
 // EmbedAssetsIntoPageData embeds CSS and JS into page data
 func (am *AssetManager) EmbedAssetsIntoPageData(pageData PageDataInterface, cssFS, jsFS embed.FS, embedAssets bool) {
 	if !embedAssets {
-		am.logger.Info().Msg("Asset embedding is disabled. Styling/JS might be missing unless template handles external files.")
 		return
 	}
 

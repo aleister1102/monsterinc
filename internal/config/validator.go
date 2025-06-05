@@ -45,7 +45,6 @@ func (cv *ConfigValidator) Validate(cfg *GlobalConfig) error {
 		return cv.handleValidationError(err)
 	}
 
-	cv.logger.Debug().Msg("Configuration validation completed successfully")
 	return nil
 }
 
@@ -61,59 +60,89 @@ func (cv *ConfigValidator) registerCustomValidations() {
 // registerFileValidations registers file-related custom validations
 func (cv *ConfigValidator) registerFileValidations() {
 	// File existence validation
-	cv.validator.RegisterValidation("fileexists", func(fl validator.FieldLevel) bool {
+	err := cv.validator.RegisterValidation("fileexists", func(fl validator.FieldLevel) bool {
 		return cv.validateFileExists(fl.Field().String())
 	})
+	if err != nil {
+		cv.logger.Error().Err(err).Msg("Failed to register fileexists validation")
+	}
 
 	// Directory path validation
-	cv.validator.RegisterValidation("dirpath", func(fl validator.FieldLevel) bool {
+	err = cv.validator.RegisterValidation("dirpath", func(fl validator.FieldLevel) bool {
 		return cv.validateDirectoryPath(fl.Field().String())
 	})
+	if err != nil {
+		cv.logger.Error().Err(err).Msg("Failed to register dirpath validation")
+	}
 
 	// File path format validation
-	cv.validator.RegisterValidation("filepath", func(fl validator.FieldLevel) bool {
+	err = cv.validator.RegisterValidation("filepath", func(fl validator.FieldLevel) bool {
 		return cv.validateFilePath(fl.Field().String())
 	})
+	if err != nil {
+		cv.logger.Error().Err(err).Msg("Failed to register filepath validation")
+	}
 }
 
 // registerURLValidations registers URL-related custom validations
 func (cv *ConfigValidator) registerURLValidations() {
-	cv.validator.RegisterValidation("urls", func(fl validator.FieldLevel) bool {
+	err := cv.validator.RegisterValidation("urls", func(fl validator.FieldLevel) bool {
 		return cv.validateURLSlice(fl.Field())
 	})
+	if err != nil {
+		cv.logger.Error().Err(err).Msg("Failed to register urls validation")
+	}
 }
 
 // registerLogValidations registers logging-related custom validations
 func (cv *ConfigValidator) registerLogValidations() {
-	cv.validator.RegisterValidation("loglevel", func(fl validator.FieldLevel) bool {
+	err := cv.validator.RegisterValidation("loglevel", func(fl validator.FieldLevel) bool {
 		return cv.validateLogLevel(fl.Field().String())
 	})
+	if err != nil {
+		cv.logger.Error().Err(err).Msg("Failed to register loglevel validation")
+	}
 
-	cv.validator.RegisterValidation("logformat", func(fl validator.FieldLevel) bool {
+	err = cv.validator.RegisterValidation("logformat", func(fl validator.FieldLevel) bool {
 		return cv.validateLogFormat(fl.Field().String())
 	})
+	if err != nil {
+		cv.logger.Error().Err(err).Msg("Failed to register logformat validation")
+	}
 }
 
 // registerModeValidations registers mode-related custom validations
 func (cv *ConfigValidator) registerModeValidations() {
-	cv.validator.RegisterValidation("mode", func(fl validator.FieldLevel) bool {
+	err := cv.validator.RegisterValidation("mode", func(fl validator.FieldLevel) bool {
 		return cv.validateMode(fl.Field().String())
 	})
+	if err != nil {
+		cv.logger.Error().Err(err).Msg("Failed to register mode validation")
+	}
 }
 
 // registerSchedulerValidations registers scheduler-related custom validations
 func (cv *ConfigValidator) registerSchedulerValidations() {
-	cv.validator.RegisterValidation("scanintervaldays", func(fl validator.FieldLevel) bool {
+	err := cv.validator.RegisterValidation("scanintervaldays", func(fl validator.FieldLevel) bool {
 		return fl.Field().Int() >= 1
 	})
+	if err != nil {
+		cv.logger.Error().Err(err).Msg("Failed to register scanintervaldays validation")
+	}
 
-	cv.validator.RegisterValidation("retryattempts", func(fl validator.FieldLevel) bool {
+	err = cv.validator.RegisterValidation("retryattempts", func(fl validator.FieldLevel) bool {
 		return fl.Field().Int() >= 0
 	})
+	if err != nil {
+		cv.logger.Error().Err(err).Msg("Failed to register retryattempts validation")
+	}
 
-	cv.validator.RegisterValidation("sqlitepath", func(fl validator.FieldLevel) bool {
+	err = cv.validator.RegisterValidation("sqlitepath", func(fl validator.FieldLevel) bool {
 		return fl.Field().String() != ""
 	})
+	if err != nil {
+		cv.logger.Error().Err(err).Msg("Failed to register sqlitepath validation")
+	}
 }
 
 // validateFileExists checks if a file exists

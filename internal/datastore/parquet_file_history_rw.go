@@ -56,7 +56,12 @@ func (pfs *ParquetFileHistory) StoreFileRecord(record models.FileHistoryRecord) 
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			pfs.logger.Error().Err(err).Str("path", historyFilePath).Msg("Failed to close parquet file")
+		}
+	}()
 
 	// Write all records to the file
 	if err := pfs.writeParquetData(file, compressionOption, allRecords); err != nil {
@@ -210,7 +215,12 @@ func readFileHistoryRecords(filePath string, logger zerolog.Logger) ([]models.Fi
 		}
 		return nil, fmt.Errorf("failed to open history file '%s': %w", filePath, err)
 	}
-	defer osFile.Close()
+	defer func() {
+		err := osFile.Close()
+		if err != nil {
+			logger.Error().Err(err).Str("file", filePath).Msg("Failed to close history file")
+		}
+	}()
 
 	stat, err := osFile.Stat()
 	if err != nil {

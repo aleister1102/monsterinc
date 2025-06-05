@@ -152,13 +152,23 @@ func (pr *ParquetReader) readProbeResultsFromFile(filePath, contextualRootTarget
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			pr.logger.Error().Err(err).Str("file", filePath).Msg("Failed to close Parquet file")
+		}
+	}()
 
 	reader, err := pr.createParquetReader(file)
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() {
+		err := reader.Close()
+		if err != nil {
+			pr.logger.Error().Err(err).Str("file", filePath).Msg("Failed to close Parquet reader")
+		}
+	}()
 
 	results, err := pr.readAllRecords(reader, contextualRootTargetURL)
 	if err != nil {
@@ -193,11 +203,6 @@ func (pr *ParquetReader) createParquetReader(file *os.File) (*parquet.Reader, er
 // buildReaderOptions constructs reader options based on configuration
 func (pr *ParquetReader) buildReaderOptions() []parquet.ReaderOption {
 	var options []parquet.ReaderOption
-
-	if pr.config.BufferSize > 0 {
-		// Note: parquet-go may not have ReadBufferSize option
-		// This is a placeholder for potential future buffer size configuration
-	}
 
 	return options
 }

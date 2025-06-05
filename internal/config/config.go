@@ -116,7 +116,7 @@ func LoadGlobalConfig(providedPath string, logger zerolog.Logger) (*GlobalConfig
 
 	filePath := GetConfigPath(providedPath)
 	if filePath == "" {
-		logger.Debug().Msg("No config file found, using defaults")
+
 		return cfg, nil
 	}
 
@@ -444,15 +444,11 @@ func NewDefaultExtractorConfig() ExtractorConfig {
 }
 
 type DiffReporterConfig struct {
-	BeautifyHTMLForDiff bool `json:"beautify_html_for_diff,omitempty" yaml:"beautify_html_for_diff,omitempty"`
-	BeautifyJSForDiff   bool `json:"beautify_js_for_diff,omitempty" yaml:"beautify_js_for_diff,omitempty"`
-	MaxDiffFileSizeMB   int  `json:"max_diff_file_size_mb,omitempty" yaml:"max_diff_file_size_mb,omitempty"`
+	MaxDiffFileSizeMB int `json:"max_diff_file_size_mb,omitempty" yaml:"max_diff_file_size_mb,omitempty"`
 }
 
 func NewDefaultDiffReporterConfig() DiffReporterConfig {
 	return DiffReporterConfig{
-		BeautifyHTMLForDiff: true, // TODO: implement
-		BeautifyJSForDiff:   true, // TODO: implement
-		MaxDiffFileSizeMB:   5,    // Default 5MB
+		MaxDiffFileSizeMB: 5, // Default 5MB
 	}
 }

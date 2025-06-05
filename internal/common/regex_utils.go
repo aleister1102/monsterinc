@@ -14,7 +14,6 @@ func CompileRegexes(
 ) []*regexp.Regexp {
 	var compiledRegexes []*regexp.Regexp
 	if len(regexStrings) == 0 {
-		logger.Debug().Msg("No regex strings provided for compilation.")
 		return compiledRegexes
 	}
 
@@ -26,6 +25,5 @@ func CompileRegexes(
 			compiledRegexes = append(compiledRegexes, re)
 		}
 	}
-	logger.Debug().Int("input_count", len(regexStrings)).Int("compiled_count", len(compiledRegexes)).Msg("Finished compiling regex strings.")
 	return compiledRegexes
 }
