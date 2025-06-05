@@ -13,18 +13,18 @@ import (
 
 // EventAggregator manages aggregation of monitoring events
 type EventAggregator struct {
-	logger                     zerolog.Logger
-	notificationHelper         *notifier.NotificationHelper
-	fileChangeEvents           []models.FileChangeInfo
-	fileChangeEventsMutex      sync.Mutex
-	aggregatedFetchErrors      []models.MonitorFetchErrorInfo
-	aggregatedFetchErrorsMutex sync.Mutex
-	aggregationTicker          *time.Ticker
-	aggregationWg              sync.WaitGroup
-	doneChan                   chan struct{}
-	maxAggregatedEvents        int
-	isShuttingDown             bool
-	shutdownMutex              sync.RWMutex
+	logger                zerolog.Logger
+	notificationHelper    *notifier.NotificationHelper
+	fileChangeEvents      []models.FileChangeInfo
+	fileChangeEventsMutex sync.Mutex
+	fetchErrors           []models.MonitorFetchErrorInfo
+	fetchErrorsMutex      sync.Mutex
+	aggregationTicker     *time.Ticker
+	aggregationWg         sync.WaitGroup
+	doneChan              chan struct{}
+	maxAggregatedEvents   int
+	isShuttingDown        bool
+	shutdownMutex         sync.RWMutex
 }
 
 // NewEventAggregator creates a new EventAggregator
@@ -35,87 +35,172 @@ func NewEventAggregator(
 	maxAggregatedEvents int,
 ) *EventAggregator {
 	ea := &EventAggregator{
-		logger:                logger.With().Str("component", "EventAggregator").Logger(),
-		notificationHelper:    notificationHelper,
-		fileChangeEvents:      make([]models.FileChangeInfo, 0),
-		aggregatedFetchErrors: make([]models.MonitorFetchErrorInfo, 0),
-		doneChan:              make(chan struct{}),
-		maxAggregatedEvents:   maxAggregatedEvents,
-		isShuttingDown:        false,
-		shutdownMutex:         sync.RWMutex{},
+		logger:              logger.With().Str("component", "EventAggregator").Logger(),
+		notificationHelper:  notificationHelper,
+		fileChangeEvents:    make([]models.FileChangeInfo, 0),
+		fetchErrors:         make([]models.MonitorFetchErrorInfo, 0),
+		doneChan:            make(chan struct{}),
+		maxAggregatedEvents: maxAggregatedEvents,
+		isShuttingDown:      false,
+		shutdownMutex:       sync.RWMutex{},
 	}
 
-	if aggregationInterval > 0 {
-		ea.aggregationTicker = time.NewTicker(aggregationInterval)
-		ea.aggregationWg.Add(1)
-		go ea.aggregationWorker()
-		ea.logger.Info().Dur("interval", aggregationInterval).Int("max_events", maxAggregatedEvents).Msg("Event aggregation worker started")
-	}
-
+	ea.startAggregationWorker(aggregationInterval)
 	return ea
 }
 
 // AddFileChangeEvent adds a file change event to the aggregated list
 func (ea *EventAggregator) AddFileChangeEvent(event models.FileChangeInfo) {
-	ea.shutdownMutex.RLock()
-	if ea.isShuttingDown {
-		ea.shutdownMutex.RUnlock()
-		ea.logger.Debug().Str("url", event.URL).Msg("Ignoring file change event due to shutdown")
+	if !ea.shouldAcceptEvent() {
+		ea.logEventRejected("file change", event.URL)
 		return
 	}
-	ea.shutdownMutex.RUnlock()
 
-	ea.fileChangeEventsMutex.Lock()
-	defer ea.fileChangeEventsMutex.Unlock()
-
-	ea.fileChangeEvents = append(ea.fileChangeEvents, event)
-	ea.logger.Debug().Str("url", event.URL).Str("cycle_id", event.CycleID).Msg("File change event added to aggregation")
-
-	// Check if we've reached the max aggregated events
-	if len(ea.fileChangeEvents) >= ea.maxAggregatedEvents {
-		ea.logger.Info().Int("event_count", len(ea.fileChangeEvents)).Msg("Max aggregated events reached, triggering immediate send")
-		go ea.sendAggregatedChanges()
-	}
+	ea.addFileChangeEventToBuffer(event)
+	ea.checkMaxEventsReached()
 }
 
 // AddFetchErrorEvent adds a fetch error event to the aggregated list
 func (ea *EventAggregator) AddFetchErrorEvent(errorInfo models.MonitorFetchErrorInfo) {
-	ea.shutdownMutex.RLock()
-	if ea.isShuttingDown {
-		ea.shutdownMutex.RUnlock()
-		ea.logger.Debug().Str("url", errorInfo.URL).Msg("Ignoring fetch error event due to shutdown")
+	if !ea.shouldAcceptEvent() {
+		ea.logEventRejected("fetch error", errorInfo.URL)
 		return
 	}
-	ea.shutdownMutex.RUnlock()
 
-	ea.aggregatedFetchErrorsMutex.Lock()
-	defer ea.aggregatedFetchErrorsMutex.Unlock()
-
-	ea.aggregatedFetchErrors = append(ea.aggregatedFetchErrors, errorInfo)
-	ea.logger.Debug().Str("url", errorInfo.URL).Str("source", errorInfo.Source).Msg("Fetch error event added to aggregation")
+	ea.addFetchErrorToBuffer(errorInfo)
 }
 
 // Stop gracefully stops the event aggregator
 func (ea *EventAggregator) Stop() {
-	ea.shutdownMutex.Lock()
-	ea.isShuttingDown = true
-	ea.shutdownMutex.Unlock()
-
-	if ea.aggregationTicker != nil {
-		ea.aggregationTicker.Stop()
-	}
-
-	close(ea.doneChan)
-	ea.aggregationWg.Wait()
-
-	// Send any remaining events before shutdown
-	ea.sendAggregatedChanges()
-	ea.sendAggregatedErrors()
-
+	ea.initiateShutdown()
+	ea.waitForWorkerCompletion()
+	ea.sendRemainingEvents()
 	ea.logger.Info().Msg("Event aggregator stopped")
 }
 
-// aggregationWorker runs the aggregation ticker
+// GetEventCounts returns current event counts for monitoring
+func (ea *EventAggregator) GetEventCounts() map[string]int {
+	return map[string]int{
+		"file_changes": ea.getFileChangeEventCount(),
+		"fetch_errors": ea.getFetchErrorCount(),
+	}
+}
+
+// Private helper methods for initialization
+
+func (ea *EventAggregator) startAggregationWorker(aggregationInterval time.Duration) {
+	if aggregationInterval <= 0 {
+		ea.logger.Warn().Msg("Invalid aggregation interval, worker not started")
+		return
+	}
+
+	ea.aggregationTicker = time.NewTicker(aggregationInterval)
+	ea.aggregationWg.Add(1)
+	go ea.aggregationWorker()
+
+	ea.logger.Info().
+		Dur("interval", aggregationInterval).
+		Int("max_events", ea.maxAggregatedEvents).
+		Msg("Event aggregation worker started")
+}
+
+// Private helper methods for event acceptance
+
+func (ea *EventAggregator) shouldAcceptEvent() bool {
+	ea.shutdownMutex.RLock()
+	defer ea.shutdownMutex.RUnlock()
+	return !ea.isShuttingDown
+}
+
+func (ea *EventAggregator) logEventRejected(eventType, url string) {
+	ea.logger.Debug().
+		Str("event_type", eventType).
+		Str("url", url).
+		Msg("Ignoring event due to shutdown")
+}
+
+// Private helper methods for event buffer management
+
+func (ea *EventAggregator) addFileChangeEventToBuffer(event models.FileChangeInfo) {
+	ea.fileChangeEventsMutex.Lock()
+	defer ea.fileChangeEventsMutex.Unlock()
+
+	ea.fileChangeEvents = append(ea.fileChangeEvents, event)
+	ea.logFileChangeEventAdded(event)
+}
+
+func (ea *EventAggregator) addFetchErrorToBuffer(errorInfo models.MonitorFetchErrorInfo) {
+	ea.fetchErrorsMutex.Lock()
+	defer ea.fetchErrorsMutex.Unlock()
+
+	ea.fetchErrors = append(ea.fetchErrors, errorInfo)
+	ea.logFetchErrorAdded(errorInfo)
+}
+
+func (ea *EventAggregator) logFileChangeEventAdded(event models.FileChangeInfo) {
+	ea.logger.Debug().
+		Str("url", event.URL).
+		Str("cycle_id", event.CycleID).
+		Msg("File change event added to aggregation")
+}
+
+func (ea *EventAggregator) logFetchErrorAdded(errorInfo models.MonitorFetchErrorInfo) {
+	ea.logger.Debug().
+		Str("url", errorInfo.URL).
+		Str("source", errorInfo.Source).
+		Msg("Fetch error event added to aggregation")
+}
+
+func (ea *EventAggregator) checkMaxEventsReached() {
+	currentCount := ea.getFileChangeEventCount()
+	if currentCount >= ea.maxAggregatedEvents {
+		ea.logger.Info().
+			Int("event_count", currentCount).
+			Msg("Max aggregated events reached, triggering immediate send")
+		go ea.sendAggregatedChanges()
+	}
+}
+
+func (ea *EventAggregator) getFileChangeEventCount() int {
+	ea.fileChangeEventsMutex.Lock()
+	defer ea.fileChangeEventsMutex.Unlock()
+	return len(ea.fileChangeEvents)
+}
+
+func (ea *EventAggregator) getFetchErrorCount() int {
+	ea.fetchErrorsMutex.Lock()
+	defer ea.fetchErrorsMutex.Unlock()
+	return len(ea.fetchErrors)
+}
+
+// Private helper methods for shutdown
+
+func (ea *EventAggregator) initiateShutdown() {
+	ea.shutdownMutex.Lock()
+	defer ea.shutdownMutex.Unlock()
+
+	ea.isShuttingDown = true
+	ea.stopAggregationTicker()
+	close(ea.doneChan)
+}
+
+func (ea *EventAggregator) stopAggregationTicker() {
+	if ea.aggregationTicker != nil {
+		ea.aggregationTicker.Stop()
+	}
+}
+
+func (ea *EventAggregator) waitForWorkerCompletion() {
+	ea.aggregationWg.Wait()
+}
+
+func (ea *EventAggregator) sendRemainingEvents() {
+	ea.sendAggregatedChanges()
+	ea.sendAggregatedErrors()
+}
+
+// Private worker methods
+
 func (ea *EventAggregator) aggregationWorker() {
 	defer ea.aggregationWg.Done()
 
@@ -125,53 +210,97 @@ func (ea *EventAggregator) aggregationWorker() {
 			ea.logger.Debug().Msg("Aggregation worker stopped via done channel")
 			return
 		case <-ea.aggregationTicker.C:
-			ea.logger.Debug().Msg("Aggregation timer tick - sending aggregated events")
-			ea.sendAggregatedChanges()
-			ea.sendAggregatedErrors()
+			ea.handleAggregationTick()
 		}
 	}
 }
 
-// sendAggregatedChanges sends aggregated file change events via notifications
+func (ea *EventAggregator) handleAggregationTick() {
+	ea.logger.Debug().Msg("Aggregation timer tick - sending aggregated events")
+	ea.sendAggregatedChanges()
+	ea.sendAggregatedErrors()
+}
+
+// Private notification methods
+
 func (ea *EventAggregator) sendAggregatedChanges() {
-	ea.fileChangeEventsMutex.Lock()
-	if len(ea.fileChangeEvents) == 0 {
-		ea.fileChangeEventsMutex.Unlock()
+	changes := ea.extractFileChangeEvents()
+	if len(changes) == 0 {
 		return
+	}
+
+	ea.sendFileChangesNotification(changes)
+}
+
+func (ea *EventAggregator) sendAggregatedErrors() {
+	errors := ea.extractFetchErrors()
+	if len(errors) == 0 {
+		return
+	}
+
+	ea.sendFetchErrorsNotification(errors)
+}
+
+func (ea *EventAggregator) extractFileChangeEvents() []models.FileChangeInfo {
+	ea.fileChangeEventsMutex.Lock()
+	defer ea.fileChangeEventsMutex.Unlock()
+
+	if len(ea.fileChangeEvents) == 0 {
+		return nil
 	}
 
 	changes := make([]models.FileChangeInfo, len(ea.fileChangeEvents))
 	copy(changes, ea.fileChangeEvents)
 	ea.fileChangeEvents = ea.fileChangeEvents[:0]
-	ea.fileChangeEventsMutex.Unlock()
-
-	if ea.notificationHelper != nil {
-		ea.logger.Info().Int("change_count", len(changes)).Msg("Sending aggregated file changes notification")
-		ea.notificationHelper.SendAggregatedFileChangesNotification(ea.getContext(), changes, "")
-	}
+	return changes
 }
 
-// sendAggregatedErrors sends aggregated fetch error events via notifications
-func (ea *EventAggregator) sendAggregatedErrors() {
-	ea.aggregatedFetchErrorsMutex.Lock()
-	if len(ea.aggregatedFetchErrors) == 0 {
-		ea.aggregatedFetchErrorsMutex.Unlock()
+func (ea *EventAggregator) extractFetchErrors() []models.MonitorFetchErrorInfo {
+	ea.fetchErrorsMutex.Lock()
+	defer ea.fetchErrorsMutex.Unlock()
+
+	if len(ea.fetchErrors) == 0 {
+		return nil
+	}
+
+	errors := make([]models.MonitorFetchErrorInfo, len(ea.fetchErrors))
+	copy(errors, ea.fetchErrors)
+	ea.fetchErrors = ea.fetchErrors[:0]
+	return errors
+}
+
+func (ea *EventAggregator) sendFileChangesNotification(changes []models.FileChangeInfo) {
+	if ea.notificationHelper == nil {
 		return
 	}
 
-	errors := make([]models.MonitorFetchErrorInfo, len(ea.aggregatedFetchErrors))
-	copy(errors, ea.aggregatedFetchErrors)
-	ea.aggregatedFetchErrors = ea.aggregatedFetchErrors[:0]
-	ea.aggregatedFetchErrorsMutex.Unlock()
+	ea.logger.Info().
+		Int("change_count", len(changes)).
+		Msg("Sending aggregated file changes notification")
 
-	if ea.notificationHelper != nil {
-		ea.logger.Info().Int("error_count", len(errors)).Msg("Sending aggregated fetch errors notification")
-		ea.notificationHelper.SendAggregatedMonitorErrorsNotification(ea.getContext(), errors)
-	}
+	ea.notificationHelper.SendAggregatedFileChangesNotification(
+		ea.getOperationContext(),
+		changes,
+		"",
+	)
 }
 
-// getContext provides a context for operations (simplified for now)
-func (ea *EventAggregator) getContext() context.Context {
-	// In a real implementation, this should be passed from the service
+func (ea *EventAggregator) sendFetchErrorsNotification(errors []models.MonitorFetchErrorInfo) {
+	if ea.notificationHelper == nil {
+		return
+	}
+
+	ea.logger.Info().
+		Int("error_count", len(errors)).
+		Msg("Sending aggregated fetch errors notification")
+
+	ea.notificationHelper.SendAggregatedMonitorErrorsNotification(
+		ea.getOperationContext(),
+		errors,
+	)
+}
+
+func (ea *EventAggregator) getOperationContext() context.Context {
+	// In a real implementation, this should be passed from the service or use a proper context
 	return context.Background()
 }
