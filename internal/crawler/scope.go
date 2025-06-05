@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
 )
@@ -15,20 +16,16 @@ type ScopeSettings struct {
 	AllowedSubdomains      []string
 	DisallowedHostnames    []string
 	DisallowedSubdomains   []string
-	AllowedPathPatterns    []*regexp.Regexp // TODO: Regex for allowed paths
-	DisallowedPathPatterns []*regexp.Regexp // TODO: Regex for disallowed paths
-	logger                 zerolog.Logger   // Added logger
+	AllowedPathPatterns    []*regexp.Regexp
+	DisallowedPathPatterns []*regexp.Regexp
+	logger                 zerolog.Logger
 
 	// New fields for subdomain handling based on original seeds
 	IncludeSubdomains   bool
 	OriginalSeedDomains []string // Stores base domains of original seeds
 }
 
-// NewScopeSettings creates a new ScopeSettings instance.
-// rootURLHostname is the hostname of the primary seed URL, used to implicitly allow it.
-// allowedHostnames, disallowedHostnames, allowedSubdomains, disallowedSubdomains are explicit lists.
-// includeSubdomains indicates if subdomains of original seed URLs should be allowed.
-// originalSeedURLs are the initial seed URLs provided to the crawler.
+// NewScopeSettings creates a new ScopeSettings instance with compiled regex patterns
 func NewScopeSettings(
 	rootURLHostname string, // This is typically the hostname of the first seed URL
 	allowedHostnames, disallowedHostnames []string,
@@ -40,79 +37,46 @@ func NewScopeSettings(
 ) (*ScopeSettings, error) {
 	scopeLogger := logger.With().Str("component", "ScopeSettings").Logger()
 
-	ss := &ScopeSettings{
-		AllowedHostnames:     unique(append([]string{}, allowedHostnames...)), // Ensure we have a new slice
-		AllowedSubdomains:    unique(allowedSubdomains),
-		DisallowedHostnames:  unique(disallowedHostnames),
-		DisallowedSubdomains: unique(disallowedSubdomains),
-		logger:               scopeLogger,
-		IncludeSubdomains:    includeSubdomains,
-	}
-
-	// If a rootURLHostname is provided (e.g., from the first seed if auto_add_seed_hostnames is off for that one)
-	// ensure it's part of the allowed list if AllowedHostnames is otherwise empty or doesn't contain it.
-	// However, auto_add_seed_hostnames in CrawlerConfig usually handles adding all seed hostnames to allowedHostnames.
-	if rootURLHostname != "" {
-		// Add to a temporary map to ensure uniqueness before appending
-		tempAllowed := make(map[string]bool)
-		for _, h := range ss.AllowedHostnames {
-			tempAllowed[h] = true
-		}
-		tempAllowed[rootURLHostname] = true
-		newAllowed := make([]string, 0, len(tempAllowed))
-		for h := range tempAllowed {
-			newAllowed = append(newAllowed, h)
-		}
-		ss.AllowedHostnames = newAllowed
-	}
-
-	// Extract base domains from original seed URLs for IncludeSubdomains logic
-	sOriginalSeedDomainsMap := make(map[string]bool)
-	for _, seedURL := range originalSeedURLs {
-		parsedSeed, err := url.Parse(seedURL)
-		if err == nil {
-			baseDomain, err := urlhandler.GetBaseDomain(parsedSeed.Hostname())
-			if err == nil && baseDomain != "" {
-				sOriginalSeedDomainsMap[baseDomain] = true
+	// Extract base domains from original seed URLs for subdomain checking
+	var originalSeedDomains []string
+	if includeSubdomains {
+		for _, seedURL := range originalSeedURLs {
+			if hostname := ExtractHostnamesFromSeedURLs([]string{seedURL}, scopeLogger); len(hostname) > 0 {
+				originalSeedDomains = append(originalSeedDomains, hostname[0])
 			}
 		}
+		originalSeedDomains = unique(originalSeedDomains)
+		scopeLogger.Debug().Strs("original_seed_domains", originalSeedDomains).Msg("Extracted base domains from seed URLs")
 	}
-	ss.OriginalSeedDomains = make([]string, 0, len(sOriginalSeedDomainsMap))
-	for domain := range sOriginalSeedDomainsMap {
-		ss.OriginalSeedDomains = append(ss.OriginalSeedDomains, domain)
-	}
-	scopeLogger.Debug().Strs("original_seed_domains_extracted", ss.OriginalSeedDomains).Msg("ScopeSettings: Extracted original seed base domains")
 
-	// Compile regex patterns for paths
-	compileRegexes := func(patterns []string) []*regexp.Regexp {
-		compiled := make([]*regexp.Regexp, 0, len(patterns))
-		for _, pattern := range patterns {
-			if pattern == "" {
-				continue
-			}
-			re, err := regexp.Compile(pattern)
-			if err != nil {
-				scopeLogger.Error().Err(err).Str("regex_pattern", pattern).Msg("Failed to compile regex. Skipping pattern.")
-				continue // Skip invalid patterns
-			}
-			compiled = append(compiled, re)
-		}
-		return compiled
-	}
-	ss.AllowedPathPatterns = compileRegexes(allowedPathRegexes)
-	ss.DisallowedPathPatterns = compileRegexes(disallowedPathRegexes)
+	// Compile regex patterns using common utility
+	allowedPathPatterns := common.CompileRegexes(allowedPathRegexes, scopeLogger)
+	disallowedPathPatterns := common.CompileRegexes(disallowedPathRegexes, scopeLogger)
 
-	scopeLogger.Debug().
-		Strs("allowed_hostnames", ss.AllowedHostnames).
-		Strs("disallowed_hostnames", ss.DisallowedHostnames).
-		Strs("allowed_subdomains", ss.AllowedSubdomains).
-		Strs("disallowed_subdomains", ss.DisallowedSubdomains).
-		Bool("include_subdomains_flag", ss.IncludeSubdomains).
-		Strs("seed_base_domains_for_subdomain_logic", ss.OriginalSeedDomains).
-		Int("allowed_path_patterns", len(ss.AllowedPathPatterns)).
-		Int("disallowed_path_patterns", len(ss.DisallowedPathPatterns)).
+	scopeSettings := &ScopeSettings{
+		AllowedHostnames:       allowedHostnames,
+		AllowedSubdomains:      allowedSubdomains,
+		DisallowedHostnames:    disallowedHostnames,
+		DisallowedSubdomains:   disallowedSubdomains,
+		AllowedPathPatterns:    allowedPathPatterns,
+		DisallowedPathPatterns: disallowedPathPatterns,
+		logger:                 scopeLogger,
+		IncludeSubdomains:      includeSubdomains,
+		OriginalSeedDomains:    originalSeedDomains,
+	}
+
+	scopeLogger.Info().
+		Strs("allowed_hostnames", allowedHostnames).
+		Strs("disallowed_hostnames", disallowedHostnames).
+		Strs("allowed_subdomains", allowedSubdomains).
+		Strs("disallowed_subdomains", disallowedSubdomains).
+		Int("allowed_path_patterns", len(allowedPathPatterns)).
+		Int("disallowed_path_patterns", len(disallowedPathPatterns)).
+		Bool("include_subdomains", includeSubdomains).
+		Strs("original_seed_domains", originalSeedDomains).
 		Msg("ScopeSettings initialized")
-	return ss, nil
+
+	return scopeSettings, nil
 }
 
 // CheckHostnameScope checks if a given hostname is within the defined scope.

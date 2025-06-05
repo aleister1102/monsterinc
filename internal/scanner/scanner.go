@@ -78,6 +78,18 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 	var workflowErr error
 	var reportFilePaths []string
 
+	if len(seedURLs) == 0 {
+		msg := "No seed URLs provided for scan workflow"
+		appLogger.Error().Msg(msg)
+		summaryData := models.GetDefaultScanSummaryData()
+		summaryData.ScanSessionID = scanSessionID
+		summaryData.TargetSource = targetSource
+		summaryData.ScanMode = scanMode
+		summaryData.Status = string(models.ScanStatusFailed)
+		summaryData.ErrorMessages = []string{msg}
+		return summaryData, probeResults, nil, common.NewError(msg)
+	}
+
 	summaryDataFromWorkflow, currentProbeResults, _, workflowErr := s.ExecuteCompleteScanWorkflow(ctx, seedURLs, scanSessionID, targetSource)
 
 	summaryData.ProbeStats = summaryDataFromWorkflow.ProbeStats
@@ -114,7 +126,7 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 			msg := fmt.Sprintf("Failed to initialize HTML reporter: %v", err)
 			summaryData.ErrorMessages = append(summaryData.ErrorMessages, msg)
 			appLogger.Error().Err(err).Msg(msg)
-			return summaryData, probeResults, nil, fmt.Errorf(msg)
+			return summaryData, probeResults, nil, common.NewError(msg)
 		}
 
 		baseReportFilename := fmt.Sprintf("%s_%s_%s_report.html", scanSessionID, scanMode, urlhandler.SanitizeFilename(targetSource))
@@ -219,7 +231,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 			Retries:              s.config.HttpxRunnerConfig.Retries,
 			Threads:              s.config.HttpxRunnerConfig.Threads,
 			CustomHeaders:        s.config.HttpxRunnerConfig.CustomHeaders,
-			Proxy:                s.config.HttpxRunnerConfig.Proxy,
 			Verbose:              s.config.HttpxRunnerConfig.Verbose,
 			TechDetect:           s.config.HttpxRunnerConfig.TechDetect,
 			ExtractTitle:         s.config.HttpxRunnerConfig.ExtractTitle,

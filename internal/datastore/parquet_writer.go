@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
@@ -28,7 +28,7 @@ type ParquetWriter struct {
 // It no longer takes a ParquetReader.
 func NewParquetWriter(cfg *config.StorageConfig, logger zerolog.Logger) (*ParquetWriter, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("storage config cannot be nil")
+		return nil, common.NewValidationError("config", cfg, "storage config cannot be nil")
 	}
 	// Removed reader nil check as it's no longer a parameter
 	if cfg.ParquetBasePath == "" {
@@ -95,129 +95,87 @@ func (pw *ParquetWriter) transformToParquetResult(pr models.ProbeResult, scanTim
 // This version overwrites the file with the currentProbeResults, it does not merge with historical data.
 // It now accepts a context for cancellation.
 func (pw *ParquetWriter) Write(ctx context.Context, currentProbeResults []models.ProbeResult, scanSessionID string, rootTarget string) error {
-	currentScanTime := time.Now() // Consistent timestamp for this write operation
-	pw.logger.Info().Str("root_target", rootTarget).Str("session_id", scanSessionID).Int("current_result_count", len(currentProbeResults)).Msg("Starting Parquet write operation (overwrite)")
-
-	// Check for context cancellation at the beginning
-	select {
-	case <-ctx.Done():
-		pw.logger.Info().Str("root_target", rootTarget).Msg("Parquet write cancelled before starting.")
-		return ctx.Err()
-	default:
+	if pw.config.ParquetBasePath == "" {
+		return common.NewValidationError("parquet_base_path", pw.config.ParquetBasePath, "ParquetBasePath is not configured")
 	}
 
-	if pw.config == nil || pw.config.ParquetBasePath == "" {
-		pw.logger.Error().Msg("ParquetBasePath is not configured. Cannot write Parquet file.")
-		return fmt.Errorf("ParquetWriter: ParquetBasePath is not configured")
+	sanitizedRootTarget := urlhandler.SanitizeFilename(rootTarget)
+	if sanitizedRootTarget == "" {
+		return common.NewValidationError("root_target", rootTarget, "sanitized root target is empty, cannot write parquet file for: "+rootTarget)
 	}
 
-	sanitizedTargetName := urlhandler.SanitizeFilename(rootTarget)
-	if sanitizedTargetName == "" {
-		pw.logger.Error().Str("original_target", rootTarget).Msg("Root target sanitized to empty string, cannot create valid path for Parquet file.")
-		return fmt.Errorf("sanitized root target is empty, cannot write parquet file for: %s", rootTarget)
+	// Check for cancellation before starting
+	if result := common.CheckCancellationWithLog(ctx, pw.logger, "parquet write start"); result.Cancelled {
+		return result.Error
 	}
 
-	// Define the scan-specific subdirectory
+	// Create scan-specific directory
 	scanOutputDir := filepath.Join(pw.config.ParquetBasePath, "scan")
-
-	// Ensure the base directory and the scan-specific subdirectory for Parquet files exist
 	if err := os.MkdirAll(scanOutputDir, 0755); err != nil {
-		pw.logger.Error().Err(err).Str("path", scanOutputDir).Msg("Failed to create scan-specific Parquet directory")
-		return fmt.Errorf("failed to create scan-specific Parquet directory '%s': %w", scanOutputDir, err)
+		return common.WrapError(err, "failed to create scan-specific Parquet directory '"+scanOutputDir+"'")
 	}
 
-	fileName := fmt.Sprintf("%s.parquet", sanitizedTargetName)
-	filePath := filepath.Join(scanOutputDir, fileName) // Path is now <base_path>/scan/<sanitized_rootTarget>.parquet
-	pw.logger.Info().Str("path", filePath).Msg("Target Parquet file path for writing (overwrite)")
+	// Generate file path
+	fileName := fmt.Sprintf("%s.parquet", sanitizedRootTarget)
+	filePath := filepath.Join(scanOutputDir, fileName)
 
-	// Removed historical data reading and merging logic
-	// var historicalProbes []models.ProbeResult
-	// ... read logic ...
-	// allProbesToStore := pw.mergeProbeResults(currentProbeResults, historicalProbes, currentScanTime)
+	pw.logger.Info().
+		Str("file_path", filePath).
+		Str("scan_session_id", scanSessionID).
+		Str("root_target", rootTarget).
+		Int("probe_count", len(currentProbeResults)).
+		Msg("Writing probe results to Parquet file")
 
-	// Directly use currentProbeResults
-	allProbesToStore := currentProbeResults
-
-	if len(allProbesToStore) == 0 {
-		pw.logger.Info().Str("root_target", rootTarget).Msg("No probe results to write. Skipping Parquet file operation.")
-		// Optionally, delete the file if it exists and we are writing an empty set
-		// For now, if it exists and allProbesToStore is empty, it will be overwritten with an empty parquet file.
-		// If it doesn't exist, an empty parquet file will be created.
+	// Check for cancellation before file operations
+	if result := common.CheckCancellationWithLog(ctx, pw.logger, "before file creation"); result.Cancelled {
+		return result.Error
 	}
 
-	file, err := os.Create(filePath) // This will truncate/overwrite if the file exists
+	// Create/truncate the file
+	file, err := os.Create(filePath)
 	if err != nil {
-		pw.logger.Error().Err(err).Str("path", filePath).Msg("Failed to create/truncate Parquet file for writing")
-		return fmt.Errorf("failed to create/truncate parquet file %s: %w", filePath, err)
+		return common.WrapError(err, "failed to create/truncate parquet file "+filePath)
 	}
-	defer func() {
-		if ferr := file.Close(); ferr != nil {
-			pw.logger.Error().Err(ferr).Str("path", filePath).Msg("Failed to close Parquet file after writing")
-		}
-	}()
+	defer file.Close()
 
-	options := []parquet.WriterOption{
-		parquet.Compression(&parquet.Zstd),
-	}
-	if pw.config.CompressionCodec != "" {
-		switch strings.ToLower(pw.config.CompressionCodec) {
-		case "snappy":
-			options[0] = parquet.Compression(&parquet.Snappy)
-			pw.logger.Debug().Msg("Using Snappy compression for Parquet.")
-		case "gzip":
-			options[0] = parquet.Compression(&parquet.Gzip)
-			pw.logger.Debug().Msg("Using Gzip compression for Parquet.")
-		case "none":
-			options[0] = parquet.Compression(&parquet.Uncompressed)
-			pw.logger.Debug().Msg("Using Uncompressed for Parquet.")
-		case "zstd":
-			pw.logger.Debug().Msg("Using Zstd compression for Parquet.")
-		default:
-			pw.logger.Warn().Str("codec", pw.config.CompressionCodec).Msg("Unsupported compression codec specified, defaulting to Zstd.")
-		}
-	}
+	// Transform probe results to parquet format
+	scanTime := time.Now()
+	var parquetResults []models.ParquetProbeResult
 
-	schemaPtr := parquet.SchemaOf(models.ParquetProbeResult{})
-	if schemaPtr == nil {
-		pw.logger.Error().Msg("Failed to generate parquet schema, cannot create writer.")
-		return fmt.Errorf("failed to generate parquet schema")
-	}
-	options = append(options, schemaPtr)
-
-	w := parquet.NewWriter(file, options...)
-
-	writeCount := 0
-	for i, pr := range allProbesToStore {
-		// Check for context cancellation inside the loop
-		if i%100 == 0 { // Check periodically, e.g., every 100 records
-			select {
-			case <-ctx.Done():
-				pw.logger.Info().Str("path", filePath).Int("records_written", writeCount).Msg("Parquet write cancelled during record writing.")
-				_ = w.Close()           // Attempt to close writer
-				_ = file.Close()        // Attempt to close file
-				_ = os.Remove(filePath) // Attempt to clean up partially written file
-				return ctx.Err()
-			default:
+	for _, pr := range currentProbeResults {
+		// Check for cancellation during transformation
+		select {
+		case <-ctx.Done():
+			result := common.CheckCancellationWithLog(ctx, pw.logger, "during result transformation")
+			if result.Cancelled {
+				return result.Error
 			}
+		default:
 		}
 
-		parquetResult := pw.transformToParquetResult(pr, currentScanTime)
-		if err := w.Write(&parquetResult); err != nil {
-			pw.logger.Error().Err(err).Str("path", filePath).Msg("Failed to write record to Parquet file")
-			_ = w.Close()
-			_ = file.Close()
-			_ = os.Remove(filePath) // Attempt to clean up
-			return fmt.Errorf("failed to write record to parquet file %s: %w", filePath, err)
-		}
-		writeCount++
+		parquetResult := pw.transformToParquetResult(pr, scanTime)
+		parquetResults = append(parquetResults, parquetResult)
 	}
 
-	if err := w.Close(); err != nil {
-		pw.logger.Error().Err(err).Str("path", filePath).Msg("Failed to close Parquet writer")
-		return fmt.Errorf("failed to close parquet writer for %s: %w", filePath, err)
+	// Check for cancellation before writing
+	if result := common.CheckCancellationWithLog(ctx, pw.logger, "before parquet write"); result.Cancelled {
+		return result.Error
 	}
 
-	pw.logger.Info().Str("path", filePath).Int("record_count", writeCount).Msg("Successfully wrote (overwrote) Parquet file")
+	// Write to Parquet file
+	writer := parquet.NewGenericWriter[models.ParquetProbeResult](file, parquet.Compression(&parquet.Zstd))
+	defer writer.Close()
+
+	_, err = writer.Write(parquetResults)
+	if err != nil {
+		return common.WrapError(err, "failed to write probe results to parquet file")
+	}
+
+	pw.logger.Info().
+		Str("file_path", filePath).
+		Int("records_written", len(parquetResults)).
+		Msg("Successfully wrote probe results to Parquet file")
+
 	return nil
 }
 
