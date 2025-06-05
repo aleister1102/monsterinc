@@ -163,6 +163,8 @@ func initializeMonitoringService(
 	return ms, nil
 }
 
+// preloadMonitoringTargets preloads monitoring targets from a file.
+// Refactored ✅
 func preloadMonitoringTargets(
 	gCfg *config.GlobalConfig,
 	ms *monitor.MonitoringService,
