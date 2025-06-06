@@ -133,6 +133,14 @@ func extractSeedDomains(seedURLs []string, logger zerolog.Logger) []string {
 
 // CheckHostnameScope checks if a given hostname is within the defined scope
 func (s *ScopeSettings) CheckHostnameScope(hostname string) bool {
+	s.logger.Debug().
+		Str("hostname", hostname).
+		Strs("seed_hostnames", s.seedHostnames).
+		Strs("disallowed_hostnames", s.disallowedHostnames).
+		Bool("include_subdomains", s.includeSubdomains).
+		Bool("auto_add_seed_hostnames", s.autoAddSeedHostnames).
+		Msg("Starting hostname scope check")
+
 	// Priority 1: Check if explicitly disallowed first
 	if containsString(hostname, s.disallowedHostnames) {
 		s.logger.Debug().Str("hostname", hostname).Msg("Hostname explicitly disallowed")
@@ -173,13 +181,36 @@ func (s *ScopeSettings) CheckHostnameScope(hostname string) bool {
 			s.logger.Debug().Str("hostname", hostname).Msg("Hostname matches exact seed hostname")
 			return true
 		} else {
-			s.logger.Debug().Str("hostname", hostname).Msg("Hostname not in seed hostnames (include_subdomains=false)")
+			s.logger.Debug().
+				Str("hostname", hostname).
+				Strs("seed_hostnames", s.seedHostnames).
+				Msg("Hostname not in seed hostnames (include_subdomains=false)")
 			return false
 		}
 	}
 
-	// Priority 5: Default behavior when no seed URLs provided - allow all
-	s.logger.Debug().Str("hostname", hostname).Msg("Hostname allowed by default (no seed restrictions)")
+	// Priority 5: Default behavior when no seed URLs provided
+	// Only allow if there are no hostname restrictions at all
+	if len(s.seedHostnames) == 0 && len(s.disallowedHostnames) == 0 {
+		s.logger.Debug().
+			Str("hostname", hostname).
+			Msg("Hostname allowed by default (no seed or hostname restrictions)")
+		return true
+	}
+
+	// If we have seed URLs configured but hostname doesn't match any of them, deny
+	if len(s.seedHostnames) > 0 {
+		s.logger.Debug().
+			Str("hostname", hostname).
+			Strs("seed_hostnames", s.seedHostnames).
+			Msg("Hostname denied (has seed restrictions but hostname doesn't match)")
+		return false
+	}
+
+	// Fallback: allow if only disallowed hostnames are configured (and hostname wasn't disallowed above)
+	s.logger.Debug().
+		Str("hostname", hostname).
+		Msg("Hostname allowed (only disallowed hostnames configured)")
 	return true
 }
 
@@ -208,6 +239,11 @@ func (s *ScopeSettings) hasDisallowedSubdomainPart(hostname string) bool {
 
 // isAllowedBySeedDomains checks if hostname is allowed by seed domain policy
 func (s *ScopeSettings) isAllowedBySeedDomains(hostname string) bool {
+	s.logger.Debug().
+		Str("hostname", hostname).
+		Strs("original_seed_domains", s.originalSeedDomains).
+		Msg("Checking hostname against seed base domains")
+
 	// Get the base domain of the hostname being checked
 	hostnameBaseDomain, err := urlhandler.GetBaseDomain(hostname)
 	if err != nil {
@@ -217,6 +253,11 @@ func (s *ScopeSettings) isAllowedBySeedDomains(hostname string) bool {
 			Msg("Failed to get base domain for hostname, checking as-is")
 		hostnameBaseDomain = hostname
 	}
+
+	s.logger.Debug().
+		Str("hostname", hostname).
+		Str("hostname_base_domain", hostnameBaseDomain).
+		Msg("Extracted base domain for hostname")
 
 	for _, seedBaseDomain := range s.originalSeedDomains {
 		// Check if the hostname's base domain matches the seed base domain
@@ -231,6 +272,10 @@ func (s *ScopeSettings) isAllowedBySeedDomains(hostname string) bool {
 
 		// Also check direct hostname matching for backward compatibility
 		if s.matchesSeedDomain(hostname, seedBaseDomain) {
+			s.logger.Debug().
+				Str("hostname", hostname).
+				Str("seed_base_domain", seedBaseDomain).
+				Msg("Hostname matches seed domain via matchesSeedDomain")
 			return true
 		}
 	}
@@ -273,18 +318,31 @@ func (s *ScopeSettings) matchesSeedDomain(hostname, seedBaseDomain string) bool 
 
 // checkPathScope checks if a given URL path is within the defined scope
 func (s *ScopeSettings) checkPathScope(path string) bool {
+	// Strip query parameters and fragments from path for extension checking
+	cleanPath := path
+	if queryIndex := strings.Index(cleanPath, "?"); queryIndex != -1 {
+		cleanPath = cleanPath[:queryIndex]
+	}
+	if fragmentIndex := strings.Index(cleanPath, "#"); fragmentIndex != -1 {
+		cleanPath = cleanPath[:fragmentIndex]
+	}
+
 	// Fast path: check disallowed file extensions
 	for _, ext := range s.disallowedFileExtensions {
-		if strings.HasSuffix(path, ext) {
+		if strings.HasSuffix(cleanPath, ext) {
 			s.logger.Debug().
 				Str("path", path).
+				Str("clean_path", cleanPath).
 				Str("extension", ext).
 				Msg("Path matches disallowed file extension")
 			return false
 		}
 	}
 
-	s.logger.Debug().Str("path", path).Msg("Path allowed by default")
+	s.logger.Debug().
+		Str("path", path).
+		Str("clean_path", cleanPath).
+		Msg("Path allowed by default")
 	return true
 }
 

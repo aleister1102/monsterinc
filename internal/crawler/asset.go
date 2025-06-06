@@ -209,7 +209,33 @@ func (hae *HTMLAssetExtractor) createAssetFromURL(
 		return nil
 	}
 
-	// Discover URL for crawling
+	// Check if URL is in scope before discovering for crawling
+	if hae.crawlerInstance != nil && hae.crawlerInstance.scope != nil {
+		isAllowed, err := hae.crawlerInstance.scope.IsURLAllowed(absoluteURL)
+		if err != nil {
+			hae.crawlerInstance.logger.Debug().
+				Str("url", absoluteURL).
+				Err(err).
+				Msg("Asset URL scope check failed")
+			// Still create asset for reporting but don't discover for crawling
+		} else if !isAllowed {
+			hae.crawlerInstance.logger.Debug().
+				Str("url", absoluteURL).
+				Str("source_page", baseDiscoveryURL).
+				Msg("Asset URL not in scope, skipping crawl discovery")
+			// Create asset for reporting but don't discover for crawling
+			return &models.Asset{
+				AbsoluteURL:    absoluteURL,
+				SourceTag:      hae.getTagName(selection),
+				SourceAttr:     attributeName,
+				Type:           assetType,
+				DiscoveredAt:   time.Now(),
+				DiscoveredFrom: baseDiscoveryURL,
+			}
+		}
+	}
+
+	// Discover URL for crawling only if in scope
 	hae.discoverURLForCrawling(absoluteURL)
 
 	return &models.Asset{

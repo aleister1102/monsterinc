@@ -61,10 +61,28 @@ func (cr *Crawler) shouldAbortRequest(r *colly.Request) bool {
 
 	path := r.URL.Path
 
+	// Strip query parameters and fragments from path for extension checking
+	cleanPath := path
+	if queryIndex := strings.Index(cleanPath, "?"); queryIndex != -1 {
+		cleanPath = cleanPath[:queryIndex]
+	}
+	if fragmentIndex := strings.Index(cleanPath, "#"); fragmentIndex != -1 {
+		cleanPath = cleanPath[:fragmentIndex]
+	}
+
 	// Fast map lookup instead of string iteration
-	if lastDot := strings.LastIndex(path, "."); lastDot != -1 {
-		ext := path[lastDot:]
-		return cr.disallowedExtMap[ext]
+	if lastDot := strings.LastIndex(cleanPath, "."); lastDot != -1 {
+		ext := cleanPath[lastDot:]
+		isDisallowed := cr.disallowedExtMap[ext]
+		if isDisallowed {
+			cr.logger.Debug().
+				Str("url", r.URL.String()).
+				Str("path", path).
+				Str("clean_path", cleanPath).
+				Str("extension", ext).
+				Msg("Aborting request due to disallowed file extension")
+		}
+		return isDisallowed
 	}
 
 	return false
