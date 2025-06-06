@@ -51,11 +51,7 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 }
 
 func (s *Scheduler) createScanAttemptConfig() scanAttemptConfig {
-	_, initialTargetSource, _ := s.targetManager.LoadAndSelectTargets(
-		s.scanTargetsFile,
-		s.globalConfig.InputConfig.InputURLs,
-		s.globalConfig.InputConfig.InputFile,
-	)
+	_, initialTargetSource, _ := s.targetManager.LoadAndSelectTargets(s.scanTargetsFile)
 
 	if initialTargetSource == "" {
 		initialTargetSource = "ErrorDeterminingSource"
@@ -352,11 +348,7 @@ func (s *Scheduler) sendScanStartNotification(ctx context.Context, baseSummary m
 
 func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlURLs []string, determinedSource string, err error) {
 	s.logger.Info().Msg("Scheduler: Starting to load and prepare scan targets.")
-	targets, detSource, loadErr := s.targetManager.LoadAndSelectTargets(
-		s.scanTargetsFile,
-		s.globalConfig.InputConfig.InputURLs,
-		s.globalConfig.InputConfig.InputFile,
-	)
+	targets, detSource, loadErr := s.targetManager.LoadAndSelectTargets(s.scanTargetsFile)
 	if loadErr != nil {
 		return nil, initialTargetSource, common.WrapError(loadErr, "failed to load targets")
 	}

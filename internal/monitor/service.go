@@ -73,7 +73,7 @@ func NewMonitoringService(
 
 	// Initialize modular components
 	urlManager := NewURLManager(instanceLogger)
-	cycleTracker := createInitialCycleTracker(instanceLogger)
+	cycleTracker := createInitialCycleTracker()
 	mutexManager := NewURLMutexManager(instanceLogger)
 
 	urlChecker := NewURLChecker(
@@ -127,8 +127,8 @@ func (s *MonitoringService) Preload(initialURLs []string) {
 }
 
 // LoadAndMonitorFromSources loads and monitors URLs from various sources
-func (s *MonitoringService) LoadAndMonitorFromSources(inputFileOption string, inputConfigUrls []string, cfgInputFile string) error {
-	return s.urlManager.LoadAndMonitorFromSources(inputFileOption, inputConfigUrls, cfgInputFile)
+func (s *MonitoringService) LoadAndMonitorFromSources(inputFileOption string) error {
+	return s.urlManager.LoadAndMonitorFromSources(inputFileOption)
 }
 
 // CheckURL checks a single URL for changes
@@ -315,7 +315,7 @@ func initializeHtmlDiffReporter(
 	return htmlDiffReporter
 }
 
-func createInitialCycleTracker(logger zerolog.Logger) *CycleTracker {
+func createInitialCycleTracker() *CycleTracker {
 	initialCycleID := fmt.Sprintf("monitor-init-%s", time.Now().Format("20060102-150405"))
 	return NewCycleTracker(initialCycleID)
 }

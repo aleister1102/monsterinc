@@ -115,7 +115,7 @@ urls, err := urlhandler.ReadURLsFromFile("targets.txt", logger)
 ```go
 // In scanner
 tm := urlhandler.NewTargetManager(logger)
-targets, source, err := tm.LoadAndSelectTargets(flags.ScanTargetsFile, cfg.InputConfig.InputURLs, cfg.InputConfig.InputFile)
+targets, source, err := tm.LoadAndSelectTargets(flags.ScanTargetsFile)
 if err != nil {
     return err
 }

@@ -161,7 +161,7 @@ func initializeMonitoringService(
 
 	// Preload monitor targets if provided
 	if monitorTargetsFile != "" {
-		if err := preloadMonitoringTargets(gCfg, ms, monitorTargetsFile, zLogger); err != nil {
+		if err := preloadMonitoringTargets(ms, monitorTargetsFile, zLogger); err != nil {
 			return nil, fmt.Errorf("failed to preload monitoring targets: %w", err)
 		}
 		zLogger.Info().Str("file", monitorTargetsFile).Msg("Preloaded monitoring targets from file.")
@@ -173,17 +173,12 @@ func initializeMonitoringService(
 // preloadMonitoringTargets preloads monitoring targets from a file.
 // Refactored ✅
 func preloadMonitoringTargets(
-	gCfg *config.GlobalConfig,
 	ms *monitor.MonitoringService,
 	monitorTargetsFile string,
 	zLogger zerolog.Logger,
 ) error {
 	targetManager := urlhandler.NewTargetManager(zLogger)
-	monitorTargets, _, err := targetManager.LoadAndSelectTargets(
-		monitorTargetsFile,
-		gCfg.MonitorConfig.InputURLs,
-		gCfg.MonitorConfig.InputFile,
-	)
+	monitorTargets, _, err := targetManager.LoadAndSelectTargets(monitorTargetsFile)
 	if err != nil {
 		return fmt.Errorf("failed to load monitor targets from file '%s': %w", monitorTargetsFile, err)
 	}
@@ -271,11 +266,7 @@ func runOnetimeScan(
 ) {
 	// Load seed URLs using TargetManager
 	targetManager := urlhandler.NewTargetManager(baseLogger)
-	scanTargets, targetSource, err := targetManager.LoadAndSelectTargets(
-		scanTargetsFile,
-		gCfg.InputConfig.InputURLs,
-		gCfg.InputConfig.InputFile,
-	)
+	scanTargets, targetSource, err := targetManager.LoadAndSelectTargets(scanTargetsFile)
 
 	if err != nil {
 		baseLogger.Error().Err(err).Msg("Failed to load seed URLs for onetime scan.")

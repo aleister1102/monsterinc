@@ -276,11 +276,7 @@ func (s *Scheduler) runMonitorService(ctx context.Context) {
 }
 
 func (s *Scheduler) loadInitialMonitorTargets() error {
-	if err := s.monitoringService.LoadAndMonitorFromSources(
-		s.monitorTargetsFile,
-		s.globalConfig.MonitorConfig.InputURLs,
-		s.globalConfig.MonitorConfig.InputFile,
-	); err != nil {
+	if err := s.monitoringService.LoadAndMonitorFromSources(s.monitorTargetsFile); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to load initial monitor targets")
 		return err
 	}

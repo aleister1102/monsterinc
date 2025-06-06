@@ -5,22 +5,7 @@
 # Global application mode. Can be "onetime" (run once) or "automated" (run periodically/continuously based on other settings).
 # Default: "onetime"
 mode: "onetime"
-# Path Extractor Domains: List of domains for which path extraction will be attempted
-# from JavaScript files. e.g., ["example.com", "api.example.org"]
-# Default: []
-path_extractor_domains: 
 
-# Input configuration: Specifies where to get target URLs/domains.
-input_config:
-  # A list of URLs to process directly.
-  # Default: []
-  input_urls:
-    # - http://example.com
-    # - https://another.example.org
-  # Path to a file containing a list of URLs/domains (one per line).
-  # If provided, this file will be read.
-  # Default: ""
-  input_file: "" # e.g., "/path/to/targets.txt"
 
 # HTTPX Runner configuration: Settings for the httpx tool.
 httpx_runner_config:
@@ -44,9 +29,6 @@ httpx_runner_config:
   # Number of retries for failed requests.
   # Default: 1
   retries: 2
-  # HTTP/SOCKS proxy URL (e.g., http://127.0.0.1:8080, socks5://127.0.0.1:1080).
-  # Default: ""
-  proxy: ""
   # Whether to follow HTTP redirects.
   # Default: true
   follow_redirects: true

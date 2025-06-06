@@ -148,7 +148,7 @@ cp config.example.yaml config.yaml
 
 ### Các section cấu hình chính
 
-- **input_config**: Cấu hình nguồn target URLs
+
 - **httpx_runner_config**: Cài đặt cho httpx probing
 - **crawler_config**: Cấu hình web crawling
 - **reporter_config**: Cài đặt tạo báo cáo HTML

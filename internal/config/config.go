@@ -74,38 +74,34 @@ const (
 )
 
 type GlobalConfig struct {
-	CrawlerConfig        CrawlerConfig      `json:"crawler_config,omitempty" yaml:"crawler_config,omitempty"`
-	DiffConfig           DiffConfig         `json:"diff_config,omitempty" yaml:"diff_config,omitempty"`
-	DiffReporterConfig   DiffReporterConfig `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
-	ExtractorConfig      ExtractorConfig    `json:"extractor_config,omitempty" yaml:"extractor_config,omitempty"`
-	HttpxRunnerConfig    HttpxRunnerConfig  `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
-	InputConfig          InputConfig        `json:"input_config,omitempty" yaml:"input_config,omitempty"`
-	LogConfig            LogConfig          `json:"log_config,omitempty" yaml:"log_config,omitempty"`
-	Mode                 string             `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
-	MonitorConfig        MonitorConfig      `json:"monitor_config,omitempty" yaml:"monitor_config,omitempty"`
-	NotificationConfig   NotificationConfig `json:"notification_config,omitempty" yaml:"notification_config,omitempty"`
-	PathExtractorDomains []string           `json:"path_extractor_domains,omitempty" yaml:"path_extractor_domains,omitempty" validate:"omitempty,dive,hostname_rfc1123"`
-	ReporterConfig       ReporterConfig     `json:"reporter_config,omitempty" yaml:"reporter_config,omitempty"`
-	SchedulerConfig      SchedulerConfig    `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
-	StorageConfig        StorageConfig      `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
+	CrawlerConfig      CrawlerConfig      `json:"crawler_config,omitempty" yaml:"crawler_config,omitempty"`
+	DiffConfig         DiffConfig         `json:"diff_config,omitempty" yaml:"diff_config,omitempty"`
+	DiffReporterConfig DiffReporterConfig `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
+	ExtractorConfig    ExtractorConfig    `json:"extractor_config,omitempty" yaml:"extractor_config,omitempty"`
+	HttpxRunnerConfig  HttpxRunnerConfig  `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
+	LogConfig          LogConfig          `json:"log_config,omitempty" yaml:"log_config,omitempty"`
+	Mode               string             `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
+	MonitorConfig      MonitorConfig      `json:"monitor_config,omitempty" yaml:"monitor_config,omitempty"`
+	NotificationConfig NotificationConfig `json:"notification_config,omitempty" yaml:"notification_config,omitempty"`
+	ReporterConfig     ReporterConfig     `json:"reporter_config,omitempty" yaml:"reporter_config,omitempty"`
+	SchedulerConfig    SchedulerConfig    `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
+	StorageConfig      StorageConfig      `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
 }
 
 func NewDefaultGlobalConfig() *GlobalConfig {
 	return &GlobalConfig{
-		CrawlerConfig:        NewDefaultCrawlerConfig(),
-		DiffConfig:           NewDefaultDiffConfig(),
-		DiffReporterConfig:   NewDefaultDiffReporterConfig(),
-		ExtractorConfig:      NewDefaultExtractorConfig(),
-		HttpxRunnerConfig:    NewDefaultHTTPXRunnerConfig(),
-		InputConfig:          InputConfig{InputURLs: []string{}, InputFile: ""},
-		LogConfig:            NewDefaultLogConfig(),
-		Mode:                 "",
-		MonitorConfig:        NewDefaultMonitorConfig(),
-		NotificationConfig:   NewDefaultNotificationConfig(),
-		PathExtractorDomains: []string{},
-		ReporterConfig:       NewDefaultReporterConfig(),
-		SchedulerConfig:      NewDefaultSchedulerConfig(),
-		StorageConfig:        NewDefaultStorageConfig(),
+		CrawlerConfig:      NewDefaultCrawlerConfig(),
+		DiffConfig:         NewDefaultDiffConfig(),
+		DiffReporterConfig: NewDefaultDiffReporterConfig(),
+		ExtractorConfig:    NewDefaultExtractorConfig(),
+		HttpxRunnerConfig:  NewDefaultHTTPXRunnerConfig(),
+		LogConfig:          NewDefaultLogConfig(),
+		Mode:               "",
+		MonitorConfig:      NewDefaultMonitorConfig(),
+		NotificationConfig: NewDefaultNotificationConfig(),
+		ReporterConfig:     NewDefaultReporterConfig(),
+		SchedulerConfig:    NewDefaultSchedulerConfig(),
+		StorageConfig:      NewDefaultStorageConfig(),
 	}
 }
 
@@ -174,11 +170,6 @@ func parseJSONConfig(data []byte, filePath string, cfg *GlobalConfig) error {
 		return common.NewError("failed to unmarshal JSON from '%s': %w", filePath, err)
 	}
 	return nil
-}
-
-type InputConfig struct {
-	InputURLs []string `json:"input_urls,omitempty" yaml:"input_urls,omitempty" validate:"omitempty,dive,url"`
-	InputFile string   `json:"input_file,omitempty" yaml:"input_file,omitempty" validate:"omitempty,fileexists"`
 }
 
 type HttpxRunnerConfig struct {
@@ -379,8 +370,6 @@ type MonitorConfig struct {
 	HTMLFileExtensions         []string `json:"html_file_extensions,omitempty" yaml:"html_file_extensions,omitempty"`
 	HTTPTimeoutSeconds         int      `json:"http_timeout_seconds,omitempty" yaml:"http_timeout_seconds,omitempty" validate:"omitempty,min=1"`
 	InitialMonitorURLs         []string `json:"initial_monitor_urls,omitempty" yaml:"initial_monitor_urls,omitempty" validate:"omitempty,dive,url"`
-	InputFile                  string   `json:"input_file,omitempty" yaml:"input_file,omitempty" validate:"omitempty,fileexists"` // For compatibility with urlhandler.LoadAndSelectTargets
-	InputURLs                  []string `json:"input_urls,omitempty" yaml:"input_urls,omitempty" validate:"omitempty,dive,url"`   // For compatibility with urlhandler.LoadAndSelectTargets
 	JSFileExtensions           []string `json:"js_file_extensions,omitempty" yaml:"js_file_extensions,omitempty"`
 	MaxAggregatedEvents        int      `json:"max_aggregated_events,omitempty" yaml:"max_aggregated_events,omitempty" validate:"omitempty,min=1"`
 	MaxConcurrentChecks        int      `json:"max_concurrent_checks,omitempty" yaml:"max_concurrent_checks,omitempty" validate:"omitempty,min=1"`
