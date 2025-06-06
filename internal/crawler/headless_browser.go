@@ -114,7 +114,10 @@ func (hbm *HeadlessBrowserManager) Stop() {
 	close(hbm.browserPool)
 	for browser := range hbm.browserPool {
 		if browser != nil {
-			browser.Close()
+			err := browser.Close()
+			if err != nil {
+				hbm.logger.Error().Err(err).Msg("Failed to close browser")
+			}
 		}
 	}
 
@@ -152,7 +155,10 @@ func (hbm *HeadlessBrowserManager) ReturnBrowser(browser *rod.Browser) {
 		// Successfully returned to pool
 	default:
 		// Pool is full, close the browser
-		browser.Close()
+		err := browser.Close()
+		if err != nil {
+			hbm.logger.Error().Err(err).Msg("Failed to close browser")
+		}
 	}
 }
 
@@ -189,7 +195,12 @@ func (hbm *HeadlessBrowserManager) CrawlPage(ctx context.Context, url string) (*
 	if err != nil {
 		return nil, fmt.Errorf("failed to create page: %w", err)
 	}
-	defer page.Close()
+	defer func() {
+		err := page.Close()
+		if err != nil {
+			hbm.logger.Error().Err(err).Msg("Failed to close page")
+		}
+	}()
 
 	// Set viewport
 	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{

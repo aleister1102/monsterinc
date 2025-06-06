@@ -289,7 +289,12 @@ func (dn *DiscordNotifier) addFileToForm(writer *multipart.Writer, filePath stri
 	if err != nil {
 		return common.WrapError(err, fmt.Sprintf("failed to open file %s", filePath))
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			dn.logger.Error().Err(err).Str("file_path", filePath).Msg("Failed to close file")
+		}
+	}()
 
 	fileName := filepath.Base(filePath)
 	fileWriter, err := writer.CreateFormFile("file", fileName)
@@ -313,7 +318,7 @@ func (dn *DiscordNotifier) processHTTPResponse(resp *common.HTTPResponse) error 
 	}
 
 	dn.logger.Error().Int("status_code", resp.StatusCode).Str("response_body", string(resp.Body)).Msg("Discord notification failed")
-	return fmt.Errorf("Discord webhook returned status %d: %s", resp.StatusCode, string(resp.Body))
+	return fmt.Errorf("discord webhook returned status %d: %s", resp.StatusCode, string(resp.Body))
 }
 
 // cleanupTempFiles removes temporary files created during processing
@@ -335,14 +340,27 @@ func (dn *DiscordNotifier) zipReportFile(sourceFilePath string) (string, error) 
 	if err != nil {
 		return "", common.WrapError(err, fmt.Sprintf("failed to create zip file %s", zipFilePath))
 	}
-	defer zipFile.Close()
+	defer func() {
+		err := zipFile.Close()
+		if err != nil {
+			dn.logger.Error().Err(err).Str("zip_file_path", zipFilePath).Msg("Failed to close zip file")
+		}
+	}()
 
 	zipWriter := zip.NewWriter(zipFile)
-	defer zipWriter.Close()
+	defer func() {
+		err := zipWriter.Close()
+		if err != nil {
+			dn.logger.Error().Err(err).Str("zip_file_path", zipFilePath).Msg("Failed to close zip writer")
+		}
+	}()
 
 	if err := dn.addFileToZip(zipWriter, sourceFilePath); err != nil {
 		// Clean up the incomplete zip file
-		os.Remove(zipFilePath)
+		err := os.Remove(zipFilePath)
+		if err != nil {
+			dn.logger.Error().Err(err).Str("zip_file_path", zipFilePath).Msg("Failed to remove incomplete zip file")
+		}
 		return "", err
 	}
 
@@ -366,7 +384,12 @@ func (dn *DiscordNotifier) addFileToZip(zipWriter *zip.Writer, sourceFilePath st
 	if err != nil {
 		return common.WrapError(err, fmt.Sprintf("failed to open source file %s", sourceFilePath))
 	}
-	defer sourceFile.Close()
+	defer func() {
+		err := sourceFile.Close()
+		if err != nil {
+			dn.logger.Error().Err(err).Str("source_file_path", sourceFilePath).Msg("Failed to close source file")
+		}
+	}()
 
 	fileName := filepath.Base(sourceFilePath)
 	zipFileWriter, err := zipWriter.Create(fileName)
