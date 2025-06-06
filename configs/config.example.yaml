@@ -89,16 +89,16 @@ crawler_config:
   user_agent: "MonsterIncCrawler/1.0"
   # Timeout in seconds for each crawler request.
   # Default: 20
-  request_timeout_secs: 30
+  request_timeout_secs: 20
   # Maximum number of concurrent crawler requests.
   # Default: 10
-  max_concurrent_requests: 20
+  max_concurrent_requests: 10
   # Maximum depth to crawl (0 for unlimited, 1 for seed pages only).
   # Default: 5
   max_depth: 5
   # Whether to respect robots.txt directives.
   # Default: true
-  respect_robots_txt: false
+  respect_robots_txt: true
   # Whether to include subdomains of seed URLs in the crawl.
   # Default: false
   include_subdomains: false
@@ -242,7 +242,7 @@ notification_config:
     # - "123456789012345678" # Example Role ID
   # Send a notification when a scan completes successfully.
   # Default: false
-  notify_on_success: true
+  notify_on_success: false
   # Send a notification when a scan fails.
   # Default: true
   notify_on_failure: true
@@ -269,7 +269,7 @@ log_config:
   # "fatal": A severe error that will prevent the application from continuing. After logging, the application will exit.
   # "panic": Similar to fatal, but also initiates a panic.
   # Default: "info"
-  log_level: "debug"
+  log_level: "info"
 
   # Log output format.
   # Valid formats: "console", "json", "text".
@@ -282,7 +282,7 @@ log_config:
   # Path to a log file. If empty, logs are written to standard error (stderr).
   # Example: "/var/log/monsterinc.log" or "monsterinc.log" (for current directory).
   # Default: ""
-  log_file: "monsterinc.log"
+  log_file: ""
 
   # Log rotation settings (applicable when log_file is specified).
   # These settings are handled by an internal log rotation library (lumberjack).
@@ -315,20 +315,20 @@ diff_reporter_config:
 monitor_config:
   # Whether the monitoring feature is enabled.
   # Default: false
-  enabled: true
+  enabled: false
   # Interval in seconds for how often to check monitored files.
   # Default: 3600 (1 hour)
-  check_interval_seconds: 30
+  check_interval_seconds: 3600
   # Maximum number of concurrent checks for monitored files.
   # Default: 5
   max_concurrent_checks: 5
   # Whether to store the full content of a file when a change is detected.
   # If false, only hash/metadata might be stored.
   # Default: false
-  store_full_content_on_change: true
+  store_full_content_on_change: false
   # Timeout in seconds for HTTP requests made by the monitor.
   # Default: 30
-  http_timeout_seconds: 600
+  http_timeout_seconds: 30
   # Initial list of specific URLs to monitor. Full URLs are expected.
   # Default: []
   initial_monitor_urls:
@@ -351,17 +351,17 @@ monitor_config:
   # Aggregation settings for monitor notifications (file changes and errors)
   # How often to send aggregated notifications, in seconds.
   # Default: 600 (10 minutes)
-  aggregation_interval_seconds: 10
+  aggregation_interval_seconds: 600
   # Maximum number of events (changes or errors) to aggregate before sending a notification, regardless of the interval.
   # Default: 10
-  max_aggregated_events: 5
+  max_aggregated_events: 10
 
 
 # Scheduler configuration: Settings for automated periodic scans (when mode is "automated").
 scheduler_config:
   # Scan cycle interval in minutes. The time between the end of one scan and the start of the next.
   # Default: 10080 (equivalent to 7 days)
-  cycle_minutes: 3
+  cycle_minutes: 10080
   # Number of retry attempts if a scheduled scan fails.
   # Default: 2
   retry_attempts: 2
