@@ -76,31 +76,7 @@ httpx_runner_config:
   # Extract HTTP response headers.
   # Default: true
   extract_headers: true
-  # Custom DNS resolvers to use (IP addresses).
-  # Default: []
-  resolvers:
-    # - 1.1.1.1
-    # - 8.8.8.8
-  # Custom ports to scan (comma-separated or list).
-  # Overrides default HTTP/HTTPS ports if specified.
-  # Default: [] (meaning default ports 80, 443, etc. are used by httpx logic)
-  ports:
-    # - 80
-    # - 443
-    # - 8080
-    # - "8000-8010"
-  # Additional raw httpx flags to pass to the httpx command.
-  # Use with caution, as these are passed directly.
-  # Default: []
-  httpx_flags:
-    # - "-silent"
-    # - "-no-color"
-  # Skip default HTTP/HTTPS ports (80, 443).
-  # Default: false
-  skip_default_ports: false
-  # Deny connections to internal IP address ranges.
-  # Default: false
-  deny_internal_ips: false
+
 
 # Crawler configuration: Settings for web crawling.
 crawler_config:

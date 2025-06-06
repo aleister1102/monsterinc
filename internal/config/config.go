@@ -34,9 +34,8 @@ const (
 	DefaultHTTPXExtractBody          = false
 	DefaultHTTPXExtractHeaders       = true
 	DefaultHTTPXRateLimit            = 0
-	DefaultHTTPXSkipDefaultPorts     = false
-	DefaultHTTPXDenyInternalIPs      = false
-	DefaultHTTPXExtractASN           = true
+
+	DefaultHTTPXExtractASN = true
 
 	// Crawler Defaults
 	DefaultCrawlerUserAgent             = "MonsterIncCrawler/1.0"
@@ -174,7 +173,6 @@ func parseJSONConfig(data []byte, filePath string, cfg *GlobalConfig) error {
 
 type HttpxRunnerConfig struct {
 	CustomHeaders        map[string]string `json:"custom_headers,omitempty" yaml:"custom_headers,omitempty"`
-	DenyInternalIPs      bool              `json:"deny_internal_ips" yaml:"deny_internal_ips"`
 	ExtractASN           bool              `json:"extract_asn" yaml:"extract_asn"`
 	ExtractBody          bool              `json:"extract_body" yaml:"extract_body"`
 	ExtractContentLength bool              `json:"extract_content_length" yaml:"extract_content_length"`
@@ -186,15 +184,11 @@ type HttpxRunnerConfig struct {
 	ExtractStatusCode    bool              `json:"extract_status_code" yaml:"extract_status_code"`
 	ExtractTitle         bool              `json:"extract_title" yaml:"extract_title"`
 	FollowRedirects      bool              `json:"follow_redirects" yaml:"follow_redirects"`
-	HttpxFlags           []string          `json:"httpx_flags,omitempty" yaml:"httpx_flags,omitempty"`
 	MaxRedirects         int               `json:"max_redirects,omitempty" yaml:"max_redirects,omitempty" validate:"omitempty,min=0"`
 	Method               string            `json:"method,omitempty" yaml:"method,omitempty"`
-	Ports                []string          `json:"ports,omitempty" yaml:"ports,omitempty"`
 	RateLimit            int               `json:"rate_limit,omitempty" yaml:"rate_limit,omitempty" validate:"omitempty,min=0"`
 	RequestURIs          []string          `json:"request_uris,omitempty" yaml:"request_uris,omitempty" validate:"omitempty,dive,url"`
-	Resolvers            []string          `json:"resolvers,omitempty" yaml:"resolvers,omitempty"`
 	Retries              int               `json:"retries,omitempty" yaml:"retries,omitempty" validate:"omitempty,min=0"`
-	SkipDefaultPorts     bool              `json:"skip_default_ports" yaml:"skip_default_ports"`
 	TechDetect           bool              `json:"tech_detect" yaml:"tech_detect"`
 	Threads              int               `json:"threads,omitempty" yaml:"threads,omitempty" validate:"omitempty,min=1"`
 	TimeoutSecs          int               `json:"timeout_secs,omitempty" yaml:"timeout_secs,omitempty" validate:"omitempty,min=1"`
@@ -204,7 +198,6 @@ type HttpxRunnerConfig struct {
 func NewDefaultHTTPXRunnerConfig() HttpxRunnerConfig {
 	return HttpxRunnerConfig{
 		CustomHeaders:        make(map[string]string),
-		DenyInternalIPs:      DefaultHTTPXDenyInternalIPs,
 		ExtractASN:           DefaultHTTPXExtractASN,
 		ExtractBody:          DefaultHTTPXExtractBody,
 		ExtractContentLength: DefaultHTTPXExtractContentLength,
@@ -216,15 +209,11 @@ func NewDefaultHTTPXRunnerConfig() HttpxRunnerConfig {
 		ExtractStatusCode:    DefaultHTTPXExtractStatusCode,
 		ExtractTitle:         DefaultHTTPXExtractTitle,
 		FollowRedirects:      DefaultHTTPXFollowRedirects,
-		HttpxFlags:           []string{},
 		MaxRedirects:         DefaultHTTPXMaxRedirects,
 		Method:               DefaultHTTPXMethod,
-		Ports:                []string{},
 		RateLimit:            DefaultHTTPXRateLimit,
 		RequestURIs:          []string{},
-		Resolvers:            []string{},
 		Retries:              DefaultHTTPXRetries,
-		SkipDefaultPorts:     DefaultHTTPXSkipDefaultPorts,
 		TechDetect:           DefaultHTTPXTechDetect,
 		Threads:              DefaultHTTPXThreads,
 		TimeoutSecs:          DefaultHTTPXTimeoutSecs,
