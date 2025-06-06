@@ -149,5 +149,5 @@ func addErrorSamplesField(embedBuilder *DiscordEmbedBuilder, errors []models.Mon
 		fieldValue = truncateString(fieldValue, 900)
 	}
 
-	embedBuilder.AddField("⚠️ Mẫu Lỗi", fieldValue, false)
+	embedBuilder.AddField("⚠️ Error", fieldValue, false)
 }

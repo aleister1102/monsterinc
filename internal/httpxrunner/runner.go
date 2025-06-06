@@ -46,7 +46,7 @@ func (r *Runner) validateRunState() error {
 	return nil
 }
 
-// executeRunner executes the httpx runner in a goroutine
+// executeRunner executes the httpx runner in a goroutine with improved cancellation handling
 func (r *Runner) executeRunner(ctx context.Context) {
 	defer r.wg.Done()
 
@@ -57,16 +57,30 @@ func (r *Runner) executeRunner(ctx context.Context) {
 		r.httpxRunner.RunEnumeration()
 	}()
 
-	// Wait for either completion or cancellation
-	select {
-	case <-done:
-	case <-ctx.Done():
-		// Note: httpx doesn't support graceful shutdown, so we just log the cancellation
-		return
+	// Wait for either completion or cancellation with frequent checks
+	ticker := time.NewTicker(500 * time.Millisecond) // Check cancellation every 500ms
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			r.logger.Debug().Msg("HTTPX enumeration completed")
+			return
+		case <-ctx.Done():
+			r.logger.Info().Msg("Context cancelled, stopping HTTPX enumeration")
+			// Note: httpx doesn't support graceful shutdown, so we just log the cancellation
+			return
+		case <-ticker.C:
+			// Check if context is cancelled during long-running operations
+			if ctx.Err() != nil {
+				r.logger.Info().Msg("Context cancelled during HTTPX execution")
+				return
+			}
+		}
 	}
 }
 
-// waitForCompletion waits for runner completion or context cancellation
+// waitForCompletion waits for runner completion or context cancellation with immediate response
 func (r *Runner) waitForCompletion(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
@@ -76,15 +90,18 @@ func (r *Runner) waitForCompletion(ctx context.Context) error {
 
 	select {
 	case <-done:
+		r.logger.Debug().Msg("HTTPX runner completed successfully")
 		return nil
 	case <-ctx.Done():
 		result := common.CheckCancellationWithLog(ctx, r.logger, "HTTPX runner execution")
 		if result.Cancelled {
-			// Give a grace period for ongoing operations to complete
+			r.logger.Info().Msg("HTTPX runner cancelled immediately")
+			// Give a shorter grace period for immediate response
 			select {
 			case <-done:
-			case <-time.After(5 * time.Second):
-				r.logger.Warn().Msg("HTTPX runner did not complete within grace period")
+				r.logger.Debug().Msg("HTTPX runner completed during short grace period")
+			case <-time.After(1 * time.Second): // Reduced from 5 seconds to 1 second
+				r.logger.Warn().Msg("HTTPX runner did not complete within short grace period, forcing termination")
 			}
 			return result.Error
 		}

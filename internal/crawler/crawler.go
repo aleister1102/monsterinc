@@ -156,34 +156,55 @@ func (cr *Crawler) startURLBatchProcessor() {
 	go cr.processBatchedURLs()
 }
 
-// processBatchedURLs processes URLs in batches for better performance
+// processBatchedURLs processes URLs in batches for improved performance
 func (cr *Crawler) processBatchedURLs() {
 	defer cr.batchWG.Done()
 
-	batch := make([]string, 0, cr.urlBatchSize)
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	var batch []string
+	batchTimer := time.NewTimer(time.Millisecond * 100) // Small batch timeout for responsive processing
+	defer batchTimer.Stop()
 
 	for {
 		select {
-		case url := <-cr.urlQueue:
+		case url, ok := <-cr.urlQueue:
+			if !ok {
+				// Channel closed, process final batch if any
+				if len(batch) > 0 {
+					cr.processBatch(batch)
+				}
+				return
+			}
+
 			batch = append(batch, url)
+
+			// Process batch when full or when timer expires
 			if len(batch) >= cr.urlBatchSize {
 				cr.processBatch(batch)
-				batch = batch[:0] // Reset slice keeping capacity
+				batch = batch[:0] // Reset batch
+				if !batchTimer.Stop() {
+					<-batchTimer.C
+				}
+				batchTimer.Reset(time.Millisecond * 100)
 			}
-		case <-ticker.C:
+
+		case <-batchTimer.C:
+			// Process current batch on timer expiry
 			if len(batch) > 0 {
 				cr.processBatch(batch)
-				batch = batch[:0]
+				batch = batch[:0] // Reset batch
 			}
+			batchTimer.Reset(time.Millisecond * 100)
+
 		case <-cr.batchShutdown:
-			// Process remaining URLs
+			// Shutdown signal received
 			if len(batch) > 0 {
 				cr.processBatch(batch)
 			}
 			return
+
 		case <-cr.ctx.Done():
+			// Context cancelled, exit immediately without processing remaining URLs
+			cr.logger.Info().Msg("Context cancelled, stopping URL batch processing immediately")
 			return
 		}
 	}
@@ -192,6 +213,12 @@ func (cr *Crawler) processBatchedURLs() {
 // processBatch processes a batch of URLs
 func (cr *Crawler) processBatch(urls []string) {
 	for _, url := range urls {
+		// Check context cancellation before processing each URL in batch
+		if cr.isContextCancelled() {
+			cr.logger.Debug().Msg("Context cancelled during batch processing, stopping")
+			return
+		}
+
 		if err := cr.collector.Visit(url); err != nil {
 			cr.handleVisitError(url, err)
 		}

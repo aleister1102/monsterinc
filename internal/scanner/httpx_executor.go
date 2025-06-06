@@ -61,6 +61,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 	// Check context cancellation early
 	if cancelled := common.CheckCancellation(input.Context); cancelled.Cancelled {
+		he.logger.Info().Str("session_id", input.ScanSessionID).Msg("Context cancelled before HTTPX execution")
 		result.Error = cancelled.Error
 		return result
 	}
@@ -69,26 +70,28 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 	runnerResults, err := he.runHTTPXRunner(input.Context, input.HttpxRunnerConfig, input.PrimaryRootTargetURL, input.ScanSessionID)
 
-	// Handle context cancellation during execution
-	if err != nil && input.Context.Err() == context.Canceled {
-		he.logger.Info().Str("session_id", input.ScanSessionID).Msg("HTTPX probing cancelled")
+	// Handle context cancellation during execution - immediate response
+	if err != nil && (input.Context.Err() == context.Canceled || input.Context.Err() == context.DeadlineExceeded) {
+		he.logger.Info().Str("session_id", input.ScanSessionID).Msg("HTTPX probing cancelled immediately")
 		result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
 		result.Error = input.Context.Err()
 		return result
 	} else if err != nil {
+		he.logger.Error().Err(err).Str("session_id", input.ScanSessionID).Msg("HTTPX probing failed")
 		result.Error = err
 		return result
 	}
 
-	// Check context cancellation after completion
+	// Final context check after completion
 	if cancelled := common.CheckCancellation(input.Context); cancelled.Cancelled {
+		he.logger.Info().Str("session_id", input.ScanSessionID).Msg("Context cancelled after HTTPX completion")
 		result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
 		result.Error = cancelled.Error
 		return result
 	}
 
 	result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
-	he.logger.Info().Int("count", len(result.ProbeResults)).Str("session_id", input.ScanSessionID).Msg("HTTPX probing completed")
+	he.logger.Info().Int("count", len(result.ProbeResults)).Str("session_id", input.ScanSessionID).Msg("HTTPX probing completed successfully")
 
 	return result
 }

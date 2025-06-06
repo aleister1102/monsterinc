@@ -32,7 +32,9 @@ func (cr *Crawler) Start(ctx context.Context) {
 // processSeedURLs processes all seed URLs for crawling
 func (cr *Crawler) processSeedURLs() {
 	for _, seed := range cr.seedURLs {
+		// Check context cancellation at the start of each seed processing
 		if cr.isContextCancelled() {
+			cr.logger.Info().Msg("Context cancelled during seed URL processing, stopping")
 			return
 		}
 
@@ -52,14 +54,32 @@ func (cr *Crawler) processSeedURL(seed string) {
 	cr.DiscoverURL(parsedSeed, baseForSeed)
 }
 
-// waitForCompletion waits for all crawling threads to complete
+// waitForCompletion waits for all crawling threads to complete with improved cancellation handling
 func (cr *Crawler) waitForCompletion() {
 	cr.logger.Info().Int("active_threads", cr.threads).Msg("Waiting for crawler threads to complete")
 
-	// Wait for all colly requests to complete
-	cr.collector.Wait()
+	// Create a channel to signal when colly completes
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cr.collector.Wait()
+	}()
 
-	cr.logger.Info().Msg("All crawler threads completed")
+	// Wait for either completion or context cancellation
+	select {
+	case <-done:
+		cr.logger.Info().Msg("All crawler threads completed normally")
+	case <-cr.ctx.Done():
+		cr.logger.Info().Msg("Context cancelled, stopping crawler immediately")
+		// Give a brief grace period for current requests to complete
+		select {
+		case <-done:
+			cr.logger.Info().Msg("Crawler threads completed during grace period")
+		case <-time.After(2 * time.Second):
+			cr.logger.Warn().Msg("Crawler threads did not complete within grace period, forcing shutdown")
+		}
+		return
+	}
 }
 
 // logSummary logs the crawling summary statistics

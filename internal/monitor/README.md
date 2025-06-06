@@ -11,6 +11,13 @@ The monitor package enables:
 - **Content Diffing**: Detailed analysis of what changed between versions
 - **Path Extraction**: URL and endpoint discovery from JavaScript files
 - **Report Generation**: Visual HTML diff reports for change analysis
+- **Immediate Interrupt Response**: Context-aware cancellation across all monitoring operations
+
+**Interrupt Handling Features:**
+- **Context propagation** - cancellation signals immediately stop all URL checking
+- **Safe operation termination** - in-progress HTTP requests are cancelled within timeout
+- **Event aggregator shutdown** - graceful termination of notification batching
+- **Resource cleanup** - proper cleanup of active connections and temporary data
 
 ## Architecture
 
@@ -85,6 +92,10 @@ The monitor package enables:
 import (
     "github.com/aleister1102/monsterinc/internal/monitor"
     "github.com/aleister1102/monsterinc/internal/config"
+    "context"
+    "os"
+    "os/signal"
+    "syscall"
 )
 
 // Initialize monitoring service
@@ -97,13 +108,28 @@ if err != nil {
     return fmt.Errorf("monitoring initialization failed: %w", err)
 }
 
-// Set parent context for cancellation
-ctx := context.Background()
+// Setup context with cancellation for interrupt handling
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+// Handle interrupt signals
+sigChan := make(chan os.Signal, 1)
+signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+go func() {
+    <-sigChan
+    logger.Info().Msg("Interrupt signal received, stopping monitoring service...")
+    cancel() // This immediately stops all monitoring operations
+    monitoringService.Stop() // Additional cleanup
+}()
+
+// Set parent context for cancellation propagation
 monitoringService.SetParentContext(ctx)
 
 // Add URLs to monitor
 monitoringService.AddMonitorUrl("https://example.com/app.js")
 monitoringService.AddMonitorUrl("https://example.com/config.json")
+
+// Monitor will respect context cancellation and stop immediately when interrupted
 ```
 
 ### Loading URLs from File

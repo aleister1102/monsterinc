@@ -3,6 +3,12 @@
 ## Purpose
 The `crawler` package provides comprehensive web crawling functionality using the Colly framework. It supports intelligent asset discovery, scope management, headless browser integration, and high-performance URL processing with concurrent request handling.
 
+**Key Capabilities:**
+- **Context-aware crawling** with immediate interrupt response
+- **Responsive cancellation** - stops URL processing and batch operations instantly
+- **Graceful shutdown** with configurable timeout (2 seconds default)
+- **Signal-safe operations** - all URL discovery and processing can be cancelled mid-operation
+
 ## Main Components
 
 ### 1. Crawler Core (`crawler.go`)
@@ -31,11 +37,22 @@ if err != nil {
     return err
 }
 
-// Start crawling with context
+// Start crawling with context for interrupt handling
 ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 defer cancel()
 
+// Context cancellation will immediately stop:
+// - URL batch processing
+// - Seed URL processing  
+// - URL discovery operations
+// - Content fetching
 crawler.Start(ctx)
+
+// Interrupt handling example
+go func() {
+    <-interruptSignal
+    cancel() // This will stop crawler immediately
+}()
 
 // Get discovered URLs
 discoveredURLs := crawler.GetDiscoveredURLs()

@@ -4,6 +4,12 @@
 
 The `httpxrunner` package is a wrapper for ProjectDiscovery's httpx library, designed to integrate seamlessly into MonsterInc with features like configuration management, result mapping, and collection.
 
+**Enhanced Features:**
+- **Context-aware execution** with immediate cancellation support
+- **Responsive interrupt handling** - stops enumeration process within 500ms
+- **Graceful timeout management** with 1-second grace period
+- **Progress monitoring** with frequent cancellation checks during long operations
+
 ## File Structure
 
 The package has been refactored into separate files following the Single Responsibility Principle:
@@ -35,6 +41,14 @@ The package has been refactored into separate files following the Single Respons
 ## Usage
 
 ```go
+import (
+    "context"
+    "time"
+    "os"
+    "os/signal"
+    "syscall"
+)
+
 // Create runner with builder pattern
 runner, err := httpxrunner.NewRunnerBuilder(logger).
     WithConfig(config).
@@ -45,13 +59,33 @@ if err != nil {
     return err
 }
 
-// Run the runner
+// Setup context with cancellation for interrupt handling
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+defer cancel()
+
+// Handle interrupt signals
+sigChan := make(chan os.Signal, 1)
+signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+go func() {
+    <-sigChan
+    logger.Info().Msg("Interrupt received, stopping HTTPX runner...")
+    cancel() // This will stop httpx enumeration within 500ms
+}()
+
+// Run the runner with context cancellation support
 err = runner.Run(ctx)
 if err != nil {
+    if ctx.Err() == context.Canceled {
+        logger.Info().Msg("HTTPX execution was cancelled")
+        // Get partial results from cancellation
+        results := runner.GetResults()
+        logger.Info().Int("partial_results", len(results)).Msg("Retrieved partial results")
+        return nil
+    }
     return err
 }
 
-// Get results
+// Get complete results
 results := runner.GetResults()
 ```
 

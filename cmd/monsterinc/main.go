@@ -207,8 +207,19 @@ func setupSignalHandling(
 
 	go func() {
 		sig := <-sigChan
-		zLogger.Info().Str("signal", sig.String()).Msg("Received interrupt signal, initiating graceful shutdown...")
+		zLogger.Warn().Str("signal", sig.String()).Msg("🚨 INTERRUPT SIGNAL RECEIVED - Initiating immediate shutdown...")
+
+		// Cancel context immediately - this will propagate to all components
 		cancel()
+
+		zLogger.Info().Msg("Cancellation signal sent to all components. Please wait for graceful shutdown...")
+
+		// Set up a secondary signal handler for force quit
+		go func() {
+			sig2 := <-sigChan
+			zLogger.Error().Str("signal", sig2.String()).Msg("🛑 SECOND INTERRUPT SIGNAL - Force quitting application!")
+			os.Exit(1)
+		}()
 	}()
 }
 

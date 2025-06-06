@@ -50,12 +50,14 @@ graph TD
 - Headless browser support for dynamic content
 - Scope control by hostname, subdomain, file extension
 - Asset extraction from HTML (images, scripts, stylesheets)
+- **Responsive interrupt handling** - immediate stop on SIGINT/SIGTERM
 
 ### 🔍 HTTP/HTTPS Probing
 - URL probing with integrated httpx engine
 - Complete metadata extraction: headers, technologies, TLS info, ASN
 - Support for custom headers, proxy, rate limiting
 - Technology detection and fingerprinting
+- **Context-aware cancellation** - graceful termination with active operation monitoring
 
 ### 📊 Intelligent Reporting
 - Interactive HTML reports with search, filter, sort
@@ -74,6 +76,7 @@ graph TD
 - Event aggregation and batch notifications
 - Cycle-based monitoring with detailed reporting
 - Content diff analysis for detected changes
+- **Immediate interrupt response** - stops monitoring cycles instantly
 
 ### ⚙️ Advanced Configuration
 - YAML/JSON configuration with validation
@@ -90,6 +93,14 @@ graph TD
 - Content change tracking
 - Trend analysis and reporting
 - Data retention policies
+
+### 🚨 Interrupt Handling
+- **Immediate response** to SIGINT/SIGTERM signals
+- Context-based cancellation propagation across all components
+- Graceful shutdown with 2-second timeout for active operations
+- **Force quit** support (second interrupt signal)
+- Comprehensive logging of shutdown process
+- Safe resource cleanup and state preservation
 
 ## Package Documentation
 
@@ -267,94 +278,49 @@ flowchart LR
     R --> B
 ```
 
-## Installation
+## Quick Start
 
-### System Requirements
-- Go version 1.23.1 or newer
-- Sufficient disk space for Parquet files and reports
-- Network access for Discord notifications (optional)
+### Installation
 
-### Install from Source
-
-1. Clone repository:
 ```bash
+# Clone repository
 git clone https://github.com/aleister1102/monsterinc.git
 cd monsterinc
+
+# Build application
+go mod tidy
+go build -o monsterinc cmd/monsterinc/*.go
 ```
 
-2. Build application:
-```bash
-# Windows
-go build -o monsterinc.exe ./cmd/monsterinc
-
-# Linux/macOS
-go build -o monsterinc ./cmd/monsterinc
-```
-
-### Install from GitHub Releases
-
-1. Download binary from [GitHub Releases](https://github.com/aleister1102/monsterinc/releases)
-2. Extract and place in system PATH
-
-### Install via Go install
+### Basic Usage
 
 ```bash
-go install github.com/aleister1102/monsterinc/cmd/monsterinc@latest
+# One-time scan
+./monsterinc -scan-targets targets.txt -config config.yaml -mode onetime
+
+# Automated monitoring 
+./monsterinc -scan-targets targets.txt -monitor-targets monitor.txt -config config.yaml -mode automated
 ```
 
-## Usage
+### Interrupt Handling
 
-### Basic Syntax
+MonsterInc provides immediate response to interrupt signals:
 
 ```bash
-./monsterinc --mode <onetime|automated> [options]
+# During any operation, press Ctrl+C to interrupt
+./monsterinc -scan-targets large-targets.txt -config config.yaml -mode onetime
+# Press Ctrl+C - operation stops within 2 seconds
+
+# Force quit with double interrupt
+# Press Ctrl+C twice for immediate termination
 ```
 
-### Operation Modes
-
-#### Onetime Mode
-Perform a single scan session:
-```bash
-./monsterinc --mode onetime --scan-targets targets.txt
-```
-
-#### Automated Mode
-Run continuous monitoring with scheduling:
-```bash
-./monsterinc --mode automated --monitor-targets monitor_targets.txt
-```
-
-#### Combined Mode
-Combine scanning and monitoring:
-```bash
-./monsterinc --mode automated --scan-targets scan_targets.txt --monitor-targets monitor_targets.txt
-```
-
-### Command-Line Arguments
-
-#### Required
-- `--mode <onetime|automated>`: Execution mode
-
-#### Optional
-- `--scan-targets, -st <path>`: File containing scan targets
-- `--monitor-targets, -mt <path>`: File containing monitor targets
-- `--globalconfig, -gc <path>`: Custom config file path
-
-### Advanced Usage Examples
-
-```bash
-# Scan with custom config
-./monsterinc --mode onetime --globalconfig custom_config.yaml --scan-targets targets.txt
-
-# Automated mode with full features
-./monsterinc --mode automated \
-  --scan-targets scan_targets.txt \
-  --monitor-targets monitor_targets.txt \
-  --globalconfig production_config.yaml
-
-# Debug mode with verbose logging
-LOG_LEVEL=debug ./monsterinc --mode onetime --scan-targets targets.txt
-```
+**Signal Behavior:**
+- **First SIGINT/SIGTERM**: Graceful shutdown with 2-second timeout
+- **Second SIGINT/SIGTERM**: Force quit immediately
+- **Context cancellation**: Propagates to all active components
+- **Resource cleanup**: Automatic cleanup of temporary files and connections
+- **Partial results**: Available for interrupted scans
 
 ## Configuration
 

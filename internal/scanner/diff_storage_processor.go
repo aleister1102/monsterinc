@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
@@ -103,28 +104,38 @@ type ProcessDiffingAndStorageOutput struct {
 	AllProbesToStore        []models.ProbeResult
 }
 
-// ProcessDiffingAndStorage performs diffing and storage for all targets
-// Main orchestration function for diff and storage operations
+// ProcessDiffingAndStorage handles diffing and storage for all targets
 func (dsp *DiffStorageProcessor) ProcessDiffingAndStorage(input ProcessDiffingAndStorageInput) (ProcessDiffingAndStorageOutput, error) {
-	output := ProcessDiffingAndStorageOutput{
-		URLDiffResults: make(map[string]models.URLDiffResult),
+	// Early context cancellation check
+	if cancelled := common.CheckCancellation(input.Ctx); cancelled.Cancelled {
+		dsp.logger.Info().Msg("Context cancelled before diff processing")
+		return ProcessDiffingAndStorageOutput{}, cancelled.Error
 	}
 
-	// Group probe results by root target
-	targetGroups, originalIndices := dsp.groupProbeResultsByRootTarget(
-		input.CurrentScanProbeResults,
-		input.PrimaryRootTargetURL,
-	)
+	// Group probe results by root target for efficient processing
+	probeResultsByRoot, originalIndicesMapByRoot := dsp.groupProbeResultsByRootTarget(input.CurrentScanProbeResults, input.PrimaryRootTargetURL)
 
-	// OPTIMIZATION: Work with original slice directly instead of copying
-	// This reduces memory allocation and improves performance
-	output.UpdatedScanProbeResults = input.CurrentScanProbeResults
+	// Initialize output structure
+	output := ProcessDiffingAndStorageOutput{
+		URLDiffResults:          make(map[string]models.URLDiffResult),
+		UpdatedScanProbeResults: make([]models.ProbeResult, len(input.CurrentScanProbeResults)),
+		AllProbesToStore:        make([]models.ProbeResult, 0, len(input.CurrentScanProbeResults)),
+	}
+
+	// Copy original results to avoid mutation
+	copy(output.UpdatedScanProbeResults, input.CurrentScanProbeResults)
 
 	// Process each target group
-	for rootTarget, resultsForRoot := range targetGroups {
-		originalIndicesForTarget := originalIndices[rootTarget]
+	for rootTarget, resultsForRoot := range probeResultsByRoot {
+		// Check context cancellation before processing each target group
+		if cancelled := common.CheckCancellation(input.Ctx); cancelled.Cancelled {
+			dsp.logger.Info().Str("root_target", rootTarget).Msg("Context cancelled during target group processing")
+			return output, cancelled.Error
+		}
 
-		err := dsp.processTargetGroup(
+		originalIndicesForTarget := originalIndicesMapByRoot[rootTarget]
+
+		if err := dsp.processTargetGroup(
 			input.Ctx,
 			rootTarget,
 			resultsForRoot,
@@ -132,11 +143,28 @@ func (dsp *DiffStorageProcessor) ProcessDiffingAndStorage(input ProcessDiffingAn
 			input.ScanSessionID,
 			output.UpdatedScanProbeResults,
 			&output,
-		)
-		if err != nil {
-			return output, err
+		); err != nil {
+			// Check if error is due to context cancellation
+			if input.Ctx.Err() != nil {
+				dsp.logger.Info().Str("root_target", rootTarget).Msg("Target group processing cancelled")
+				return output, input.Ctx.Err()
+			}
+
+			dsp.logger.Error().Err(err).Str("root_target", rootTarget).Msg("Failed to process target group")
+			continue // Continue with other targets
 		}
 	}
+
+	// Final context check before returning results
+	if cancelled := common.CheckCancellation(input.Ctx); cancelled.Cancelled {
+		dsp.logger.Info().Msg("Context cancelled after diff processing completion")
+		return output, cancelled.Error
+	}
+
+	dsp.logger.Info().
+		Int("total_targets", len(probeResultsByRoot)).
+		Int("total_probes", len(output.AllProbesToStore)).
+		Msg("Diff processing and storage completed")
 
 	return output, nil
 }
@@ -151,39 +179,66 @@ func (dsp *DiffStorageProcessor) processTargetGroup(
 	processedProbeResults []models.ProbeResult,
 	output *ProcessDiffingAndStorageOutput,
 ) error {
-	// Perform diffing for this target
-	targetInput := DiffTargetInput{
+	// Check context cancellation at the start of target processing
+	if cancelled := common.CheckCancellation(ctx); cancelled.Cancelled {
+		dsp.logger.Info().Str("root_target", rootTarget).Msg("Context cancelled at start of target processing")
+		return cancelled.Error
+	}
+
+	dsp.logger.Debug().
+		Str("root_target", rootTarget).
+		Int("probe_count", len(resultsForRoot)).
+		Msg("Processing target group")
+
+	// Perform URL diffing for this target
+	diffInput := DiffTargetInput{
 		RootTarget:            rootTarget,
 		ProbeResultsForTarget: resultsForRoot,
 		ScanSessionID:         scanSessionID,
 		URLDiffer:             dsp.urlDiffer,
 	}
 
-	targetResult := dsp.ProcessTarget(targetInput)
-	if targetResult.Error != nil {
-		return targetResult.Error
+	diffResult := dsp.ProcessTarget(diffInput)
+	if diffResult.Error != nil {
+		// Check if error is due to context cancellation
+		if ctx.Err() != nil {
+			dsp.logger.Info().Str("root_target", rootTarget).Msg("URL diffing cancelled")
+			return ctx.Err()
+		}
+
+		dsp.logger.Warn().Err(diffResult.Error).Str("root_target", rootTarget).Msg("URL diffing failed, continuing")
+	} else {
+		output.URLDiffResults[rootTarget] = *diffResult.URLDiffResult
 	}
 
-	// Update the processed results with any changes from diffing
-	dsp.updateProcessedProbeResults(
-		processedProbeResults,
-		targetResult.ProbeResults,
-		originalIndicesForTarget,
-	)
-
-	// Store the URL diff result
-	if targetResult.URLDiffResult != nil {
-		output.URLDiffResults[rootTarget] = *targetResult.URLDiffResult
+	// Check context cancellation before storage operations
+	if cancelled := common.CheckCancellation(ctx); cancelled.Cancelled {
+		dsp.logger.Info().Str("root_target", rootTarget).Msg("Context cancelled before storage operations")
+		return cancelled.Error
 	}
 
-	// Add to storage candidates - only if needed
-	if len(targetResult.ProbeResults) > 0 {
-		output.AllProbesToStore = append(output.AllProbesToStore, targetResult.ProbeResults...)
+	// Update processed results with diff information
+	updatedProbesForTargetStorage := diffResult.ProbeResults
+	dsp.updateProcessedProbeResults(processedProbeResults, updatedProbesForTargetStorage, originalIndicesForTarget)
+
+	// Store results in Parquet
+	if err := dsp.writeProbeResultsToParquet(ctx, updatedProbesForTargetStorage, scanSessionID, rootTarget); err != nil {
+		// Check if error is due to context cancellation
+		if ctx.Err() != nil {
+			dsp.logger.Info().Str("root_target", rootTarget).Msg("Parquet storage cancelled")
+			return ctx.Err()
+		}
+
+		dsp.logger.Warn().Err(err).Str("root_target", rootTarget).Msg("Failed to write to Parquet, continuing")
 	}
 
-	// Write to Parquet storage
-	if err := dsp.writeProbeResultsToParquet(ctx, targetResult.ProbeResults, scanSessionID, rootTarget); err != nil {
-		return err
+	// Add to all probes for potential reporting
+	output.AllProbesToStore = append(output.AllProbesToStore, updatedProbesForTargetStorage...)
+
+	// Final context check
+	if cancelled := common.CheckCancellation(ctx); cancelled.Cancelled {
+		dsp.logger.Info().Str("root_target", rootTarget).Msg("Context cancelled after target processing")
+		return cancelled.Error
 	}
 
 	return nil

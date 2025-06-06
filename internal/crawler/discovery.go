@@ -11,15 +11,21 @@ import (
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 )
 
-// DiscoverURL attempts to add a new URL to the crawl queue
+// DiscoverURL processes a raw URL for potential crawling
+// This function validates, normalizes, and queues URLs for crawling based on scope rules
 func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
+	// Check context cancellation early to avoid unnecessary processing
 	if cr.isContextCancelled() {
-		cr.logger.Debug().Str("raw_url", rawURL).Msg("Context cancelled, skipping URL discovery")
 		return
 	}
 
 	normalizedURL, shouldSkip := cr.processRawURL(rawURL, base)
 	if shouldSkip {
+		return
+	}
+
+	// Final context check before queuing for crawling
+	if cr.isContextCancelled() {
 		return
 	}
 

@@ -10,6 +10,13 @@ The scanner package provides:
 - **Configuration Management**: Centralized configuration for all components
 - **Report Generation**: Produces HTML reports with scan results and diffs
 - **Error Handling**: Comprehensive error recovery and reporting
+- **Interrupt Management**: Immediate response to cancellation signals across all components
+
+**Interrupt Handling Features:**
+- **Context propagation** - cancellation signals are immediately passed to all active components
+- **Graceful termination** - allows components to complete critical operations within timeout
+- **Resource cleanup** - ensures proper cleanup of temporary files and connections
+- **Progress preservation** - maintains scan state for partial results recovery
 
 ## File Structure
 
@@ -64,10 +71,27 @@ The scanner package provides:
 import (
     "github.com/aleister1102/monsterinc/internal/scanner"
     "github.com/aleister1102/monsterinc/internal/config"
+    "context"
+    "os"
+    "os/signal"
+    "syscall"
 )
 
 // Initialize scanner
 scannerService := scanner.NewScanner(globalConfig, logger)
+
+// Setup interrupt handling
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+// Handle interrupt signals
+sigChan := make(chan os.Signal, 1)
+signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+go func() {
+    <-sigChan
+    logger.Info().Msg("Interrupt signal received, cancelling scan...")
+    cancel() // This immediately stops all scanner components
+}()
 
 // Prepare scan input
 input := scanner.WorkflowInput{
@@ -77,10 +101,13 @@ input := scanner.WorkflowInput{
     RootTargets:   []string{"https://example.com"},
 }
 
-// Execute scan
-ctx := context.Background()
+// Execute scan with context cancellation
 summary, err := scannerService.ExecuteWorkflow(ctx, input)
 if err != nil {
+    if ctx.Err() == context.Canceled {
+        logger.Info().Msg("Scan was interrupted by user")
+        return nil // Graceful exit
+    }
     return fmt.Errorf("scan failed: %w", err)
 }
 
