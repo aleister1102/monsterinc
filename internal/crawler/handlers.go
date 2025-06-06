@@ -35,7 +35,7 @@ func (cr *Crawler) handleRequest(r *colly.Request) {
 		cr.logger.Info().
 			Str("url", r.URL.String()).
 			Str("path", r.URL.Path).
-			Msg("Abort request (path matches disallowed regex)")
+			Msg("Abort request (file extension not allowed)")
 		r.Abort()
 	}
 }
@@ -49,15 +49,17 @@ func (cr *Crawler) handleResponse(r *colly.Response) {
 	}
 }
 
-// shouldAbortRequest checks if request should be aborted based on path patterns
+// shouldAbortRequest checks if request should be aborted based on file extensions
 func (cr *Crawler) shouldAbortRequest(r *colly.Request) bool {
-	if cr.scope == nil || len(cr.scope.disallowedPathPatterns) == 0 {
+	if cr.scope == nil {
 		return false
 	}
 
 	path := r.URL.Path
-	for _, regex := range cr.scope.disallowedPathPatterns {
-		if regex.MatchString(path) {
+
+	// Check disallowed file extensions using fast string operations
+	for _, ext := range cr.scope.disallowedFileExtensions {
+		if strings.HasSuffix(path, ext) {
 			return true
 		}
 	}

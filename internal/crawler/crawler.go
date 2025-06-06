@@ -137,19 +137,14 @@ func (cr *Crawler) validateAndSetDefaults() error {
 func (cr *Crawler) setupScope() error {
 	cfg := cr.config
 
-	finalAllowedHostnames := cr.calculateAllowedHostnames(cfg)
-	rootURLHostname := cr.extractRootHostname(cfg.SeedURLs)
-
 	scope, err := NewScopeSettings(
-		rootURLHostname,
-		finalAllowedHostnames,
+		cr.extractRootHostname(cfg.SeedURLs),
 		cfg.Scope.DisallowedHostnames,
-		cfg.Scope.AllowedSubdomains,
 		cfg.Scope.DisallowedSubdomains,
-		cfg.Scope.AllowedPathRegexes,
-		cfg.Scope.DisallowedPathRegexes,
+		cfg.Scope.DisallowedFileExtensions,
 		cr.logger,
 		cfg.IncludeSubdomains,
+		cfg.AutoAddSeedHostnames,
 		cfg.SeedURLs,
 	)
 
@@ -159,25 +154,6 @@ func (cr *Crawler) setupScope() error {
 
 	cr.scope = scope
 	return nil
-}
-
-// calculateAllowedHostnames determines final allowed hostnames including auto-added seed hostnames
-func (cr *Crawler) calculateAllowedHostnames(cfg *config.CrawlerConfig) []string {
-	finalAllowedHostnames := cfg.Scope.AllowedHostnames
-
-	if cfg.AutoAddSeedHostnames && len(cfg.SeedURLs) > 0 {
-		seedHostnames := ExtractHostnamesFromSeedURLs(cfg.SeedURLs, cr.logger)
-		if len(seedHostnames) > 0 {
-			finalAllowedHostnames = MergeAllowedHostnames(cfg.Scope.AllowedHostnames, seedHostnames)
-			cr.logger.Info().
-				Strs("seed_hostnames", seedHostnames).
-				Strs("original_allowed_hostnames", cfg.Scope.AllowedHostnames).
-				Strs("final_allowed_hostnames", finalAllowedHostnames).
-				Msg("Auto-added seed hostnames to allowed hostnames")
-		}
-	}
-
-	return finalAllowedHostnames
 }
 
 // extractRootHostname extracts hostname from the first seed URL

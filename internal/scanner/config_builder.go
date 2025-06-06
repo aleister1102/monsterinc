@@ -2,7 +2,6 @@ package scanner
 
 import (
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/crawler"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/rs/zerolog"
 )
@@ -26,10 +25,6 @@ func NewConfigBuilder(globalConfig *config.GlobalConfig, logger zerolog.Logger) 
 func (cb *ConfigBuilder) BuildCrawlerConfig(seedURLs []string, scanSessionID string) (*config.CrawlerConfig, string, error) {
 	crawlerConfig := cb.globalConfig.CrawlerConfig
 	crawlerConfig.SeedURLs = seedURLs
-
-	if crawlerConfig.AutoAddSeedHostnames && len(seedURLs) > 0 {
-		cb.autoAddSeedHostnames(&crawlerConfig, seedURLs, scanSessionID)
-	}
 
 	primaryRootTargetURL := cb.determinePrimaryRootTarget(seedURLs, scanSessionID)
 	return &crawlerConfig, primaryRootTargetURL, nil
@@ -60,25 +55,6 @@ func (cb *ConfigBuilder) BuildHTTPXConfig(targets []string) *httpxrunner.Config 
 		ExtractIPs:           httpxCfg.ExtractIPs,
 		ExtractBody:          httpxCfg.ExtractBody,
 		ExtractHeaders:       httpxCfg.ExtractHeaders,
-	}
-}
-
-// autoAddSeedHostnames automatically adds seed hostnames to allowed hostnames
-func (cb *ConfigBuilder) autoAddSeedHostnames(crawlerConfig *config.CrawlerConfig, seedURLs []string, scanSessionID string) {
-	seedHostnames := crawler.ExtractHostnamesFromSeedURLs(seedURLs, cb.logger)
-	if len(seedHostnames) > 0 {
-		originalAllowedHostnames := crawlerConfig.Scope.AllowedHostnames
-		crawlerConfig.Scope.AllowedHostnames = crawler.MergeAllowedHostnames(
-			crawlerConfig.Scope.AllowedHostnames,
-			seedHostnames,
-		)
-
-		cb.logger.Info().
-			Strs("seed_hostnames", seedHostnames).
-			Strs("original_allowed_hostnames", originalAllowedHostnames).
-			Strs("final_allowed_hostnames", crawlerConfig.Scope.AllowedHostnames).
-			Str("session_id", scanSessionID).
-			Msg("Auto-added seed hostnames to allowed hostnames")
 	}
 }
 

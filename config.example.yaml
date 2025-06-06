@@ -154,15 +154,6 @@ crawler_config:
     # - ads.example.com
   # Crawler scope configuration: Fine-grained control over what the crawler visits.
   scope:
-    # List of hostnames the crawler is allowed to visit.
-    # Default: [] (meaning all hostnames are allowed if not disallowed)
-    allowed_hostnames:
-      - "insomnia1102.online"
-      - "example.com"
-    # List of subdomains the crawler is allowed to visit (relative to seed domains or allowed_hostnames).
-    # Default: []
-    allowed_subdomains:
-      # - "blog" # allows blog.example.com if example.com is a seed
     # List of hostnames the crawler is explicitly disallowed from visiting.
     # Default: []
     disallowed_hostnames:
@@ -171,24 +162,24 @@ crawler_config:
     # Default: []
     disallowed_subdomains:
       # - "admin" # disallows admin.example.com
-    # List of regex patterns for URL paths the crawler is allowed to visit.
-    # Default: [] (meaning all paths are allowed if not disallowed)
-    allowed_path_regexes:
-      # - "/products/.*"
-    # List of regex patterns for URL paths the crawler is explicitly disallowed from visiting.
-    # Default: []
-    disallowed_path_regexes:
-      # - "/admin/.*"
-      - "\\.js$"
-      - "\\.txt$"
+    # List of file extensions (with dots) that the crawler should not visit.
+    # This uses fast string comparison instead of regex for better performance.
+    # Default: [".js", ".txt", ".css", ".xml"]
+    disallowed_file_extensions:
+      - ".js"
+      - ".txt"
+      - ".css" 
+      - ".xml"
+      # - ".pdf"
+      # - ".zip"
+      # - ".json"
   # Maximum content length in MB to download for a page.
   # Default: 2
   max_content_length_mb: 2
   # Automatically add seed URL hostnames to allowed hostnames list.
   # When enabled, hostnames extracted from seed URLs will be automatically
-  # added to the allowed_hostnames list in the scope configuration.
-  # This is useful to ensure the crawler can visit seed domains without
-  # manually specifying them in allowed_hostnames.
+  # allowed (with highest priority after disallowed rules).
+  # This ensures the crawler can always visit seed domains.
   # Default: true
   auto_add_seed_hostnames: true
 

@@ -242,29 +242,21 @@ func NewDefaultHTTPXRunnerConfig() HttpxRunnerConfig {
 }
 
 type CrawlerScopeConfig struct {
-	AllowedHostnames      []string `json:"allowed_hostnames,omitempty" yaml:"allowed_hostnames,omitempty"`
-	AllowedPathRegexes    []string `json:"allowed_path_regexes,omitempty" yaml:"allowed_path_regexes,omitempty"`
-	AllowedSubdomains     []string `json:"allowed_subdomains,omitempty" yaml:"allowed_subdomains,omitempty"`
-	DisallowedHostnames   []string `json:"disallowed_hostnames,omitempty" yaml:"disallowed_hostnames,omitempty"`
-	DisallowedPathRegexes []string `json:"disallowed_path_regexes,omitempty" yaml:"disallowed_path_regexes,omitempty"`
-	DisallowedSubdomains  []string `json:"disallowed_subdomains,omitempty" yaml:"disallowed_subdomains,omitempty"`
+	DisallowedHostnames      []string `json:"disallowed_hostnames,omitempty" yaml:"disallowed_hostnames,omitempty"`
+	DisallowedSubdomains     []string `json:"disallowed_subdomains,omitempty" yaml:"disallowed_subdomains,omitempty"`
+	DisallowedFileExtensions []string `json:"disallowed_file_extensions,omitempty" yaml:"disallowed_file_extensions,omitempty"`
 }
 
 func NewDefaultCrawlerScopeConfig() CrawlerScopeConfig {
 	return CrawlerScopeConfig{
-		AllowedHostnames:      []string{},
-		AllowedPathRegexes:    []string{},
-		AllowedSubdomains:     []string{},
-		DisallowedHostnames:   []string{},
-		DisallowedPathRegexes: []string{},
-		DisallowedSubdomains:  []string{},
+		DisallowedHostnames:      []string{},
+		DisallowedSubdomains:     []string{},
+		DisallowedFileExtensions: []string{".js", ".txt", ".css", ".xml"},
 	}
 }
 
 type CrawlerConfig struct {
-	AllowedHostRegex      []string           `json:"allowed_host_regex,omitempty" yaml:"allowed_host_regex,omitempty"`
 	AutoAddSeedHostnames  bool               `json:"auto_add_seed_hostnames" yaml:"auto_add_seed_hostnames"`
-	ExcludedHostRegex     []string           `json:"excluded_host_regex,omitempty" yaml:"excluded_host_regex,omitempty"`
 	IncludeSubdomains     bool               `json:"include_subdomains" yaml:"include_subdomains"`
 	MaxConcurrentRequests int                `json:"max_concurrent_requests,omitempty" yaml:"max_concurrent_requests,omitempty" validate:"omitempty,min=1"`
 	MaxContentLengthMB    int                `json:"max_content_length_mb,omitempty" yaml:"max_content_length_mb,omitempty"`
@@ -278,16 +270,16 @@ type CrawlerConfig struct {
 
 func NewDefaultCrawlerConfig() CrawlerConfig {
 	return CrawlerConfig{
-		AutoAddSeedHostnames:  false,
-		IncludeSubdomains:     DefaultCrawlerIncludeSubdomains,
-		MaxConcurrentRequests: DefaultCrawlerMaxConcurrentRequests,
+		AutoAddSeedHostnames:  true,
+		IncludeSubdomains:     false,
+		MaxConcurrentRequests: 10,
 		MaxContentLengthMB:    2,
-		MaxDepth:              DefaultCrawlerMaxDepth,
-		RequestTimeoutSecs:    DefaultCrawlerRequestTimeoutSecs,
-		RespectRobotsTxt:      DefaultCrawlerRespectRobotsTxt,
-		Scope:                 NewDefaultCrawlerScopeConfig(),
+		MaxDepth:              3,
+		RequestTimeoutSecs:    30,
+		RespectRobotsTxt:      false,
 		SeedURLs:              []string{},
-		UserAgent:             DefaultCrawlerUserAgent,
+		UserAgent:             "MonsterInc-Crawler/1.0",
+		Scope:                 NewDefaultCrawlerScopeConfig(),
 	}
 }
 

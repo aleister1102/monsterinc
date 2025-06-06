@@ -4,6 +4,7 @@
 /monsterinc
 /monsterinc.exe
 /config.yaml
+/config.yaml.bak
 /*.log
 /targets
 /target
