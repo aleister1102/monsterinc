@@ -73,34 +73,36 @@ const (
 )
 
 type GlobalConfig struct {
-	CrawlerConfig      CrawlerConfig      `json:"crawler_config,omitempty" yaml:"crawler_config,omitempty"`
-	DiffConfig         DiffConfig         `json:"diff_config,omitempty" yaml:"diff_config,omitempty"`
-	DiffReporterConfig DiffReporterConfig `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
-	ExtractorConfig    ExtractorConfig    `json:"extractor_config,omitempty" yaml:"extractor_config,omitempty"`
-	HttpxRunnerConfig  HttpxRunnerConfig  `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
-	LogConfig          LogConfig          `json:"log_config,omitempty" yaml:"log_config,omitempty"`
-	Mode               string             `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
-	MonitorConfig      MonitorConfig      `json:"monitor_config,omitempty" yaml:"monitor_config,omitempty"`
-	NotificationConfig NotificationConfig `json:"notification_config,omitempty" yaml:"notification_config,omitempty"`
-	ReporterConfig     ReporterConfig     `json:"reporter_config,omitempty" yaml:"reporter_config,omitempty"`
-	SchedulerConfig    SchedulerConfig    `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
-	StorageConfig      StorageConfig      `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
+	CrawlerConfig         CrawlerConfig         `json:"crawler_config,omitempty" yaml:"crawler_config,omitempty"`
+	DiffConfig            DiffConfig            `json:"diff_config,omitempty" yaml:"diff_config,omitempty"`
+	DiffReporterConfig    DiffReporterConfig    `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
+	ExtractorConfig       ExtractorConfig       `json:"extractor_config,omitempty" yaml:"extractor_config,omitempty"`
+	HttpxRunnerConfig     HttpxRunnerConfig     `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
+	LogConfig             LogConfig             `json:"log_config,omitempty" yaml:"log_config,omitempty"`
+	Mode                  string                `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
+	MonitorConfig         MonitorConfig         `json:"monitor_config,omitempty" yaml:"monitor_config,omitempty"`
+	NotificationConfig    NotificationConfig    `json:"notification_config,omitempty" yaml:"notification_config,omitempty"`
+	ReporterConfig        ReporterConfig        `json:"reporter_config,omitempty" yaml:"reporter_config,omitempty"`
+	ResourceLimiterConfig ResourceLimiterConfig `json:"resource_limiter_config,omitempty" yaml:"resource_limiter_config,omitempty"`
+	SchedulerConfig       SchedulerConfig       `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
+	StorageConfig         StorageConfig         `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
 }
 
 func NewDefaultGlobalConfig() *GlobalConfig {
 	return &GlobalConfig{
-		CrawlerConfig:      NewDefaultCrawlerConfig(),
-		DiffConfig:         NewDefaultDiffConfig(),
-		DiffReporterConfig: NewDefaultDiffReporterConfig(),
-		ExtractorConfig:    NewDefaultExtractorConfig(),
-		HttpxRunnerConfig:  NewDefaultHTTPXRunnerConfig(),
-		LogConfig:          NewDefaultLogConfig(),
-		Mode:               "",
-		MonitorConfig:      NewDefaultMonitorConfig(),
-		NotificationConfig: NewDefaultNotificationConfig(),
-		ReporterConfig:     NewDefaultReporterConfig(),
-		SchedulerConfig:    NewDefaultSchedulerConfig(),
-		StorageConfig:      NewDefaultStorageConfig(),
+		CrawlerConfig:         NewDefaultCrawlerConfig(),
+		DiffConfig:            NewDefaultDiffConfig(),
+		DiffReporterConfig:    NewDefaultDiffReporterConfig(),
+		ExtractorConfig:       NewDefaultExtractorConfig(),
+		HttpxRunnerConfig:     NewDefaultHTTPXRunnerConfig(),
+		LogConfig:             NewDefaultLogConfig(),
+		Mode:                  "",
+		MonitorConfig:         NewDefaultMonitorConfig(),
+		NotificationConfig:    NewDefaultNotificationConfig(),
+		ReporterConfig:        NewDefaultReporterConfig(),
+		ResourceLimiterConfig: NewDefaultResourceLimiterConfig(),
+		SchedulerConfig:       NewDefaultSchedulerConfig(),
+		StorageConfig:         NewDefaultStorageConfig(),
 	}
 }
 
@@ -458,7 +460,30 @@ type DiffReporterConfig struct {
 
 func NewDefaultDiffReporterConfig() DiffReporterConfig {
 	return DiffReporterConfig{
-		MaxDiffFileSizeMB: 5, // Default 5MB
+		MaxDiffFileSizeMB: 10,
+	}
+}
+
+// ResourceLimiterConfig holds configuration for resource monitoring
+type ResourceLimiterConfig struct {
+	MaxMemoryMB        int64   `json:"max_memory_mb,omitempty" yaml:"max_memory_mb,omitempty" validate:"omitempty,min=100"`
+	MaxGoroutines      int     `json:"max_goroutines,omitempty" yaml:"max_goroutines,omitempty" validate:"omitempty,min=100"`
+	CheckIntervalSecs  int     `json:"check_interval_secs,omitempty" yaml:"check_interval_secs,omitempty" validate:"omitempty,min=1"`
+	MemoryThreshold    float64 `json:"memory_threshold,omitempty" yaml:"memory_threshold,omitempty" validate:"omitempty,min=0.1,max=1.0"`
+	GoroutineWarning   float64 `json:"goroutine_warning,omitempty" yaml:"goroutine_warning,omitempty" validate:"omitempty,min=0.1,max=1.0"`
+	SystemMemThreshold float64 `json:"system_mem_threshold,omitempty" yaml:"system_mem_threshold,omitempty" validate:"omitempty,min=0.1,max=1.0"`
+	EnableAutoShutdown bool    `json:"enable_auto_shutdown" yaml:"enable_auto_shutdown"`
+}
+
+func NewDefaultResourceLimiterConfig() ResourceLimiterConfig {
+	return ResourceLimiterConfig{
+		MaxMemoryMB:        1024,  // 1GB
+		MaxGoroutines:      10000, // 10k goroutines
+		CheckIntervalSecs:  30,    // 30 seconds
+		MemoryThreshold:    0.8,   // 80%
+		GoroutineWarning:   0.7,   // 70%
+		SystemMemThreshold: 0.5,   // 50% system memory
+		EnableAutoShutdown: true,  // Enable auto-shutdown by default
 	}
 }
 

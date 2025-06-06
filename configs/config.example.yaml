@@ -7,6 +7,35 @@
 mode: "onetime"
 
 
+# Resource Limiter configuration: Settings for monitoring system resources and auto-shutdown.
+resource_limiter_config:
+  # Maximum memory usage for the application in MB before triggering garbage collection.
+  # Default: 1024 (1GB)
+  max_memory_mb: 1024
+  # Maximum number of goroutines allowed.
+  # Default: 10000
+  max_goroutines: 10000
+  # How often to check resource usage (in seconds).
+  # Default: 30
+  check_interval_secs: 30
+  # Application memory threshold (percentage) before triggering warning and GC.
+  # Value between 0.1 and 1.0 (0.8 = 80%)
+  # Default: 0.8
+  memory_threshold: 0.8
+  # Goroutine count threshold (percentage) before triggering warning.
+  # Value between 0.1 and 1.0 (0.7 = 70%)
+  # Default: 0.7
+  goroutine_warning: 0.7
+  # System memory threshold (percentage) before triggering auto-shutdown.
+  # When system memory usage exceeds this threshold, the application will gracefully shutdown.
+  # Value between 0.1 and 1.0 (0.5 = 50% of total system memory)
+  # Default: 0.5
+  system_mem_threshold: 0.5
+  # Whether to enable automatic shutdown when system memory threshold is exceeded.
+  # Default: true
+  enable_auto_shutdown: true
+
+
 # HTTPX Runner configuration: Settings for the httpx tool.
 httpx_runner_config:
   # HTTP method to use for requests.

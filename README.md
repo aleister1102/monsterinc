@@ -102,6 +102,15 @@ graph TD
 - Comprehensive logging of shutdown process
 - Safe resource cleanup and state preservation
 
+### 🧠 Memory Management & Auto-Shutdown
+- **System memory monitoring** using `gopsutil` for total system memory tracking
+- **Configurable memory thresholds** - application memory (default: 1GB) and system memory (default: 50%)
+- **Auto-shutdown capability** - graceful application termination when system memory exceeds threshold
+- **Application memory limits** with automatic garbage collection triggers
+- **Goroutine monitoring** with configurable warning thresholds
+- **Resource usage logging** with detailed system and application memory statistics
+- **Graceful shutdown callbacks** for custom cleanup logic during memory-triggered shutdowns
+
 ## Package Documentation
 
 ### Core Packages

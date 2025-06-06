@@ -39,8 +39,34 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Start global resource limiter after logger is initialized
-	common.StartGlobalResourceLimiter(zLogger)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start global resource limiter with config from file
+	resourceLimiterConfig := common.ResourceLimiterConfig{
+		MaxMemoryMB:        gCfg.ResourceLimiterConfig.MaxMemoryMB,
+		MaxGoroutines:      gCfg.ResourceLimiterConfig.MaxGoroutines,
+		CheckInterval:      time.Duration(gCfg.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
+		MemoryThreshold:    gCfg.ResourceLimiterConfig.MemoryThreshold,
+		GoroutineWarning:   gCfg.ResourceLimiterConfig.GoroutineWarning,
+		SystemMemThreshold: gCfg.ResourceLimiterConfig.SystemMemThreshold,
+		EnableAutoShutdown: gCfg.ResourceLimiterConfig.EnableAutoShutdown,
+	}
+
+	resourceLimiter := common.NewResourceLimiter(resourceLimiterConfig, zLogger)
+	resourceLimiter.Start()
+
+	// Set shutdown callback to trigger graceful shutdown when memory limit is exceeded
+	resourceLimiter.SetShutdownCallback(func() {
+		zLogger.Error().Msg("System memory limit exceeded, initiating graceful shutdown...")
+		cancel() // Cancel the main context to trigger shutdown
+	})
+
+	// Ensure global resource limiter is stopped on exit
+	defer func() {
+		resourceLimiter.Stop()
+		common.StopGlobalResourceLimiter()
+	}()
 
 	discordHttpClient, err := common.NewHTTPClientFactory(zLogger).CreateDiscordClient(
 		20 * time.Second,
@@ -60,9 +86,6 @@ func main() {
 	if err != nil {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize monitoring service.")
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	setupSignalHandling(cancel, zLogger)
 

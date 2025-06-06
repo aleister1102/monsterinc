@@ -33,18 +33,19 @@ monitorCfg := cfg.MonitorConfig
 #### Configuration Structure
 ```go
 type GlobalConfig struct {
-    CrawlerConfig      CrawlerConfig      `yaml:"crawler_config"`
-    DiffConfig         DiffConfig         `yaml:"diff_config"`
-    DiffReporterConfig DiffReporterConfig `yaml:"diff_reporter_config"`
-    ExtractorConfig    ExtractorConfig    `yaml:"extractor_config"`
-    HttpxRunnerConfig  HttpxRunnerConfig  `yaml:"httpx_runner_config"`
-    LogConfig          LogConfig          `yaml:"log_config"`
-    Mode               string             `yaml:"mode" validate:"required,mode"`
-    MonitorConfig      MonitorConfig      `yaml:"monitor_config"`
-    NotificationConfig NotificationConfig `yaml:"notification_config"`
-    ReporterConfig     ReporterConfig     `yaml:"reporter_config"`
-    SchedulerConfig    SchedulerConfig    `yaml:"scheduler_config"`
-    StorageConfig      StorageConfig      `yaml:"storage_config"`
+    CrawlerConfig         CrawlerConfig         `yaml:"crawler_config"`
+    DiffConfig            DiffConfig            `yaml:"diff_config"`
+    DiffReporterConfig    DiffReporterConfig    `yaml:"diff_reporter_config"`
+    ExtractorConfig       ExtractorConfig       `yaml:"extractor_config"`
+    HttpxRunnerConfig     HttpxRunnerConfig     `yaml:"httpx_runner_config"`
+    LogConfig             LogConfig             `yaml:"log_config"`
+    Mode                  string                `yaml:"mode" validate:"required,mode"`
+    MonitorConfig         MonitorConfig         `yaml:"monitor_config"`
+    NotificationConfig    NotificationConfig    `yaml:"notification_config"`
+    ReporterConfig        ReporterConfig        `yaml:"reporter_config"`
+    ResourceLimiterConfig ResourceLimiterConfig `yaml:"resource_limiter_config"`
+    SchedulerConfig       SchedulerConfig       `yaml:"scheduler_config"`
+    StorageConfig         StorageConfig         `yaml:"storage_config"`
 }
 ```
 
@@ -257,6 +258,16 @@ extractor_config:
     - "*.example.com"
   denylist:
     - "*.ads.example.com"
+
+# Resource Limiter Configuration
+resource_limiter_config:
+  max_memory_mb: 1024           # Application memory limit (1GB)
+  max_goroutines: 10000         # Maximum goroutines allowed
+  check_interval_secs: 30       # Resource monitoring interval (seconds)
+  memory_threshold: 0.8         # App memory warning threshold (80%)
+  goroutine_warning: 0.7        # Goroutine warning threshold (70%)
+  system_mem_threshold: 0.5     # System memory shutdown threshold (50%)
+  enable_auto_shutdown: true    # Enable auto-shutdown on system memory limit
 ```
 
 ### Environment Variable Configuration

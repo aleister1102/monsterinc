@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 // ResourceLimiter manages memory and goroutine limits
@@ -23,25 +24,33 @@ type ResourceLimiter struct {
 	goroutineWarning int
 	isRunning        bool
 	mu               sync.RWMutex
+	// New fields for system memory monitoring
+	systemMemThreshold float64 // Percentage of system memory to trigger shutdown (0.5 = 50%)
+	enableAutoShutdown bool    // Whether to enable auto-shutdown on memory limits
+	shutdownCallback   func()  // Callback function to trigger graceful shutdown
 }
 
 // ResourceLimiterConfig holds configuration for the resource limiter
 type ResourceLimiterConfig struct {
-	MaxMemoryMB      int64         // Maximum memory in MB before triggering GC
-	MaxGoroutines    int           // Maximum number of goroutines
-	CheckInterval    time.Duration // How often to check resource usage
-	MemoryThreshold  float64       // Percentage of max memory to trigger warning (0.8 = 80%)
-	GoroutineWarning float64       // Percentage of max goroutines to trigger warning
+	MaxMemoryMB        int64         // Maximum memory in MB before triggering GC
+	MaxGoroutines      int           // Maximum number of goroutines
+	CheckInterval      time.Duration // How often to check resource usage
+	MemoryThreshold    float64       // Percentage of max memory to trigger warning (0.8 = 80%)
+	GoroutineWarning   float64       // Percentage of max goroutines to trigger warning
+	SystemMemThreshold float64       // Percentage of system memory to trigger auto-shutdown (0.5 = 50%)
+	EnableAutoShutdown bool          // Enable auto-shutdown when system memory threshold is exceeded
 }
 
 // DefaultResourceLimiterConfig returns default configuration
 func DefaultResourceLimiterConfig() ResourceLimiterConfig {
 	return ResourceLimiterConfig{
-		MaxMemoryMB:      2048,  // 2GB
-		MaxGoroutines:    10000, // 10k goroutines
-		CheckInterval:    30 * time.Second,
-		MemoryThreshold:  0.8, // 80%
-		GoroutineWarning: 0.7, // 70%
+		MaxMemoryMB:        1024,  // 1GB
+		MaxGoroutines:      10000, // 10k goroutines
+		CheckInterval:      30 * time.Second,
+		MemoryThreshold:    0.8,  // 80%
+		GoroutineWarning:   0.7,  // 70%
+		SystemMemThreshold: 0.5,  // 50% system memory
+		EnableAutoShutdown: true, // Enable auto-shutdown by default
 	}
 }
 
@@ -50,17 +59,26 @@ func NewResourceLimiter(config ResourceLimiterConfig, logger zerolog.Logger) *Re
 	ctx, cancel := context.WithCancel(context.Background())
 
 	rl := &ResourceLimiter{
-		maxMemoryMB:      config.MaxMemoryMB,
-		maxGoroutines:    config.MaxGoroutines,
-		checkInterval:    config.CheckInterval,
-		logger:           logger.With().Str("component", "ResourceLimiter").Logger(),
-		ctx:              ctx,
-		cancel:           cancel,
-		memoryThreshold:  int64(float64(config.MaxMemoryMB) * config.MemoryThreshold),
-		goroutineWarning: int(float64(config.MaxGoroutines) * config.GoroutineWarning),
+		maxMemoryMB:        config.MaxMemoryMB,
+		maxGoroutines:      config.MaxGoroutines,
+		checkInterval:      config.CheckInterval,
+		logger:             logger.With().Str("component", "ResourceLimiter").Logger(),
+		ctx:                ctx,
+		cancel:             cancel,
+		memoryThreshold:    int64(float64(config.MaxMemoryMB) * config.MemoryThreshold),
+		goroutineWarning:   int(float64(config.MaxGoroutines) * config.GoroutineWarning),
+		systemMemThreshold: config.SystemMemThreshold,
+		enableAutoShutdown: config.EnableAutoShutdown,
 	}
 
 	return rl
+}
+
+// SetShutdownCallback sets the callback function for graceful shutdown
+func (rl *ResourceLimiter) SetShutdownCallback(callback func()) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	rl.shutdownCallback = callback
 }
 
 // Start begins monitoring resource usage
@@ -80,6 +98,8 @@ func (rl *ResourceLimiter) Start() {
 		Int64("max_memory_mb", rl.maxMemoryMB).
 		Int("max_goroutines", rl.maxGoroutines).
 		Dur("check_interval", rl.checkInterval).
+		Float64("system_mem_threshold", rl.systemMemThreshold).
+		Bool("auto_shutdown_enabled", rl.enableAutoShutdown).
 		Msg("Resource limiter started")
 }
 
@@ -110,6 +130,32 @@ func (rl *ResourceLimiter) CheckMemoryLimit() error {
 	}
 
 	return nil
+}
+
+// CheckSystemMemoryLimit checks if system memory usage exceeds threshold
+func (rl *ResourceLimiter) CheckSystemMemoryLimit() (bool, error) {
+	if !rl.enableAutoShutdown {
+		return false, nil
+	}
+
+	vmStat, err := mem.VirtualMemory()
+	if err != nil {
+		return false, fmt.Errorf("failed to get system memory stats: %w", err)
+	}
+
+	usedPercent := vmStat.UsedPercent / 100.0 // Convert percentage to decimal
+
+	if usedPercent > rl.systemMemThreshold {
+		rl.logger.Warn().
+			Float64("used_percent", usedPercent*100).
+			Float64("threshold_percent", rl.systemMemThreshold*100).
+			Uint64("used_mb", vmStat.Used/1024/1024).
+			Uint64("total_mb", vmStat.Total/1024/1024).
+			Msg("System memory usage exceeded threshold")
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // CheckGoroutineLimit checks if current goroutine count exceeds limit
@@ -147,22 +193,38 @@ func (rl *ResourceLimiter) GetResourceUsage() ResourceUsage {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
+	// Get system memory stats
+	vmStat, err := mem.VirtualMemory()
+	var systemMemUsedMB, systemMemTotalMB uint64
+	var systemMemUsedPercent float64
+	if err == nil {
+		systemMemUsedMB = vmStat.Used / 1024 / 1024
+		systemMemTotalMB = vmStat.Total / 1024 / 1024
+		systemMemUsedPercent = vmStat.UsedPercent
+	}
+
 	return ResourceUsage{
-		AllocMB:    int64(m.Alloc / 1024 / 1024),
-		SysMB:      int64(m.Sys / 1024 / 1024),
-		Goroutines: runtime.NumGoroutine(),
-		GCCount:    int64(m.NumGC),
-		NextGCMB:   int64(m.NextGC / 1024 / 1024),
+		AllocMB:              int64(m.Alloc / 1024 / 1024),
+		SysMB:                int64(m.Sys / 1024 / 1024),
+		Goroutines:           runtime.NumGoroutine(),
+		GCCount:              int64(m.NumGC),
+		NextGCMB:             int64(m.NextGC / 1024 / 1024),
+		SystemMemUsedMB:      int64(systemMemUsedMB),
+		SystemMemTotalMB:     int64(systemMemTotalMB),
+		SystemMemUsedPercent: systemMemUsedPercent,
 	}
 }
 
 // ResourceUsage holds current resource usage stats
 type ResourceUsage struct {
-	AllocMB    int64 // Currently allocated memory
-	SysMB      int64 // System memory
-	Goroutines int   // Number of goroutines
-	GCCount    int64 // Number of GC cycles
-	NextGCMB   int64 // Next GC target
+	AllocMB              int64   // Currently allocated memory by application
+	SysMB                int64   // System memory used by Go runtime
+	Goroutines           int     // Number of goroutines
+	GCCount              int64   // Number of GC cycles
+	NextGCMB             int64   // Next GC target
+	SystemMemUsedMB      int64   // System memory used (MB)
+	SystemMemTotalMB     int64   // Total system memory (MB)
+	SystemMemUsedPercent float64 // System memory used percentage
 }
 
 // Private methods
@@ -186,13 +248,30 @@ func (rl *ResourceLimiter) monitorResources() {
 func (rl *ResourceLimiter) checkAndLogResourceUsage() {
 	usage := rl.GetResourceUsage()
 
-	// Check memory usage
+	// Check system memory usage first - this is the critical check
+	exceeded, err := rl.CheckSystemMemoryLimit()
+	if err != nil {
+		rl.logger.Error().Err(err).Msg("Failed to check system memory limit")
+	} else if exceeded {
+		rl.logger.Error().
+			Float64("system_mem_used_percent", usage.SystemMemUsedPercent).
+			Float64("threshold_percent", rl.systemMemThreshold*100).
+			Int64("system_mem_used_mb", usage.SystemMemUsedMB).
+			Int64("system_mem_total_mb", usage.SystemMemTotalMB).
+			Msg("CRITICAL: System memory usage exceeded threshold, triggering shutdown")
+
+		// Trigger graceful shutdown
+		rl.triggerGracefulShutdown()
+		return
+	}
+
+	// Check application memory usage
 	if usage.AllocMB > rl.memoryThreshold {
 		rl.logger.Warn().
 			Int64("current_mb", usage.AllocMB).
 			Int64("threshold_mb", rl.memoryThreshold).
 			Int64("limit_mb", rl.maxMemoryMB).
-			Msg("Memory usage above threshold, forcing GC")
+			Msg("Application memory usage above threshold, forcing GC")
 		rl.ForceGC()
 	}
 
@@ -205,13 +284,29 @@ func (rl *ResourceLimiter) checkAndLogResourceUsage() {
 			Msg("High number of goroutines detected")
 	}
 
-	// Log periodic stats
+	// Log periodic stats including system memory
 	rl.logger.Debug().
-		Int64("alloc_mb", usage.AllocMB).
-		Int64("sys_mb", usage.SysMB).
+		Int64("app_alloc_mb", usage.AllocMB).
+		Int64("app_sys_mb", usage.SysMB).
 		Int("goroutines", usage.Goroutines).
 		Int64("gc_count", usage.GCCount).
+		Int64("system_mem_used_mb", usage.SystemMemUsedMB).
+		Int64("system_mem_total_mb", usage.SystemMemTotalMB).
+		Float64("system_mem_used_percent", usage.SystemMemUsedPercent).
 		Msg("Resource usage stats")
+}
+
+func (rl *ResourceLimiter) triggerGracefulShutdown() {
+	rl.mu.RLock()
+	callback := rl.shutdownCallback
+	rl.mu.RUnlock()
+
+	if callback != nil {
+		rl.logger.Info().Msg("Triggering graceful shutdown due to memory limit")
+		go callback() // Run in goroutine to avoid blocking the monitor
+	} else {
+		rl.logger.Error().Msg("No shutdown callback registered, cannot trigger graceful shutdown")
+	}
 }
 
 // Global resource limiter instance
@@ -237,5 +332,12 @@ func StartGlobalResourceLimiter(logger zerolog.Logger) {
 func StopGlobalResourceLimiter() {
 	if globalResourceLimiter != nil {
 		globalResourceLimiter.Stop()
+	}
+}
+
+// SetGlobalShutdownCallback sets the shutdown callback for the global resource limiter
+func SetGlobalShutdownCallback(callback func()) {
+	if globalResourceLimiter != nil {
+		globalResourceLimiter.SetShutdownCallback(callback)
 	}
 }
