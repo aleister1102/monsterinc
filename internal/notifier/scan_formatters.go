@@ -225,7 +225,7 @@ func buildInterruptDescription(summary models.ScanSummaryData) string {
 // buildInterruptEmbed creates the embed for interrupt message
 func buildInterruptEmbed(description string, summary models.ScanSummaryData) models.DiscordEmbed {
 	embedBuilder := NewDiscordEmbedBuilder().
-		WithTitle("🛑 Scan Bị Gián Đoạn").
+		WithTitle("🛑 Scan is interrupted").
 		WithDescription(description).
 		WithColor(InterruptEmbedColor).
 		WithTimestamp(time.Now()).
