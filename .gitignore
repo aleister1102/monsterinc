@@ -3,8 +3,9 @@
 /database
 /monsterinc
 /monsterinc.exe
-/config.yaml
-/config.bak.yaml
-/*.log
+/configs/config.yaml
+/configs/config.bak.yaml
+/logs
 /targets
 /target
+/build/monsterinc.exe

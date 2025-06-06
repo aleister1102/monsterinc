@@ -69,4 +69,4 @@ func (fpg *FilePathGenerator) ensureDirectoryExists(directory string) error {
 		return common.WrapError(err, "failed to create directory: "+directory)
 	}
 	return nil
-} 
+}

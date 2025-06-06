@@ -2,6 +2,8 @@ package crawler
 
 import (
 	"context"
+	"crypto/tls"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -290,6 +292,16 @@ func (cr *Crawler) createCollector() (*colly.Collector, error) {
 	collector := colly.NewCollector(collectorOptions...)
 	collector.SetRequestTimeout(cr.requestTimeout)
 
+	// Configure HTTP transport with optional TLS certificate verification skip
+	collector.WithTransport(&http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: cr.config.InsecureSkipTLSVerify,
+		},
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 2,
+		IdleConnTimeout:     90 * time.Second,
+	})
+
 	err := collector.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
 		Parallelism: cr.threads,
@@ -312,7 +324,7 @@ func (cr *Crawler) setupCallbacks() {
 // setupHTTPClient creates HTTP client for HEAD requests
 func (cr *Crawler) setupHTTPClient() error {
 	httpClientFactory := common.NewHTTPClientFactory(cr.logger)
-	client, err := httpClientFactory.CreateCrawlerClient(cr.requestTimeout, "", nil)
+	client, err := httpClientFactory.CreateCrawlerClient(cr.requestTimeout, "", nil, cr.config.InsecureSkipTLSVerify)
 	if err != nil {
 		return common.WrapError(err, "failed to create HTTP client for HEAD requests")
 	}
@@ -358,7 +370,8 @@ func (cr *Crawler) logInitialization() {
 		Dur("timeout", cr.requestTimeout).
 		Int("threads", cr.threads).
 		Int("max_depth", cr.maxDepth).
-		Bool("respect_robots_txt", cr.respectRobotsTxt)
+		Bool("respect_robots_txt", cr.respectRobotsTxt).
+		Bool("insecure_skip_tls_verify", cr.config.InsecureSkipTLSVerify)
 
 	// Log scope settings details if available
 	if cr.scope != nil {

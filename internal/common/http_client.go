@@ -328,13 +328,14 @@ func (f *HTTPClientFactory) CreateMonitorClient(timeout time.Duration, insecureS
 }
 
 // CreateCrawlerClient creates an HTTP client optimized for web crawling
-func (f *HTTPClientFactory) CreateCrawlerClient(timeout time.Duration, proxy string, customHeaders map[string]string) (*FastHTTPClient, error) {
+func (f *HTTPClientFactory) CreateCrawlerClient(timeout time.Duration, proxy string, customHeaders map[string]string, insecureSkipVerify bool) (*FastHTTPClient, error) {
 	builder := NewHTTPClientBuilder(f.logger).
 		WithTimeout(timeout).
 		WithUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36").
 		WithFollowRedirects(true).
 		WithMaxRedirects(10).
-		WithConnectionPooling(100, 20, 0)
+		WithConnectionPooling(100, 20, 0).
+		WithInsecureSkipVerify(insecureSkipVerify)
 
 	if proxy != "" {
 		builder = builder.WithProxy(proxy)

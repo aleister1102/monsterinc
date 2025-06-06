@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,6 +35,14 @@ type FileReadOptions struct {
 	Context    context.Context // Context for cancellation
 }
 
+// FileWriteOptions configures file writing behavior
+type FileWriteOptions struct {
+	CreateDirs  bool            // Whether to create parent directories
+	Permissions fs.FileMode     // File permissions
+	Timeout     time.Duration   // Write timeout
+	Context     context.Context // Context for cancellation
+}
+
 // DefaultFileReadOptions returns default file reading options
 func DefaultFileReadOptions() FileReadOptions {
 	return FileReadOptions{
@@ -44,6 +53,16 @@ func DefaultFileReadOptions() FileReadOptions {
 		SkipEmpty:  true,
 		Timeout:    30 * time.Second,
 		Context:    context.Background(),
+	}
+}
+
+// DefaultFileWriteOptions returns default file writing options
+func DefaultFileWriteOptions() FileWriteOptions {
+	return FileWriteOptions{
+		CreateDirs:  true,
+		Permissions: 0644,
+		Timeout:     30 * time.Second,
+		Context:     context.Background(),
 	}
 }
 
@@ -247,4 +266,80 @@ func (fm *FileManager) ReadLines(path string, opts FileReadOptions) ([]string, e
 	}
 
 	return lines, nil
+}
+
+// EnsureDirectory creates a directory and its parents if they don't exist
+func (fm *FileManager) EnsureDirectory(path string, perm fs.FileMode) error {
+	if fm.FileExists(path) {
+		info, err := fm.GetFileInfo(path)
+		if err != nil {
+			return WrapError(err, fmt.Sprintf("failed to check directory: %s", path))
+		}
+		if !info.IsDir {
+			return NewValidationError("path", path, "exists but is not a directory")
+		}
+		return nil
+	}
+
+	if err := os.MkdirAll(path, perm); err != nil {
+		return WrapError(err, fmt.Sprintf("failed to create directory: %s", path))
+	}
+
+	fm.logger.Debug().Str("path", path).Msg("Created directory")
+	return nil
+}
+
+// WriteFile writes data to a file with the given options
+func (fm *FileManager) WriteFile(path string, data []byte, opts FileWriteOptions) error {
+	// Create parent directories if required
+	if opts.CreateDirs {
+		dir := filepath.Dir(path)
+		if err := fm.EnsureDirectory(dir, 0755); err != nil {
+			return WrapError(err, fmt.Sprintf("failed to create parent directories for: %s", path))
+		}
+	}
+
+	// Set up context with timeout if specified
+	ctx, cancel := fm.setupContextWithTimeout(FileReadOptions{
+		Timeout: opts.Timeout,
+		Context: opts.Context,
+	})
+	if cancel != nil {
+		defer cancel()
+	}
+
+	// Perform file write with context support
+	done := make(chan error, 1)
+	go func() {
+		done <- fm.performFileWrite(path, data, opts)
+	}()
+
+	select {
+	case <-ctx.Done():
+		fm.logger.Warn().Str("path", path).Msg("File write cancelled due to context timeout")
+		return WrapError(ctx.Err(), "file write operation cancelled")
+	case err := <-done:
+		if err != nil {
+			return WrapError(err, fmt.Sprintf("failed to write file: %s", path))
+		}
+	}
+
+	fm.logger.Debug().Str("path", path).Int("bytes", len(data)).Msg("File written successfully")
+	return nil
+}
+
+// performFileWrite performs the actual file writing operation
+func (fm *FileManager) performFileWrite(path string, data []byte, opts FileWriteOptions) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, opts.Permissions)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			fm.logger.Error().Err(closeErr).Str("path", path).Msg("Failed to close file after writing")
+		}
+	}()
+
+	_, err = file.Write(data)
+	return err
 }

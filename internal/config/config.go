@@ -272,6 +272,7 @@ func NewDefaultHeadlessBrowserConfig() HeadlessBrowserConfig {
 type CrawlerConfig struct {
 	AutoAddSeedHostnames  bool                  `json:"auto_add_seed_hostnames" yaml:"auto_add_seed_hostnames"`
 	IncludeSubdomains     bool                  `json:"include_subdomains" yaml:"include_subdomains"`
+	InsecureSkipTLSVerify bool                  `json:"insecure_skip_tls_verify" yaml:"insecure_skip_tls_verify"`
 	MaxConcurrentRequests int                   `json:"max_concurrent_requests,omitempty" yaml:"max_concurrent_requests,omitempty" validate:"omitempty,min=1"`
 	MaxContentLengthMB    int                   `json:"max_content_length_mb,omitempty" yaml:"max_content_length_mb,omitempty"`
 	MaxDepth              int                   `json:"max_depth,omitempty" yaml:"max_depth,omitempty" validate:"omitempty,min=0"`
@@ -287,6 +288,7 @@ func NewDefaultCrawlerConfig() CrawlerConfig {
 	return CrawlerConfig{
 		AutoAddSeedHostnames:  true,
 		IncludeSubdomains:     false,
+		InsecureSkipTLSVerify: true, // Set to true by default for web crawling
 		MaxConcurrentRequests: 10,
 		MaxContentLengthMB:    2,
 		MaxDepth:              3,
@@ -456,4 +458,57 @@ func NewDefaultDiffReporterConfig() DiffReporterConfig {
 	return DiffReporterConfig{
 		MaxDiffFileSizeMB: 5, // Default 5MB
 	}
+}
+
+// SaveGlobalConfig saves the configuration to a file in the configs directory
+// Supports both JSON and YAML formats based on file extension
+func SaveGlobalConfig(cfg *GlobalConfig, fileName string, logger zerolog.Logger) error {
+	if cfg == nil {
+		return common.NewValidationError("config", cfg, "config cannot be nil")
+	}
+
+	if fileName == "" {
+		fileName = "config.yaml" // Default to YAML
+	}
+
+	// Ensure configs directory exists
+	configsDir := "configs"
+	fileManager := common.NewFileManager(logger)
+	if err := fileManager.EnsureDirectory(configsDir, 0755); err != nil {
+		return common.WrapError(err, "failed to create configs directory")
+	}
+
+	filePath := filepath.Join(configsDir, fileName)
+	return saveConfigToFile(cfg, filePath, fileManager, logger)
+}
+
+// saveConfigToFile saves the config to a specific file path
+func saveConfigToFile(cfg *GlobalConfig, filePath string, fileManager *common.FileManager, logger zerolog.Logger) error {
+	var data []byte
+	var err error
+
+	ext := filepath.Ext(filePath)
+	if isYAMLFile(ext) {
+		data, err = yaml.Marshal(cfg)
+		if err != nil {
+			return common.NewError("failed to marshal config to YAML: %w", err)
+		}
+	} else {
+		data, err = json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			return common.NewError("failed to marshal config to JSON: %w", err)
+		}
+	}
+
+	opts := common.DefaultFileWriteOptions()
+	if err := fileManager.WriteFile(filePath, data, opts); err != nil {
+		return common.WrapError(err, "failed to write config file")
+	}
+
+	logger.Info().
+		Str("path", filePath).
+		Str("format", ext).
+		Msg("Successfully saved config file")
+
+	return nil
 }
