@@ -59,7 +59,7 @@ func (sp *SlicePool) Get() []byte {
 func (sp *SlicePool) Put(slice []byte) {
 	if slice != nil {
 		slice = slice[:0] // Reset length but keep capacity
-		sp.pool.Put(&slice)
+		sp.pool.Put(slice)
 	}
 }
 
@@ -88,7 +88,7 @@ func (ssp *StringSlicePool) Get() []string {
 func (ssp *StringSlicePool) Put(slice []string) {
 	if slice != nil {
 		slice = slice[:0] // Reset length but keep capacity
-		ssp.pool.Put(&slice)
+		ssp.pool.Put(slice)
 	}
 }
 
