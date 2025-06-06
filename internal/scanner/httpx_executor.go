@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/crawler"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
@@ -15,7 +16,8 @@ import (
 // HTTPXExecutor handles the execution of the HTTPX probing component
 // Separates HTTPX execution logic from the main scanner
 type HTTPXExecutor struct {
-	logger zerolog.Logger
+	logger          zerolog.Logger
+	crawlerInstance *crawler.Crawler
 }
 
 // NewHTTPXExecutor creates a new HTTPX executor
@@ -23,6 +25,11 @@ func NewHTTPXExecutor(logger zerolog.Logger) *HTTPXExecutor {
 	return &HTTPXExecutor{
 		logger: logger.With().Str("module", "HTTPXExecutor").Logger(),
 	}
+}
+
+// SetCrawlerInstance sets the crawler instance for root target tracking
+func (he *HTTPXExecutor) SetCrawlerInstance(crawlerInstance *crawler.Crawler) {
+	he.crawlerInstance = crawlerInstance
 }
 
 // HTTPXExecutionInput holds the parameters for HTTPX probing execution
@@ -127,7 +134,15 @@ func (he *HTTPXExecutor) processHTTPXResults(
 	}
 
 	for _, urlString := range discoveredURLs {
-		rootTargetForThisURL := urlhandler.GetRootTargetForURL(urlString, seedURLs)
+		var rootTargetForThisURL string
+
+		// Use crawler instance to get root target if available
+		if he.crawlerInstance != nil {
+			rootTargetForThisURL = he.crawlerInstance.GetRootTargetForDiscoveredURL(urlString)
+		} else {
+			// Fallback to urlhandler logic
+			rootTargetForThisURL = urlhandler.GetRootTargetForURL(urlString, seedURLs)
+		}
 
 		if r, exists := probeResultMap[urlString]; exists {
 			r.RootTargetURL = rootTargetForThisURL

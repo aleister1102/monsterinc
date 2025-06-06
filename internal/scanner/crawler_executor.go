@@ -34,8 +34,9 @@ type CrawlerExecutionInput struct {
 
 // CrawlerExecutionResult contains the results from crawler execution
 type CrawlerExecutionResult struct {
-	DiscoveredURLs []string
-	Error          error
+	DiscoveredURLs  []string
+	CrawlerInstance *crawler.Crawler
+	Error           error
 }
 
 // Execute runs the crawler and returns discovered URLs
@@ -69,7 +70,12 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 	}
 
 	crawlerInstance.Start(input.Context)
+
+	// Đảm bảo crawler đã shutdown hoàn toàn trước khi lấy results
+	crawlerInstance.EnsureFullShutdown()
+
 	result.DiscoveredURLs = crawlerInstance.GetDiscoveredURLs()
+	result.CrawlerInstance = crawlerInstance
 
 	ce.logger.Info().
 		Int("discovered_count", len(result.DiscoveredURLs)).

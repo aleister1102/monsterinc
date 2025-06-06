@@ -312,6 +312,10 @@ func (hae *HTMLAssetExtractor) getTagName(selection *goquery.Selection) string {
 // discoverURLForCrawling adds URL to crawler's discovery queue
 func (hae *HTMLAssetExtractor) discoverURLForCrawling(absoluteURL string) {
 	if hae.crawlerInstance != nil {
+		// Track the parent URL for this discovered URL
+		if hae.basePageURL != nil {
+			hae.crawlerInstance.TrackURLParent(absoluteURL, hae.basePageURL.String())
+		}
 		hae.crawlerInstance.DiscoverURL(absoluteURL, hae.basePageURL)
 	}
 }

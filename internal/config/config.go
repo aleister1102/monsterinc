@@ -270,34 +270,36 @@ func NewDefaultHeadlessBrowserConfig() HeadlessBrowserConfig {
 }
 
 type CrawlerConfig struct {
-	AutoAddSeedHostnames  bool                  `json:"auto_add_seed_hostnames" yaml:"auto_add_seed_hostnames"`
-	IncludeSubdomains     bool                  `json:"include_subdomains" yaml:"include_subdomains"`
-	InsecureSkipTLSVerify bool                  `json:"insecure_skip_tls_verify" yaml:"insecure_skip_tls_verify"`
-	MaxConcurrentRequests int                   `json:"max_concurrent_requests,omitempty" yaml:"max_concurrent_requests,omitempty" validate:"omitempty,min=1"`
-	MaxContentLengthMB    int                   `json:"max_content_length_mb,omitempty" yaml:"max_content_length_mb,omitempty"`
-	MaxDepth              int                   `json:"max_depth,omitempty" yaml:"max_depth,omitempty" validate:"omitempty,min=0"`
-	RequestTimeoutSecs    int                   `json:"request_timeout_secs,omitempty" yaml:"request_timeout_secs,omitempty" validate:"omitempty,min=1"`
-	RespectRobotsTxt      bool                  `json:"respect_robots_txt" yaml:"respect_robots_txt"`
-	Scope                 CrawlerScopeConfig    `json:"scope,omitempty" yaml:"scope,omitempty"`
-	SeedURLs              []string              `json:"seed_urls,omitempty" yaml:"seed_urls,omitempty" validate:"omitempty,dive,url"`
-	UserAgent             string                `json:"user_agent,omitempty" yaml:"user_agent,omitempty"`
-	HeadlessBrowser       HeadlessBrowserConfig `json:"headless_browser,omitempty" yaml:"headless_browser,omitempty"`
+	AutoAddSeedHostnames     bool                  `json:"auto_add_seed_hostnames" yaml:"auto_add_seed_hostnames"`
+	EnableContentLengthCheck bool                  `json:"enable_content_length_check" yaml:"enable_content_length_check"`
+	IncludeSubdomains        bool                  `json:"include_subdomains" yaml:"include_subdomains"`
+	InsecureSkipTLSVerify    bool                  `json:"insecure_skip_tls_verify" yaml:"insecure_skip_tls_verify"`
+	MaxConcurrentRequests    int                   `json:"max_concurrent_requests,omitempty" yaml:"max_concurrent_requests,omitempty" validate:"omitempty,min=1"`
+	MaxContentLengthMB       int                   `json:"max_content_length_mb,omitempty" yaml:"max_content_length_mb,omitempty"`
+	MaxDepth                 int                   `json:"max_depth,omitempty" yaml:"max_depth,omitempty" validate:"omitempty,min=0"`
+	RequestTimeoutSecs       int                   `json:"request_timeout_secs,omitempty" yaml:"request_timeout_secs,omitempty" validate:"omitempty,min=1"`
+	RespectRobotsTxt         bool                  `json:"respect_robots_txt" yaml:"respect_robots_txt"`
+	Scope                    CrawlerScopeConfig    `json:"scope,omitempty" yaml:"scope,omitempty"`
+	SeedURLs                 []string              `json:"seed_urls,omitempty" yaml:"seed_urls,omitempty" validate:"omitempty,dive,url"`
+	UserAgent                string                `json:"user_agent,omitempty" yaml:"user_agent,omitempty"`
+	HeadlessBrowser          HeadlessBrowserConfig `json:"headless_browser,omitempty" yaml:"headless_browser,omitempty"`
 }
 
 func NewDefaultCrawlerConfig() CrawlerConfig {
 	return CrawlerConfig{
-		AutoAddSeedHostnames:  true,
-		IncludeSubdomains:     false,
-		InsecureSkipTLSVerify: true, // Set to true by default for web crawling
-		MaxConcurrentRequests: 10,
-		MaxContentLengthMB:    2,
-		MaxDepth:              3,
-		RequestTimeoutSecs:    30,
-		RespectRobotsTxt:      false,
-		SeedURLs:              []string{},
-		UserAgent:             "MonsterInc-Crawler/1.0",
-		Scope:                 NewDefaultCrawlerScopeConfig(),
-		HeadlessBrowser:       NewDefaultHeadlessBrowserConfig(),
+		AutoAddSeedHostnames:     true,
+		EnableContentLengthCheck: false,
+		IncludeSubdomains:        false,
+		InsecureSkipTLSVerify:    true, // Set to true by default for web crawling
+		MaxConcurrentRequests:    10,
+		MaxContentLengthMB:       2,
+		MaxDepth:                 3,
+		RequestTimeoutSecs:       30,
+		RespectRobotsTxt:         false,
+		SeedURLs:                 []string{},
+		UserAgent:                "MonsterInc-Crawler/1.0",
+		Scope:                    NewDefaultCrawlerScopeConfig(),
+		HeadlessBrowser:          NewDefaultHeadlessBrowserConfig(),
 	}
 }
 

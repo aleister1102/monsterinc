@@ -15,7 +15,6 @@ func (cr *Crawler) Start(ctx context.Context) {
 
 	// Start URL batch processor for improved performance
 	cr.startURLBatchProcessor()
-	defer cr.stopURLBatchProcessor()
 
 	// Ensure cleanup on exit
 	defer cr.Stop()
@@ -34,7 +33,6 @@ func (cr *Crawler) Start(ctx context.Context) {
 func (cr *Crawler) processSeedURLs() {
 	for _, seed := range cr.seedURLs {
 		if cr.isContextCancelled() {
-
 			return
 		}
 
@@ -56,8 +54,12 @@ func (cr *Crawler) processSeedURL(seed string) {
 
 // waitForCompletion waits for all crawling threads to complete
 func (cr *Crawler) waitForCompletion() {
-	cr.logger.Info().Int("active_threads", cr.threads).Msg("Waiting for threads to complete")
+	cr.logger.Info().Int("active_threads", cr.threads).Msg("Waiting for crawler threads to complete")
+
+	// Wait for all colly requests to complete
 	cr.collector.Wait()
+
+	cr.logger.Info().Msg("All crawler threads completed")
 }
 
 // logSummary logs the crawling summary statistics
@@ -76,13 +78,30 @@ func (cr *Crawler) logSummary() {
 		Int("visited", visited).
 		Int("discovered", discovered).
 		Int("errors", errors).
-		Msg("Summary")
+		Msg("Crawl summary")
 }
 
 // Stop gracefully shuts down the crawler and its components
 func (cr *Crawler) Stop() {
+	cr.logger.Info().Msg("Stopping crawler...")
+
+	// Stop URL batch processor first to prevent new URLs being queued
+	if cr.urlQueue != nil {
+		cr.stopURLBatchProcessor()
+		cr.logger.Debug().Msg("URL batch processor stopped")
+	}
+
+	// Wait for colly collector to finish all current operations
+	if cr.collector != nil {
+		cr.collector.Wait()
+		cr.logger.Debug().Msg("Colly collector stopped")
+	}
+
+	// Stop headless browser manager
 	if cr.headlessBrowserManager != nil {
 		cr.headlessBrowserManager.Stop()
 		cr.logger.Debug().Msg("Headless browser manager stopped")
 	}
+
+	cr.logger.Info().Msg("Crawler stopped completely")
 }

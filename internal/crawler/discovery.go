@@ -1,9 +1,11 @@
 package crawler
 
 import (
+	"context"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
@@ -25,7 +27,8 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 		return
 	}
 
-	if cr.shouldSkipURLByContentLength(normalizedURL) {
+	// Only check content length if enabled in config
+	if cr.config.EnableContentLengthCheck && cr.shouldSkipURLByContentLength(normalizedURL) {
 		cr.addDiscoveredURL(normalizedURL)
 		return
 	}
@@ -84,15 +87,26 @@ func (cr *Crawler) isURLAlreadyDiscovered(normalizedURL string) bool {
 
 // shouldSkipURLByContentLength performs HEAD request to check content length
 func (cr *Crawler) shouldSkipURLByContentLength(normalizedURL string) bool {
+	// Skip content length check if max content length is 0 (unlimited)
+	if cr.maxContentLength <= 0 {
+		return false
+	}
+
+	// Create a short timeout context for HEAD request (5 seconds max)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	req := &common.HTTPRequest{
 		URL:     normalizedURL,
 		Method:  "HEAD",
 		Headers: make(map[string]string),
+		Context: ctx,
 	}
 
 	resp, err := cr.httpClient.Do(req)
 	if err != nil {
-		cr.logger.Warn().Str("url", normalizedURL).Err(err).Msg("HEAD request failed")
+		// If HEAD request fails, don't skip - let the main crawler handle it
+		cr.logger.Debug().Str("url", normalizedURL).Err(err).Msg("HEAD request failed, allowing URL")
 		return false
 	}
 

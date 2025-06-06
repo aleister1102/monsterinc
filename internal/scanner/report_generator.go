@@ -28,6 +28,7 @@ func NewReportGenerator(config *config.ReporterConfig, logger zerolog.Logger) *R
 // ReportGenerationInput contains information needed to generate reports
 type ReportGenerationInput struct {
 	ProbeResults   []models.ProbeResult
+	URLDiffResults map[string]models.URLDiffResult
 	ScanSessionID  string
 	ShouldGenerate bool // Determines whether to generate reports
 }
@@ -36,6 +37,16 @@ type ReportGenerationInput struct {
 func NewReportGenerationInput(probeResults []models.ProbeResult, scanSessionID string) *ReportGenerationInput {
 	return &ReportGenerationInput{
 		ProbeResults:   probeResults,
+		ScanSessionID:  scanSessionID,
+		ShouldGenerate: true,
+	}
+}
+
+// NewReportGenerationInputWithDiff creates input for report generation including URL diff results
+func NewReportGenerationInputWithDiff(probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, scanSessionID string) *ReportGenerationInput {
+	return &ReportGenerationInput{
+		ProbeResults:   probeResults,
+		URLDiffResults: urlDiffResults,
 		ScanSessionID:  scanSessionID,
 		ShouldGenerate: true,
 	}
@@ -58,8 +69,11 @@ func (rg *ReportGenerator) GenerateReports(input *ReportGenerationInput) ([]stri
 
 	baseReportPath := rg.buildBaseReportPath(input.ScanSessionID)
 
+	// Combine current scan results with old URLs from diff results
+	allProbeResults := rg.combineProbeResultsWithOldURLs(input.ProbeResults, input.URLDiffResults)
+
 	// OPTIMIZATION: Direct pointer conversion to avoid intermediate allocation
-	probeResultsPtr := rg.convertToPointersOptimized(input.ProbeResults)
+	probeResultsPtr := rg.convertToPointersOptimized(allProbeResults)
 
 	reportPaths, err := htmlReporter.GenerateReport(probeResultsPtr, baseReportPath)
 	if err != nil {
@@ -120,4 +134,31 @@ func (rg *ReportGenerator) logReportGeneration(scanSessionID string, reportPaths
 		Str("session_id", scanSessionID).
 		Strs("paths", reportPaths).
 		Msg("HTML report(s) generated successfully")
+}
+
+// combineProbeResultsWithOldURLs combines current scan results with old URLs from diff results
+func (rg *ReportGenerator) combineProbeResultsWithOldURLs(probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult) []models.ProbeResult {
+	// Calculate total capacity for pre-allocation
+	totalOldResults := 0
+	for _, urlDiffResult := range urlDiffResults {
+		for _, diffedURL := range urlDiffResult.Results {
+			if diffedURL.ProbeResult.URLStatus == string(models.StatusOld) {
+				totalOldResults++
+			}
+		}
+	}
+
+	allProbeResults := make([]models.ProbeResult, 0, len(probeResults)+totalOldResults)
+	allProbeResults = append(allProbeResults, probeResults...)
+
+	// Add old URLs from diff results
+	for _, urlDiffResult := range urlDiffResults {
+		for _, diffedURL := range urlDiffResult.Results {
+			if diffedURL.ProbeResult.URLStatus == string(models.StatusOld) {
+				allProbeResults = append(allProbeResults, diffedURL.ProbeResult)
+			}
+		}
+	}
+
+	return allProbeResults
 }

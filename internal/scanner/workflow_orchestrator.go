@@ -44,7 +44,7 @@ func (wo *WorkflowOrchestrator) ExecuteCompleteWorkflow(input *ScanWorkflowInput
 	)
 
 	// Generate reports if needed
-	reportPaths, reportError := wo.generateReports(probeResults, input.ScanSessionID)
+	reportPaths, reportError := wo.generateReports(probeResults, urlDiffResults, input.ScanSessionID)
 	if reportError != nil && workflowError == nil {
 		workflowError = reportError
 	}
@@ -86,8 +86,8 @@ func (wo *WorkflowOrchestrator) validateInput(input *ScanWorkflowInput) error {
 }
 
 // generateReports handles report generation with error handling
-func (wo *WorkflowOrchestrator) generateReports(probeResults []models.ProbeResult, scanSessionID string) ([]string, error) {
-	reportInput := NewReportGenerationInput(probeResults, scanSessionID)
+func (wo *WorkflowOrchestrator) generateReports(probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, scanSessionID string) ([]string, error) {
+	reportInput := NewReportGenerationInputWithDiff(probeResults, urlDiffResults, scanSessionID)
 
 	reportPaths, err := wo.reportGenerator.GenerateReports(reportInput)
 	if err != nil {

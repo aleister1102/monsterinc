@@ -82,7 +82,7 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 	var reportFilePaths []string
 	if len(probeResults) > 0 {
 		reportGenerator := NewReportGenerator(&gCfg.ReporterConfig, s.logger)
-		reportInput := NewReportGenerationInput(probeResults, scanSessionID)
+		reportInput := NewReportGenerationInputWithDiff(probeResults, urlDiffResults, scanSessionID)
 		reportPaths, reportErr := reportGenerator.GenerateReports(reportInput)
 		if reportErr != nil {
 			s.logger.Warn().Err(reportErr).Msg("Failed to generate reports")
@@ -156,6 +156,9 @@ func (s *Scanner) ExecuteScanWorkflow(
 	if crawlerResult.Error != nil {
 		return nil, nil, fmt.Errorf("crawler execution failed: %w", crawlerResult.Error)
 	}
+
+	// Set crawler instance for HTTPX executor to use for root target tracking
+	s.httpxExecutor.SetCrawlerInstance(crawlerResult.CrawlerInstance)
 
 	// Step 2: Execute HTTPX probing
 	httpxConfig := s.configBuilder.BuildHTTPXConfig(crawlerResult.DiscoveredURLs)

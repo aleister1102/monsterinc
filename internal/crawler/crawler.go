@@ -13,14 +13,17 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/gocolly/colly/v2"
 	"github.com/rs/zerolog"
 )
 
 // Crawler represents the web crawler instance with thread-safe operations
 type Crawler struct {
-	collector        *colly.Collector
-	discoveredURLs   map[string]bool
+	collector      *colly.Collector
+	discoveredURLs map[string]bool
+	// Track parent URL for each discovered URL
+	urlParentMap     map[string]string // child URL -> parent URL
 	mutex            sync.RWMutex
 	userAgent        string
 	requestTimeout   time.Duration
@@ -82,6 +85,7 @@ func (cb *CrawlerBuilder) Build() (*Crawler, error) {
 
 	crawler := &Crawler{
 		discoveredURLs: make(map[string]bool),
+		urlParentMap:   make(map[string]string),
 		logger:         cb.logger,
 		config:         cb.config,
 	}
@@ -196,7 +200,19 @@ func (cr *Crawler) processBatch(urls []string) {
 
 // stopURLBatchProcessor gracefully stops the URL batch processor
 func (cr *Crawler) stopURLBatchProcessor() {
-	close(cr.batchShutdown)
+	cr.mutex.Lock()
+	defer cr.mutex.Unlock()
+
+	// Check if already closed to prevent panic
+	select {
+	case <-cr.batchShutdown:
+		// Already closed
+		return
+	default:
+		// Not closed yet, safe to close
+		close(cr.batchShutdown)
+	}
+
 	cr.batchWG.Wait()
 }
 
@@ -395,6 +411,55 @@ func (cr *Crawler) GetDiscoveredURLs() []string {
 	return urls
 }
 
+// TrackURLParent tracks the parent URL for a discovered URL
+func (cr *Crawler) TrackURLParent(childURL, parentURL string) {
+	cr.mutex.Lock()
+	defer cr.mutex.Unlock()
+	cr.urlParentMap[childURL] = parentURL
+}
+
+// GetRootTargetForDiscoveredURL returns the root target URL for a discovered URL
+// by tracing back through the parent chain to find the original seed URL
+func (cr *Crawler) GetRootTargetForDiscoveredURL(discoveredURL string) string {
+	cr.mutex.RLock()
+	defer cr.mutex.RUnlock()
+
+	// Check if this URL is a seed URL
+	for _, seed := range cr.seedURLs {
+		if discoveredURL == seed {
+			return seed
+		}
+	}
+
+	// Trace back through parent chain
+	currentURL := discoveredURL
+	visited := make(map[string]bool) // Prevent infinite loops
+
+	for {
+		if visited[currentURL] {
+			break // Infinite loop detected
+		}
+		visited[currentURL] = true
+
+		parentURL, exists := cr.urlParentMap[currentURL]
+		if !exists {
+			break // No parent found
+		}
+
+		// Check if parent is a seed URL
+		for _, seed := range cr.seedURLs {
+			if parentURL == seed {
+				return seed
+			}
+		}
+
+		currentURL = parentURL
+	}
+
+	// Fallback to urlhandler logic
+	return urlhandler.GetRootTargetForURL(discoveredURL, cr.seedURLs)
+}
+
 // isAntivirusBlockingError checks if the error is related to antivirus blocking
 func (cr *Crawler) isAntivirusBlockingError(err error) bool {
 	if err == nil {
@@ -423,4 +488,21 @@ func (cr *Crawler) isAntivirusBlockingError(err error) bool {
 	}
 
 	return false
+}
+
+// EnsureFullShutdown đảm bảo crawler đã shutdown hoàn toàn trước khi tiếp tục
+func (cr *Crawler) EnsureFullShutdown() {
+	cr.logger.Info().Msg("Ensuring crawler full shutdown...")
+
+	// Wait for URL batch processor to complete
+	cr.batchWG.Wait()
+	cr.logger.Debug().Msg("URL batch processor goroutines completed")
+
+	// Double-check colly is done
+	if cr.collector != nil {
+		cr.collector.Wait()
+		cr.logger.Debug().Msg("Colly collector confirmed stopped")
+	}
+
+	cr.logger.Info().Msg("Crawler full shutdown confirmed")
 }
