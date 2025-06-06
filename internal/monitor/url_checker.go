@@ -61,7 +61,7 @@ type CheckResult struct {
 
 // CheckURL checks a single URL for changes
 func (uc *URLChecker) CheckURL(url string, cycleID string) CheckResult {
-	return uc.CheckURLWithContext(nil, url, cycleID)
+	return uc.CheckURLWithContext(context.TODO(), url, cycleID)
 }
 
 // CheckURLWithContext checks a single URL for changes with context support

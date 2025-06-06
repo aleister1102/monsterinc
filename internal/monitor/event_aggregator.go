@@ -264,8 +264,11 @@ func (ea *EventAggregator) extractFileChangeEvents() []models.FileChangeInfo {
 		return nil
 	}
 
+	// Create a new slice with exact capacity to avoid over-allocation
 	changes := make([]models.FileChangeInfo, len(ea.fileChangeEvents))
 	copy(changes, ea.fileChangeEvents)
+
+	// Reset slice efficiently while keeping capacity
 	ea.fileChangeEvents = ea.fileChangeEvents[:0]
 	return changes
 }
@@ -278,8 +281,11 @@ func (ea *EventAggregator) extractFetchErrors() []models.MonitorFetchErrorInfo {
 		return nil
 	}
 
+	// Create a new slice with exact capacity to avoid over-allocation
 	errors := make([]models.MonitorFetchErrorInfo, len(ea.fetchErrors))
 	copy(errors, ea.fetchErrors)
+
+	// Reset slice efficiently while keeping capacity
 	ea.fetchErrors = ea.fetchErrors[:0]
 	return errors
 }

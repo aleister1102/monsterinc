@@ -115,7 +115,15 @@ func (cr *Crawler) initialize() error {
 
 // initializeURLBatcher sets up URL batching for improved performance
 func (cr *Crawler) initializeURLBatcher() {
-	cr.urlQueue = make(chan string, 100)
+	// Size channel buffer based on expected concurrent requests
+	bufferSize := cr.config.MaxConcurrentRequests * 2
+	if bufferSize < 50 {
+		bufferSize = 50
+	} else if bufferSize > 500 {
+		bufferSize = 500
+	}
+
+	cr.urlQueue = make(chan string, bufferSize)
 	cr.urlBatchSize = 10
 	cr.batchShutdown = make(chan struct{})
 }

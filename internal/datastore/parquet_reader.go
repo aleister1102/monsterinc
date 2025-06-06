@@ -194,6 +194,8 @@ func (pr *ParquetReader) openParquetFile(filePath string) (*os.File, error) {
 }
 
 // createParquetReader creates a configured Parquet reader
+//
+//nolint:staticcheck // TODO: Replace deprecated parquet.Reader with newer API
 func (pr *ParquetReader) createParquetReader(file *os.File) (*parquet.Reader, error) {
 	readerOptions := pr.buildReaderOptions()
 	reader := parquet.NewReader(file, readerOptions...)
@@ -208,6 +210,8 @@ func (pr *ParquetReader) buildReaderOptions() []parquet.ReaderOption {
 }
 
 // readAllRecords reads all records from the Parquet reader
+//
+//nolint:staticcheck // TODO: Replace deprecated parquet.Reader with newer API
 func (pr *ParquetReader) readAllRecords(reader *parquet.Reader, contextualRootTargetURL string) ([]models.ProbeResult, error) {
 	var results []models.ProbeResult
 	row := models.ParquetProbeResult{} // Reusable buffer

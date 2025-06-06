@@ -193,7 +193,10 @@ func (fm *FileManager) performFileRead(path string, reader io.Reader, opts FileR
 // readFileLines reads file content line by line
 func (fm *FileManager) readFileLines(reader io.Reader, opts FileReadOptions) ([]byte, error) {
 	scanner := bufio.NewScanner(reader)
-	var lines []string
+
+	// Use string slice pool to reduce allocations
+	lines := DefaultStringSlicePool.Get()
+	defer DefaultStringSlicePool.Put(lines)
 
 	for scanner.Scan() {
 		line := scanner.Text()

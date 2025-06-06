@@ -162,56 +162,6 @@ func (hae *HTMLAssetExtractor) getBaseDiscoveryURL() string {
 	return ""
 }
 
-// extractAssetsFromElements extracts assets from HTML elements matching the extractor
-func (hae *HTMLAssetExtractor) extractAssetsFromElements(
-	doc *goquery.Document,
-	extractor AssetExtractor,
-	baseDiscoveryURL string,
-) []models.Asset {
-	var assets []models.Asset
-
-	doc.Find(extractor.Tag).Each(
-		func(i int, s *goquery.Selection) {
-			elementAssets := hae.extractAssetsFromElement(s, extractor, baseDiscoveryURL)
-			assets = append(assets, elementAssets...)
-		},
-	)
-
-	return assets
-}
-
-// extractAssetsFromElement extracts assets from a single HTML element
-func (hae *HTMLAssetExtractor) extractAssetsFromElement(
-	selection *goquery.Selection,
-	extractor AssetExtractor,
-	baseDiscoveryURL string,
-) []models.Asset {
-	attrValue, exists := selection.Attr(extractor.Attribute)
-	if !exists || strings.TrimSpace(attrValue) == "" {
-		return []models.Asset{}
-	}
-
-	urls := hae.parseAttributeURLs(attrValue, extractor.Attribute)
-	assetType := hae.determineAssetType(selection, extractor.Tag)
-
-	var assets []models.Asset
-	for _, rawURL := range urls {
-		if asset := hae.createAssetFromURL(rawURL, selection, extractor.Attribute, assetType, baseDiscoveryURL); asset != nil {
-			assets = append(assets, *asset)
-		}
-	}
-
-	return assets
-}
-
-// parseAttributeURLs parses URLs from an attribute value
-func (hae *HTMLAssetExtractor) parseAttributeURLs(attrValue, attributeName string) []string {
-	if attributeName == "srcset" {
-		return hae.parseSrcsetURLs(attrValue)
-	}
-	return []string{attrValue}
-}
-
 // parseSrcsetURLs parses URLs from srcset attribute
 func (hae *HTMLAssetExtractor) parseSrcsetURLs(srcset string) []string {
 	var urls []string
@@ -238,31 +188,6 @@ func (hae *HTMLAssetExtractor) extractURLFromSrcsetPart(part string) string {
 	}
 
 	return ""
-}
-
-// determineAssetType determines the asset type based on HTML element
-func (hae *HTMLAssetExtractor) determineAssetType(selection *goquery.Selection, tagName string) models.AssetType {
-	switch tagName {
-	case "a":
-		return models.AssetType(tagName)
-	case "link":
-		return hae.determineLinkAssetType(selection)
-	case "script", "img", "iframe", "form", "object", "embed":
-		return models.AssetType(tagName)
-	default:
-		hae.crawlerInstance.logger.Warn().
-			Str("tag", tagName).
-			Msg("Unknown tag type for asset extraction, using tag name as type")
-		return models.AssetType(tagName)
-	}
-}
-
-// determineLinkAssetType determines specific asset type for link elements
-func (hae *HTMLAssetExtractor) determineLinkAssetType(selection *goquery.Selection) models.AssetType {
-	if rel := selection.AttrOr("rel", ""); rel == "stylesheet" {
-		return models.AssetTypeStyle
-	}
-	return models.AssetType("link")
 }
 
 // createAssetFromURL creates an asset model from a URL

@@ -40,9 +40,10 @@ func (du *DiffUtils) CreateDiffSummary(diffs []models.ContentDiff) string {
 	insertions := 0
 	deletions := 0
 	for _, d := range diffs {
-		if d.Operation == models.DiffInsert {
+		switch d.Operation {
+		case models.DiffInsert:
 			insertions++
-		} else if d.Operation == models.DiffDelete {
+		case models.DiffDelete:
 			deletions++
 		}
 	}

@@ -39,6 +39,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Start global resource limiter after logger is initialized
+	common.StartGlobalResourceLimiter(zLogger)
+
 	discordHttpClient, err := common.NewHTTPClientFactory(zLogger).CreateDiscordClient(
 		20 * time.Second,
 	)
@@ -443,6 +446,11 @@ func shutdownServices(
 			ms.Stop()
 			zLogger.Info().Msg("Monitoring service stopped.")
 		}
+
+		// Stop global resource limiter
+		zLogger.Info().Msg("Stopping resource limiter...")
+		common.StopGlobalResourceLimiter()
+		zLogger.Info().Msg("Resource limiter stopped.")
 
 		// Give a bit of time for final cleanup
 		time.Sleep(1 * time.Second)

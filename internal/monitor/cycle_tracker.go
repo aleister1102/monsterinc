@@ -82,6 +82,7 @@ func (ct *CycleTracker) GetChangeCount() int {
 // Private helper methods for CycleTracker
 
 func (ct *CycleTracker) extractChangedURLs() []string {
+	// Pre-allocate with exact capacity to avoid reallocation
 	urls := make([]string, 0, len(ct.changedURLs))
 	for url := range ct.changedURLs {
 		urls = append(urls, url)
