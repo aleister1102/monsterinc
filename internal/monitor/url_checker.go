@@ -455,21 +455,6 @@ func (uc *URLChecker) isJavaScriptFile(url string) bool {
 	return false
 }
 
-// isHTMLFile checks if URL has HTML file extension based on config
-func (uc *URLChecker) isHTMLFile(url string) bool {
-	if uc.gCfg == nil {
-		return false
-	}
-
-	urlLower := strings.ToLower(url)
-	for _, ext := range uc.gCfg.MonitorConfig.HTMLFileExtensions {
-		if strings.HasSuffix(urlLower, ext) {
-			return true
-		}
-	}
-	return false
-}
-
 // shouldExtractPaths determines if paths should be extracted from content
 func (uc *URLChecker) shouldExtractPaths(url string, contentType string) bool {
 	return uc.isJavaScriptContent(contentType) || uc.isJavaScriptFile(url)

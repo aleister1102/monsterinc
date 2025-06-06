@@ -57,11 +57,10 @@ func (cr *Crawler) shouldAbortRequest(r *colly.Request) bool {
 
 	path := r.URL.Path
 
-	// Check disallowed file extensions using fast string operations
-	for _, ext := range cr.scope.disallowedFileExtensions {
-		if strings.HasSuffix(path, ext) {
-			return true
-		}
+	// Fast map lookup instead of string iteration
+	if lastDot := strings.LastIndex(path, "."); lastDot != -1 {
+		ext := path[lastDot:]
+		return cr.disallowedExtMap[ext]
 	}
 
 	return false

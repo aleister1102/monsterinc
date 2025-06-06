@@ -13,6 +13,10 @@ func (cr *Crawler) Start(ctx context.Context) {
 	cr.ctx = ctx
 	cr.crawlStartTime = time.Now()
 
+	// Start URL batch processor for improved performance
+	cr.startURLBatchProcessor()
+	defer cr.stopURLBatchProcessor()
+
 	cr.logger.Info().
 		Int("seed_count", len(cr.seedURLs)).
 		Strs("seeds", cr.seedURLs).

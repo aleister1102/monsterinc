@@ -128,7 +128,7 @@ func (cr *Crawler) checkContentLength(resp *http.Response, normalizedURL string)
 	return false
 }
 
-// queueURLForVisit adds URL to colly queue for crawling
+// queueURLForVisit adds URL to batched queue for crawling
 func (cr *Crawler) queueURLForVisit(normalizedURL string) {
 	cr.mutex.Lock()
 
@@ -141,8 +141,15 @@ func (cr *Crawler) queueURLForVisit(normalizedURL string) {
 	cr.discoveredURLs[normalizedURL] = true
 	cr.mutex.Unlock()
 
-	if err := cr.collector.Visit(normalizedURL); err != nil {
-		cr.handleVisitError(normalizedURL, err)
+	// Try to send to batch queue, fallback to immediate processing if queue is full
+	select {
+	case cr.urlQueue <- normalizedURL:
+		// Successfully queued for batch processing
+	default:
+		// Queue full, process immediately
+		if err := cr.collector.Visit(normalizedURL); err != nil {
+			cr.handleVisitError(normalizedURL, err)
+		}
 	}
 }
 

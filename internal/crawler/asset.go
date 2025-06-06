@@ -67,15 +67,80 @@ func (hae *HTMLAssetExtractor) Extract(htmlContent []byte) []models.Asset {
 		return []models.Asset{}
 	}
 
-	var assets []models.Asset
+	// Pre-allocate slice with estimated capacity for better performance
+	assets := make([]models.Asset, 0, 50)
 	baseDiscoveryURL := hae.getBaseDiscoveryURL()
 
-	for _, extractor := range hae.extractors {
-		extractedAssets := hae.extractAssetsFromElements(doc, extractor, baseDiscoveryURL)
-		assets = append(assets, extractedAssets...)
-	}
+	// Single pass extraction instead of multiple loops
+	hae.extractAllAssetsInSinglePass(doc, baseDiscoveryURL, &assets)
 
 	return assets
+}
+
+// extractAllAssetsInSinglePass extracts all assets in a single DOM traversal for better performance
+func (hae *HTMLAssetExtractor) extractAllAssetsInSinglePass(doc *goquery.Document, baseDiscoveryURL string, assets *[]models.Asset) {
+	// Extract all common asset elements in one pass
+	doc.Find("a[href], link[href], script[src], img[src], iframe[src], form[action], object[data], embed[src]").Each(func(i int, s *goquery.Selection) {
+		tagName := goquery.NodeName(s)
+		var attrName string
+
+		switch tagName {
+		case "a", "link":
+			attrName = "href"
+		case "script", "img", "iframe", "embed":
+			attrName = "src"
+		case "form":
+			attrName = "action"
+		case "object":
+			attrName = "data"
+		default:
+			return
+		}
+
+		if asset := hae.createAssetFromSelection(s, tagName, attrName, baseDiscoveryURL); asset != nil {
+			*assets = append(*assets, *asset)
+		}
+	})
+
+	// Handle special case for srcset attributes
+	doc.Find("img[srcset], source[srcset]").Each(func(i int, s *goquery.Selection) {
+		if srcset, exists := s.Attr("srcset"); exists && strings.TrimSpace(srcset) != "" {
+			urls := hae.parseSrcsetURLs(srcset)
+			for _, rawURL := range urls {
+				if asset := hae.createAssetFromURL(rawURL, s, "srcset", models.AssetTypeImage, baseDiscoveryURL); asset != nil {
+					*assets = append(*assets, *asset)
+				}
+			}
+		}
+	})
+}
+
+// createAssetFromSelection creates an asset from a goquery selection with optimized attribute access
+func (hae *HTMLAssetExtractor) createAssetFromSelection(selection *goquery.Selection, tagName, attrName, baseDiscoveryURL string) *models.Asset {
+	attrValue, exists := selection.Attr(attrName)
+	if !exists || strings.TrimSpace(attrValue) == "" {
+		return nil
+	}
+
+	assetType := hae.determineAssetTypeOptimized(tagName, selection)
+	return hae.createAssetFromURL(attrValue, selection, attrName, assetType, baseDiscoveryURL)
+}
+
+// determineAssetTypeOptimized optimized version of asset type determination
+func (hae *HTMLAssetExtractor) determineAssetTypeOptimized(tagName string, selection *goquery.Selection) models.AssetType {
+	switch tagName {
+	case "a":
+		return models.AssetType(tagName)
+	case "link":
+		if rel := selection.AttrOr("rel", ""); rel == "stylesheet" {
+			return models.AssetTypeStyle
+		}
+		return models.AssetType("link")
+	case "script", "img", "iframe", "form", "object", "embed":
+		return models.AssetType(tagName)
+	default:
+		return models.AssetType(tagName)
+	}
 }
 
 // parseHTML parses HTML content into a goquery document

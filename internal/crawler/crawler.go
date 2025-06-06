@@ -36,6 +36,13 @@ type Crawler struct {
 	config           *config.CrawlerConfig
 	ctx              context.Context
 	httpClient       *http.Client
+	// URL batching for improved performance
+	urlQueue      chan string
+	urlBatchSize  int
+	batchWG       sync.WaitGroup
+	batchShutdown chan struct{}
+	// Extension map cache for fast string operations
+	disallowedExtMap map[string]bool
 }
 
 // NewCrawler initializes a new Crawler based on the provided configuration
@@ -100,8 +107,81 @@ func (cr *Crawler) initialize() error {
 		return err
 	}
 
+	cr.initializeURLBatcher()
+	cr.initializeExtensionMap()
 	cr.logInitialization()
 	return nil
+}
+
+// initializeURLBatcher sets up URL batching for improved performance
+func (cr *Crawler) initializeURLBatcher() {
+	cr.urlQueue = make(chan string, 100)
+	cr.urlBatchSize = 10
+	cr.batchShutdown = make(chan struct{})
+}
+
+// initializeExtensionMap caches disallowed extensions for fast lookup
+func (cr *Crawler) initializeExtensionMap() {
+	cr.disallowedExtMap = make(map[string]bool)
+	if cr.scope != nil {
+		for _, ext := range cr.scope.disallowedFileExtensions {
+			cr.disallowedExtMap[ext] = true
+		}
+	}
+}
+
+// startURLBatchProcessor starts the background URL batch processor
+func (cr *Crawler) startURLBatchProcessor() {
+	cr.batchWG.Add(1)
+	go cr.processBatchedURLs()
+}
+
+// processBatchedURLs processes URLs in batches for better performance
+func (cr *Crawler) processBatchedURLs() {
+	defer cr.batchWG.Done()
+
+	batch := make([]string, 0, cr.urlBatchSize)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case url := <-cr.urlQueue:
+			batch = append(batch, url)
+			if len(batch) >= cr.urlBatchSize {
+				cr.processBatch(batch)
+				batch = batch[:0] // Reset slice keeping capacity
+			}
+		case <-ticker.C:
+			if len(batch) > 0 {
+				cr.processBatch(batch)
+				batch = batch[:0]
+			}
+		case <-cr.batchShutdown:
+			// Process remaining URLs
+			if len(batch) > 0 {
+				cr.processBatch(batch)
+			}
+			return
+		case <-cr.ctx.Done():
+			return
+		}
+	}
+}
+
+// processBatch processes a batch of URLs
+func (cr *Crawler) processBatch(urls []string) {
+	for _, url := range urls {
+		if err := cr.collector.Visit(url); err != nil {
+			cr.handleVisitError(url, err)
+		}
+	}
+}
+
+// stopURLBatchProcessor gracefully stops the URL batch processor
+func (cr *Crawler) stopURLBatchProcessor() {
+	close(cr.batchShutdown)
+	cr.batchWG.Wait()
 }
 
 // validateAndSetDefaults validates configuration and sets default values
