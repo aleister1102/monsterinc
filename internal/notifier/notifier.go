@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -31,11 +30,11 @@ const (
 // DiscordNotifier handles sending notifications to a Discord webhook.
 type DiscordNotifier struct {
 	logger     zerolog.Logger
-	httpClient *http.Client
+	httpClient *common.FastHTTPClient
 }
 
 // NewDiscordNotifier creates a new DiscordNotifier.
-func NewDiscordNotifier(logger zerolog.Logger, httpClient *http.Client) (*DiscordNotifier, error) {
+func NewDiscordNotifier(logger zerolog.Logger, httpClient *common.FastHTTPClient) (*DiscordNotifier, error) {
 	moduleLogger := logger.With().Str("module", "DiscordNotifier").Logger()
 
 	if httpClient == nil {
@@ -70,9 +69,6 @@ func (dn *DiscordNotifier) SendNotification(ctx context.Context, webhookURL stri
 		return err
 	}
 
-	httpReqCtx, httpReqCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer httpReqCancel()
-
 	// Process attachment if provided
 	attachmentResult, err := dn.processAttachment(reportFilePath, payload)
 	if err != nil {
@@ -80,14 +76,8 @@ func (dn *DiscordNotifier) SendNotification(ctx context.Context, webhookURL stri
 	}
 	defer dn.cleanupTempFiles(attachmentResult)
 
-	// Prepare HTTP request
-	req, err := dn.prepareHTTPRequest(httpReqCtx, webhookURL, attachmentResult)
-	if err != nil {
-		return err
-	}
-
-	// Send the request
-	return dn.sendHTTPRequest(req)
+	// Send the request using fasthttp
+	return dn.sendHTTPRequest(ctx, webhookURL, attachmentResult)
 }
 
 // validateWebhookURL validates the provided webhook URL
@@ -194,217 +184,198 @@ func (dn *DiscordNotifier) updatePayloadForZipFile(payload models.DiscordMessage
 	return payload
 }
 
-// prepareHTTPRequest creates the HTTP request with appropriate content type and body
-func (dn *DiscordNotifier) prepareHTTPRequest(ctx context.Context, webhookURL string, attachmentResult *AttachmentProcessingResult) (*http.Request, error) {
-	var body *bytes.Buffer
-	var contentType string
-	var err error
-
-	if attachmentResult.FinalReportPath != "" {
-		body, contentType, err = dn.createMultipartRequest(attachmentResult)
-	} else {
-		body, contentType, err = dn.createJSONRequest(attachmentResult.UpdatedPayload)
+// sendHTTPRequest sends the HTTP request using fasthttp
+func (dn *DiscordNotifier) sendHTTPRequest(ctx context.Context, webhookURL string, attachmentResult *AttachmentProcessingResult) error {
+	if attachmentResult.FinalReportPath == "" {
+		// Send JSON payload only
+		return dn.sendJSONRequest(ctx, webhookURL, attachmentResult.UpdatedPayload)
 	}
 
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("User-Agent", "MonsterInc/1.0")
-	return req, nil
+	// Send multipart request with file attachment
+	return dn.sendMultipartRequest(ctx, webhookURL, attachmentResult)
 }
 
-// createMultipartRequest creates a multipart form request with file attachment
-func (dn *DiscordNotifier) createMultipartRequest(attachmentResult *AttachmentProcessingResult) (*bytes.Buffer, string, error) {
-	body := new(bytes.Buffer)
-	writer := multipart.NewWriter(body)
-	defer func() {
-		err := writer.Close()
-		if err != nil {
-			dn.logger.Error().Err(err).Msg("Failed to close multipart writer.")
-		}
-	}()
+// sendJSONRequest sends a JSON-only request
+func (dn *DiscordNotifier) sendJSONRequest(ctx context.Context, webhookURL string, payload models.DiscordMessagePayload) error {
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return common.WrapError(err, "failed to marshal Discord payload to JSON")
+	}
 
-	// Add JSON payload
+	req := &common.HTTPRequest{
+		URL:     webhookURL,
+		Method:  "POST",
+		Headers: map[string]string{"Content-Type": "application/json"},
+		Body:    bytes.NewReader(jsonData),
+		Context: ctx,
+	}
+
+	resp, err := dn.httpClient.Do(req)
+	if err != nil {
+		return common.WrapError(err, "failed to send Discord notification")
+	}
+
+	return dn.processHTTPResponse(resp)
+}
+
+// sendMultipartRequest sends a multipart request with file attachment
+func (dn *DiscordNotifier) sendMultipartRequest(ctx context.Context, webhookURL string, attachmentResult *AttachmentProcessingResult) error {
+	body, contentType, err := dn.createMultipartRequest(attachmentResult)
+	if err != nil {
+		return err
+	}
+
+	req := &common.HTTPRequest{
+		URL:     webhookURL,
+		Method:  "POST",
+		Headers: map[string]string{"Content-Type": contentType},
+		Body:    body,
+		Context: ctx,
+	}
+
+	resp, err := dn.httpClient.Do(req)
+	if err != nil {
+		return common.WrapError(err, "failed to send Discord notification with attachment")
+	}
+
+	return dn.processHTTPResponse(resp)
+}
+
+// createMultipartRequest creates a multipart/form-data request
+func (dn *DiscordNotifier) createMultipartRequest(attachmentResult *AttachmentProcessingResult) (*bytes.Buffer, string, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Add JSON payload as "payload_json" field
 	if err := dn.addJSONPayloadToForm(writer, attachmentResult.UpdatedPayload); err != nil {
 		return nil, "", err
 	}
 
 	// Add file attachment
 	if err := dn.addFileToForm(writer, attachmentResult.FinalReportPath); err != nil {
-		// Fallback to JSON-only request if file attachment fails
-		dn.logger.Error().Err(err).Str("file_path", attachmentResult.FinalReportPath).Msg("Failed to add file to form, falling back to JSON-only request.")
-		return dn.createJSONRequest(attachmentResult.UpdatedPayload)
+		return nil, "", err
 	}
 
-	return body, writer.FormDataContentType(), nil
-}
-
-// createJSONRequest creates a JSON-only request
-func (dn *DiscordNotifier) createJSONRequest(payload models.DiscordMessagePayload) (*bytes.Buffer, string, error) {
-	body := new(bytes.Buffer)
-	if err := json.NewEncoder(body).Encode(payload); err != nil {
-		return nil, "", fmt.Errorf("failed to encode JSON payload: %w", err)
+	contentType := writer.FormDataContentType()
+	if err := writer.Close(); err != nil {
+		return nil, "", common.WrapError(err, "failed to close multipart writer")
 	}
-	return body, "application/json", nil
+
+	return body, contentType, nil
 }
 
 // addJSONPayloadToForm adds the JSON payload to the multipart form
 func (dn *DiscordNotifier) addJSONPayloadToForm(writer *multipart.Writer, payload models.DiscordMessagePayload) error {
-	jsonPayload, err := json.Marshal(payload)
+	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal discord payload to JSON: %w", err)
+		return common.WrapError(err, "failed to marshal Discord payload to JSON")
 	}
 
-	part, err := writer.CreateFormField("payload_json")
+	payloadWriter, err := writer.CreateFormField("payload_json")
 	if err != nil {
-		return fmt.Errorf("failed to create form field for json_payload: %w", err)
+		return common.WrapError(err, "failed to create payload_json form field")
 	}
 
-	if _, err = part.Write(jsonPayload); err != nil {
-		return fmt.Errorf("failed to write json_payload: %w", err)
+	if _, err := payloadWriter.Write(jsonData); err != nil {
+		return common.WrapError(err, "failed to write JSON payload to form")
 	}
 
 	return nil
 }
 
-// addFileToForm adds the file attachment to the multipart form
+// addFileToForm adds a file to the multipart form
 func (dn *DiscordNotifier) addFileToForm(writer *multipart.Writer, filePath string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
+		return common.WrapError(err, fmt.Sprintf("failed to open file %s", filePath))
 	}
-	defer func() {
-		err := file.Close()
-		if err != nil {
-			dn.logger.Error().Err(err).Str("file_path", filePath).Msg("Failed to close file.")
-		}
-	}()
+	defer file.Close()
 
-	part, err := writer.CreateFormFile("file[0]", filepath.Base(filePath))
+	fileName := filepath.Base(filePath)
+	fileWriter, err := writer.CreateFormFile("file", fileName)
 	if err != nil {
-		return fmt.Errorf("failed to create form file: %w", err)
+		return common.WrapError(err, "failed to create form file field")
 	}
 
-	if _, err = io.Copy(part, file); err != nil {
-		return fmt.Errorf("failed to copy file to form: %w", err)
+	if _, err := io.Copy(fileWriter, file); err != nil {
+		return common.WrapError(err, "failed to copy file content to form")
 	}
 
+	dn.logger.Debug().Str("file_path", filePath).Str("file_name", fileName).Msg("Successfully added file to multipart form")
 	return nil
 }
 
-// sendHTTPRequest sends the HTTP request and processes the response
-func (dn *DiscordNotifier) sendHTTPRequest(req *http.Request) error {
-	resp, err := dn.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send HTTP request: %w", err)
-	}
-	defer func() {
-		err := resp.Body.Close()
-		if err != nil {
-			dn.logger.Error().Err(err).Msg("Failed to close HTTP response body.")
-		}
-	}()
-
-	return dn.processHTTPResponse(resp)
-}
-
-// processHTTPResponse processes the HTTP response and handles errors
-func (dn *DiscordNotifier) processHTTPResponse(resp *http.Response) error {
+// processHTTPResponse processes the HTTP response from Discord
+func (dn *DiscordNotifier) processHTTPResponse(resp *common.HTTPResponse) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		dn.logger.Debug().Int("status_code", resp.StatusCode).Msg("Discord notification sent successfully")
 		return nil
 	}
 
-	respBody, _ := io.ReadAll(resp.Body)
-	return fmt.Errorf("discord webhook responded with status %d: %s", resp.StatusCode, string(respBody))
+	dn.logger.Error().Int("status_code", resp.StatusCode).Str("response_body", string(resp.Body)).Msg("Discord notification failed")
+	return fmt.Errorf("Discord webhook returned status %d: %s", resp.StatusCode, string(resp.Body))
 }
 
-// cleanupTempFiles removes temporary files if needed
+// cleanupTempFiles removes temporary files created during processing
 func (dn *DiscordNotifier) cleanupTempFiles(attachmentResult *AttachmentProcessingResult) {
 	if attachmentResult.ShouldCleanupZip && attachmentResult.TempZipPath != "" {
-		err := os.Remove(attachmentResult.TempZipPath)
-		if err != nil {
-			dn.logger.Error().Err(err).Str("zip_path", attachmentResult.TempZipPath).Msg("Failed to remove temporary zip file.")
+		if err := os.Remove(attachmentResult.TempZipPath); err != nil {
+			dn.logger.Error().Err(err).Str("zip_path", attachmentResult.TempZipPath).Msg("Failed to remove temporary zip file")
+		} else {
+			dn.logger.Debug().Str("zip_path", attachmentResult.TempZipPath).Msg("Successfully removed temporary zip file")
 		}
 	}
 }
 
-// zipReportFile creates a zip file from the source file and returns the path to the zip file.
+// zipReportFile creates a ZIP file containing the report
 func (dn *DiscordNotifier) zipReportFile(sourceFilePath string) (string, error) {
 	zipFilePath := dn.generateZipFilePath(sourceFilePath)
 
 	zipFile, err := os.Create(zipFilePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to create zip file: %w", err)
+		return "", common.WrapError(err, fmt.Sprintf("failed to create zip file %s", zipFilePath))
 	}
-	defer func() {
-		err := zipFile.Close()
-		if err != nil {
-			dn.logger.Error().Err(err).Str("zip_file", zipFilePath).Msg("Failed to close zip file.")
-		}
-	}()
+	defer zipFile.Close()
 
 	zipWriter := zip.NewWriter(zipFile)
-	defer func() {
-		err := zipWriter.Close()
-		if err != nil {
-			dn.logger.Error().Err(err).Str("zip_file", zipFilePath).Msg("Failed to close zip writer.")
-		}
-	}()
+	defer zipWriter.Close()
 
-	return zipFilePath, dn.addFileToZip(zipWriter, sourceFilePath)
+	if err := dn.addFileToZip(zipWriter, sourceFilePath); err != nil {
+		// Clean up the incomplete zip file
+		os.Remove(zipFilePath)
+		return "", err
+	}
+
+	dn.logger.Debug().Str("source_path", sourceFilePath).Str("zip_path", zipFilePath).Msg("Successfully created zip file")
+	return zipFilePath, nil
 }
 
-// generateZipFilePath generates the zip file path from source file path
+// generateZipFilePath generates a path for the temporary ZIP file
 func (dn *DiscordNotifier) generateZipFilePath(sourceFilePath string) string {
 	dir := filepath.Dir(sourceFilePath)
 	baseName := filepath.Base(sourceFilePath)
 	ext := filepath.Ext(baseName)
 	nameWithoutExt := baseName[:len(baseName)-len(ext)]
-	zipFileName := fmt.Sprintf("%s.zip", nameWithoutExt)
-	return filepath.Join(dir, zipFileName)
+
+	return filepath.Join(dir, fmt.Sprintf("%s.zip", nameWithoutExt))
 }
 
-// addFileToZip adds a file to the zip archive
+// addFileToZip adds a file to the ZIP archive
 func (dn *DiscordNotifier) addFileToZip(zipWriter *zip.Writer, sourceFilePath string) error {
-	fileToZip, err := os.Open(sourceFilePath)
+	sourceFile, err := os.Open(sourceFilePath)
 	if err != nil {
-		return fmt.Errorf("failed to open source file: %w", err)
+		return common.WrapError(err, fmt.Sprintf("failed to open source file %s", sourceFilePath))
 	}
-	defer func() {
-		err := fileToZip.Close()
-		if err != nil {
-			dn.logger.Error().Err(err).Str("source_file", sourceFilePath).Msg("Failed to close source file.")
-		}
-	}()
+	defer sourceFile.Close()
 
-	info, err := fileToZip.Stat()
+	fileName := filepath.Base(sourceFilePath)
+	zipFileWriter, err := zipWriter.Create(fileName)
 	if err != nil {
-		return fmt.Errorf("failed to get file info: %w", err)
+		return common.WrapError(err, fmt.Sprintf("failed to create zip entry for %s", fileName))
 	}
 
-	header, err := zip.FileInfoHeader(info)
-	if err != nil {
-		return fmt.Errorf("failed to create zip file header: %w", err)
-	}
-
-	header.Name = filepath.Base(sourceFilePath)
-	header.Method = zip.Deflate
-
-	writer, err := zipWriter.CreateHeader(header)
-	if err != nil {
-		return fmt.Errorf("failed to create zip writer: %w", err)
-	}
-
-	if _, err = io.Copy(writer, fileToZip); err != nil {
-		return fmt.Errorf("failed to copy file to zip: %w", err)
+	if _, err := io.Copy(zipFileWriter, sourceFile); err != nil {
+		return common.WrapError(err, fmt.Sprintf("failed to copy file content to zip for %s", fileName))
 	}
 
 	return nil

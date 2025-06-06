@@ -210,10 +210,10 @@ func FormatInterruptNotificationMessage(summary models.ScanSummaryData, cfg conf
 // buildInterruptDescription creates the description for interrupt message
 func buildInterruptDescription(summary models.ScanSummaryData) string {
 	return fmt.Sprintf(
-		"⚠️ **Scan bị gián đoạn**\n\n"+
+		"⚠️ **Scan is interrupted**\n\n"+
 			"**Session:** `%s`\n"+
 			"**Mode:** %s\n"+
-			"**Thời gian:** %s\n"+
+			"**Duration:** %s\n"+
 			"**Component:** %s",
 		summary.ScanSessionID,
 		strings.ToUpper(summary.ScanMode),

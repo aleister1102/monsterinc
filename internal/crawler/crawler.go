@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"context"
-	"net/http"
 	"net/url"
 	"sync"
 	"time"
@@ -35,7 +34,7 @@ type Crawler struct {
 	logger           zerolog.Logger
 	config           *config.CrawlerConfig
 	ctx              context.Context
-	httpClient       *http.Client
+	httpClient       *common.FastHTTPClient
 	// URL batching for improved performance
 	urlQueue      chan string
 	urlBatchSize  int

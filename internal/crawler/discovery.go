@@ -1,11 +1,11 @@
 package crawler
 
 import (
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 )
 
@@ -84,29 +84,24 @@ func (cr *Crawler) isURLAlreadyDiscovered(normalizedURL string) bool {
 
 // shouldSkipURLByContentLength performs HEAD request to check content length
 func (cr *Crawler) shouldSkipURLByContentLength(normalizedURL string) bool {
-	headReq, err := http.NewRequest("HEAD", normalizedURL, nil)
-	if err != nil {
-		return false
+	req := &common.HTTPRequest{
+		URL:     normalizedURL,
+		Method:  "HEAD",
+		Headers: make(map[string]string),
 	}
 
-	resp, err := cr.httpClient.Do(headReq)
+	resp, err := cr.httpClient.Do(req)
 	if err != nil {
 		cr.logger.Warn().Str("url", normalizedURL).Err(err).Msg("HEAD request failed")
 		return false
 	}
-	defer func() {
-		err := resp.Body.Close()
-		if err != nil {
-			cr.logger.Error().Err(err).Str("url", normalizedURL).Msg("Failed to close response body")
-		}
-	}()
 
 	return cr.checkContentLength(resp, normalizedURL)
 }
 
 // checkContentLength validates response content length
-func (cr *Crawler) checkContentLength(resp *http.Response, normalizedURL string) bool {
-	contentLength := resp.Header.Get("Content-Length")
+func (cr *Crawler) checkContentLength(resp *common.HTTPResponse, normalizedURL string) bool {
+	contentLength := resp.Headers["Content-Length"]
 	if contentLength == "" {
 		return false
 	}
