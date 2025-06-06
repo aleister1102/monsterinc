@@ -46,7 +46,7 @@
   - [x] 4.1 In `PathExtractor.ExtractPaths`, for each raw extracted string:
         *   Use `urlhandler.NormalizePath(sourceURL, rawPath)` (or equivalent existing function) to resolve it to an absolute URL.
         *   Ensure the normalizer handles various cases (absolute, relative, protocol-relative).
-  - [x] 4.2 Filter out invalid or out-of-scope URLs based on `CrawlerConfig` from `internal/config/config.go` (e.g., `AllowedHostRegex`, `ExcludedHostRegex`). This might be done by the component that consumes these paths (e.g., the crawler). (Responsibility of the consuming component, e.g., Crawler, not PathExtractor itself)
+  - [x] 4.2 Filter out invalid or out-of-scope URLs based on `CrawlerConfig` from `internal/config/config.go`. This might be done by the component that consumes these paths (e.g., the crawler). (Responsibility of the consuming component, e.g., Crawler, not PathExtractor itself)
   - [x] 4.3 Deduplicate extracted paths from the same source content.
 
 - [x] 5.0 Storage of Extracted Paths (in `internal/datastore/path_store.go` or extend existing datastore logic)

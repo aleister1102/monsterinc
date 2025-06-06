@@ -102,14 +102,7 @@ crawler_config:
   # Whether to include subdomains of seed URLs in the crawl.
   # Default: false
   include_subdomains: false
-  # List of regex patterns for allowed hostnames. If empty, all are allowed (subject to other scope rules).
-  # Default: []
-  allowed_host_regex:
-    # - .*.example.com
-  # List of regex patterns for excluded hostnames.
-  # Default: []
-  excluded_host_regex:
-    # - ads.example.com
+
   # Crawler scope configuration: Fine-grained control over what the crawler visits.
   scope:
     # List of hostnames the crawler is explicitly disallowed from visiting.
