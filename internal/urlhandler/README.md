@@ -1,13 +1,13 @@
 # URLHandler Package
 
-Package `urlhandler` cung cấp các utility functions và managers cho việc xử lý URLs và targets trong MonsterInc application.
+The `urlhandler` package provides utility functions and managers for handling URLs and targets in the MonsterInc application.
 
 ## Core Functions
 
-### URL Normalization và Validation
+### URL Normalization and Validation
 
 ```go
-// Normalize URL (thêm scheme, lowercase domain)
+// Normalize URL (add scheme, lowercase domain)
 normalizedURL, err := urlhandler.NormalizeURL("example.com")
 // => "https://example.com"
 
@@ -32,7 +32,7 @@ resolved, err := urlhandler.ResolveURL("https://other.com", baseURL)
 // => "https://other.com"
 ```
 
-### Hostname Extraction và Management
+### Hostname Extraction and Management
 
 ```go
 // Extract hostname with port
@@ -165,25 +165,25 @@ sanitizedPath := urlhandler.SanitizeHostnamePort(hostnamePort)
 
 ## Best Practices
 
-1. **Always validate URLs** trước khi process:
+1. **Always validate URLs** before processing:
    ```go
    if err := urlhandler.ValidateURLFormat(rawURL); err != nil {
        // Handle error
    }
    ```
 
-2. **Use normalization** cho consistent comparison:
+2. **Use normalization** for consistent comparison:
    ```go
    normalized, err := urlhandler.NormalizeURL(userInput)
    ```
 
-3. **Leverage TargetManager** cho input handling:
+3. **Leverage TargetManager** for input handling:
    ```go
    tm := urlhandler.NewTargetManager(logger)
    targets, source, err := tm.LoadAndSelectTargets(...)
    ```
 
-4. **Use resolution helpers** thay vì manual parsing:
+4. **Use resolution helpers** instead of manual parsing:
    ```go
    // Good
    resolved, err := urlhandler.ResolveURL(href, baseURL)
@@ -191,23 +191,65 @@ sanitizedPath := urlhandler.SanitizeHostnamePort(hostnamePort)
    // Avoid manual url.Parse + ResolveReference
    ```
 
-5. **Sanitize filenames** khi lưu files:
+5. **Sanitize filenames** when saving files:
    ```go
    safeFilename := urlhandler.SanitizeFilename(urlString)
    ```
 
 ## Error Handling
 
-Package sử dụng `internal/common` error types:
+The package provides comprehensive error handling for various URL operations:
 
-- `common.NewError()` - General errors
-- `common.WrapError()` - Wrapped errors với context
-- `common.NewValidationError()` - Validation errors
+### Common Error Types
+
+- **Invalid URL Format**: When URL cannot be parsed
+- **Unsupported Scheme**: For non-HTTP/HTTPS schemes
+- **Resolution Errors**: When relative URL resolution fails
+- **File Read Errors**: When target files cannot be read
+
+### Error Examples
 
 ```go
-normalizedURL, err := urlhandler.NormalizeURL("")
+// Handle normalization errors
+normalized, err := urlhandler.NormalizeURL(input)
 if err != nil {
-    // err will be common.Error with descriptive message
-    logger.Error().Err(err).Msg("Failed to normalize URL")
+    // Log and skip invalid URL
+    logger.Warn().Err(err).Str("url", input).Msg("Failed to normalize URL")
+    continue
 }
-``` 
+
+// Handle file reading errors
+urls, err := urlhandler.ReadURLsFromFile(filename, logger)
+if err != nil {
+    return fmt.Errorf("failed to read targets from %s: %w", filename, err)
+}
+```
+
+## Dependencies
+
+- `net/url`: Standard URL parsing and manipulation
+- `net`: Network address parsing
+- `strings`: String manipulation
+- `path/filepath`: File path operations
+- `github.com/rs/zerolog`: Structured logging
+
+## Thread Safety
+
+All functions in this package are thread-safe and can be used concurrently. The TargetManager maintains internal state but uses safe operations for concurrent access.
+
+## Testing
+
+The package includes comprehensive test coverage for:
+
+- URL normalization with various input formats
+- Hostname extraction edge cases
+- File reading with different content types
+- Error conditions and edge cases
+- Target loading from multiple sources
+
+## Performance Considerations
+
+- URL operations are generally fast (O(1) complexity)
+- File reading scales linearly with file size
+- Batch operations provide better performance than individual calls
+- Hostname extraction uses optimized parsing methods 
