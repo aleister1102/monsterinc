@@ -472,6 +472,7 @@ type ResourceLimiterConfig struct {
 	MemoryThreshold    float64 `json:"memory_threshold,omitempty" yaml:"memory_threshold,omitempty" validate:"omitempty,min=0.1,max=1.0"`
 	GoroutineWarning   float64 `json:"goroutine_warning,omitempty" yaml:"goroutine_warning,omitempty" validate:"omitempty,min=0.1,max=1.0"`
 	SystemMemThreshold float64 `json:"system_mem_threshold,omitempty" yaml:"system_mem_threshold,omitempty" validate:"omitempty,min=0.1,max=1.0"`
+	CPUThreshold       float64 `json:"cpu_threshold,omitempty" yaml:"cpu_threshold,omitempty" validate:"omitempty,min=0.1,max=1.0"`
 	EnableAutoShutdown bool    `json:"enable_auto_shutdown" yaml:"enable_auto_shutdown"`
 }
 
@@ -483,6 +484,7 @@ func NewDefaultResourceLimiterConfig() ResourceLimiterConfig {
 		MemoryThreshold:    0.8,   // 80%
 		GoroutineWarning:   0.7,   // 70%
 		SystemMemThreshold: 0.5,   // 50% system memory
+		CPUThreshold:       0.5,   // 50% CPU usage
 		EnableAutoShutdown: true,  // Enable auto-shutdown by default
 	}
 }

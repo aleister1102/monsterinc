@@ -31,7 +31,12 @@ resource_limiter_config:
   # Value between 0.1 and 1.0 (0.5 = 50% of total system memory)
   # Default: 0.5
   system_mem_threshold: 0.5
-  # Whether to enable automatic shutdown when system memory threshold is exceeded.
+  # CPU usage threshold (percentage) before triggering auto-shutdown.
+  # When CPU usage exceeds this threshold, the application will gracefully shutdown.
+  # Value between 0.1 and 1.0 (0.5 = 50% of CPU usage)
+  # Default: 0.5
+  cpu_threshold: 0.5
+  # Whether to enable automatic shutdown when resource thresholds are exceeded.
   # Default: true
   enable_auto_shutdown: true
 

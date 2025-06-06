@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
-// ResourceLimiter manages memory and goroutine limits
+// ResourceLimiter manages memory, CPU, and goroutine limits
 type ResourceLimiter struct {
 	maxMemoryMB      int64
 	maxGoroutines    int
@@ -24,9 +25,10 @@ type ResourceLimiter struct {
 	goroutineWarning int
 	isRunning        bool
 	mu               sync.RWMutex
-	// New fields for system memory monitoring
+	// System resource monitoring
 	systemMemThreshold float64 // Percentage of system memory to trigger shutdown (0.5 = 50%)
-	enableAutoShutdown bool    // Whether to enable auto-shutdown on memory limits
+	cpuThreshold       float64 // Percentage of CPU usage to trigger actions (0.5 = 50%)
+	enableAutoShutdown bool    // Whether to enable auto-shutdown on resource limits
 	shutdownCallback   func()  // Callback function to trigger graceful shutdown
 }
 
@@ -38,7 +40,8 @@ type ResourceLimiterConfig struct {
 	MemoryThreshold    float64       // Percentage of max memory to trigger warning (0.8 = 80%)
 	GoroutineWarning   float64       // Percentage of max goroutines to trigger warning
 	SystemMemThreshold float64       // Percentage of system memory to trigger auto-shutdown (0.5 = 50%)
-	EnableAutoShutdown bool          // Enable auto-shutdown when system memory threshold is exceeded
+	CPUThreshold       float64       // Percentage of CPU usage to trigger actions (0.5 = 50%)
+	EnableAutoShutdown bool          // Enable auto-shutdown when resource thresholds are exceeded
 }
 
 // DefaultResourceLimiterConfig returns default configuration
@@ -50,6 +53,7 @@ func DefaultResourceLimiterConfig() ResourceLimiterConfig {
 		MemoryThreshold:    0.8,  // 80%
 		GoroutineWarning:   0.7,  // 70%
 		SystemMemThreshold: 0.5,  // 50% system memory
+		CPUThreshold:       0.5,  // 50% CPU usage
 		EnableAutoShutdown: true, // Enable auto-shutdown by default
 	}
 }
@@ -68,6 +72,7 @@ func NewResourceLimiter(config ResourceLimiterConfig, logger zerolog.Logger) *Re
 		memoryThreshold:    int64(float64(config.MaxMemoryMB) * config.MemoryThreshold),
 		goroutineWarning:   int(float64(config.MaxGoroutines) * config.GoroutineWarning),
 		systemMemThreshold: config.SystemMemThreshold,
+		cpuThreshold:       config.CPUThreshold,
 		enableAutoShutdown: config.EnableAutoShutdown,
 	}
 
@@ -99,6 +104,7 @@ func (rl *ResourceLimiter) Start() {
 		Int("max_goroutines", rl.maxGoroutines).
 		Dur("check_interval", rl.checkInterval).
 		Float64("system_mem_threshold", rl.systemMemThreshold).
+		Float64("cpu_threshold", rl.cpuThreshold).
 		Bool("auto_shutdown_enabled", rl.enableAutoShutdown).
 		Msg("Resource limiter started")
 }
@@ -158,6 +164,34 @@ func (rl *ResourceLimiter) CheckSystemMemoryLimit() (bool, error) {
 	return false, nil
 }
 
+// CheckCPULimit checks if CPU usage exceeds threshold
+func (rl *ResourceLimiter) CheckCPULimit() (bool, error) {
+	if !rl.enableAutoShutdown {
+		return false, nil
+	}
+
+	cpuPercents, err := cpu.Percent(time.Second, false)
+	if err != nil {
+		return false, fmt.Errorf("failed to get CPU usage: %w", err)
+	}
+
+	if len(cpuPercents) == 0 {
+		return false, fmt.Errorf("no CPU usage data available")
+	}
+
+	cpuUsage := cpuPercents[0] / 100.0 // Convert percentage to decimal
+
+	if cpuUsage > rl.cpuThreshold {
+		rl.logger.Warn().
+			Float64("cpu_usage_percent", cpuUsage*100).
+			Float64("threshold_percent", rl.cpuThreshold*100).
+			Msg("CPU usage exceeded threshold")
+		return true, nil
+	}
+
+	return false, nil
+}
+
 // CheckGoroutineLimit checks if current goroutine count exceeds limit
 func (rl *ResourceLimiter) CheckGoroutineLimit() error {
 	current := runtime.NumGoroutine()
@@ -203,6 +237,13 @@ func (rl *ResourceLimiter) GetResourceUsage() ResourceUsage {
 		systemMemUsedPercent = vmStat.UsedPercent
 	}
 
+	// Get CPU usage stats
+	var cpuUsagePercent float64
+	cpuPercents, err := cpu.Percent(100*time.Millisecond, false)
+	if err == nil && len(cpuPercents) > 0 {
+		cpuUsagePercent = cpuPercents[0]
+	}
+
 	return ResourceUsage{
 		AllocMB:              int64(m.Alloc / 1024 / 1024),
 		SysMB:                int64(m.Sys / 1024 / 1024),
@@ -212,6 +253,7 @@ func (rl *ResourceLimiter) GetResourceUsage() ResourceUsage {
 		SystemMemUsedMB:      int64(systemMemUsedMB),
 		SystemMemTotalMB:     int64(systemMemTotalMB),
 		SystemMemUsedPercent: systemMemUsedPercent,
+		CPUUsagePercent:      cpuUsagePercent,
 	}
 }
 
@@ -225,6 +267,7 @@ type ResourceUsage struct {
 	SystemMemUsedMB      int64   // System memory used (MB)
 	SystemMemTotalMB     int64   // Total system memory (MB)
 	SystemMemUsedPercent float64 // System memory used percentage
+	CPUUsagePercent      float64 // CPU usage percentage
 }
 
 // Private methods
@@ -265,6 +308,21 @@ func (rl *ResourceLimiter) checkAndLogResourceUsage() {
 		return
 	}
 
+	// Check CPU usage - this is also a critical check
+	cpuExceeded, err := rl.CheckCPULimit()
+	if err != nil {
+		rl.logger.Error().Err(err).Msg("Failed to check CPU limit")
+	} else if cpuExceeded {
+		rl.logger.Error().
+			Float64("cpu_usage_percent", usage.CPUUsagePercent).
+			Float64("threshold_percent", rl.cpuThreshold*100).
+			Msg("CRITICAL: CPU usage exceeded threshold, triggering shutdown")
+
+		// Trigger graceful shutdown
+		rl.triggerGracefulShutdown()
+		return
+	}
+
 	// Check application memory usage
 	if usage.AllocMB > rl.memoryThreshold {
 		rl.logger.Warn().
@@ -284,7 +342,7 @@ func (rl *ResourceLimiter) checkAndLogResourceUsage() {
 			Msg("High number of goroutines detected")
 	}
 
-	// Log periodic stats including system memory
+	// Log periodic stats including system memory and CPU
 	rl.logger.Debug().
 		Int64("app_alloc_mb", usage.AllocMB).
 		Int64("app_sys_mb", usage.SysMB).
@@ -293,6 +351,7 @@ func (rl *ResourceLimiter) checkAndLogResourceUsage() {
 		Int64("system_mem_used_mb", usage.SystemMemUsedMB).
 		Int64("system_mem_total_mb", usage.SystemMemTotalMB).
 		Float64("system_mem_used_percent", usage.SystemMemUsedPercent).
+		Float64("cpu_usage_percent", usage.CPUUsagePercent).
 		Msg("Resource usage stats")
 }
 

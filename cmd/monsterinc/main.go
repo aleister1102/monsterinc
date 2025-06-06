@@ -50,15 +50,16 @@ func main() {
 		MemoryThreshold:    gCfg.ResourceLimiterConfig.MemoryThreshold,
 		GoroutineWarning:   gCfg.ResourceLimiterConfig.GoroutineWarning,
 		SystemMemThreshold: gCfg.ResourceLimiterConfig.SystemMemThreshold,
+		CPUThreshold:       gCfg.ResourceLimiterConfig.CPUThreshold,
 		EnableAutoShutdown: gCfg.ResourceLimiterConfig.EnableAutoShutdown,
 	}
 
 	resourceLimiter := common.NewResourceLimiter(resourceLimiterConfig, zLogger)
 	resourceLimiter.Start()
 
-	// Set shutdown callback to trigger graceful shutdown when memory limit is exceeded
+	// Set shutdown callback to trigger graceful shutdown when resource limits are exceeded
 	resourceLimiter.SetShutdownCallback(func() {
-		zLogger.Error().Msg("System memory limit exceeded, initiating graceful shutdown...")
+		zLogger.Error().Msg("System resource limits exceeded, initiating graceful shutdown...")
 		cancel() // Cancel the main context to trigger shutdown
 	})
 
