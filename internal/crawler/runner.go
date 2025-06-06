@@ -17,6 +17,9 @@ func (cr *Crawler) Start(ctx context.Context) {
 	cr.startURLBatchProcessor()
 	defer cr.stopURLBatchProcessor()
 
+	// Ensure cleanup on exit
+	defer cr.Stop()
+
 	cr.logger.Info().
 		Int("seed_count", len(cr.seedURLs)).
 		Strs("seeds", cr.seedURLs).
@@ -74,4 +77,12 @@ func (cr *Crawler) logSummary() {
 		Int("discovered", discovered).
 		Int("errors", errors).
 		Msg("Summary")
+}
+
+// Stop gracefully shuts down the crawler and its components
+func (cr *Crawler) Stop() {
+	if cr.headlessBrowserManager != nil {
+		cr.headlessBrowserManager.Stop()
+		cr.logger.Debug().Msg("Headless browser manager stopped")
+	}
 }

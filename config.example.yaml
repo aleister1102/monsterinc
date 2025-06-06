@@ -134,6 +134,55 @@ crawler_config:
   # Default: true
   auto_add_seed_hostnames: true
 
+  # Headless browser configuration: Settings for using headless browser for dynamic content crawling.
+  # WARNING: On Windows, antivirus software may block the browser automation tools.
+  # If you encounter errors with "leakless.exe" or "virus/potentially unwanted software",
+  # the crawler will automatically fall back to traditional crawling.
+  headless_browser:
+    # Whether headless browser crawling is enabled.
+    # When enabled, the crawler will use a headless browser to render JavaScript-heavy pages.
+    # Default: false (disabled by default to avoid antivirus conflicts)
+    enabled: false
+    # Path to Chrome/Chromium executable. If empty, the system default will be used.
+    # Default: ""
+    chrome_path: ""
+    # User data directory for the browser. If empty, a temporary directory will be used.
+    # Default: ""
+    user_data_dir: ""
+    # Browser window width for rendering.
+    # Default: 1920
+    window_width: 1920
+    # Browser window height for rendering.
+    # Default: 1080
+    window_height: 1080
+    # Page load timeout in seconds.
+    # Default: 30
+    page_load_timeout_secs: 30
+    # Additional wait time in milliseconds after page load.
+    # Default: 1000
+    wait_after_load_ms: 1000
+    # Whether to disable image loading for faster rendering.
+    # Default: true
+    disable_images: true
+    # Whether to disable CSS loading.
+    # Default: false
+    disable_css: false
+    # Whether to disable JavaScript execution.
+    # Default: false
+    disable_javascript: false
+    # Whether to ignore HTTPS certificate errors.
+    # Default: true
+    ignore_https_errors: true
+    # Number of browser instances in the pool.
+    # Default: 3
+    pool_size: 3
+    # Additional browser arguments.
+    # Default: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+    browser_args:
+      - "--no-sandbox"
+      - "--disable-dev-shm-usage"
+      - "--disable-gpu"
+
 # Reporter configuration: Settings for generating HTML reports.
 reporter_config:
   # Directory where HTML reports will be saved.

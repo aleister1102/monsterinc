@@ -227,6 +227,22 @@ type CrawlerScopeConfig struct {
 	DisallowedFileExtensions []string `json:"disallowed_file_extensions,omitempty" yaml:"disallowed_file_extensions,omitempty"`
 }
 
+type HeadlessBrowserConfig struct {
+	Enabled             bool     `json:"enabled" yaml:"enabled"`
+	ChromePath          string   `json:"chrome_path,omitempty" yaml:"chrome_path,omitempty"`
+	UserDataDir         string   `json:"user_data_dir,omitempty" yaml:"user_data_dir,omitempty"`
+	WindowWidth         int      `json:"window_width,omitempty" yaml:"window_width,omitempty" validate:"omitempty,min=100"`
+	WindowHeight        int      `json:"window_height,omitempty" yaml:"window_height,omitempty" validate:"omitempty,min=100"`
+	PageLoadTimeoutSecs int      `json:"page_load_timeout_secs,omitempty" yaml:"page_load_timeout_secs,omitempty" validate:"omitempty,min=1"`
+	WaitAfterLoadMs     int      `json:"wait_after_load_ms,omitempty" yaml:"wait_after_load_ms,omitempty" validate:"omitempty,min=0"`
+	DisableImages       bool     `json:"disable_images" yaml:"disable_images"`
+	DisableCSS          bool     `json:"disable_css" yaml:"disable_css"`
+	DisableJavaScript   bool     `json:"disable_javascript" yaml:"disable_javascript"`
+	IgnoreHTTPSErrors   bool     `json:"ignore_https_errors" yaml:"ignore_https_errors"`
+	PoolSize            int      `json:"pool_size,omitempty" yaml:"pool_size,omitempty" validate:"omitempty,min=1"`
+	BrowserArgs         []string `json:"browser_args,omitempty" yaml:"browser_args,omitempty"`
+}
+
 func NewDefaultCrawlerScopeConfig() CrawlerScopeConfig {
 	return CrawlerScopeConfig{
 		DisallowedHostnames:      []string{},
@@ -235,17 +251,36 @@ func NewDefaultCrawlerScopeConfig() CrawlerScopeConfig {
 	}
 }
 
+func NewDefaultHeadlessBrowserConfig() HeadlessBrowserConfig {
+	return HeadlessBrowserConfig{
+		Enabled:             false,
+		ChromePath:          "",
+		UserDataDir:         "",
+		WindowWidth:         1920,
+		WindowHeight:        1080,
+		PageLoadTimeoutSecs: 30,
+		WaitAfterLoadMs:     1000,
+		DisableImages:       true,
+		DisableCSS:          false,
+		DisableJavaScript:   false,
+		IgnoreHTTPSErrors:   true,
+		PoolSize:            3,
+		BrowserArgs:         []string{"--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"},
+	}
+}
+
 type CrawlerConfig struct {
-	AutoAddSeedHostnames  bool               `json:"auto_add_seed_hostnames" yaml:"auto_add_seed_hostnames"`
-	IncludeSubdomains     bool               `json:"include_subdomains" yaml:"include_subdomains"`
-	MaxConcurrentRequests int                `json:"max_concurrent_requests,omitempty" yaml:"max_concurrent_requests,omitempty" validate:"omitempty,min=1"`
-	MaxContentLengthMB    int                `json:"max_content_length_mb,omitempty" yaml:"max_content_length_mb,omitempty"`
-	MaxDepth              int                `json:"max_depth,omitempty" yaml:"max_depth,omitempty" validate:"omitempty,min=0"`
-	RequestTimeoutSecs    int                `json:"request_timeout_secs,omitempty" yaml:"request_timeout_secs,omitempty" validate:"omitempty,min=1"`
-	RespectRobotsTxt      bool               `json:"respect_robots_txt" yaml:"respect_robots_txt"`
-	Scope                 CrawlerScopeConfig `json:"scope,omitempty" yaml:"scope,omitempty"`
-	SeedURLs              []string           `json:"seed_urls,omitempty" yaml:"seed_urls,omitempty" validate:"omitempty,dive,url"`
-	UserAgent             string             `json:"user_agent,omitempty" yaml:"user_agent,omitempty"`
+	AutoAddSeedHostnames  bool                  `json:"auto_add_seed_hostnames" yaml:"auto_add_seed_hostnames"`
+	IncludeSubdomains     bool                  `json:"include_subdomains" yaml:"include_subdomains"`
+	MaxConcurrentRequests int                   `json:"max_concurrent_requests,omitempty" yaml:"max_concurrent_requests,omitempty" validate:"omitempty,min=1"`
+	MaxContentLengthMB    int                   `json:"max_content_length_mb,omitempty" yaml:"max_content_length_mb,omitempty"`
+	MaxDepth              int                   `json:"max_depth,omitempty" yaml:"max_depth,omitempty" validate:"omitempty,min=0"`
+	RequestTimeoutSecs    int                   `json:"request_timeout_secs,omitempty" yaml:"request_timeout_secs,omitempty" validate:"omitempty,min=1"`
+	RespectRobotsTxt      bool                  `json:"respect_robots_txt" yaml:"respect_robots_txt"`
+	Scope                 CrawlerScopeConfig    `json:"scope,omitempty" yaml:"scope,omitempty"`
+	SeedURLs              []string              `json:"seed_urls,omitempty" yaml:"seed_urls,omitempty" validate:"omitempty,dive,url"`
+	UserAgent             string                `json:"user_agent,omitempty" yaml:"user_agent,omitempty"`
+	HeadlessBrowser       HeadlessBrowserConfig `json:"headless_browser,omitempty" yaml:"headless_browser,omitempty"`
 }
 
 func NewDefaultCrawlerConfig() CrawlerConfig {
@@ -260,6 +295,7 @@ func NewDefaultCrawlerConfig() CrawlerConfig {
 		SeedURLs:              []string{},
 		UserAgent:             "MonsterInc-Crawler/1.0",
 		Scope:                 NewDefaultCrawlerScopeConfig(),
+		HeadlessBrowser:       NewDefaultHeadlessBrowserConfig(),
 	}
 }
 
