@@ -190,8 +190,6 @@ func (nh *NotificationHelper) sendSingleReport(ctx context.Context, summary mode
 	err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, "")
 	if err != nil {
 		nh.logger.Error().Err(err).Msg("Failed to send scan completion notification")
-	} else {
-
 	}
 }
 

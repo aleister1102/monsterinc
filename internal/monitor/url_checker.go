@@ -290,7 +290,7 @@ func (uc *URLChecker) generateContentDiff(
 }
 
 func (uc *URLChecker) extractPathsIfJavaScript(url string, fetchResult *common.FetchFileContentResult) []models.ExtractedPath {
-	if uc.pathExtractor == nil || !uc.isJavaScriptContent(fetchResult.ContentType) {
+	if uc.pathExtractor == nil || !uc.shouldExtractPaths(url, fetchResult.ContentType) {
 		return nil
 	}
 
@@ -419,8 +419,9 @@ func (uc *URLChecker) createSuccessResult(url, cycleID string, fileChangeInfo *m
 	return CheckResult{Success: true}
 }
 
-// isJavaScriptContent checks if the content type indicates JavaScript
+// isJavaScriptContent checks if the content type indicates JavaScript or URL has JS extension
 func (uc *URLChecker) isJavaScriptContent(contentType string) bool {
+	// First check content type
 	jsContentTypes := []string{
 		"application/javascript",
 		"application/x-javascript",
@@ -437,4 +438,39 @@ func (uc *URLChecker) isJavaScriptContent(contentType string) bool {
 	}
 
 	return false
+}
+
+// isJavaScriptFile checks if URL has JavaScript file extension based on config
+func (uc *URLChecker) isJavaScriptFile(url string) bool {
+	if uc.gCfg == nil {
+		return false
+	}
+
+	urlLower := strings.ToLower(url)
+	for _, ext := range uc.gCfg.MonitorConfig.JSFileExtensions {
+		if strings.HasSuffix(urlLower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// isHTMLFile checks if URL has HTML file extension based on config
+func (uc *URLChecker) isHTMLFile(url string) bool {
+	if uc.gCfg == nil {
+		return false
+	}
+
+	urlLower := strings.ToLower(url)
+	for _, ext := range uc.gCfg.MonitorConfig.HTMLFileExtensions {
+		if strings.HasSuffix(urlLower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// shouldExtractPaths determines if paths should be extracted from content
+func (uc *URLChecker) shouldExtractPaths(url string, contentType string) bool {
+	return uc.isJavaScriptContent(contentType) || uc.isJavaScriptFile(url)
 }

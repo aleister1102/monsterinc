@@ -59,7 +59,7 @@ const (
 	// Diff Defaults
 	DefaultDiffPreviousScanLookbackDays = 7
 
-	// Monitor Defaults
+	// Monitor Defaults - using fast path file extensions
 	DefaultMonitorJSFileExtensions   = ".js,.jsx,.ts,.tsx"
 	DefaultMonitorHTMLFileExtensions = ".html,.htm"
 
@@ -365,8 +365,6 @@ type MonitorConfig struct {
 	MaxContentSize             int      `json:"max_content_size,omitempty" yaml:"max_content_size,omitempty" validate:"omitempty,min=1"` // Max content size in bytes
 	MonitorInsecureSkipVerify  bool     `json:"monitor_insecure_skip_verify" yaml:"monitor_insecure_skip_verify"`
 	StoreFullContentOnChange   bool     `json:"store_full_content_on_change" yaml:"store_full_content_on_change"`
-	TargetHTMLFilePatterns     []string `json:"target_html_file_patterns,omitempty" yaml:"target_html_file_patterns,omitempty"`
-	TargetJSFilePatterns       []string `json:"target_js_file_patterns,omitempty" yaml:"target_js_file_patterns,omitempty"`
 }
 
 func NewDefaultMonitorConfig() MonitorConfig {
@@ -374,17 +372,15 @@ func NewDefaultMonitorConfig() MonitorConfig {
 		AggregationIntervalSeconds: 600,  // Default to 10 minutes for aggregation
 		CheckIntervalSeconds:       3600, // 1 hour
 		Enabled:                    false,
-		HTMLFileExtensions:         []string{"\\.html", "\\.htm"},
+		HTMLFileExtensions:         []string{".html", ".htm"},
 		HTTPTimeoutSeconds:         30,
 		InitialMonitorURLs:         []string{},
-		JSFileExtensions:           []string{"\\.js", "\\.jsx", "\\.ts", "\\.tsx"},
+		JSFileExtensions:           []string{".js", ".jsx", ".ts", ".tsx"},
 		MaxAggregatedEvents:        10, // Default to 10 events before sending aggregated notification
 		MaxConcurrentChecks:        5,
 		MaxContentSize:             1048576, // Default 1MB
 		MonitorInsecureSkipVerify:  true,    // Default to true to match previous hardcoded behavior
 		StoreFullContentOnChange:   true,
-		TargetHTMLFilePatterns:     []string{},
-		TargetJSFilePatterns:       []string{},
 	}
 }
 

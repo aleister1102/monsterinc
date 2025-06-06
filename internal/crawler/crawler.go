@@ -229,15 +229,22 @@ func (cr *Crawler) setupHTTPClient() error {
 
 // logInitialization logs the initialization summary
 func (cr *Crawler) logInitialization() {
-	cr.logger.Info().
+	logEvent := cr.logger.Info().
 		Strs("seeds", cr.seedURLs).
 		Str("user_agent", cr.userAgent).
 		Dur("timeout", cr.requestTimeout).
 		Int("threads", cr.threads).
 		Int("max_depth", cr.maxDepth).
-		Bool("respect_robots_txt", cr.respectRobotsTxt).
-		Interface("scope", cr.scope).
-		Msg("Initialized with config")
+		Bool("respect_robots_txt", cr.respectRobotsTxt)
+
+	// Log scope settings details if available
+	if cr.scope != nil {
+		logEvent = logEvent.Str("scope", cr.scope.String())
+	} else {
+		logEvent = logEvent.Str("scope", "nil")
+	}
+
+	logEvent.Msg("Initialized with config")
 }
 
 // GetDiscoveredURLs returns a slice of all unique URLs discovered

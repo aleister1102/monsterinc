@@ -241,9 +241,7 @@ log_config:
   # Default: 3
   max_log_backups: 3
 
-  # Whether to compress old, rotated log files (e.g., with gzip).
-  # Default: false
-  compress_old_logs: false
+
 
 # DiffConfig: Configuration for comparing current scan results with previous ones.
 diff_config:
@@ -267,12 +265,6 @@ monitor_config:
   # Interval in seconds for how often to check monitored files.
   # Default: 3600 (1 hour)
   check_interval_seconds: 30
-  # List of regex or glob patterns for URLs that identify JavaScript files to monitor.
-  # Default: [] (Example: ["(.*\\.js)", "(.*\\.mjs)"])
-  target_js_file_patterns: []
-  # List of regex or glob patterns for URLs that identify HTML files to monitor.
-  # Default: [] (Example: ["(.*\\.html?)"])
-  target_html_file_patterns: []
   # Maximum number of concurrent checks for monitored files.
   # Default: 5
   max_concurrent_checks: 5
@@ -289,20 +281,18 @@ monitor_config:
     # - https://example.com/main.js
     # - https://example.com/app.js
     # - https://anotherexample.com/index.html
-  # Legacy: Comma-separated list of JavaScript file extensions to monitor.
-  # Consider using target_js_file_patterns for more flexibility.
-  # Default: ["\\.js", "\\.jsx", "\\.ts", "\\.tsx"]
+  # JavaScript file extensions to monitor (fast path comparison)
+  # Default: [".js", ".jsx", ".ts", ".tsx"]
   js_file_extensions:
-    - "\\.js"
-    - "\\.jsx"
-    - "\\.ts"
-    - "\\.tsx"
-  # Legacy: Comma-separated list of HTML file extensions to monitor.
-  # Consider using target_html_file_patterns for more flexibility.
-  # Default: ["\\.html", "\\.htm"]
+    - ".js"
+    - ".jsx"
+    - ".ts"
+    - ".tsx"
+  # HTML file extensions to monitor (fast path comparison)
+  # Default: [".html", ".htm"]
   html_file_extensions:
-    - "\\.html"
-    - "\\.htm"
+    - ".html"
+    - ".htm"
 
   # Aggregation settings for monitor notifications (file changes and errors)
   # How often to send aggregated notifications, in seconds.

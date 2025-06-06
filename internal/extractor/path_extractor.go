@@ -62,7 +62,7 @@ func (b *PathExtractorBuilder) Build() (*PathExtractor, error) {
 	contextExtractor := NewContextExtractor(b.extractorConfig.ContextSnippetSize, b.logger)
 	jsluiceAnalyzer := NewJSluiceAnalyzer(urlValidator, contextExtractor, b.logger)
 	manualRegexAnalyzer := NewManualRegexAnalyzer(regexSet.CustomRegexes, urlValidator, contextExtractor, b.logger)
-	contentTypeAnalyzer := NewContentTypeAnalyzer(b.logger)
+	contentTypeAnalyzer := NewContentTypeAnalyzer(b.config, b.logger)
 
 	pathExtractor := &PathExtractor{
 		config:              b.config,

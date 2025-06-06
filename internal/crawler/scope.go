@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -21,6 +22,19 @@ type ScopeSettings struct {
 	includeSubdomains        bool
 	autoAddSeedHostnames     bool
 	originalSeedDomains      []string
+}
+
+// String returns a string representation of ScopeSettings for logging
+func (s *ScopeSettings) String() string {
+	return fmt.Sprintf("ScopeSettings{disallowed_hostnames:%v, disallowed_subdomains:%v, disallowed_file_extensions:%v, seed_hostnames:%v, include_subdomains:%t, auto_add_seed_hostnames:%t, original_seed_domains:%v}",
+		s.disallowedHostnames,
+		s.disallowedSubdomains,
+		s.disallowedFileExtensions,
+		s.seedHostnames,
+		s.includeSubdomains,
+		s.autoAddSeedHostnames,
+		s.originalSeedDomains,
+	)
 }
 
 // ScopeValidator provides methods for URL scope validation
@@ -88,8 +102,26 @@ func NewScopeSettings(
 func extractSeedDomains(seedURLs []string, logger zerolog.Logger) []string {
 	var domains []string
 	for _, seedURL := range seedURLs {
-		if hostnames := ExtractHostnamesFromSeedURLs([]string{seedURL}, logger); len(hostnames) > 0 {
-			domains = append(domains, hostnames[0])
+		hostname := extractSingleHostname(seedURL, logger)
+		if hostname == "" {
+			continue
+		}
+
+		// Extract base domain using urlhandler
+		baseDomain, err := urlhandler.GetBaseDomain(hostname)
+		if err != nil {
+			logger.Warn().
+				Str("seed_url", seedURL).
+				Str("hostname", hostname).
+				Err(err).
+				Msg("Failed to extract base domain from hostname")
+			// Fallback to using the hostname as-is
+			domains = append(domains, hostname)
+		} else if baseDomain != "" {
+			domains = append(domains, baseDomain)
+		} else {
+			// If base domain is empty, use hostname
+			domains = append(domains, hostname)
 		}
 	}
 
@@ -129,13 +161,25 @@ func (s *ScopeSettings) CheckHostnameScope(hostname string) bool {
 		return true
 	}
 
-	// Priority 3: If includeSubdomains and matches seed domains, allow
+	// Priority 3: If includeSubdomains is enabled, check against seed base domains
 	if s.includeSubdomains && s.isAllowedBySeedDomains(hostname) {
+		s.logger.Debug().Str("hostname", hostname).Msg("Hostname allowed by include_subdomains policy")
 		return true
 	}
 
-	// Priority 4: Default allow
-	s.logger.Debug().Str("hostname", hostname).Msg("Hostname allowed by default")
+	// Priority 4: If not includeSubdomains, only allow exact hostname matches with seed hostnames
+	if !s.includeSubdomains && len(s.seedHostnames) > 0 {
+		if containsString(hostname, s.seedHostnames) {
+			s.logger.Debug().Str("hostname", hostname).Msg("Hostname matches exact seed hostname")
+			return true
+		} else {
+			s.logger.Debug().Str("hostname", hostname).Msg("Hostname not in seed hostnames (include_subdomains=false)")
+			return false
+		}
+	}
+
+	// Priority 5: Default behavior when no seed URLs provided - allow all
+	s.logger.Debug().Str("hostname", hostname).Msg("Hostname allowed by default (no seed restrictions)")
 	return true
 }
 
@@ -164,11 +208,38 @@ func (s *ScopeSettings) hasDisallowedSubdomainPart(hostname string) bool {
 
 // isAllowedBySeedDomains checks if hostname is allowed by seed domain policy
 func (s *ScopeSettings) isAllowedBySeedDomains(hostname string) bool {
+	// Get the base domain of the hostname being checked
+	hostnameBaseDomain, err := urlhandler.GetBaseDomain(hostname)
+	if err != nil {
+		s.logger.Debug().
+			Str("hostname", hostname).
+			Err(err).
+			Msg("Failed to get base domain for hostname, checking as-is")
+		hostnameBaseDomain = hostname
+	}
+
 	for _, seedBaseDomain := range s.originalSeedDomains {
+		// Check if the hostname's base domain matches the seed base domain
+		if hostnameBaseDomain == seedBaseDomain {
+			s.logger.Debug().
+				Str("hostname", hostname).
+				Str("hostname_base_domain", hostnameBaseDomain).
+				Str("seed_base_domain", seedBaseDomain).
+				Msg("Hostname base domain matches seed base domain")
+			return true
+		}
+
+		// Also check direct hostname matching for backward compatibility
 		if s.matchesSeedDomain(hostname, seedBaseDomain) {
 			return true
 		}
 	}
+
+	s.logger.Debug().
+		Str("hostname", hostname).
+		Str("hostname_base_domain", hostnameBaseDomain).
+		Strs("seed_base_domains", s.originalSeedDomains).
+		Msg("Hostname not allowed by any seed base domain")
 	return false
 }
 

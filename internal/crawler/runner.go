@@ -51,10 +51,6 @@ func (cr *Crawler) processSeedURL(seed string) {
 func (cr *Crawler) waitForCompletion() {
 	cr.logger.Info().Int("active_threads", cr.threads).Msg("Waiting for threads to complete")
 	cr.collector.Wait()
-
-	if cr.isContextCancelled() {
-
-	}
 }
 
 // logSummary logs the crawling summary statistics

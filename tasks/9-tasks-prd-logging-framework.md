@@ -23,7 +23,7 @@
     - [x] 1.1.1 Ensure `LogLevel` (string) field exists (e.g., "debug", "info", "warn", "error", "fatal").
     - [x] 1.1.2 Ensure `LogFormat` (string) field exists (e.g., "console", "json").
     - [x] 1.1.3 Ensure `LogFile` (string) field exists for optional file output path.
-    - [x] 1.1.4 (Consider for future, based on PRD): Add `MaxLogSizeMB`, `MaxLogBackups`, `CompressOldLogs` if planning to implement custom rotation with `lumberjack` or similar. For now, focus on `zerolog`'s direct capabilities.
+    - [x] 1.1.4 (Consider for future, based on PRD): Add `MaxLogSizeMB`, `MaxLogBackups` if planning to implement custom rotation with `lumberjack` or similar. For now, focus on `zerolog`'s direct capabilities.
   - [x] 1.2 Review and update `NewDefaultLogConfig` in `internal/config/config.go`:
     - [x] 1.2.1 Set default `LogLevel` to "info".
     - [x] 1.2.2 Set default `LogFormat` to "console".
