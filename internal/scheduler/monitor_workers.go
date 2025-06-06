@@ -47,7 +47,13 @@ func (s *Scheduler) isValidMonitorConfig(config monitorConfig) bool {
 
 func (s *Scheduler) startMonitorWorkers(ctx context.Context, maxWorkers int) {
 	numWorkers := s.normalizeWorkerCount(maxWorkers)
-	s.monitorWorkerChan = make(chan MonitorJob, numWorkers)
+	// Use a larger buffer to avoid blocking when dispatching jobs
+	// Buffer size should be larger than the typical number of URLs to monitor
+	bufferSize := numWorkers * 10 // Allow queuing multiple jobs per worker
+	if bufferSize < 100 {
+		bufferSize = 100 // Minimum buffer size for better throughput
+	}
+	s.monitorWorkerChan = make(chan MonitorJob, bufferSize)
 
 	for i := 0; i < numWorkers; i++ {
 		s.monitorWorkerWG.Add(1)
@@ -221,18 +227,26 @@ func (s *Scheduler) dispatchMonitorJobs(
 ) (jobsDispatched int, stoppedPrematurely bool) {
 	var cycleWG sync.WaitGroup
 
+	s.logger.Info().Int("total_targets", len(targets)).Msg("Starting to dispatch monitor jobs")
+
+	stopped := false
 	for _, url := range targets {
 		if s.shouldStopDispatching(ctx) {
-			return jobsDispatched, true
+			s.logger.Warn().Int("jobs_dispatched", jobsDispatched).Int("total_targets", len(targets)).Msg("Stopping job dispatch early")
+			stopped = true
+			break
 		}
 
-		if s.tryDispatchJob(url, &cycleWG) {
+		if s.tryDispatchJob(url, &cycleWG, ctx) {
 			jobsDispatched++
 		}
 	}
 
+	s.logger.Info().Int("jobs_dispatched", jobsDispatched).Int("total_targets", len(targets)).Msg("All jobs dispatched, waiting for completion")
 	cycleWG.Wait()
-	return jobsDispatched, false
+	s.logger.Info().Int("jobs_completed", jobsDispatched).Msg("All monitor jobs completed")
+
+	return jobsDispatched, stopped
 }
 
 func (s *Scheduler) shouldStopDispatching(ctx context.Context) bool {
@@ -246,7 +260,7 @@ func (s *Scheduler) shouldStopDispatching(ctx context.Context) bool {
 	}
 }
 
-func (s *Scheduler) tryDispatchJob(url string, cycleWG *sync.WaitGroup) bool {
+func (s *Scheduler) tryDispatchJob(url string, cycleWG *sync.WaitGroup, ctx context.Context) bool {
 	job := MonitorJob{
 		URL:     url,
 		CycleWG: cycleWG,
@@ -257,7 +271,12 @@ func (s *Scheduler) tryDispatchJob(url string, cycleWG *sync.WaitGroup) bool {
 	select {
 	case s.monitorWorkerChan <- job:
 		return true
-	default:
+	case <-s.stopChan:
+		s.logger.Debug().Str("url", url).Msg("Job dispatch cancelled due to stop signal")
+		cycleWG.Done()
+		return false
+	case <-ctx.Done():
+		s.logger.Debug().Str("url", url).Msg("Job dispatch cancelled due to context cancellation")
 		cycleWG.Done()
 		return false
 	}
