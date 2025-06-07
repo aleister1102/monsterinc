@@ -2,6 +2,7 @@ package reporter
 
 import (
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -109,4 +110,10 @@ func (am *AssetManager) EmbedAssetsIntoPageData(pageData PageDataInterface, cssF
 type PageDataInterface interface {
 	SetCustomCSS(template.CSS)
 	SetReportJs(template.JS)
+}
+
+// TODO: Check if this function is used
+// EncodeFaviconToBase64 encodes favicon bytes to base64 string
+func EncodeFaviconToBase64(faviconBytes []byte) string {
+	return base64.StdEncoding.EncodeToString(faviconBytes)
 }
