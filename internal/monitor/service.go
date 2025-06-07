@@ -32,6 +32,12 @@ type MonitoringService struct {
 	urlChecker      *URLChecker
 	mutexManager    *URLMutexManager
 
+	// Memory optimization components
+	resourceLimiter *common.ResourceLimiter
+	bufferPool      *common.BufferPool
+	slicePool       *common.SlicePool
+	stringSlicePool *common.StringSlicePool
+
 	// Communication channel
 	monitorChan chan string
 
@@ -53,6 +59,12 @@ func NewMonitoringService(
 	if err := validateMonitoringConfig(gCfg); err != nil {
 		return nil, err
 	}
+
+	// Initialize memory optimization components
+	resourceLimiter := initializeResourceLimiter(gCfg, instanceLogger)
+	bufferPool := common.NewBufferPool(64 * 1024)     // 64KB buffers for content
+	slicePool := common.NewSlicePool(32 * 1024)       // 32KB slices for processing
+	stringSlicePool := common.NewStringSlicePool(500) // 500 URLs per batch
 
 	// Initialize core dependencies
 	historyStore, err := initializeHistoryStore(gCfg, instanceLogger)
@@ -101,10 +113,24 @@ func NewMonitoringService(
 		eventAggregator:    eventAggregator,
 		urlChecker:         urlChecker,
 		mutexManager:       mutexManager,
-		monitorChan:        make(chan string, gCfg.MonitorConfig.MaxConcurrentChecks*2),
-		isStopped:          false,
-		stoppedMutex:       sync.Mutex{},
+		// Memory optimization components
+		resourceLimiter: resourceLimiter,
+		bufferPool:      bufferPool,
+		slicePool:       slicePool,
+		stringSlicePool: stringSlicePool,
+		monitorChan:     make(chan string, gCfg.MonitorConfig.MaxConcurrentChecks*2),
+		isStopped:       false,
+		stoppedMutex:    sync.Mutex{},
 	}
+
+	// Set shutdown callback for resource limiter
+	resourceLimiter.SetShutdownCallback(func() {
+		instanceLogger.Warn().Msg("Resource limiter triggered graceful shutdown")
+		service.Stop()
+	})
+
+	// Start resource monitoring
+	resourceLimiter.Start()
 
 	return service, nil
 }
@@ -144,7 +170,7 @@ func (s *MonitoringService) LoadAndMonitorFromSources(inputFileOption string) er
 	return s.urlManager.LoadAndMonitorFromSources(inputFileOption)
 }
 
-// CheckURL checks a single URL for changes
+// CheckURL checks a single URL for changes with memory optimization
 func (s *MonitoringService) CheckURL(url string) {
 	// Check if service is stopped or context cancelled before starting
 	if s.isStopped {
@@ -158,6 +184,23 @@ func (s *MonitoringService) CheckURL(url string) {
 			return
 		default:
 		}
+	}
+
+	// Check resource limits before processing
+	if err := s.resourceLimiter.CheckMemoryLimit(); err != nil {
+		s.logger.Warn().Err(err).Str("url", url).Msg("Memory limit exceeded, triggering GC")
+		s.resourceLimiter.ForceGC()
+
+		// Recheck after GC
+		if err := s.resourceLimiter.CheckMemoryLimit(); err != nil {
+			s.logger.Error().Err(err).Str("url", url).Msg("Memory limit still exceeded after GC, skipping URL")
+			return
+		}
+	}
+
+	if err := s.resourceLimiter.CheckGoroutineLimit(); err != nil {
+		s.logger.Warn().Err(err).Str("url", url).Msg("Goroutine limit exceeded, skipping URL")
+		return
 	}
 
 	if !s.acquireURLMutex() {
@@ -195,52 +238,61 @@ func (s *MonitoringService) TriggerCycleEndReport() {
 	s.finalizeCycle()
 }
 
-// ExecuteBatchMonitoring executes monitoring for URLs using batch processing
+// ExecuteBatchMonitoring executes monitoring for URLs using batch processing with memory optimization
 func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFile string) error {
 	s.logger.Info().Str("input_file", inputFile).Msg("Starting batch monitoring execution")
+
+	// Check resource limits before starting batch processing
+	if err := s.resourceLimiter.CheckMemoryLimit(); err != nil {
+		s.logger.Warn().Err(err).Msg("Memory limit near threshold, triggering GC before batch processing")
+		s.resourceLimiter.ForceGC()
+	}
+
+	// Get resource usage before processing
+	resourceUsageBefore := s.resourceLimiter.GetResourceUsage()
+	s.logger.Info().
+		Int64("memory_mb", resourceUsageBefore.AllocMB).
+		Int("goroutines", resourceUsageBefore.Goroutines).
+		Float64("system_mem_percent", resourceUsageBefore.SystemMemUsedPercent).
+		Msg("Resource usage before batch monitoring")
 
 	// Load URLs using batch URL manager
 	batchTracker, err := s.batchURLManager.LoadURLsInBatches(ctx, inputFile)
 	if err != nil {
-		return common.WrapError(err, "failed to load URLs for batch monitoring")
+		return fmt.Errorf("failed to load URLs in batches: %w", err)
 	}
 
 	cycleID := s.GenerateNewCycleID()
-	s.batchURLManager.ResetCycle(batchTracker, cycleID)
+	totalProcessed := 0
 
-	s.logger.Info().
-		Str("cycle_id", cycleID).
-		Int("total_urls", len(batchTracker.AllURLs)).
-		Bool("uses_batching", batchTracker.UsedBatching).
-		Int("total_batches", batchTracker.TotalBatches).
-		Msg("Batch monitoring cycle started")
-
-	var totalProcessed int
+	// Process URLs in batches with memory optimization
 	for {
 		batch, hasMore := s.batchURLManager.GetNextBatch(batchTracker)
 		if len(batch) == 0 {
 			break
 		}
 
-		select {
-		case <-ctx.Done():
-			s.logger.Info().Msg("Batch monitoring interrupted by context cancellation")
-			return ctx.Err()
-		default:
-		}
+		// Use optimized URL slice from pool
+		urlSlice := s.stringSlicePool.Get()
+		urlSlice = append(urlSlice, batch...)
 
-		// Execute monitoring for current batch
-		batchResult, err := s.batchURLManager.ExecuteBatchMonitoring(ctx, batch, cycleID, s.urlChecker)
+		// Execute batch monitoring with memory monitoring
+		batchResult, err := s.batchURLManager.ExecuteBatchMonitoring(ctx, urlSlice, cycleID, s.urlChecker)
+
+		// Return slice to pool
+		s.stringSlicePool.Put(urlSlice)
+
 		if err != nil {
-			s.logger.Error().Err(err).Msg("Batch monitoring execution failed")
-			return err
+			s.logger.Error().Err(err).Msg("Batch monitoring failed")
+			// Continue with next batch on error
+		} else {
+			totalProcessed += len(batchResult.ProcessedURLs)
 		}
 
-		totalProcessed += len(batchResult.ProcessedURLs)
 		s.batchURLManager.CompleteCurrentBatch(batchTracker)
 
 		s.logger.Info().
-			Int("batch_processed", len(batchResult.ProcessedURLs)).
+			Int("batch_processed", len(batch)).
 			Int("total_processed", totalProcessed).
 			Bool("has_more", hasMore).
 			Msg("Batch monitoring completed")
@@ -248,12 +300,24 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 		if !hasMore {
 			break
 		}
+
+		// Check resource usage and trigger GC if needed
+		if err := s.resourceLimiter.CheckMemoryLimit(); err != nil {
+			s.logger.Warn().Err(err).Msg("Memory limit approaching, triggering GC between batches")
+			s.resourceLimiter.ForceGC()
+		}
 	}
 
+	// Log final resource usage
+	resourceUsageAfter := s.resourceLimiter.GetResourceUsage()
 	s.logger.Info().
 		Str("cycle_id", cycleID).
 		Int("total_processed", totalProcessed).
 		Int("total_batches", batchTracker.ProcessedBatches).
+		Int64("memory_before_mb", resourceUsageBefore.AllocMB).
+		Int64("memory_after_mb", resourceUsageAfter.AllocMB).
+		Int("goroutines_before", resourceUsageBefore.Goroutines).
+		Int("goroutines_after", resourceUsageAfter.Goroutines).
 		Msg("Batch monitoring cycle completed")
 
 	return nil
@@ -269,8 +333,25 @@ func (s *MonitoringService) Stop() {
 	}
 
 	s.logger.Info().Msg("Stopping monitoring service")
+
+	// Stop resource limiter first
+	if s.resourceLimiter != nil {
+		s.resourceLimiter.Stop()
+	}
+
 	s.performCleanShutdown()
 	s.isStopped = true
+
+	// Log final resource usage
+	if s.resourceLimiter != nil {
+		finalUsage := s.resourceLimiter.GetResourceUsage()
+		s.logger.Info().
+			Int64("final_memory_mb", finalUsage.AllocMB).
+			Int("final_goroutines", finalUsage.Goroutines).
+			Float64("final_system_mem_percent", finalUsage.SystemMemUsedPercent).
+			Msg("Final resource usage at service stop")
+	}
+
 	s.logger.Info().Msg("Monitoring service stopped")
 }
 
@@ -294,12 +375,86 @@ func (s *MonitoringService) SetCurrentCycleID(cycleID string) {
 
 // GetMonitoringStats returns current monitoring statistics
 func (s *MonitoringService) GetMonitoringStats() map[string]interface{} {
-	return map[string]interface{}{
+	stats := map[string]interface{}{
 		"total_monitored_urls": s.urlManager.Count(),
 		"changed_urls_count":   s.cycleTracker.GetChangeCount(),
 		"current_cycle_id":     s.cycleTracker.GetCurrentCycleID(),
 		"mutex_count":          s.mutexManager.GetMutexCount(),
 		"has_changes":          s.cycleTracker.HasChanges(),
+	}
+
+	// Add resource usage statistics if available
+	if s.resourceLimiter != nil {
+		resourceUsage := s.resourceLimiter.GetResourceUsage()
+		stats["memory_usage_mb"] = resourceUsage.AllocMB
+		stats["goroutines"] = resourceUsage.Goroutines
+		stats["system_memory_percent"] = resourceUsage.SystemMemUsedPercent
+		stats["cpu_usage_percent"] = resourceUsage.CPUUsagePercent
+		stats["gc_count"] = resourceUsage.GCCount
+	}
+
+	return stats
+}
+
+// GetBufferFromPool gets a buffer from the memory pool
+func (s *MonitoringService) GetBufferFromPool() *common.BufferPool {
+	return s.bufferPool
+}
+
+// GetSliceFromPool gets a slice from the memory pool
+func (s *MonitoringService) GetSliceFromPool() *common.SlicePool {
+	return s.slicePool
+}
+
+// GetStringSliceFromPool gets a string slice from the memory pool
+func (s *MonitoringService) GetStringSliceFromPool() *common.StringSlicePool {
+	return s.stringSlicePool
+}
+
+// CheckResourceLimits checks current resource usage and takes action if needed
+func (s *MonitoringService) CheckResourceLimits() error {
+	if s.resourceLimiter == nil {
+		return nil
+	}
+
+	// Check memory limit
+	if err := s.resourceLimiter.CheckMemoryLimit(); err != nil {
+		s.logger.Warn().Err(err).Msg("Memory limit exceeded, triggering GC")
+		s.resourceLimiter.ForceGC()
+		return err
+	}
+
+	// Check goroutine limit
+	if err := s.resourceLimiter.CheckGoroutineLimit(); err != nil {
+		s.logger.Warn().Err(err).Msg("Goroutine limit exceeded")
+		return err
+	}
+
+	// Check system resource limits
+	if systemMemExceeded, err := s.resourceLimiter.CheckSystemMemoryLimit(); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to check system memory limit")
+		return err
+	} else if systemMemExceeded {
+		s.logger.Warn().Msg("System memory threshold exceeded")
+		return fmt.Errorf("system memory threshold exceeded")
+	}
+
+	if cpuExceeded, err := s.resourceLimiter.CheckCPULimit(); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to check CPU limit")
+		return err
+	} else if cpuExceeded {
+		s.logger.Warn().Msg("CPU threshold exceeded")
+		return fmt.Errorf("CPU threshold exceeded")
+	}
+
+	return nil
+}
+
+// ForceGarbageCollection triggers garbage collection manually
+func (s *MonitoringService) ForceGarbageCollection() {
+	if s.resourceLimiter != nil {
+		s.resourceLimiter.ForceGC()
+		s.logger.Info().Msg("Forced garbage collection completed")
 	}
 }
 
@@ -397,6 +552,21 @@ func createInitialCycleTracker() *CycleTracker {
 	return NewCycleTracker(initialCycleID)
 }
 
+func initializeResourceLimiter(gCfg *config.GlobalConfig, logger zerolog.Logger) *common.ResourceLimiter {
+	resourceConfig := common.ResourceLimiterConfig{
+		MaxMemoryMB:        gCfg.ResourceLimiterConfig.MaxMemoryMB,
+		MaxGoroutines:      gCfg.ResourceLimiterConfig.MaxGoroutines,
+		CheckInterval:      time.Duration(gCfg.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
+		MemoryThreshold:    gCfg.ResourceLimiterConfig.MemoryThreshold,
+		GoroutineWarning:   gCfg.ResourceLimiterConfig.GoroutineWarning,
+		SystemMemThreshold: gCfg.ResourceLimiterConfig.SystemMemThreshold,
+		CPUThreshold:       gCfg.ResourceLimiterConfig.CPUThreshold,
+		EnableAutoShutdown: gCfg.ResourceLimiterConfig.EnableAutoShutdown,
+	}
+
+	return common.NewResourceLimiter(resourceConfig, logger)
+}
+
 func initializeEventAggregator(
 	gCfg *config.GlobalConfig,
 	logger zerolog.Logger,
@@ -440,7 +610,7 @@ func (s *MonitoringService) releaseURLMutex(url string) {
 	// URL mutex release logic if needed
 }
 
-func (s *MonitoringService) performURLCheck(url string) CheckResult {
+func (s *MonitoringService) performURLCheck(url string) LegacyCheckResult {
 	urlMutex := s.mutexManager.GetMutex(url)
 	urlMutex.Lock()
 	defer urlMutex.Unlock()
@@ -449,7 +619,7 @@ func (s *MonitoringService) performURLCheck(url string) CheckResult {
 	return s.urlChecker.CheckURLWithContext(s.serviceCtx, url, cycleID)
 }
 
-func (s *MonitoringService) handleCheckResult(url string, result CheckResult) {
+func (s *MonitoringService) handleCheckResult(url string, result LegacyCheckResult) {
 	if !result.Success {
 		s.handleCheckError(result)
 		return
@@ -460,13 +630,13 @@ func (s *MonitoringService) handleCheckResult(url string, result CheckResult) {
 	}
 }
 
-func (s *MonitoringService) handleCheckError(result CheckResult) {
+func (s *MonitoringService) handleCheckError(result LegacyCheckResult) {
 	if result.ErrorInfo != nil && s.eventAggregator != nil {
 		s.eventAggregator.AddFetchErrorEvent(*result.ErrorInfo)
 	}
 }
 
-func (s *MonitoringService) handleFileChange(url string, result CheckResult) {
+func (s *MonitoringService) handleFileChange(url string, result LegacyCheckResult) {
 	s.cycleTracker.AddChangedURL(url)
 	if s.eventAggregator != nil {
 		s.eventAggregator.AddFileChangeEvent(*result.FileChangeInfo)

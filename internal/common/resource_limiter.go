@@ -343,7 +343,7 @@ func (rl *ResourceLimiter) checkAndLogResourceUsage() {
 	}
 
 	// Log periodic stats including system memory and CPU
-	rl.logger.Debug().
+	rl.logger.Info().
 		Int64("app_alloc_mb", usage.AllocMB).
 		Int64("app_sys_mb", usage.SysMB).
 		Int("goroutines", usage.Goroutines).
