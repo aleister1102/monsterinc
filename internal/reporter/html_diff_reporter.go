@@ -15,6 +15,7 @@ import (
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
+	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/rs/zerolog"
 )
 
@@ -26,6 +27,11 @@ var assetsFS embed.FS
 
 //go:embed assets/img/favicon.ico
 var faviconICODiff []byte
+
+const (
+	// Default max diff results per report file for monitor service
+	DefaultMaxDiffResultsPerFile = 500
+)
 
 // FileHistoryStore defines an interface for accessing file history records.
 // This avoids a direct dependency on the concrete ParquetFileHistoryStore and facilitates testing.
@@ -43,12 +49,20 @@ type HtmlDiffReporter struct {
 	assetManager *AssetManager
 	directoryMgr *DirectoryManager
 	diffUtils    *DiffUtils
+	config       *config.MonitorConfig
 }
 
 // NewHtmlDiffReporter creates a new instance of NewHtmlDiffReporter
-func NewHtmlDiffReporter(logger zerolog.Logger, historyStore FileHistoryStore) (*HtmlDiffReporter, error) {
+func NewHtmlDiffReporter(logger zerolog.Logger, historyStore FileHistoryStore, monitorConfig *config.MonitorConfig) (*HtmlDiffReporter, error) {
 	if historyStore == nil {
 		logger.Warn().Msg("HistoryStore is nil in NewHtmlDiffReporter. Aggregated reports will not be available.")
+	}
+
+	if monitorConfig == nil {
+		logger.Warn().Msg("MonitorConfig is nil, using default values for diff reporter")
+		monitorConfig = &config.MonitorConfig{
+			MaxDiffResultsPerReportFile: DefaultMaxDiffResultsPerFile,
+		}
 	}
 
 	reporter := &HtmlDiffReporter{
@@ -57,6 +71,7 @@ func NewHtmlDiffReporter(logger zerolog.Logger, historyStore FileHistoryStore) (
 		assetManager: NewAssetManager(logger),
 		directoryMgr: NewDirectoryManager(logger),
 		diffUtils:    NewDiffUtils(),
+		config:       monitorConfig,
 	}
 
 	if err := reporter.initializeDirectories(); err != nil {
@@ -97,8 +112,8 @@ func (r *HtmlDiffReporter) copyAssets() error {
 	return r.assetManager.CopyEmbedDir(assetsFS, "assets", DefaultDiffReportAssetsDir)
 }
 
-// GenerateDiffReport creates HTML report for multiple URLs
-func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string, cycleID string) (string, error) {
+// GenerateDiffReport creates HTML report for multiple URLs with paging/splitting support
+func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string, cycleID string) ([]string, error) {
 	r.logger.Info().
 		Strs("monitored_urls", monitoredURLs).
 		Int("monitored_count", len(monitoredURLs)).
@@ -107,20 +122,30 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string, cycleID st
 
 	if r.historyStore == nil {
 		r.logger.Error().Msg("HistoryStore is not available in HtmlDiffReporter")
-		return "", errors.New("historyStore is not configured for HtmlDiffReporter")
+		return nil, errors.New("historyStore is not configured for HtmlDiffReporter")
 	}
 
 	diffResults, err := r.fetchLatestDiffResults(monitoredURLs)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	displayResults := r.processDiffResults(diffResults)
 	if len(displayResults) == 0 {
-		return "", nil
+		return []string{}, nil
 	}
 
-	return r.generateReport(displayResults, cycleID, true)
+	maxResults := r.getMaxDiffResultsPerFile()
+
+	if len(displayResults) <= maxResults {
+		reportPath, err := r.generateSingleReport(displayResults, cycleID, true)
+		if err != nil {
+			return nil, err
+		}
+		return []string{reportPath}, nil
+	}
+
+	return r.generateChunkedReports(displayResults, cycleID, maxResults)
 }
 
 // GenerateSingleDiffReport creates HTML report for single diff
@@ -225,7 +250,7 @@ func (r *HtmlDiffReporter) generateReport(displayResults []models.DiffResultDisp
 		return "", err
 	}
 
-	pageData := r.createAggregatedPageData(displayResults)
+	pageData := r.createAggregatedPageData(displayResults, "")
 	return r.writeReportToFile(pageData, outputFilePath)
 }
 
@@ -277,13 +302,19 @@ func (r *HtmlDiffReporter) generateSingleReportPath(urlStr string, diffResult *m
 }
 
 // createAggregatedPageData creates page data for aggregated report
-func (r *HtmlDiffReporter) createAggregatedPageData(displayResults []models.DiffResultDisplay) models.DiffReportPageData {
+func (r *HtmlDiffReporter) createAggregatedPageData(displayResults []models.DiffResultDisplay, partInfo string) models.DiffReportPageData {
+	reportTitle := DefaultDiffReportTitle
+	if partInfo != "" {
+		reportTitle = fmt.Sprintf("%s - %s", DefaultDiffReportTitle, partInfo)
+	}
+
 	pageData := models.DiffReportPageData{
-		ReportTitle: DefaultDiffReportTitle,
-		GeneratedAt: time.Now().Format("2006-01-02 15:04:05 MST"),
-		DiffResults: displayResults,
-		TotalDiffs:  len(displayResults),
-		ReportType:  "aggregated",
+		ReportTitle:    reportTitle,
+		GeneratedAt:    time.Now().Format("2006-01-02 15:04:05 MST"),
+		DiffResults:    displayResults,
+		TotalDiffs:     len(displayResults),
+		ReportType:     "aggregated",
+		ReportPartInfo: partInfo,
 	}
 
 	// Set favicon base64 data
@@ -408,4 +439,99 @@ func (r *HtmlDiffReporter) deleteSingleFile(fileName string) error {
 
 	r.logger.Debug().Str("file", fileName).Msg("Successfully deleted single diff report file")
 	return nil
+}
+
+// getMaxDiffResultsPerFile returns the configured max diff results per file
+func (r *HtmlDiffReporter) getMaxDiffResultsPerFile() int {
+	if r.config != nil && r.config.MaxDiffResultsPerReportFile > 0 {
+		return r.config.MaxDiffResultsPerReportFile
+	}
+	return DefaultMaxDiffResultsPerFile
+}
+
+// generateSingleReport creates a single HTML diff report file
+func (r *HtmlDiffReporter) generateSingleReport(displayResults []models.DiffResultDisplay, cycleID string, isAggregated bool) (string, error) {
+	pageData := r.createAggregatedPageData(displayResults, "")
+	outputFilePath := r.buildOutputPath(cycleID, 0, 1, isAggregated)
+
+	if err := r.directoryMgr.EnsureOutputDirectories(filepath.Dir(outputFilePath)); err != nil {
+		return "", err
+	}
+
+	return r.writeReportToFile(pageData, outputFilePath)
+}
+
+// generateChunkedReports creates multiple HTML diff report files for large result sets
+func (r *HtmlDiffReporter) generateChunkedReports(displayResults []models.DiffResultDisplay, cycleID string, maxResults int) ([]string, error) {
+	totalChunks := (len(displayResults) + maxResults - 1) / maxResults
+	outputPaths := make([]string, 0, totalChunks)
+
+	for i := 0; i < totalChunks; i++ {
+		start := i * maxResults
+		end := start + maxResults
+		if end > len(displayResults) {
+			end = len(displayResults)
+		}
+
+		chunk := displayResults[start:end]
+		partInfo := fmt.Sprintf("Part %d of %d", i+1, totalChunks)
+
+		pageData := r.createAggregatedPageData(chunk, partInfo)
+		outputPath := r.buildOutputPath(cycleID, i+1, totalChunks, true)
+
+		if err := r.directoryMgr.EnsureOutputDirectories(filepath.Dir(outputPath)); err != nil {
+			return outputPaths, fmt.Errorf("failed to ensure output directory for chunk %d: %w", i+1, err)
+		}
+
+		reportPath, err := r.writeReportToFile(pageData, outputPath)
+		if err != nil {
+			return outputPaths, fmt.Errorf("failed to write chunk %d: %w", i+1, err)
+		}
+
+		outputPaths = append(outputPaths, reportPath)
+	}
+
+	return outputPaths, nil
+}
+
+// buildOutputPath constructs the output file path with paging support
+func (r *HtmlDiffReporter) buildOutputPath(cycleID string, partNum, totalParts int, isAggregated bool) string {
+	var filename string
+
+	if isAggregated && cycleID != "" {
+		// Extract timestamp from cycleID format: monitor-init-20241231-161213 or monitor-20241231-161213
+		timestamp := time.Now().Format("20060102-150405") // fallback to current time
+
+		// Split by '-' and look for timestamp parts
+		if strings.Contains(cycleID, "-") {
+			parts := strings.Split(cycleID, "-")
+			// Look for the last two parts that could form YYYYMMDD-HHMMSS
+			if len(parts) >= 2 {
+				lastTwoParts := parts[len(parts)-2:]
+				if len(lastTwoParts) == 2 &&
+					len(lastTwoParts[0]) == 8 && len(lastTwoParts[1]) == 6 {
+					// Validate that these look like date and time
+					if _, err := time.Parse("20060102", lastTwoParts[0]); err == nil {
+						if _, err := time.Parse("150405", lastTwoParts[1]); err == nil {
+							timestamp = lastTwoParts[0] + "-" + lastTwoParts[1]
+						}
+					}
+				}
+			}
+		}
+
+		if totalParts == 1 {
+			filename = fmt.Sprintf("%s_monitor_report.html", timestamp)
+		} else {
+			filename = fmt.Sprintf("%s_monitor_report-part%d.html", timestamp, partNum)
+		}
+	} else {
+		if totalParts == 1 {
+			filename = "aggregated_diff_report.html"
+		} else {
+			filename = fmt.Sprintf("aggregated_diff_report-part%d.html", partNum)
+		}
+	}
+
+	return filepath.Join(DefaultDiffReportDir, filename)
 }

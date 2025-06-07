@@ -83,7 +83,7 @@ func NewMonitoringService(
 	// Initialize optional components
 	contentDiffer := initializeContentDiffer(gCfg, instanceLogger)
 	pathExtractor := initializePathExtractor(gCfg, instanceLogger)
-	htmlDiffReporter := initializeHtmlDiffReporter(historyStore, instanceLogger, notificationHelper)
+	htmlDiffReporter := initializeHtmlDiffReporter(gCfg, historyStore, instanceLogger, notificationHelper)
 
 	// Initialize modular components
 	urlManager := NewURLManager(instanceLogger)
@@ -534,6 +534,7 @@ func initializePathExtractor(gCfg *config.GlobalConfig, logger zerolog.Logger) *
 }
 
 func initializeHtmlDiffReporter(
+	gCfg *config.GlobalConfig,
 	historyStore models.FileHistoryStore,
 	logger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
@@ -542,7 +543,7 @@ func initializeHtmlDiffReporter(
 		return nil
 	}
 
-	htmlDiffReporter, err := reporter.NewHtmlDiffReporter(logger, historyStore)
+	htmlDiffReporter, err := reporter.NewHtmlDiffReporter(logger, historyStore, &gCfg.MonitorConfig)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to initialize HtmlDiffReporter")
 		return nil
@@ -666,21 +667,26 @@ func (s *MonitoringService) generateAndSendCycleReport(monitoredURLs, changedURL
 		return
 	}
 
-	reportPath, err := s.urlChecker.htmlDiffReporter.GenerateDiffReport(monitoredURLs, cycleID)
+	reportPaths, err := s.urlChecker.htmlDiffReporter.GenerateDiffReport(monitoredURLs, cycleID)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to generate cycle end diff report")
 		s.sendCycleCompleteNotification(cycleID, changedURLs, "", len(monitoredURLs))
 		return
 	}
 
-	if reportPath == "" {
+	if len(reportPaths) == 0 {
 		s.logger.Info().Msg("No changes detected - sending notification without report")
 		s.sendCycleCompleteNotification(cycleID, changedURLs, "", len(monitoredURLs))
 		return
 	}
 
-	s.logger.Info().Str("report_path", reportPath).Msg("Generated cycle end diff report")
-	s.sendCycleCompleteNotification(cycleID, changedURLs, reportPath, len(monitoredURLs))
+	// Use the first report path for notification (main report)
+	mainReportPath := reportPaths[0]
+	s.logger.Info().
+		Str("main_report_path", mainReportPath).
+		Int("total_reports", len(reportPaths)).
+		Msg("Generated cycle end diff report(s)")
+	s.sendCycleCompleteNotification(cycleID, changedURLs, mainReportPath, len(monitoredURLs))
 }
 
 func (s *MonitoringService) sendCycleCompleteNotification(cycleID string, changedURLs []string, reportPath string, totalMonitored int) {

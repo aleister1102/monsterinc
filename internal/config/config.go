@@ -289,7 +289,7 @@ type CrawlerConfig struct {
 	HeadlessBrowser          HeadlessBrowserConfig `json:"headless_browser,omitempty" yaml:"headless_browser,omitempty"`
 	AutoCalibrate            AutoCalibrateConfig   `json:"auto_calibrate,omitempty" yaml:"auto_calibrate,omitempty"`
 	// Retry configuration for handling rate limits (429 errors)
-	RetryConfig              RetryConfig           `json:"retry_config,omitempty" yaml:"retry_config,omitempty"`
+	RetryConfig RetryConfig `json:"retry_config,omitempty" yaml:"retry_config,omitempty"`
 }
 
 func NewDefaultCrawlerConfig() CrawlerConfig {
@@ -428,34 +428,36 @@ func NewDefaultDiffConfig() DiffConfig {
 }
 
 type MonitorConfig struct {
-	AggregationIntervalSeconds int      `json:"aggregation_interval_seconds,omitempty" yaml:"aggregation_interval_seconds,omitempty" validate:"omitempty,min=1"`
-	CheckIntervalSeconds       int      `json:"check_interval_seconds,omitempty" yaml:"check_interval_seconds,omitempty" validate:"omitempty,min=1"`
-	Enabled                    bool     `json:"enabled" yaml:"enabled"`
-	HTMLFileExtensions         []string `json:"html_file_extensions,omitempty" yaml:"html_file_extensions,omitempty"`
-	HTTPTimeoutSeconds         int      `json:"http_timeout_seconds,omitempty" yaml:"http_timeout_seconds,omitempty" validate:"omitempty,min=1"`
-	InitialMonitorURLs         []string `json:"initial_monitor_urls,omitempty" yaml:"initial_monitor_urls,omitempty" validate:"omitempty,dive,url"`
-	JSFileExtensions           []string `json:"js_file_extensions,omitempty" yaml:"js_file_extensions,omitempty"`
-	MaxAggregatedEvents        int      `json:"max_aggregated_events,omitempty" yaml:"max_aggregated_events,omitempty" validate:"omitempty,min=1"`
-	MaxConcurrentChecks        int      `json:"max_concurrent_checks,omitempty" yaml:"max_concurrent_checks,omitempty" validate:"omitempty,min=1"`
-	MaxContentSize             int      `json:"max_content_size,omitempty" yaml:"max_content_size,omitempty" validate:"omitempty,min=1"` // Max content size in bytes
-	MonitorInsecureSkipVerify  bool     `json:"monitor_insecure_skip_verify" yaml:"monitor_insecure_skip_verify"`
-	StoreFullContentOnChange   bool     `json:"store_full_content_on_change" yaml:"store_full_content_on_change"`
+	AggregationIntervalSeconds  int      `json:"aggregation_interval_seconds,omitempty" yaml:"aggregation_interval_seconds,omitempty" validate:"omitempty,min=1"`
+	CheckIntervalSeconds        int      `json:"check_interval_seconds,omitempty" yaml:"check_interval_seconds,omitempty" validate:"omitempty,min=1"`
+	Enabled                     bool     `json:"enabled" yaml:"enabled"`
+	HTMLFileExtensions          []string `json:"html_file_extensions,omitempty" yaml:"html_file_extensions,omitempty"`
+	HTTPTimeoutSeconds          int      `json:"http_timeout_seconds,omitempty" yaml:"http_timeout_seconds,omitempty" validate:"omitempty,min=1"`
+	InitialMonitorURLs          []string `json:"initial_monitor_urls,omitempty" yaml:"initial_monitor_urls,omitempty" validate:"omitempty,dive,url"`
+	JSFileExtensions            []string `json:"js_file_extensions,omitempty" yaml:"js_file_extensions,omitempty"`
+	MaxAggregatedEvents         int      `json:"max_aggregated_events,omitempty" yaml:"max_aggregated_events,omitempty" validate:"omitempty,min=1"`
+	MaxConcurrentChecks         int      `json:"max_concurrent_checks,omitempty" yaml:"max_concurrent_checks,omitempty" validate:"omitempty,min=1"`
+	MaxContentSize              int      `json:"max_content_size,omitempty" yaml:"max_content_size,omitempty" validate:"omitempty,min=1"` // Max content size in bytes
+	MonitorInsecureSkipVerify   bool     `json:"monitor_insecure_skip_verify" yaml:"monitor_insecure_skip_verify"`
+	StoreFullContentOnChange    bool     `json:"store_full_content_on_change" yaml:"store_full_content_on_change"`
+	MaxDiffResultsPerReportFile int      `json:"max_diff_results_per_report_file,omitempty" yaml:"max_diff_results_per_report_file,omitempty" validate:"omitempty,min=1"` // Maximum number of diff results per HTML report file
 }
 
 func NewDefaultMonitorConfig() MonitorConfig {
 	return MonitorConfig{
-		AggregationIntervalSeconds: 600,  // Default to 10 minutes for aggregation
-		CheckIntervalSeconds:       3600, // 1 hour
-		Enabled:                    false,
-		HTMLFileExtensions:         []string{".html", ".htm"},
-		HTTPTimeoutSeconds:         30,
-		InitialMonitorURLs:         []string{},
-		JSFileExtensions:           []string{".js", ".jsx", ".ts", ".tsx"},
-		MaxAggregatedEvents:        10, // Default to 10 events before sending aggregated notification
-		MaxConcurrentChecks:        5,
-		MaxContentSize:             1048576, // Default 1MB
-		MonitorInsecureSkipVerify:  true,    // Default to true to match previous hardcoded behavior
-		StoreFullContentOnChange:   true,
+		AggregationIntervalSeconds:  600,  // Default to 10 minutes for aggregation
+		CheckIntervalSeconds:        3600, // 1 hour
+		Enabled:                     false,
+		HTMLFileExtensions:          []string{".html", ".htm"},
+		HTTPTimeoutSeconds:          30,
+		InitialMonitorURLs:          []string{},
+		JSFileExtensions:            []string{".js", ".jsx", ".ts", ".tsx"},
+		MaxAggregatedEvents:         10, // Default to 10 events before sending aggregated notification
+		MaxConcurrentChecks:         5,
+		MaxContentSize:              1048576, // Default 1MB
+		MonitorInsecureSkipVerify:   true,    // Default to true to match previous hardcoded behavior
+		StoreFullContentOnChange:    true,
+		MaxDiffResultsPerReportFile: 500, // Default to 500 diff results per report file
 	}
 }
 
@@ -610,7 +612,7 @@ func NewDefaultRetryConfig() RetryConfig {
 		MaxRetries:       3,
 		BaseDelaySecs:    10,
 		MaxDelaySecs:     60,
-		EnableJitter:      true,
-		RetryStatusCodes:  []int{429},
+		EnableJitter:     true,
+		RetryStatusCodes: []int{429},
 	}
 }

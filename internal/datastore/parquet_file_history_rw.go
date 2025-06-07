@@ -210,7 +210,7 @@ func readFileHistoryRecords(filePath string, logger zerolog.Logger) ([]models.Fi
 	osFile, err := os.Open(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.Info().Str("file", filePath).Msg("History file does not exist, returning empty records.")
+			// logger.Info().Str("file", filePath).Msg("History file does not exist, returning empty records.")
 			return []models.FileHistoryRecord{}, nil // Return empty slice if file doesn't exist
 		}
 		return nil, fmt.Errorf("failed to open history file '%s': %w", filePath, err)

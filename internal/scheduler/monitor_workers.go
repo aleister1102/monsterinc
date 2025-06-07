@@ -104,7 +104,7 @@ func (s *Scheduler) runMonitorTicker(ctx context.Context) {
 // monitorWorker processes monitor jobs
 func (s *Scheduler) monitorWorker(ctx context.Context, id int) {
 	defer s.monitorWorkerWG.Done()
-	s.logger.Info().Int("worker_id", id).Msg("Monitor worker started")
+	// s.logger.Info().Int("worker_id", id).Msg("Monitor worker started")
 
 	for {
 		select {
@@ -136,7 +136,7 @@ func (s *Scheduler) monitorWorker(ctx context.Context, id int) {
 				s.logger.Warn().Int("worker_id", id).Str("url", job.URL).Msg("Monitoring service is nil, cannot check URL.")
 			}
 			job.CycleWG.Done()
-			s.logger.Info().Int("worker_id", id).Str("url", job.URL).Msg("Monitor worker finished job.")
+			// s.logger.Info().Int("worker_id", id).Str("url", job.URL).Msg("Monitor worker finished job.")
 		case <-s.stopChan: // Listen for the scheduler's main stop signal
 			s.logger.Info().Int("worker_id", id).Msg("Monitor worker stopping due to scheduler's stop signal.")
 			return

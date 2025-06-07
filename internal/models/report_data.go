@@ -160,10 +160,11 @@ type DiffReportPageData struct {
 	GeneratedAt      string              `json:"generated_at"`
 	DiffResults      []DiffResultDisplay `json:"diff_results"`
 	TotalDiffs       int                 `json:"total_diffs"`
-	ItemsPerPage     int                 `json:"items_per_page"`           // For potential pagination
-	EnableDataTables bool                `json:"enable_data_tables"`       // To enable/disable DataTables JS library features
-	ReportType       string              `json:"report_type,omitempty"`    // Added ReportType for template logic
-	FaviconBase64    string              `json:"favicon_base64,omitempty"` // Base64 encoded favicon
+	ItemsPerPage     int                 `json:"items_per_page"`             // For potential pagination
+	EnableDataTables bool                `json:"enable_data_tables"`         // To enable/disable DataTables JS library features
+	ReportType       string              `json:"report_type,omitempty"`      // Added ReportType for template logic
+	FaviconBase64    string              `json:"favicon_base64,omitempty"`   // Base64 encoded favicon
+	ReportPartInfo   string              `json:"report_part_info,omitempty"` // Report Part Information (for multi-part reports)
 	// You can add more fields here, for example, a summary of changes, etc.
 }
 

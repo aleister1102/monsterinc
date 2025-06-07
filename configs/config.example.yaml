@@ -464,6 +464,11 @@ monitor_config:
   # Default: 10
   max_aggregated_events: 10
 
+  # Maximum number of diff results to include in a single HTML diff report file.
+  # If the total number of diff results exceeds this value, the report will be split into multiple files.
+  # A value of 0 means no limit (all results in one file). Default: 500
+  max_diff_results_per_report_file: 500
+
 
 # Scheduler configuration: Settings for automated periodic scans (when mode is "automated").
 scheduler_config:
