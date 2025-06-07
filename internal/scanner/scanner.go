@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
@@ -25,6 +26,7 @@ type Scanner struct {
 	crawlerExecutor *CrawlerExecutor
 	httpxExecutor   *HTTPXExecutor
 	diffProcessor   *DiffStorageProcessor
+	progressDisplay *common.ProgressDisplayManager
 }
 
 // NewScanner creates a new Scanner instance with required dependencies
@@ -61,6 +63,11 @@ func NewScanner(
 	}
 
 	return scanner
+}
+
+// SetProgressDisplay đặt progress display manager
+func (s *Scanner) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
+	s.progressDisplay = progressDisplay
 }
 
 // ExecuteSingleScanWorkflowWithReporting performs complete scan workflow with reporting
@@ -139,9 +146,17 @@ func (s *Scanner) ExecuteScanWorkflow(
 	seedURLs []string,
 	scanSessionID string,
 ) ([]models.ProbeResult, map[string]models.URLDiffResult, error) {
+	// Update progress: Starting crawler configuration
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(1, 4, "Crawler", "Configuring crawler")
+	}
+
 	// Step 1: Configure and execute crawler
 	crawlerConfig, primaryRootTargetURL, err := s.configBuilder.BuildCrawlerConfig(seedURLs, scanSessionID)
 	if err != nil {
+		if s.progressDisplay != nil {
+			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "Failed to build crawler config")
+		}
 		return nil, nil, fmt.Errorf("failed to build crawler config: %w", err)
 	}
 
@@ -152,8 +167,15 @@ func (s *Scanner) ExecuteScanWorkflow(
 		PrimaryRootTargetURL: primaryRootTargetURL,
 	}
 
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(1, 4, "Crawler", "Executing crawler")
+	}
+
 	crawlerResult := s.crawlerExecutor.Execute(crawlerInput)
 	if crawlerResult.Error != nil {
+		if s.progressDisplay != nil {
+			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "Crawler execution failed")
+		}
 		return nil, nil, fmt.Errorf("crawler execution failed: %w", crawlerResult.Error)
 	}
 
@@ -161,6 +183,10 @@ func (s *Scanner) ExecuteScanWorkflow(
 	s.httpxExecutor.SetCrawlerInstance(crawlerResult.CrawlerInstance)
 
 	// Step 2: Execute HTTPX probing
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(2, 4, "Probing", "Configuring HTTPX probing")
+	}
+
 	httpxConfig := s.configBuilder.BuildHTTPXConfig(crawlerResult.DiscoveredURLs)
 	httpxInput := HTTPXExecutionInput{
 		Context:              ctx,
@@ -171,12 +197,23 @@ func (s *Scanner) ExecuteScanWorkflow(
 		HttpxRunnerConfig:    httpxConfig,
 	}
 
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(2, 4, "Probing", fmt.Sprintf("Probing %d URLs", len(crawlerResult.DiscoveredURLs)))
+	}
+
 	httpxResult := s.httpxExecutor.Execute(httpxInput)
 	if httpxResult.Error != nil {
+		if s.progressDisplay != nil {
+			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "HTTPX execution failed")
+		}
 		return nil, nil, fmt.Errorf("HTTPX execution failed: %w", httpxResult.Error)
 	}
 
 	// Step 3: Process diffing and storage
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(3, 4, "Diffing", "Processing diffs and storage")
+	}
+
 	var urlDiffResults map[string]models.URLDiffResult
 	if s.diffProcessor != nil {
 		diffInput := ProcessDiffingAndStorageInput{
@@ -194,6 +231,12 @@ func (s *Scanner) ExecuteScanWorkflow(
 			urlDiffResults = diffOutput.URLDiffResults
 			httpxResult.ProbeResults = diffOutput.UpdatedScanProbeResults
 		}
+	}
+
+	// Step 4: Workflow completed
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(4, 4, "Complete", "Scan workflow completed")
+		s.progressDisplay.SetScanStatus(common.ProgressStatusComplete, fmt.Sprintf("Found %d probe results", len(httpxResult.ProbeResults)))
 	}
 
 	return httpxResult.ProbeResults, urlDiffResults, nil

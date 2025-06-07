@@ -42,6 +42,11 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Initialize progress display manager
+	progressDisplay := common.NewProgressDisplayManager(zLogger)
+	progressDisplay.Start()
+	defer progressDisplay.Stop()
+
 	// Start global resource limiter with config from file
 	resourceLimiterConfig := common.ResourceLimiterConfig{
 		MaxMemoryMB:        gCfg.ResourceLimiterConfig.MaxMemoryMB,
@@ -125,7 +130,7 @@ func main() {
 		ms.SetParentContext(ctx)
 	}
 
-	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, scanner, ms, &schedulerPtr)
+	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, scanner, ms, &schedulerPtr, progressDisplay)
 
 	shutdownServices(ms, schedulerPtr, zLogger, ctx)
 }
@@ -284,7 +289,9 @@ func runApplicationLogic(
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	scanner *scanner.Scanner,
-	monitoringService *monitor.MonitoringService, schedulerPtr **scheduler.Scheduler,
+	monitoringService *monitor.MonitoringService,
+	schedulerPtr **scheduler.Scheduler,
+	progressDisplay *common.ProgressDisplayManager,
 ) {
 	scanTargetsFile := ""
 	if flags.ScanTargetsFile != "" {
@@ -306,6 +313,7 @@ func runApplicationLogic(
 			zLogger,
 			notificationHelper,
 			scanner,
+			progressDisplay,
 		)
 	} else if gCfg.Mode == "automated" {
 		runAutomatedScan(
@@ -318,6 +326,7 @@ func runApplicationLogic(
 			zLogger,
 			notificationHelper,
 			schedulerPtr,
+			progressDisplay,
 		)
 	}
 }
@@ -329,6 +338,7 @@ func runOnetimeScan(
 	baseLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	scannerInstance *scanner.Scanner,
+	progressDisplay *common.ProgressDisplayManager,
 ) {
 	// Load seed URLs using TargetManager
 	targetManager := urlhandler.NewTargetManager(baseLogger)
@@ -377,6 +387,10 @@ func runOnetimeScan(
 	startSummary.TotalTargets = len(scanUrls)
 	// Send scan start notification
 	notificationHelper.SendScanStartNotification(ctx, startSummary)
+
+	// Set up progress display for scanner
+	scannerInstance.SetProgressDisplay(progressDisplay)
+	progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Starting scan workflow")
 
 	// Execute complete scan workflow using batch processing
 	scanSessionID := time.Now().Format("20060102-150405")
@@ -463,6 +477,7 @@ func runAutomatedScan(
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	schedulerPtr **scheduler.Scheduler,
+	progressDisplay *common.ProgressDisplayManager,
 ) {
 	// Determine if the scheduler should run.
 	// Scheduler runs if scan targets are provided OR if monitor targets have been loaded into the service.
@@ -471,6 +486,12 @@ func runAutomatedScan(
 	if !automatedModeActive {
 		zLogger.Info().Msg("Automated mode: Neither scan targets (-st) nor monitor targets (-mt) were provided or loaded with valid URLs. Scheduler will not start.")
 		return
+	}
+
+	// Set up progress display for monitoring service
+	if monitoringService != nil {
+		monitoringService.SetProgressDisplay(progressDisplay)
+		progressDisplay.SetMonitorStatus(common.ProgressStatusRunning, "Monitoring service active")
 	}
 
 	// Initialize scheduler

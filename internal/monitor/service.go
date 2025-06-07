@@ -47,6 +47,9 @@ type MonitoringService struct {
 	serviceCancelFunc context.CancelFunc
 	isStopped         bool
 	stoppedMutex      sync.Mutex
+
+	// Progress display
+	progressDisplay *common.ProgressDisplayManager
 }
 
 // NewMonitoringService creates a new refactored monitoring service
@@ -136,6 +139,11 @@ func NewMonitoringService(
 	return service, nil
 }
 
+// SetProgressDisplay đặt progress display manager
+func (s *MonitoringService) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
+	s.progressDisplay = progressDisplay
+}
+
 // AddMonitorUrl adds a URL to the list of monitored URLs
 func (s *MonitoringService) AddMonitorUrl(url string) {
 	if !s.isValidURL(url) {
@@ -176,6 +184,12 @@ func (s *MonitoringService) CheckURL(url string) {
 	// Check if service is stopped or context cancelled before starting
 	if s.isStopped {
 		return
+	}
+
+	// Update progress display
+	if s.progressDisplay != nil {
+		currentURLs := s.urlManager.GetCurrentURLs()
+		s.progressDisplay.UpdateMonitorProgress(1, int64(len(currentURLs)), "Checking", fmt.Sprintf("Checking %s", url))
 	}
 
 	if s.serviceCtx != nil {
@@ -265,6 +279,12 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 
 	cycleID := s.GenerateNewCycleID()
 	totalProcessed := 0
+	totalURLs := len(batchTracker.AllURLs)
+
+	// Update progress display
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateMonitorProgress(0, int64(totalURLs), "Batch", fmt.Sprintf("Starting batch monitoring of %d URLs", totalURLs))
+	}
 
 	// Process URLs in batches with memory optimization
 	for {
@@ -292,6 +312,11 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 
 		s.batchURLManager.CompleteCurrentBatch(batchTracker)
 
+		// Update progress display
+		if s.progressDisplay != nil {
+			s.progressDisplay.UpdateMonitorProgress(int64(totalProcessed), int64(totalURLs), "Batch", fmt.Sprintf("Processed %d/%d URLs", totalProcessed, totalURLs))
+		}
+
 		s.logger.Info().
 			Int("batch_processed", len(batch)).
 			Int("total_processed", totalProcessed).
@@ -311,6 +336,12 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 
 	// Log final resource usage
 	resourceUsageAfter := s.resourceLimiter.GetResourceUsage()
+	// Update progress display - completed
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateMonitorProgress(int64(totalProcessed), int64(totalURLs), "Complete", "Batch monitoring completed")
+		s.progressDisplay.SetMonitorStatus(common.ProgressStatusComplete, fmt.Sprintf("Processed %d URLs", totalProcessed))
+	}
+
 	s.logger.Info().
 		Str("cycle_id", cycleID).
 		Int("total_processed", totalProcessed).
