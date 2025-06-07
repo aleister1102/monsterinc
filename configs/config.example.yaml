@@ -132,20 +132,17 @@ crawler_config:
   # Whether to respect robots.txt directives.
   # Default: true
   respect_robots_txt: false
-  # Whether to include subdomains of seed URLs in the crawl.
-  # Default: false
-  include_subdomains: true
+
   # Whether to skip TLS certificate verification for HTTPS requests.
   # When enabled, the crawler will accept any certificate, including self-signed or expired ones.
   # Useful for testing internal sites or sites with certificate issues.
   # Default: true
   insecure_skip_tls_verify: true
-  # Whether to perform HEAD requests to check content length before crawling.
-  # Disabling this improves performance but may crawl large files.
-  # Default: false
-  enable_content_length_check: false
+
 
   # URL normalization: Remove duplicate URLs with only fragment or tracking parameter differences.
+  # NOTE: URL normalization processing now happens at Scanner level during URL preprocessing (Step 0)
+  # before URLs are passed to the crawler. This improves efficiency and deduplication.
   url_normalization:
     # Strip fragments from URLs to avoid duplicates (e.g., #section).
     # Default: true
@@ -247,14 +244,16 @@ crawler_config:
   auto_add_seed_hostnames: true
 
   # Auto-calibrate configuration: Settings for detecting and skipping similar URL patterns.
+  # NOTE: Auto-calibrate processing now happens at Scanner level during URL preprocessing (Step 0)
+  # before URLs are passed to the crawler. This improves efficiency and deduplication.
   auto_calibrate:
     # Whether auto-calibrate feature is enabled.
-    # When enabled, the crawler will detect similar URL patterns and skip crawling
-    # URLs that match patterns already seen (useful for forum pages with similar structures).
+    # When enabled, URLs will be preprocessed to detect similar patterns and skip duplicates
+    # during the initial preprocessing step before crawling begins.
     # Default: true
     enabled: true
     # Maximum number of similar URLs to allow per pattern before skipping.
-    # For example, if set to 1, only the first URL of each pattern will be crawled.
+    # For example, if set to 1, only the first URL of each pattern will be processed.
     # Default: 1
     max_similar_urls: 1
     # Parameters to ignore when detecting similar URL patterns.
@@ -268,7 +267,15 @@ crawler_config:
       - "p"      # Page shorthand
       - "offset" # Pagination offset
       - "limit"  # Pagination limit
-    # Enable logging when URLs are skipped due to pattern similarity.
+    # Automatically detect and ignore locale codes in path segments
+    # When enabled, path segments that look like locale codes (e.g., /en/, /fr/, /de/)
+    # will be replaced with wildcards for pattern matching during preprocessing
+    # Default: true
+    auto_detect_locales: true
+    # Custom locale codes to recognize (in addition to built-in ISO codes)
+    # Default: []
+    custom_locale_codes: []
+    # Enable logging when URLs are skipped due to pattern similarity during preprocessing.
     # Default: true
     enable_skip_logging: true
 
@@ -493,12 +500,7 @@ monitor_config:
     - ".htm"
 
   # Aggregation settings for monitor notifications (file changes and errors)
-  # How often to send aggregated notifications, in seconds.
-  # Default: 600 (10 minutes)
-  aggregation_interval_seconds: 20
-  # Maximum number of events (changes or errors) to aggregate before sending a notification, regardless of the interval.
-  # Default: 10
-  max_aggregated_events: 10
+
 
   # Maximum number of diff results to include in a single HTML diff report file.
   # If the total number of diff results exceeds this value, the report will be split into multiple files.
@@ -525,9 +527,10 @@ scan_batch_config:
   # Default: 200 (larger than monitor due to typically faster processing)
   batch_size: 200
   # Maximum number of concurrent scan batches to process at the same time.
-  # Set to 2 for parallel processing of scan batches (scan service can handle more concurrency).
-  # Default: 2
-  max_concurrent_batch: 2
+  # Set to 0 to auto-calculate based on crawler threads (50% of threads, min 1, max 8).
+  # Override with specific value if needed.
+  # Default: 0 (auto-calculated)
+  max_concurrent_batch: 0
   # Timeout for each scan batch processing in minutes.
   # If a batch takes longer than this, it will be cancelled.
   # Default: 45 (longer timeout for complex scanning operations)
@@ -545,9 +548,10 @@ monitor_batch_config:
   # Default: 50 (smaller than scan due to more intensive monitoring operations)
   batch_size: 50
   # Maximum number of concurrent monitor batches to process at the same time.
-  # Set to 1 for sequential processing (recommended for monitoring stability).
-  # Default: 1
-  max_concurrent_batch: 1
+  # Set to 0 to auto-calculate based on monitor workers (50% of workers, min 1, max 4).
+  # Override with specific value if needed.
+  # Default: 0 (auto-calculated)
+  max_concurrent_batch: 0
   # Timeout for each monitor batch processing in minutes.
   # If a batch takes longer than this, it will be cancelled.
   # Default: 20 (shorter timeout for monitoring operations)
