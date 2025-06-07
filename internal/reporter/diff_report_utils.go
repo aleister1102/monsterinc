@@ -60,19 +60,3 @@ func (du *DiffUtils) TruncateHash(hash string) string {
 	}
 	return hash[:HashLength]
 }
-
-// MinInt returns the smaller of two integers
-func (du *DiffUtils) MinInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// MinInt global function for convenience
-func MinInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
