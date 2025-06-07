@@ -161,11 +161,6 @@ func (c *HTTPClient) Do(req *HTTPRequest) (*HTTPResponse, error) {
 	return httpResp, nil
 }
 
-// SetRetryHandler sets the retry handler for this client
-func (c *HTTPClient) SetRetryHandler(retryHandler *RetryHandler) {
-	c.retryHandler = retryHandler
-}
-
 // DoWithRetry performs an HTTP request with retry logic if retry handler is configured
 func (c *HTTPClient) DoWithRetry(req *HTTPRequest) (*HTTPResponse, error) {
 	if c.retryHandler == nil {

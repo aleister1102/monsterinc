@@ -97,7 +97,7 @@ func (rh *RetryHandler) WaitForRetry(ctx context.Context, attempt int, statusCod
 }
 
 // DoWithRetry executes an HTTP request with retry logic
-func (rh *RetryHandler) DoWithRetry(ctx context.Context, client *FastHTTPClient, req *HTTPRequest) (*HTTPResponse, error) {
+func (rh *RetryHandler) DoWithRetry(ctx context.Context, client *HTTPClient, req *HTTPRequest) (*HTTPResponse, error) {
 	var lastResp *HTTPResponse
 	var lastErr error
 
