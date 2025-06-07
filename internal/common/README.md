@@ -7,7 +7,7 @@ The `common` package provides shared utilities used throughout the entire Monste
 
 ### 1. HTTP Client (`http_client.go`)
 #### Purpose
-- Provides high-performance HTTP client using fasthttp
+- Provides high-performance HTTP client using net/http with HTTP/2 support
 - Supports connection pooling, timeout, proxy, custom headers
 - Thread-safe and reusable
 
@@ -360,6 +360,6 @@ type Processor struct {
 6. **Logging**: Log all significant events and errors
 
 ## Dependencies
-- `github.com/valyala/fasthttp`: HTTP client implementation
+- `golang.org/x/net/http2`: HTTP/2 client implementation
 - `github.com/rs/zerolog`: Logging framework
 - Standard library packages: `context`, `sync`, `time`, `io`, `os` 
