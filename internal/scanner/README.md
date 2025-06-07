@@ -633,4 +633,73 @@ monitor.OnFileChange(func(changes []models.FileChangeInfo) {
 - Limit concurrent targets based on system resources
 - Use streaming for large result sets
 - Monitor memory usage during large scans
-- Implement proper cleanup for temporary resources 
+- Implement proper cleanup for temporary resources
+
+## URL Preprocessor
+
+### URL Preprocessor Features
+- **URL Normalization**: Normalize URLs theo cấu hình (strip fragments, tracking parameters)
+- **Auto-Calibrate**: Detect và filter similar URL patterns để tránh quá tải
+- **Deduplication**: Loại bỏ URLs trùng lặp
+- **Batch Processing**: Xử lý URLs theo batch để tối ưu memory
+
+### URL Preprocessor Configuration
+```yaml
+crawler_config:
+  url_normalization:
+    strip_fragments: true
+    strip_tracking_params: true
+    custom_strip_params: ["utm_source", "fbclid"]
+  
+  auto_calibrate:
+    enabled: true
+    max_similar_urls: 50
+    ignore_parameters: ["page", "offset"]
+    auto_detect_locales: true
+    custom_locale_codes: ["vn", "sg"]
+    enable_skip_logging: true
+```
+
+### URL Preprocessor Statistics
+- `total_processed`: Tổng số URLs được xử lý
+- `normalized`: Số URLs được normalize
+- `skipped_by_pattern`: Số URLs bị skip bởi auto-calibrate
+- `skipped_duplicate`: Số URLs trùng lặp
+- `final_count`: Số URLs cuối cùng sau preprocessing
+
+### URL Preprocessor Usage
+```go
+// Create scanner
+scanner := NewScanner(globalConfig, logger, parquetReader, parquetWriter)
+
+// Execute scan với URL preprocessing
+results, diffs, err := scanner.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
+```
+
+### URL Preprocessor Configuration Options
+```yaml
+# Enable/disable các features
+crawler_config:
+  auto_calibrate:
+    enabled: true
+    max_similar_urls: 100
+    
+  url_normalization:
+    strip_fragments: true
+    strip_tracking_params: true
+```
+
+### URL Preprocessor Monitoring & Logging
+- Progress tracking qua 5 steps (thêm preprocessing step)
+- Detailed statistics về URL processing
+- Pattern detection logging
+- Error handling và graceful degradation
+
+### URL Preprocessor Thread Safety
+- Tất cả operations đều thread-safe
+- Mutexes protect shared state
+- Safe for concurrent access
+
+## Integration
+
+URL Preprocessor được tích hợp hoàn toàn vào Scanner workflow và sử dụng configuration từ CrawlerConfig. Không cần thay đổi gì ở caller code, chỉ cần cập nhật config nếu muốn customize behavior. 

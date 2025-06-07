@@ -27,6 +27,7 @@ type Scanner struct {
 	httpxExecutor   *HTTPXExecutor
 	diffProcessor   *DiffStorageProcessor
 	progressDisplay *common.ProgressDisplayManager
+	urlPreprocessor *URLPreprocessor
 }
 
 // NewScanner creates a new Scanner instance with required dependencies
@@ -62,13 +63,22 @@ func NewScanner(
 		scanner.diffProcessor = NewDiffStorageProcessor(logger, pWriter, urlDiffer)
 	}
 
+	// Initialize URL preprocessor
+	preprocessorConfig := URLPreprocessorConfig{
+		URLNormalization: globalConfig.CrawlerConfig.URLNormalization,
+		AutoCalibrate:    globalConfig.CrawlerConfig.AutoCalibrate,
+		EnableBatching:   true,
+		BatchSize:        1000,
+	}
+	scanner.urlPreprocessor = NewURLPreprocessor(preprocessorConfig, logger)
+
 	return scanner
 }
 
 // SetProgressDisplay đặt progress display manager
 func (s *Scanner) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
 	s.progressDisplay = progressDisplay
-	
+
 	// Pass progress display to executors
 	if s.httpxExecutor != nil {
 		s.httpxExecutor.SetProgressDisplay(progressDisplay)
@@ -106,7 +116,8 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 		}
 	}
 
-	// Build summary
+	// Note: We use original seedURLs in summary for reporting purposes,
+	// but the actual processing used the preprocessed URLs
 	summaryBuilder := NewSummaryBuilder(s.logger)
 	summaryInput := &SummaryInput{
 		ScanSessionID:   scanSessionID,
@@ -154,13 +165,38 @@ func (s *Scanner) ExecuteScanWorkflow(
 	seedURLs []string,
 	scanSessionID string,
 ) ([]models.ProbeResult, map[string]models.URLDiffResult, error) {
+	// Update progress: Starting URL preprocessing
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(0, 5, "Preprocessing", "Normalizing and filtering URLs")
+	}
+
+	// Step 0: Preprocess URLs (normalize and auto-calibrate)
+	preprocessResult := s.urlPreprocessor.PreprocessURLs(seedURLs)
+	processedSeedURLs := preprocessResult.ProcessedURLs
+
+	s.logger.Info().
+		Int("original_urls", len(seedURLs)).
+		Int("processed_urls", len(processedSeedURLs)).
+		Int("normalized", preprocessResult.Stats.Normalized).
+		Int("skipped_by_pattern", preprocessResult.Stats.SkippedByPattern).
+		Int("skipped_duplicate", preprocessResult.Stats.SkippedDuplicate).
+		Msg("URL preprocessing completed")
+
+	// Use processed URLs for the rest of the workflow
+	if len(processedSeedURLs) == 0 {
+		if s.progressDisplay != nil {
+			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "No URLs remaining after preprocessing")
+		}
+		return nil, nil, fmt.Errorf("no URLs remaining after preprocessing")
+	}
+
 	// Update progress: Starting crawler configuration
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(1, 4, "Crawler", "Configuring crawler")
+		s.progressDisplay.UpdateScanProgress(1, 5, "Crawler", "Configuring crawler")
 	}
 
 	// Step 1: Configure and execute crawler
-	crawlerConfig, primaryRootTargetURL, err := s.configBuilder.BuildCrawlerConfig(seedURLs, scanSessionID)
+	crawlerConfig, primaryRootTargetURL, err := s.configBuilder.BuildCrawlerConfig(processedSeedURLs, scanSessionID)
 	if err != nil {
 		if s.progressDisplay != nil {
 			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "Failed to build crawler config")
@@ -176,7 +212,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 	}
 
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(1, 4, "Crawler", "Executing crawler")
+		s.progressDisplay.UpdateScanProgress(1, 5, "Crawler", "Executing crawler")
 	}
 
 	crawlerResult := s.crawlerExecutor.Execute(crawlerInput)
@@ -192,21 +228,21 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Step 2: Execute HTTPX probing
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(2, 4, "Probing", "Configuring HTTPX probing")
+		s.progressDisplay.UpdateScanProgress(2, 5, "Probing", "Configuring HTTPX probing")
 	}
 
 	httpxConfig := s.configBuilder.BuildHTTPXConfig(crawlerResult.DiscoveredURLs)
 	httpxInput := HTTPXExecutionInput{
 		Context:              ctx,
 		DiscoveredURLs:       crawlerResult.DiscoveredURLs,
-		SeedURLs:             seedURLs,
+		SeedURLs:             processedSeedURLs,
 		PrimaryRootTargetURL: primaryRootTargetURL,
 		ScanSessionID:        scanSessionID,
 		HttpxRunnerConfig:    httpxConfig,
 	}
 
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(2, 4, "Probing", fmt.Sprintf("Probing %d URLs", len(crawlerResult.DiscoveredURLs)))
+		s.progressDisplay.UpdateScanProgress(2, 5, "Probing", fmt.Sprintf("Probing %d URLs", len(crawlerResult.DiscoveredURLs)))
 	}
 
 	httpxResult := s.httpxExecutor.Execute(httpxInput)
@@ -219,7 +255,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Step 3: Process diffing and storage
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(3, 4, "Diffing", "Processing diffs and storage")
+		s.progressDisplay.UpdateScanProgress(3, 5, "Diffing", "Processing diffs and storage")
 	}
 
 	var urlDiffResults map[string]models.URLDiffResult
@@ -227,7 +263,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 		diffInput := ProcessDiffingAndStorageInput{
 			Ctx:                     ctx,
 			CurrentScanProbeResults: httpxResult.ProbeResults,
-			SeedURLs:                seedURLs,
+			SeedURLs:                processedSeedURLs,
 			PrimaryRootTargetURL:    primaryRootTargetURL,
 			ScanSessionID:           scanSessionID,
 		}
@@ -243,9 +279,26 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Step 4: Workflow completed
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(4, 4, "Complete", "Scan workflow completed")
+		s.progressDisplay.UpdateScanProgress(5, 5, "Complete", "Scan workflow completed")
 		s.progressDisplay.SetScanStatus(common.ProgressStatusComplete, fmt.Sprintf("Found %d probe results", len(httpxResult.ProbeResults)))
 	}
 
 	return httpxResult.ProbeResults, urlDiffResults, nil
+}
+
+// Shutdown gracefully shuts down the scanner and its components
+func (s *Scanner) Shutdown() {
+	s.logger.Info().Msg("Shutting down scanner")
+
+	// Shutdown crawler executor (which will shutdown the managed crawler)
+	if s.crawlerExecutor != nil {
+		s.crawlerExecutor.Shutdown()
+	}
+
+	// Shutdown HTTPX executor (which will shutdown the managed httpx runner)
+	if s.httpxExecutor != nil {
+		s.httpxExecutor.Shutdown()
+	}
+
+	s.logger.Info().Msg("Scanner shutdown complete")
 }
