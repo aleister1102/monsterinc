@@ -75,7 +75,7 @@ func (rt *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			if attempt < rt.retryConfig.MaxRetries {
 				// Close response body before retry
 				if resp.Body != nil {
-					resp.Body.Close()
+					_ = resp.Body.Close()
 				}
 
 				if err := rt.waitForRetry(req.Context(), attempt, resp.StatusCode, req.URL.String()); err != nil {

@@ -342,4 +342,114 @@ if err != nil {
 - All logger operations are thread-safe
 - Concurrent access to log files handled properly
 - Factory and builder patterns support concurrent usage
-- File rotation is atomic and thread-safe 
+- File rotation is atomic and thread-safe
+
+## Logger với Scan ID và Cycle ID
+
+Logger hiện tại hỗ trợ tổ chức log files theo scan ID và monitor cycle ID để tránh conflict khi nhiều process ghi vào cùng file log.
+
+### Cấu trúc thư mục
+
+```
+logs/
+├── scans/
+│   ├── 20250607-132708/
+│   │   └── monsterinc.log
+│   ├── 20250607-140520/
+│   │   └── monsterinc.log
+│   └── ...
+├── monitors/
+│   ├── monitor-20250607-132708/
+│   │   └── monsterinc.log
+│   ├── monitor-20250607-140530/
+│   │   └── monsterinc.log
+│   └── ...
+└── monsterinc.log  # fallback nếu không có scan/cycle ID
+```
+
+### Sử dụng
+
+#### Tạo logger với Scan ID
+
+```go
+import "github.com/aleister1102/monsterinc/internal/logger"
+
+// Tạo logger cho scan session
+scanLogger, err := logger.NewWithScanID(config.LogConfig, "20250607-132708")
+if err != nil {
+    // Handle error
+}
+
+// Hoặc sử dụng builder pattern
+logger, err := logger.NewLoggerBuilder().
+    WithConfig(cfg).
+    WithScanID("20250607-132708").
+    Build()
+```
+
+#### Tạo logger với Cycle ID
+
+```go
+// Tạo logger cho monitor cycle
+cycleLogger, err := logger.NewWithCycleID(config.LogConfig, "monitor-20250607-132708")
+if err != nil {
+    // Handle error
+}
+
+// Hoặc sử dụng builder pattern
+logger, err := logger.NewLoggerBuilder().
+    WithConfig(cfg).
+    WithCycleID("monitor-20250607-132708").
+    Build()
+```
+
+#### Tạo logger với context
+
+```go
+// Tạo logger dựa trên context có sẵn scan ID hoặc cycle ID
+logger, err := logger.NewWithContext(config.LogConfig, scanID, cycleID)
+```
+
+### Cấu hình
+
+Để enable/disable tính năng subdirectory:
+
+```go
+logger, err := logger.NewLoggerBuilder().
+    WithConfig(cfg).
+    WithScanID("scan-123").
+    WithSubdirs(true). // hoặc false để disable
+    Build()
+```
+
+### Tích hợp với Scheduler và Monitor
+
+#### Scheduler sử dụng scan ID
+Trong scheduler, mỗi scan cycle sẽ tự động tạo logger riêng:
+
+```go
+func (s *Scheduler) executeScanCycle(ctx context.Context, scanSessionID string, ...) {
+    // Tự động tạo logger với scan ID
+    scanLogger, err := logger.NewWithScanID(s.globalConfig.LogConfig, scanSessionID)
+    // Log files sẽ được lưu trong logs/scans/{scanSessionID}/
+}
+```
+
+#### Monitor sử dụng cycle ID
+Trong monitor service, mỗi cycle sẽ có logger riêng:
+
+```go
+func (s *MonitoringService) GenerateNewCycleID() string {
+    newCycleID := s.createCycleID()
+    // Tự động tạo logger với cycle ID
+    cycleLogger, err := logger.NewWithCycleID(s.gCfg.LogConfig, newCycleID)
+    // Log files sẽ được lưu trong logs/monitors/{cycleID}/
+}
+```
+
+### Lợi ích
+
+1. **Tránh conflict**: Mỗi scan/cycle có file log riêng
+2. **Dễ debug**: Log được tổ chức theo session/cycle
+3. **Không bị ghi đè**: Không có vấn đề với log rotation khi nhiều process chạy song song
+4. **Dễ quản lý**: Có thể dễ dàng xóa log của session/cycle cụ thể 

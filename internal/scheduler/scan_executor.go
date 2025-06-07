@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/logger"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/scanner"
+	"github.com/rs/zerolog"
 )
 
 type scanAttemptConfig struct {
@@ -193,6 +195,13 @@ func (s *Scheduler) executeScanCycle(
 ) (models.ScanSummaryData, []string, error) {
 	startTime := time.Now()
 
+	// Tạo logger riêng cho scan session này
+	scanLogger, err := logger.NewWithScanID(s.globalConfig.LogConfig, scanSessionID)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("scan_session_id", scanSessionID).Msg("Failed to create scan logger, using default logger")
+		scanLogger = s.logger
+	}
+
 	baseSummary, err := s.buildBaseScanSummary(scanSessionID, predeterminedTargetSource)
 	if err != nil {
 		return models.ScanSummaryData{}, nil, err
@@ -210,7 +219,7 @@ func (s *Scheduler) executeScanCycle(
 
 	s.sendScanStartNotification(ctx, baseSummary, scanSessionID, htmlURLs)
 
-	return s.performScanAndGenerateReport(ctx, scanSessionID, htmlURLs, baseSummary, dbScanID)
+	return s.performScanAndGenerateReportWithLogger(ctx, scanSessionID, htmlURLs, baseSummary, dbScanID, scanLogger)
 }
 
 func (s *Scheduler) buildBaseScanSummary(scanSessionID, targetSource string) (models.ScanSummaryData, error) {
@@ -234,15 +243,16 @@ func (s *Scheduler) buildErrorSummary(baseSummary models.ScanSummaryData, err er
 	return result
 }
 
-func (s *Scheduler) performScanAndGenerateReport(
+func (s *Scheduler) performScanAndGenerateReportWithLogger(
 	ctx context.Context,
 	scanSessionID string,
 	htmlURLs []string,
 	baseSummary models.ScanSummaryData,
 	dbScanID int64,
+	scanLogger zerolog.Logger,
 ) (models.ScanSummaryData, []string, error) {
 	// Create batch workflow orchestrator for scheduler scans
-	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(s.globalConfig, s.scanner, s.logger)
+	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(s.globalConfig, s.scanner, scanLogger)
 
 	// Execute batch scan workflow
 	batchResult, err := batchOrchestrator.ExecuteBatchScan(
@@ -268,7 +278,7 @@ func (s *Scheduler) performScanAndGenerateReport(
 
 		// Log batch processing information
 		if batchResult.UsedBatching {
-			s.logger.Info().
+			scanLogger.Info().
 				Str("scan_session_id", scanSessionID).
 				Int("total_batches", batchResult.TotalBatches).
 				Int("processed_batches", batchResult.ProcessedBatches).
@@ -283,7 +293,7 @@ func (s *Scheduler) performScanAndGenerateReport(
 
 	s.updateDBOnSuccess(dbScanID, scanResult)
 
-	s.logger.Info().
+	scanLogger.Info().
 		Str("scan_session_id", scanSessionID).
 		Int("targets_processed", len(htmlURLs)).
 		Str("status", scanResult.Status).

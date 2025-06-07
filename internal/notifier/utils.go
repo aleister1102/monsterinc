@@ -104,7 +104,7 @@ func compressMultipleErrors(errorMessages []string, maxLength int) string {
 			// Thêm thông báo có thêm errors
 			remaining := len(errorMessages) - len(compressedErrors)
 			if remaining > 0 {
-				suffix := fmt.Sprintf("\n... và %d lỗi khác", remaining)
+				suffix := fmt.Sprintf("\n... and %d more errors", remaining)
 				if totalLength+len(suffix) <= maxLength {
 					compressedErrors = append(compressedErrors, suffix)
 				}
@@ -141,7 +141,7 @@ func addErrorSamplesField(embedBuilder *DiscordEmbedBuilder, errors []models.Mon
 
 	fieldValue := strings.Join(errorTexts, "\n\n")
 	if len(errorTexts) < len(errors) {
-		fieldValue += fmt.Sprintf("\n\n... và %d lỗi khác", len(errors)-len(errorTexts))
+		fieldValue += fmt.Sprintf("\n\n... and %d more errors", len(errors)-len(errorTexts))
 	}
 
 	// Truncate nếu quá dài

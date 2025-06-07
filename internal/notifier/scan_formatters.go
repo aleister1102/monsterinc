@@ -180,7 +180,7 @@ func addReportField(embedBuilder *DiscordEmbedBuilder, reportPath string) {
 func addErrorsField(embedBuilder *DiscordEmbedBuilder, errorMessages []string) {
 	if len(errorMessages) > 0 {
 		errorText := compressMultipleErrors(errorMessages, MaxErrorTextLength)
-		embedBuilder.AddField("❗ Lỗi", fmt.Sprintf("```\n%s\n```", errorText), false)
+		embedBuilder.AddField("❗ Error", fmt.Sprintf("```\n%s\n```", errorText), false)
 	}
 }
 
@@ -264,10 +264,10 @@ func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.Notif
 // buildCriticalErrorDescription creates the description for critical error message
 func buildCriticalErrorDescription(summary models.ScanSummaryData) string {
 	return fmt.Sprintf(
-		"🚨 **Lỗi hệ thống nghiêm trọng**\n\n"+
+		"🚨 **Critical System Error**\n\n"+
 			"**Component:** %s\n"+
 			"**Session:** `%s`\n"+
-			"**Thử lại:** %d lần",
+			"**Retry:** %d times",
 		summary.Component,
 		summary.ScanSessionID,
 		summary.RetriesAttempted,
@@ -277,7 +277,7 @@ func buildCriticalErrorDescription(summary models.ScanSummaryData) string {
 // buildCriticalErrorEmbed creates the embed for critical error message
 func buildCriticalErrorEmbed(description string, summary models.ScanSummaryData) models.DiscordEmbed {
 	embedBuilder := NewDiscordEmbedBuilder().
-		WithTitle("🚨 Lỗi Nghiêm Trọng").
+		WithTitle("🚨 Critical System Error").
 		WithDescription(description).
 		WithColor(CriticalErrorEmbedColor).
 		WithTimestamp(time.Now()).
@@ -285,7 +285,7 @@ func buildCriticalErrorEmbed(description string, summary models.ScanSummaryData)
 
 	if len(summary.ErrorMessages) > 0 {
 		errorText := compressMultipleErrors(summary.ErrorMessages, MaxCriticalErrorTextLength)
-		embedBuilder.AddField("❗ Chi Tiết Lỗi", fmt.Sprintf("```\n%s\n```", errorText), false)
+		embedBuilder.AddField("❗ Error Details", fmt.Sprintf("```\n%s\n```", errorText), false)
 	}
 
 	return embedBuilder.Build()

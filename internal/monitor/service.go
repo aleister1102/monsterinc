@@ -11,6 +11,7 @@ import (
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/extractor"
+	"github.com/aleister1102/monsterinc/internal/logger"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/reporter"
@@ -364,7 +365,14 @@ func (s *MonitoringService) SetParentContext(parentCtx context.Context) {
 func (s *MonitoringService) GenerateNewCycleID() string {
 	newCycleID := s.createCycleID()
 	s.cycleTracker.SetCurrentCycleID(newCycleID)
-	s.logger.Info().Str("cycle_id", newCycleID).Msg("Generated new cycle ID")
+
+	// Tạo logger riêng cho cycle này
+	if cycleLogger, err := logger.NewWithCycleID(s.gCfg.LogConfig, newCycleID); err == nil {
+		s.logger = cycleLogger
+	} else {
+		s.logger.Warn().Err(err).Str("cycle_id", newCycleID).Msg("Failed to create cycle logger, using default logger")
+	}
+
 	return newCycleID
 }
 
