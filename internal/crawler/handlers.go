@@ -25,6 +25,8 @@ func (cr *Crawler) handleError(r *colly.Response, e error) {
 
 // handleRequest processes colly request callbacks
 func (cr *Crawler) handleRequest(r *colly.Request) {
+	cr.logger.Debug().Str("url", r.URL.String()).Msg("Starting request")
+
 	if cr.isContextCancelled() {
 		cr.logger.Info().Str("url", r.URL.String()).Msg("Context cancelled, aborting request")
 		r.Abort()
@@ -42,6 +44,12 @@ func (cr *Crawler) handleRequest(r *colly.Request) {
 
 // handleResponse processes colly response callbacks
 func (cr *Crawler) handleResponse(r *colly.Response) {
+	cr.logger.Debug().
+		Str("url", r.Request.URL.String()).
+		Int("status", r.StatusCode).
+		Int("content_length", len(r.Body)).
+		Msg("Received response")
+
 	cr.incrementVisitedCount()
 
 	if cr.isHTMLContent(r) {

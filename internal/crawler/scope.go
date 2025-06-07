@@ -19,21 +19,19 @@ type ScopeSettings struct {
 	disallowedFileExtensions []string
 	seedHostnames            []string // Hostnames from seed URLs (for auto-allow)
 	logger                   zerolog.Logger
-	includeSubdomains        bool
-	autoAddSeedHostnames     bool
-	originalSeedDomains      []string
+
+	autoAddSeedHostnames bool
+	originalSeedDomains  []string
 }
 
 // String returns a string representation of ScopeSettings for logging
 func (s *ScopeSettings) String() string {
-	return fmt.Sprintf("ScopeSettings{disallowed_hostnames:%v, disallowed_subdomains:%v, disallowed_file_extensions:%v, seed_hostnames:%v, include_subdomains:%t, auto_add_seed_hostnames:%t, original_seed_domains:%v}",
+	return fmt.Sprintf("ScopeSettings{disallowed_hostnames:%v, disallowed_subdomains:%v, disallowed_file_extensions:%v, seed_hostnames:%v, auto_add_seed_hostnames:%t}",
 		s.disallowedHostnames,
 		s.disallowedSubdomains,
 		s.disallowedFileExtensions,
 		s.seedHostnames,
-		s.includeSubdomains,
 		s.autoAddSeedHostnames,
-		s.originalSeedDomains,
 	)
 }
 
@@ -56,7 +54,7 @@ func NewScopeSettings(
 	disallowedSubdomains []string,
 	disallowedFileExtensions []string,
 	logger zerolog.Logger,
-	includeSubdomains bool,
+	includeSubdomains interface{}, // Deprecated parameter, ignored
 	autoAddSeedHostnames bool,
 	originalSeedURLs []string,
 ) (*ScopeSettings, error) {
@@ -67,7 +65,6 @@ func NewScopeSettings(
 		disallowedSubdomains:     disallowedSubdomains,
 		disallowedFileExtensions: disallowedFileExtensions,
 		logger:                   scopeLogger,
-		includeSubdomains:        includeSubdomains,
 		autoAddSeedHostnames:     autoAddSeedHostnames,
 	}
 
@@ -81,54 +78,15 @@ func NewScopeSettings(
 		}
 	}
 
-	if includeSubdomains {
-		settings.originalSeedDomains = extractSeedDomains(originalSeedURLs, scopeLogger)
-	}
-
 	scopeLogger.Info().
 		Strs("disallowed_hostnames", disallowedHostnames).
 		Strs("disallowed_subdomains", disallowedSubdomains).
 		Strs("disallowed_file_extensions", disallowedFileExtensions).
 		Strs("seed_hostnames", settings.seedHostnames).
-		Bool("include_subdomains", includeSubdomains).
 		Bool("auto_add_seed_hostnames", autoAddSeedHostnames).
-		Strs("original_seed_domains", settings.originalSeedDomains).
 		Msg("ScopeSettings initialized")
 
 	return settings, nil
-}
-
-// extractSeedDomains extracts base domains from seed URLs
-func extractSeedDomains(seedURLs []string, logger zerolog.Logger) []string {
-	var domains []string
-	for _, seedURL := range seedURLs {
-		hostname := extractSingleHostname(seedURL, logger)
-		if hostname == "" {
-			continue
-		}
-
-		// Extract base domain using urlhandler
-		baseDomain, err := urlhandler.GetBaseDomain(hostname)
-		if err != nil {
-			logger.Warn().
-				Str("seed_url", seedURL).
-				Str("hostname", hostname).
-				Err(err).
-				Msg("Failed to extract base domain from hostname")
-			// Fallback to using the hostname as-is
-			domains = append(domains, hostname)
-		} else if baseDomain != "" {
-			domains = append(domains, baseDomain)
-		} else {
-			// If base domain is empty, use hostname
-			domains = append(domains, hostname)
-		}
-	}
-
-	uniqueDomains := removeDuplicates(domains)
-	logger.Debug().Strs("original_seed_domains", uniqueDomains).Msg("Extracted base domains from seed URLs")
-
-	return uniqueDomains
 }
 
 // CheckHostnameScope checks if a given hostname is within the defined scope
@@ -137,7 +95,6 @@ func (s *ScopeSettings) CheckHostnameScope(hostname string) bool {
 		Str("hostname", hostname).
 		Strs("seed_hostnames", s.seedHostnames).
 		Strs("disallowed_hostnames", s.disallowedHostnames).
-		Bool("include_subdomains", s.includeSubdomains).
 		Bool("auto_add_seed_hostnames", s.autoAddSeedHostnames).
 		Msg("Starting hostname scope check")
 
@@ -169,14 +126,8 @@ func (s *ScopeSettings) CheckHostnameScope(hostname string) bool {
 		return true
 	}
 
-	// Priority 3: If includeSubdomains is enabled, check against seed base domains
-	if s.includeSubdomains && s.isAllowedBySeedDomains(hostname) {
-		s.logger.Debug().Str("hostname", hostname).Msg("Hostname allowed by include_subdomains policy")
-		return true
-	}
-
-	// Priority 4: If not includeSubdomains, only allow exact hostname matches with seed hostnames
-	if !s.includeSubdomains && len(s.seedHostnames) > 0 {
+	// Priority 3: Only allow exact hostname matches with seed hostnames
+	if len(s.seedHostnames) > 0 {
 		if containsString(hostname, s.seedHostnames) {
 			s.logger.Debug().Str("hostname", hostname).Msg("Hostname matches exact seed hostname")
 			return true
@@ -184,27 +135,18 @@ func (s *ScopeSettings) CheckHostnameScope(hostname string) bool {
 			s.logger.Debug().
 				Str("hostname", hostname).
 				Strs("seed_hostnames", s.seedHostnames).
-				Msg("Hostname not in seed hostnames (include_subdomains=false)")
+				Msg("Hostname not in seed hostnames")
 			return false
 		}
 	}
 
-	// Priority 5: Default behavior when no seed URLs provided
+	// Priority 4: Default behavior when no seed URLs provided
 	// Only allow if there are no hostname restrictions at all
 	if len(s.seedHostnames) == 0 && len(s.disallowedHostnames) == 0 {
 		s.logger.Debug().
 			Str("hostname", hostname).
 			Msg("Hostname allowed by default (no seed or hostname restrictions)")
 		return true
-	}
-
-	// If we have seed URLs configured but hostname doesn't match any of them, deny
-	if len(s.seedHostnames) > 0 {
-		s.logger.Debug().
-			Str("hostname", hostname).
-			Strs("seed_hostnames", s.seedHostnames).
-			Msg("Hostname denied (has seed restrictions but hostname doesn't match)")
-		return false
 	}
 
 	// Fallback: allow if only disallowed hostnames are configured (and hostname wasn't disallowed above)

@@ -1,13 +1,9 @@
 package crawler
 
 import (
-	"context"
 	"net/url"
-	"strconv"
 	"strings"
-	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 )
 
@@ -47,7 +43,8 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 	}
 
 	// Check if URL should be skipped due to pattern similarity
-	if cr.patternDetector.ShouldSkipURL(normalizedURL) {
+	// Only apply auto-calibrate if it's enabled and URLs haven't been preprocessed at Scanner level
+	if cr.config.AutoCalibrate.Enabled && cr.patternDetector.ShouldSkipURL(normalizedURL) {
 		cr.logger.Debug().
 			Str("url", normalizedURL).
 			Msg("Skipping URL due to pattern similarity (auto-calibrate)")
@@ -60,10 +57,6 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 	}
 
 	if cr.isURLAlreadyDiscovered(normalizedURL) {
-		return
-	}
-
-	if cr.shouldSkipURLByContentLength(normalizedURL) {
 		return
 	}
 
@@ -119,58 +112,6 @@ func (cr *Crawler) isURLAlreadyDiscovered(normalizedURL string) bool {
 	return exists
 }
 
-// shouldSkipURLByContentLength performs HEAD request to check content length
-func (cr *Crawler) shouldSkipURLByContentLength(normalizedURL string) bool {
-	// Skip content length check if max content length is 0 (unlimited)
-	if cr.maxContentLength <= 0 {
-		return false
-	}
-
-	// Create a short timeout context for HEAD request (5 seconds max)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	req := &common.HTTPRequest{
-		URL:     normalizedURL,
-		Method:  "HEAD",
-		Headers: make(map[string]string),
-		Context: ctx,
-	}
-
-	resp, err := cr.httpClient.DoWithRetry(req)
-	if err != nil {
-		// If HEAD request fails, don't skip - let the main crawler handle it
-		cr.logger.Debug().Str("url", normalizedURL).Err(err).Msg("HEAD request failed, allowing URL")
-		return false
-	}
-
-	return cr.checkContentLength(resp, normalizedURL)
-}
-
-// checkContentLength validates response content length
-func (cr *Crawler) checkContentLength(resp *common.HTTPResponse, normalizedURL string) bool {
-	contentLength := resp.Headers["Content-Length"]
-	if contentLength == "" {
-		return false
-	}
-
-	size, err := strconv.ParseInt(contentLength, 10, 64)
-	if err != nil {
-		return false
-	}
-
-	if size > cr.maxContentLength {
-		cr.logger.Info().
-			Str("url", normalizedURL).
-			Int64("size", size).
-			Int64("max_size", cr.maxContentLength).
-			Msg("Skip queue (Content-Length exceeded)")
-		return true
-	}
-
-	return false
-}
-
 // queueURLForVisit adds URL to batched queue for crawling
 func (cr *Crawler) queueURLForVisit(normalizedURL string) {
 	cr.mutex.Lock()
@@ -178,18 +119,23 @@ func (cr *Crawler) queueURLForVisit(normalizedURL string) {
 	// Double-check after acquiring write lock
 	if cr.discoveredURLs[normalizedURL] {
 		cr.mutex.Unlock()
+		cr.logger.Debug().Str("url", normalizedURL).Msg("URL already discovered, skipping")
 		return
 	}
 
 	cr.discoveredURLs[normalizedURL] = true
 	cr.mutex.Unlock()
 
+	cr.logger.Debug().Str("url", normalizedURL).Msg("Queueing URL for visit")
+
 	// Try to send to batch queue, fallback to immediate processing if queue is full
 	select {
 	case cr.urlQueue <- normalizedURL:
 		// Successfully queued for batch processing
+		cr.logger.Debug().Str("url", normalizedURL).Msg("URL queued for batch processing")
 	default:
 		// Queue full, process immediately
+		cr.logger.Debug().Str("url", normalizedURL).Msg("Queue full, processing URL immediately")
 		if err := cr.collector.Visit(normalizedURL); err != nil {
 			cr.handleVisitError(normalizedURL, err)
 		}

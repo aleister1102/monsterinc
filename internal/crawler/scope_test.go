@@ -68,7 +68,6 @@ func TestCheckHostnameScope_WithSeedURLs(t *testing.T) {
 		seedHostnames:        []string{"example.com", "test.com"},
 		disallowedHostnames:  []string{"blocked.com"},
 		autoAddSeedHostnames: true,
-		includeSubdomains:    false,
 		logger:               logger,
 	}
 
