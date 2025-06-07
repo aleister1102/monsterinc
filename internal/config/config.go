@@ -508,14 +508,14 @@ type ResourceLimiterConfig struct {
 
 func NewDefaultResourceLimiterConfig() ResourceLimiterConfig {
 	return ResourceLimiterConfig{
-		MaxMemoryMB:        1024,  // 1GB
-		MaxGoroutines:      10000, // 10k goroutines
-		CheckIntervalSecs:  30,    // 30 seconds
-		MemoryThreshold:    0.8,   // 80%
-		GoroutineWarning:   0.7,   // 70%
-		SystemMemThreshold: 0.5,   // 50% system memory
-		CPUThreshold:       0.5,   // 50% CPU usage
-		EnableAutoShutdown: true,  // Enable auto-shutdown by default
+		MaxMemoryMB:        512,  // Giảm từ 1024 xuống 512MB để trigger sớm hơn
+		MaxGoroutines:      5000, // Giảm từ 10000 xuống 5000
+		CheckIntervalSecs:  15,   // Giảm từ 30 xuống 15 seconds để check thường xuyên hơn
+		MemoryThreshold:    0.7,  // Giảm từ 0.8 xuống 0.7 (70%)
+		GoroutineWarning:   0.6,  // Giảm từ 0.7 xuống 0.6 (60%)
+		SystemMemThreshold: 0.4,  // Giảm từ 0.5 xuống 0.4 (40% system memory)
+		CPUThreshold:       0.4,  // Giảm từ 0.5 xuống 0.4 (40% CPU usage)
+		EnableAutoShutdown: true, // Enable auto-shutdown by default
 	}
 }
 

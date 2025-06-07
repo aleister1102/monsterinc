@@ -3,6 +3,7 @@ package scanner
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
@@ -67,6 +68,17 @@ func (bwo *BatchWorkflowOrchestrator) ExecuteBatchScan(
 		Str("mode", scanMode).
 		Msg("Starting batch scan execution")
 
+	// Validate inputs
+	if gCfg == nil {
+		return nil, common.NewError("global config cannot be nil")
+	}
+	if scanTargetsFile == "" {
+		return nil, common.NewError("scan targets file cannot be empty")
+	}
+	if scanSessionID == "" {
+		return nil, common.NewError("scan session ID cannot be empty")
+	}
+
 	// Load targets from file
 	targets, determinedSource, err := bwo.targetManager.LoadAndSelectTargets(scanTargetsFile)
 	if err != nil {
@@ -79,12 +91,19 @@ func (bwo *BatchWorkflowOrchestrator) ExecuteBatchScan(
 
 	targetURLs := bwo.targetManager.GetTargetStrings(targets)
 
+	// Log target loading info
+	bwo.logger.Info().
+		Int("total_targets_loaded", len(targetURLs)).
+		Str("source", determinedSource).
+		Msg("Successfully loaded targets from file")
+
 	// Check if batching is needed
 	useBatching := bwo.batchProcessor.ShouldUseBatching(len(targetURLs))
 
 	if !useBatching {
 		bwo.logger.Info().
 			Int("target_count", len(targetURLs)).
+			Int("threshold", gCfg.BatchProcessorConfig.ThresholdSize).
 			Msg("Target count below batching threshold, processing all at once")
 
 		// Execute single scan workflow
@@ -126,7 +145,11 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 	bwo.logger.Info().
 		Int("total_targets", len(targetURLs)).
 		Int("batch_count", batchCount).
-		Msg("Starting batched scan execution\n\n\n\n\n\n=============================")
+		Msg("Starting batched scan execution")
+
+	// Optimize configuration for memory efficiency during batch processing
+	batchSize, _ := bwo.batchProcessor.GetBatchingStats(len(targetURLs))
+	bwo.optimizeConfigForMemoryEfficiency(gCfg, batchSize)
 
 	var allReportPaths []string
 	var aggregatedSummary models.ScanSummaryData
@@ -150,6 +173,15 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			Int("progress", batchIndex+1).
 			Int("total", batchCount).
 			Msg("Processing scan batch")
+
+		// Log memory usage before batch
+		var memStats runtime.MemStats
+		runtime.ReadMemStats(&memStats)
+		bwo.logger.Debug().
+			Uint64("alloc_mb", memStats.Alloc/1024/1024).
+			Uint64("sys_mb", memStats.Sys/1024/1024).
+			Int("batch_index", batchIndex).
+			Msg("Memory before batch processing")
 
 		// Create batch-specific session ID
 		batchSessionID := fmt.Sprintf("%s-batch-%d", scanSessionID, batchIndex)
@@ -179,11 +211,16 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		allReportPaths = append(allReportPaths, batchReportPaths...)
 		processedBatches++
 
+		// Force garbage collection after each batch to free memory
+		runtime.GC()
+		runtime.ReadMemStats(&memStats)
+
 		bwo.logger.Info().
 			Int("batch_index", batchIndex).
 			Int("batch_targets", len(batch)).
 			Int("total_processed", processedBatches).
-			Msg("Batch scan completed successfully")
+			Uint64("alloc_mb_after_gc", memStats.Alloc/1024/1024).
+			Msg("Batch scan completed successfully with GC")
 
 		return nil
 	}
@@ -220,6 +257,9 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		Bool("interrupted", interruptedAt > 0).
 		Int("total_reports", len(allReportPaths)).
 		Msg("Batch scan execution completed")
+
+	// Log comprehensive summary
+	bwo.logBatchProcessingSummary(result)
 
 	return result, err
 }
@@ -296,4 +336,64 @@ func (bwo *BatchWorkflowOrchestrator) GetBatchingInfo(scanTargetsFile string) (u
 	}
 
 	return useBatching, batchCount, nil
+}
+
+// optimizeConfigForMemoryEfficiency tự động điều chỉnh config để tiết kiệm memory
+func (bwo *BatchWorkflowOrchestrator) optimizeConfigForMemoryEfficiency(gCfg *config.GlobalConfig, batchSize int) {
+	// Giảm concurrent requests cho crawler để tránh memory spike
+	if gCfg.CrawlerConfig.MaxConcurrentRequests > 10 {
+		originalConcurrent := gCfg.CrawlerConfig.MaxConcurrentRequests
+		gCfg.CrawlerConfig.MaxConcurrentRequests = 10
+		bwo.logger.Info().
+			Int("original_concurrent", originalConcurrent).
+			Int("optimized_concurrent", 10).
+			Msg("Reduced crawler concurrent requests for memory efficiency")
+	}
+
+	// Giảm httpx threads nếu cần
+	if gCfg.HttpxRunnerConfig.Threads > 30 {
+		originalThreads := gCfg.HttpxRunnerConfig.Threads
+		gCfg.HttpxRunnerConfig.Threads = 30
+		bwo.logger.Info().
+			Int("original_threads", originalThreads).
+			Int("optimized_threads", 30).
+			Msg("Reduced httpx threads for memory efficiency")
+	}
+
+	// Log optimization info
+	bwo.logger.Info().
+		Int("batch_size", batchSize).
+		Int("crawler_concurrent", gCfg.CrawlerConfig.MaxConcurrentRequests).
+		Int("httpx_threads", gCfg.HttpxRunnerConfig.Threads).
+		Msg("Configuration optimized for memory efficiency during batch processing")
+}
+
+// logBatchProcessingSummary logs comprehensive summary of batch processing
+func (bwo *BatchWorkflowOrchestrator) logBatchProcessingSummary(result *BatchScanResult) {
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
+	bwo.logger.Info().
+		Int("total_batches", result.TotalBatches).
+		Int("processed_batches", result.ProcessedBatches).
+		Int("total_targets", result.SummaryData.TotalTargets).
+		Int("successful_probes", result.SummaryData.ProbeStats.SuccessfulProbes).
+		Int("failed_probes", result.SummaryData.ProbeStats.FailedProbes).
+		Int("new_urls", result.SummaryData.DiffStats.New).
+		Int("existing_urls", result.SummaryData.DiffStats.Existing).
+		Int("old_urls", result.SummaryData.DiffStats.Old).
+		Dur("total_duration", result.SummaryData.ScanDuration).
+		Int("report_files", len(result.ReportFilePaths)).
+		Bool("was_interrupted", result.InterruptedAt > 0).
+		Uint64("final_memory_mb", memStats.Alloc/1024/1024).
+		Str("status", result.SummaryData.Status).
+		Msg("Batch processing summary completed")
+
+	if result.InterruptedAt > 0 {
+		bwo.logger.Warn().
+			Int("interrupted_at_batch", result.InterruptedAt).
+			Int("completed_batches", result.ProcessedBatches).
+			Float64("completion_percentage", float64(result.ProcessedBatches)/float64(result.TotalBatches)*100).
+			Msg("Batch processing was interrupted")
+	}
 }

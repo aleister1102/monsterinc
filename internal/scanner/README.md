@@ -203,6 +203,50 @@ reporter_config:
 
 ## Workflow Orchestration
 
+### Memory-Efficient Batch Processing
+
+To address memory issues with large target lists, the scanner implements automatic batch processing:
+
+#### Automatic Batching Triggers
+- **Threshold**: When input has more than 500 targets (configurable)
+- **Batch Size**: 100 targets per batch (configurable)
+- **Processing**: Sequential batch processing (no concurrent batches to avoid memory spikes)
+
+#### Memory Optimizations
+- **Auto-Tuning**: Automatically reduces concurrent threads when batching is active
+  - Crawler concurrent requests: Limited to 10 max
+  - HTTPx threads: Limited to 30 max
+- **Garbage Collection**: Forced GC after each batch
+- **Memory Monitoring**: Real-time memory usage logging
+
+#### Configuration
+```yaml
+batch_processor_config:
+  batch_size: 100           # Targets per batch
+  max_concurrent_batch: 1   # Sequential processing
+  batch_timeout_mins: 30    # Timeout per batch
+  threshold_size: 500       # Minimum targets to trigger batching
+
+resource_limiter_config:
+  max_memory_mb: 512        # Memory limit (reduced for earlier detection)
+  memory_threshold: 0.7     # 70% threshold
+  check_interval_secs: 15   # Check every 15 seconds
+  enable_auto_shutdown: true
+```
+
+#### Usage Example
+```bash
+# Large target file (>500 targets) will automatically use batch processing
+./monsterinc -st large_targets.txt -cfg config.yaml
+```
+
+#### Batch Processing Features
+- **Progress Tracking**: Real-time logging of batch progress
+- **Interruption Handling**: Graceful handling of context cancellation
+- **Result Aggregation**: Automatic aggregation of all batch results
+- **Report Generation**: Consolidated reports from all batches
+- **Memory Reporting**: Detailed memory usage before/after each batch
+
 ### Workflow Input Structure
 
 ```go
