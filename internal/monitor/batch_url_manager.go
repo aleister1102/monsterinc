@@ -5,6 +5,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
 
@@ -16,13 +17,14 @@ type BatchURLManager struct {
 	batchConfig    config.MonitorBatchConfig
 }
 
-// NewBatchURLManager creates a new BatchURLManager
+// NewBatchURLManager creates a new BatchURLManager with the given config
 func NewBatchURLManager(batchConfig config.MonitorBatchConfig, logger zerolog.Logger) *BatchURLManager {
-	bpConfig := batchConfig.ToBatchProcessorConfig()
+	batchProcessorConfig := batchConfig.ToBatchProcessorConfig()
+	batchProcessor := common.NewBatchProcessor(batchProcessorConfig, logger)
 
 	return &BatchURLManager{
 		urlManager:     NewURLManager(logger),
-		batchProcessor: common.NewBatchProcessor(bpConfig, logger),
+		batchProcessor: batchProcessor,
 		logger:         logger.With().Str("component", "BatchURLManager").Logger(),
 		batchConfig:    batchConfig,
 	}
@@ -142,19 +144,6 @@ func (bum *BatchURLManager) CompleteCurrentBatch(tracker *BatchMonitorCycleTrack
 		Msg("Monitor batch completed")
 }
 
-// ResetCycle resets the tracker for a new monitoring cycle
-func (bum *BatchURLManager) ResetCycle(tracker *BatchMonitorCycleTracker, newCycleID string) {
-	tracker.CurrentBatch = 0
-	tracker.ProcessedBatches = 0
-	tracker.CycleID = newCycleID
-
-	bum.logger.Info().
-		Str("cycle_id", newCycleID).
-		Int("total_batches", tracker.TotalBatches).
-		Int("total_urls", len(tracker.AllURLs)).
-		Msg("Monitor cycle reset for new batch processing")
-}
-
 // ExecuteBatchMonitoring executes monitoring for a single batch
 func (bum *BatchURLManager) ExecuteBatchMonitoring(
 	ctx context.Context,
@@ -169,6 +158,13 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 
 	var processedURLs []string
 
+	// Calculate total batches for batch info
+	useBatching := bum.batchProcessor.ShouldUseBatching(len(urls))
+	totalBatches := 1
+	if useBatching {
+		totalBatches, _ = bum.batchProcessor.GetBatchingStats(len(urls))
+	}
+
 	// Process function for monitoring URLs
 	processFunc := func(ctx context.Context, batch []string, batchIndex int) error {
 		// bum.logger.Info().
@@ -176,6 +172,14 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 		// 	Int("batch_size", len(batch)).
 		// 	Str("cycle_id", cycleID).
 		// 	Msg("Processing monitor batch")
+
+		// Create batch info for this batch
+		batchInfo := models.NewBatchInfo(
+			batchIndex+1, // batchIndex is 0-based, but we want 1-based numbering
+			totalBatches,
+			len(batch),
+			len(processedURLs), // URLs processed so far
+		)
 
 		// Process each URL in the batch
 		for _, url := range batch {
@@ -188,15 +192,15 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 			default:
 			}
 
-			// Execute URL check
-			result := urlChecker.CheckURLWithContext(ctx, url, cycleID)
-			if result.Success {
+			// Execute URL check with batch context
+			checkResult := urlChecker.CheckURLWithBatchContext(ctx, url, cycleID, batchInfo)
+			if checkResult.Success {
 				processedURLs = append(processedURLs, url)
 			}
 
 			bum.logger.Debug().
 				Str("url", url).
-				Bool("success", result.Success).
+				Bool("success", checkResult.Success).
 				Msg("URL monitoring completed")
 		}
 
@@ -204,6 +208,8 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 			Int("batch_index", batchIndex).
 			Int("processed_urls", len(processedURLs)).
 			Msg("Monitor batch processing completed")
+
+		// Event aggregation removed - notifications handled in batch completion
 
 		return nil
 	}
@@ -253,11 +259,6 @@ func (bum *BatchURLManager) GetBatchingInfo(urlCount int) (useBatching bool, bat
 		remainingItems = 0
 	}
 	return
-}
-
-// GetCurrentURLs returns the current URLs from the underlying URLManager
-func (bum *BatchURLManager) GetCurrentURLs() []string {
-	return bum.urlManager.GetCurrentURLs()
 }
 
 // UpdateLogger updates the logger for this component and its URLManager

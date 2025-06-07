@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -132,9 +133,16 @@ func (uc *URLChecker) CheckURL(ctx context.Context, url string) CheckResult {
 	}
 
 	// Generate diff if content changed and differ is available
-	if result.Changed && uc.contentDiffer != nil && lastRecord != nil {
-		diffResult := uc.generateContentDiff(lastRecord, fetchResult.Content, result.ContentType, result.OldHash, result.NewHash)
-		result.DiffResult = diffResult
+	if result.Changed && uc.contentDiffer != nil {
+		if lastRecord != nil {
+			// Normal diff between old and new content
+			diffResult := uc.generateContentDiff(lastRecord, fetchResult.Content, result.ContentType, result.OldHash, result.NewHash)
+			result.DiffResult = diffResult
+		} else {
+			// First time monitoring this URL - treat all content as insertion
+			diffResult := uc.generateFirstTimeDiff(fetchResult.Content, result.ContentType, result.NewHash)
+			result.DiffResult = diffResult
+		}
 	}
 
 	// Extract paths if path extractor is available and content type is suitable
@@ -181,6 +189,20 @@ func (uc *URLChecker) generateContentDiff(lastRecord *models.FileHistoryRecord, 
 	diffResult, err := uc.contentDiffer.GenerateDiff(oldContent, newContent, contentType, oldHash, newHash)
 	if err != nil {
 		uc.logger.Error().Err(err).Msg("Failed to generate content diff")
+		return nil
+	}
+
+	return diffResult
+}
+
+// generateFirstTimeDiff generates diff result for first-time monitoring, treating all content as insertion
+func (uc *URLChecker) generateFirstTimeDiff(newContent []byte, contentType, newHash string) *models.ContentDiffResult {
+	// For first time monitoring, treat empty content as old content
+	emptyContent := []byte{}
+
+	diffResult, err := uc.contentDiffer.GenerateDiff(emptyContent, newContent, contentType, "", newHash)
+	if err != nil {
+		uc.logger.Error().Err(err).Msg("Failed to generate first-time content diff")
 		return nil
 	}
 
@@ -250,59 +272,78 @@ func (uc *URLChecker) storeFileRecord(url string, result CheckResult, fetchResul
 
 // serializeDiffResult serializes diff result to JSON string
 func (uc *URLChecker) serializeDiffResult(diffResult *models.ContentDiffResult) (string, error) {
-	// Use buffer pool for JSON serialization
-	buffer := uc.bufferPool.Get()
-	defer uc.bufferPool.Put(buffer)
+	if diffResult == nil {
+		return "", nil
+	}
 
-	// Implementation would use buffer for efficient JSON marshaling
-	// For now, return empty string as placeholder
-	return "", nil
+	jsonData, err := json.Marshal(diffResult)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal diff result: %w", err)
+	}
+
+	return string(jsonData), nil
 }
 
 // serializeExtractedPaths serializes extracted paths to JSON string
 func (uc *URLChecker) serializeExtractedPaths(paths []models.ExtractedPath) (string, error) {
-	// Use buffer pool for JSON serialization
-	buffer := uc.bufferPool.Get()
-	defer uc.bufferPool.Put(buffer)
+	if len(paths) == 0 {
+		return "", nil
+	}
 
-	// Implementation would use buffer for efficient JSON marshaling
-	// For now, return empty string as placeholder
-	return "", nil
+	jsonData, err := json.Marshal(paths)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal extracted paths: %w", err)
+	}
+
+	return string(jsonData), nil
 }
 
-// CheckURLWithContext checks a URL with context (compatibility method)
+// CheckURLWithContext checks a URL with legacy result format for backwards compatibility
 func (uc *URLChecker) CheckURLWithContext(ctx context.Context, url string, cycleID string) LegacyCheckResult {
+	return uc.CheckURLWithBatchContext(ctx, url, cycleID, nil)
+}
+
+// CheckURLWithBatchContext checks a URL with batch context information
+func (uc *URLChecker) CheckURLWithBatchContext(ctx context.Context, url string, cycleID string, batchInfo *models.BatchInfo) LegacyCheckResult {
 	result := uc.CheckURL(ctx, url)
 
-	// Convert to legacy format for compatibility
 	if result.Error != nil {
 		return LegacyCheckResult{
 			ErrorInfo: &models.MonitorFetchErrorInfo{
 				URL:        url,
 				Error:      result.Error.Error(),
-				Source:     "check",
+				Source:     "fetch",
 				OccurredAt: result.ProcessedAt,
 				CycleID:    cycleID,
+				BatchInfo:  batchInfo,
 			},
 			Success: false,
 		}
 	}
 
-	legacyResult := LegacyCheckResult{Success: true}
-
-	if result.Changed {
-		legacyResult.FileChangeInfo = &models.FileChangeInfo{
-			URL:            url,
-			OldHash:        result.OldHash,
-			NewHash:        result.NewHash,
-			ContentType:    result.ContentType,
-			ChangeTime:     result.ProcessedAt,
-			ExtractedPaths: result.ExtractedPaths,
-			CycleID:        cycleID,
-		}
+	if !result.Changed {
+		return LegacyCheckResult{Success: true}
 	}
 
-	return legacyResult
+	// File changed - create change info
+	changeInfo := &models.FileChangeInfo{
+		URL:            url,
+		OldHash:        result.OldHash,
+		NewHash:        result.NewHash,
+		ContentType:    result.ContentType,
+		ChangeTime:     result.ProcessedAt,
+		ExtractedPaths: result.ExtractedPaths,
+		CycleID:        cycleID,
+		BatchInfo:      batchInfo,
+	}
+
+	// Note: HTML diff report will be generated later at cycle level for all changed URLs
+	// Individual URL diff results are stored in the file history
+
+	return LegacyCheckResult{
+		FileChangeInfo: changeInfo,
+		Success:        true,
+	}
 }
 
 // LegacyCheckResult represents the legacy result format for compatibility
@@ -310,14 +351,6 @@ type LegacyCheckResult struct {
 	FileChangeInfo *models.FileChangeInfo
 	ErrorInfo      *models.MonitorFetchErrorInfo
 	Success        bool
-}
-
-// GetMemoryStats returns current memory usage statistics for the checker
-func (uc *URLChecker) GetMemoryStats() map[string]interface{} {
-	return map[string]interface{}{
-		"buffer_pool_active": "active", // Simplified for now
-		"slice_pool_active":  "active",
-	}
 }
 
 // UpdateLogger updates the logger for this component
