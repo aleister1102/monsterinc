@@ -571,4 +571,3 @@ extractor_config:
     # - "another_custom_regex_pattern"
   # If you prefer flow style (ensure correct escaping and quoting if regexes contain special characters):
   # custom_regexes: ["regex1", "regex2"]
-

@@ -21,7 +21,7 @@ func (cr *Crawler) Start(ctx context.Context) {
 
 	cr.logger.Info().
 		Int("seed_count", len(cr.seedURLs)).
-		Strs("seeds", cr.seedURLs).
+		// Strs("seeds", cr.seedURLs).
 		Msg("Starting crawl")
 
 	cr.processSeedURLs()

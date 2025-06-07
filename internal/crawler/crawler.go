@@ -447,7 +447,7 @@ func (cr *Crawler) setupHeadlessBrowser() error {
 // logInitialization logs the initialization summary
 func (cr *Crawler) logInitialization() {
 	logEvent := cr.logger.Info().
-		Strs("seeds", cr.seedURLs).
+		// Strs("seeds", cr.seedURLs).
 		Str("user_agent", cr.userAgent).
 		Dur("timeout", cr.requestTimeout).
 		Int("threads", cr.threads).
