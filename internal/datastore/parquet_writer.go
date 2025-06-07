@@ -176,10 +176,10 @@ func (pw *ParquetWriter) transformRecords(ctx context.Context, request WriteRequ
 
 // writeToParquetFile writes the transformed results to a Parquet file
 func (pw *ParquetWriter) writeToParquetFile(filePath string, parquetResults []models.ParquetProbeResult) (int, error) {
-	pw.logger.Info().
-		Str("file_path", filePath).
-		Int("probe_count", len(parquetResults)).
-		Msg("Writing probe results to Parquet file")
+	// pw.logger.Info().
+	// 	Str("file_path", filePath).
+	// 	Int("probe_count", len(parquetResults)).
+	// 	Msg("Writing probe results to Parquet file")
 
 	file, err := pw.createParquetFile(filePath)
 	if err != nil {

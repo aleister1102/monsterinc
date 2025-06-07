@@ -135,7 +135,7 @@ func (pr *ParquetReader) buildParquetFilePath(rootTargetURL string) (string, err
 func (pr *ParquetReader) validateFileExists(filePath string) (os.FileInfo, error) {
 	fileInfo, err := os.Stat(filePath)
 	if os.IsNotExist(err) {
-		pr.logger.Info().Str("file", filePath).Msg("Parquet file not found for target")
+		// pr.logger.Info().Str("file", filePath).Msg("Parquet file not found for target")
 		return nil, nil // Not an error - file simply doesn't exist yet
 	}
 	if err != nil {
