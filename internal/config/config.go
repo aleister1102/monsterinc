@@ -316,6 +316,10 @@ type AutoCalibrateConfig struct {
 	MaxSimilarURLs int `json:"max_similar_urls,omitempty" yaml:"max_similar_urls,omitempty" validate:"omitempty,min=1"`
 	// Parameters to ignore when detecting similar URL patterns
 	IgnoreParameters []string `json:"ignore_parameters,omitempty" yaml:"ignore_parameters,omitempty"`
+	// Automatically detect and ignore locale codes in path segments
+	AutoDetectLocales bool `json:"auto_detect_locales" yaml:"auto_detect_locales"`
+	// Custom locale codes to recognize (in addition to built-in ones)
+	CustomLocaleCodes []string `json:"custom_locale_codes,omitempty" yaml:"custom_locale_codes,omitempty"`
 	// Enable logging when URLs are skipped due to pattern similarity
 	EnableSkipLogging bool `json:"enable_skip_logging" yaml:"enable_skip_logging"`
 }
@@ -325,6 +329,8 @@ func NewDefaultAutoCalibrateConfig() AutoCalibrateConfig {
 		Enabled:           true,
 		MaxSimilarURLs:    1,
 		IgnoreParameters:  []string{"tid", "fid", "page", "id", "p", "offset", "limit"},
+		AutoDetectLocales: true, // Enable automatic locale detection
+		CustomLocaleCodes: []string{},
 		EnableSkipLogging: true,
 	}
 }

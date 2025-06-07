@@ -36,6 +36,27 @@ func TestURLPatternDetector_ShouldSkipURL(t *testing.T) {
 			description:     "First URL should be crawled, subsequent similar URLs should be skipped",
 		},
 		{
+			name: "Should skip similar support URLs with different locales",
+			config: config.AutoCalibrateConfig{
+				Enabled:           true,
+				MaxSimilarURLs:    1,
+				IgnoreParameters:  []string{},
+				AutoDetectLocales: true, // Enable auto locale detection
+				EnableSkipLogging: true,
+			},
+			urls: []string{
+				"https://support.oppo.com/chde/premium/find-n3-1/",
+				"https://support.oppo.com/tw/premium/find-n3-1/",
+				"https://support.oppo.com/kzkk/premium/find-n3-1/",
+				"https://support.oppo.com/chfr/premium/find-n3-1/",
+				"https://support.oppo.com/jp/premium/findx6-series/",
+				"https://support.oppo.com/en/premium/findx6-series/",
+				"https://support.oppo.com/fr/premium/findx6-series/",
+			},
+			expectedSkipped: []bool{false, true, true, true, false, true, true},
+			description:     "Should detect two patterns: find-n3-1 and findx6-series, skip duplicates",
+		},
+		{
 			name: "Disabled auto-calibrate should not skip",
 			config: config.AutoCalibrateConfig{
 				Enabled:           false,
@@ -99,47 +120,82 @@ func TestURLPatternDetector_ShouldSkipURL(t *testing.T) {
 
 func TestURLPatternDetector_GenerateURLPattern(t *testing.T) {
 	logger := zerolog.Nop()
-	config := config.AutoCalibrateConfig{
-		Enabled:           true,
-		MaxSimilarURLs:    1,
-		IgnoreParameters:  []string{"tid", "fid", "page", "id"},
-		EnableSkipLogging: true,
-	}
-
-	detector := NewURLPatternDetector(config, logger)
 
 	tests := []struct {
 		name            string
+		config          config.AutoCalibrateConfig
 		url             string
 		expectedPattern string
 		shouldError     bool
 	}{
 		{
-			name:            "Forum URL with ignored parameters",
+			name: "Forum URL with ignored parameters",
+			config: config.AutoCalibrateConfig{
+				Enabled:           true,
+				MaxSimilarURLs:    1,
+				IgnoreParameters:  []string{"tid", "fid", "page", "id"},
+				EnableSkipLogging: true,
+			},
 			url:             "https://forum.cdo.oppomobile.com/read.php?tid=3801598&fid=1226&page=e#a",
 			expectedPattern: "https://forum.cdo.oppomobile.com/read.php",
 			shouldError:     false,
 		},
 		{
-			name:            "URL with non-ignored parameters",
+			name: "Support URL with ignored path segment",
+			config: config.AutoCalibrateConfig{
+				Enabled:           true,
+				MaxSimilarURLs:    1,
+				IgnoreParameters:  []string{},
+				AutoDetectLocales: true, // Enable auto locale detection
+				EnableSkipLogging: true,
+			},
+			url:             "https://support.oppo.com/chde/premium/find-n3-1/",
+			expectedPattern: "https://support.oppo.com/*/premium/find-n3-1/",
+			shouldError:     false,
+		},
+		{
+			name: "URL with non-ignored parameters",
+			config: config.AutoCalibrateConfig{
+				Enabled:           true,
+				MaxSimilarURLs:    1,
+				IgnoreParameters:  []string{},
+				EnableSkipLogging: true,
+			},
 			url:             "https://example.com/search?query=test&sort=date",
 			expectedPattern: "https://example.com/search?query=*&sort=*",
 			shouldError:     false,
 		},
 		{
-			name:            "URL with mixed parameters",
-			url:             "https://example.com/page?id=123&query=test&page=2",
-			expectedPattern: "https://example.com/page?query=*",
+			name: "URL with mixed parameters and path segments",
+			config: config.AutoCalibrateConfig{
+				Enabled:           true,
+				MaxSimilarURLs:    1,
+				IgnoreParameters:  []string{"id", "page"},
+				AutoDetectLocales: true,
+				EnableSkipLogging: true,
+			},
+			url:             "https://example.com/api/v1/users?id=123&query=test&page=2",
+			expectedPattern: "https://example.com/api/v1/users?query=*",
 			shouldError:     false,
 		},
 		{
-			name:            "Simple URL without parameters",
+			name: "Simple URL without parameters",
+			config: config.AutoCalibrateConfig{
+				Enabled:           true,
+				MaxSimilarURLs:    1,
+				EnableSkipLogging: true,
+			},
 			url:             "https://example.com/page",
 			expectedPattern: "https://example.com/page",
 			shouldError:     false,
 		},
 		{
-			name:            "Invalid URL",
+			name: "Invalid URL",
+			config: config.AutoCalibrateConfig{
+				Enabled:           true,
+				MaxSimilarURLs:    1,
+				EnableSkipLogging: true,
+			},
 			url:             "not-a-url",
 			expectedPattern: "://not-a-url",
 			shouldError:     false, // Go's url.Parse is quite lenient
@@ -148,6 +204,7 @@ func TestURLPatternDetector_GenerateURLPattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			detector := NewURLPatternDetector(tt.config, logger)
 			pattern, err := detector.generateURLPattern(tt.url)
 
 			if tt.shouldError {
