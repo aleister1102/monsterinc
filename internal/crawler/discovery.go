@@ -81,19 +81,19 @@ func (cr *Crawler) processRawURL(rawURL string, base *url.URL) (string, bool) {
 			Msg("Could not resolve URL")
 
 		cr.addDiscoveredURL(rawURL)
-		return "", true
+		return "", false
 	}
 
 	normalizedURL := strings.TrimSpace(absURL)
 	if normalizedURL == "" {
-		return "", true
+		return "", false
 	}
 
 	if !cr.isURLInScope(normalizedURL) {
-		return "", true
+		return "", false
 	}
 
-	return normalizedURL, false
+	return normalizedURL, true
 }
 
 // isURLInScope checks if URL is within crawler scope

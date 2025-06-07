@@ -23,8 +23,10 @@ func NewConfigBuilder(globalConfig *config.GlobalConfig, logger zerolog.Logger) 
 
 // BuildCrawlerConfig creates crawler configuration with seed URLs
 func (cb *ConfigBuilder) BuildCrawlerConfig(seedURLs []string, scanSessionID string) (*config.CrawlerConfig, string, error) {
+	// Create a copy of the crawler config to avoid modifying the global config
 	crawlerConfig := cb.globalConfig.CrawlerConfig
-	crawlerConfig.SeedURLs = seedURLs
+	crawlerConfig.SeedURLs = make([]string, len(seedURLs))
+	copy(crawlerConfig.SeedURLs, seedURLs)
 
 	primaryRootTargetURL := cb.determinePrimaryRootTarget(seedURLs, scanSessionID)
 	return &crawlerConfig, primaryRootTargetURL, nil
