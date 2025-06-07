@@ -132,7 +132,7 @@ func main() {
 
 	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, scanner, ms, &schedulerPtr, progressDisplay)
 
-	shutdownServices(ms, schedulerPtr, zLogger, ctx)
+	shutdownServices(ms, scanner, schedulerPtr, zLogger, ctx)
 }
 
 // loadConfiguration loads the global configuration from the specified file,
@@ -457,12 +457,21 @@ func runOnetimeScan(
 		summaryData.TotalTargets = len(scanTargets)
 
 		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification, reportFilePaths) // reportFilePaths might be nil
+
+		// Shutdown scanner even on error to clean up singleton crawler
+		baseLogger.Info().Msg("Shutting down scanner after onetime scan error")
+		scannerInstance.Shutdown()
+
 		return
 	}
 
 	// If successful, summaryData is already populated by ExecuteSingleScanWorkflowWithReporting with Completed status
 	baseLogger.Info().Str("scanSessionID", scanSessionID).Msg("Onetime scan workflow completed successfully via orchestrator. Sending completion notification.")
 	notificationHelper.SendScanCompletionNotification(ctx, summaryData, notifier.ScanServiceNotification, reportFilePaths)
+
+	// Shutdown scanner to clean up singleton crawler
+	baseLogger.Info().Msg("Shutting down scanner after onetime scan completion")
+	scannerInstance.Shutdown()
 
 	baseLogger.Info().Msg("MonsterInc Crawler finished (onetime mode).")
 }
@@ -537,6 +546,7 @@ func runAutomatedScan(
 
 func shutdownServices(
 	ms *monitor.MonitoringService,
+	scanner *scanner.Scanner,
 	scheduler *scheduler.Scheduler,
 	zLogger zerolog.Logger,
 	ctx context.Context,
@@ -561,6 +571,13 @@ func shutdownServices(
 			zLogger.Info().Msg("Stopping monitoring service...")
 			ms.Stop()
 			zLogger.Info().Msg("Monitoring service stopped.")
+		}
+
+		// Shutdown scanner (which will shutdown the singleton crawler)
+		if scanner != nil {
+			zLogger.Info().Msg("Shutting down scanner...")
+			scanner.Shutdown()
+			zLogger.Info().Msg("Scanner shutdown completed.")
 		}
 
 		// Stop global resource limiter
