@@ -106,6 +106,7 @@ type ProgressDisplayManager struct {
 	stopChan        chan struct{}
 	ctx             context.Context
 	cancel          context.CancelFunc
+	lastDisplayed   string // Track last displayed content to avoid duplicates
 }
 
 // NewProgressDisplayManager tạo progress display manager mới
@@ -138,7 +139,7 @@ func (pdm *ProgressDisplayManager) Start() {
 	}
 
 	pdm.isRunning = true
-	pdm.displayTicker = time.NewTicker(2 * time.Second) // Cập nhật mỗi 2 giây
+	pdm.displayTicker = time.NewTicker(3 * time.Second) // Tăng thời gian update lên 3 giây để giảm spam
 
 	go pdm.displayLoop()
 }
@@ -158,6 +159,9 @@ func (pdm *ProgressDisplayManager) Stop() {
 	if pdm.displayTicker != nil {
 		pdm.displayTicker.Stop()
 	}
+
+	// Clear the progress line and move cursor to new line
+	fmt.Print("\r\033[K\n")
 
 	close(pdm.stopChan)
 }
@@ -295,82 +299,71 @@ func (pdm *ProgressDisplayManager) displayProgress() {
 	pdm.mutex.RLock()
 	defer pdm.mutex.RUnlock()
 
-	// Clear previous lines and move cursor to bottom
-	fmt.Print("\033[s")      // Save cursor position
-	fmt.Print("\033[999;1H") // Move to bottom of screen
+	// Combine both scan and monitor progress into one line
+	scanIcon := pdm.getStatusIcon(pdm.scanProgress.Status)
+	monitorIcon := pdm.getStatusIcon(pdm.monitorProgress.Status)
 
-	// Display scan progress
-	scanLine := pdm.formatProgressLine(pdm.scanProgress)
-	fmt.Printf("📡 SCAN:    %s\r\n", scanLine)
+	var combinedLine strings.Builder
 
-	// Display monitor progress
-	monitorLine := pdm.formatProgressLine(pdm.monitorProgress)
-	fmt.Printf("🔍 MONITOR: %s\r\n", monitorLine)
+	// Scan status
+	combinedLine.WriteString(fmt.Sprintf("📡 %s %s", scanIcon, pdm.scanProgress.Status))
+	if pdm.scanProgress.Stage != "" {
+		combinedLine.WriteString(fmt.Sprintf(" [%s]", pdm.scanProgress.Stage))
+	}
 
-	fmt.Print("\033[u") // Restore cursor position
-}
+	// Monitor status
+	combinedLine.WriteString(fmt.Sprintf(" | 🔍 %s %s", monitorIcon, pdm.monitorProgress.Status))
+	if pdm.monitorProgress.Stage != "" {
+		combinedLine.WriteString(fmt.Sprintf(" [%s]", pdm.monitorProgress.Stage))
+	}
 
-// formatProgressLine định dạng một dòng progress
-func (pdm *ProgressDisplayManager) formatProgressLine(progress *ProgressInfo) string {
-	statusIcon := pdm.getStatusIcon(progress.Status)
-
-	var line strings.Builder
-
-	// Status và stage
-	line.WriteString(fmt.Sprintf("%s %s", statusIcon, progress.Status))
-
-	if progress.Stage != "" {
-		line.WriteString(fmt.Sprintf(" [%s]", progress.Stage))
+	// Show progress for the active service
+	activeProgress := pdm.monitorProgress
+	if pdm.scanProgress.Status == ProgressStatusRunning {
+		activeProgress = pdm.scanProgress
 	}
 
 	// Batch info
-	if progress.BatchInfo != nil && progress.BatchInfo.TotalBatches > 0 {
-		line.WriteString(fmt.Sprintf(" [Batch %d/%d]", progress.BatchInfo.CurrentBatch, progress.BatchInfo.TotalBatches))
+	if activeProgress.BatchInfo != nil && activeProgress.BatchInfo.TotalBatches > 0 {
+		combinedLine.WriteString(fmt.Sprintf(" [Batch %d/%d]", activeProgress.BatchInfo.CurrentBatch, activeProgress.BatchInfo.TotalBatches))
 	}
 
 	// Progress bar và percentage
-	if progress.Total > 0 && progress.Status == ProgressStatusRunning {
-		percentage := progress.GetPercentage()
-		progressBar := pdm.createProgressBar(percentage, 20)
-		line.WriteString(fmt.Sprintf(" %s %.1f%% (%d/%d)",
-			progressBar, percentage, progress.Current, progress.Total))
-
-		// ETA và rate
-		if progress.EstimatedETA > 0 {
-			line.WriteString(fmt.Sprintf(" ETA: %s", pdm.formatDuration(progress.EstimatedETA)))
-		}
-
-		if progress.ProcessingRate > 0 {
-			line.WriteString(fmt.Sprintf(" Rate: %.1f/s", progress.ProcessingRate))
-		}
+	if activeProgress.Total > 0 && activeProgress.Status == ProgressStatusRunning {
+		percentage := activeProgress.GetPercentage()
+		progressBar := pdm.createProgressBar(percentage, 15) // Shorter progress bar
+		combinedLine.WriteString(fmt.Sprintf(" %s %.1f%% (%d/%d)",
+			progressBar, percentage, activeProgress.Current, activeProgress.Total))
 	}
 
-	// Monitor specific stats
-	if progress.Type == ProgressTypeMonitor && progress.MonitorInfo != nil {
-		mInfo := progress.MonitorInfo
-		line.WriteString(fmt.Sprintf(" [P:%d F:%d C:%d]", mInfo.ProcessedURLs, mInfo.FailedURLs, mInfo.CompletedURLs))
-
-		if mInfo.ChangedEventCount > 0 || mInfo.ErrorEventCount > 0 {
-			line.WriteString(fmt.Sprintf(" [Events: ±%d ✗%d]", mInfo.ChangedEventCount, mInfo.ErrorEventCount))
-		}
+	// Monitor specific stats (always show if available)
+	if pdm.monitorProgress.MonitorInfo != nil {
+		mInfo := pdm.monitorProgress.MonitorInfo
+		combinedLine.WriteString(fmt.Sprintf(" [P:%d F:%d C:%d]", mInfo.ProcessedURLs, mInfo.FailedURLs, mInfo.CompletedURLs))
 
 		if mInfo.AggregationInterval > 0 {
-			line.WriteString(fmt.Sprintf(" [Agg: %s]", pdm.formatDuration(mInfo.AggregationInterval)))
+			combinedLine.WriteString(fmt.Sprintf(" [Agg: %s]", pdm.formatDuration(mInfo.AggregationInterval)))
 		}
 	}
 
-	// Message
-	if progress.Message != "" {
-		line.WriteString(fmt.Sprintf(" - %s", progress.Message))
+	// Message from active progress
+	if activeProgress.Message != "" {
+		// Truncate message if too long to fit in one line
+		message := activeProgress.Message
+		if len(message) > 50 {
+			message = message[:47] + "..."
+		}
+		combinedLine.WriteString(fmt.Sprintf(" - %s", message))
 	}
 
-	// Elapsed time cho running tasks
-	if progress.Status == ProgressStatusRunning && !progress.StartTime.IsZero() {
-		elapsed := progress.GetElapsedTime()
-		line.WriteString(fmt.Sprintf(" [%s]", pdm.formatDuration(elapsed)))
-	}
+	currentContent := combinedLine.String()
 
-	return line.String()
+	// Only display if content has changed
+	if currentContent != pdm.lastDisplayed {
+		pdm.lastDisplayed = currentContent
+		// Overwrite current line with \r and clear to end of line
+		fmt.Printf("\r\033[K%s", currentContent)
+	}
 }
 
 // getStatusIcon trả về icon cho trạng thái
