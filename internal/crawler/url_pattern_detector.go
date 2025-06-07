@@ -477,19 +477,86 @@ func (upd *URLPatternDetector) isSpecialLocaleCode(code string) bool {
 	return specials[code]
 }
 
-// isVariableFragment checks if a fragment appears to be variable (like #a, #123, etc.)
+// isVariableFragment checks if a fragment appears to be variable (like #a, #123, #id=123, etc.)
 func (upd *URLPatternDetector) isVariableFragment(fragment string) bool {
-	// Simple heuristic: if fragment is short and alphanumeric, it's likely variable
-	if len(fragment) <= 3 {
+	if fragment == "" {
+		return false
+	}
+
+	// Check for common variable fragment patterns
+
+	// Single letter or very short alphanumeric (likely variable)
+	if len(fragment) <= 2 {
 		return true
 	}
 
-	// Check if it's just a single letter or number
-	if len(fragment) == 1 {
+	// Check for id=number pattern (very common)
+	if strings.HasPrefix(fragment, "id=") {
+		return true
+	}
+
+	// Check for other parameter-like patterns: key=value
+	if strings.Contains(fragment, "=") && len(strings.Split(fragment, "=")) == 2 {
+		parts := strings.Split(fragment, "=")
+		key := parts[0]
+		value := parts[1]
+
+		// If the value part is numeric, likely variable
+		if len(value) <= 6 && upd.isNumeric(value) {
+			return true
+		}
+
+		// Common variable parameter names with numeric or short values
+		varParamNames := []string{"id", "page", "p", "offset", "limit", "n", "t", "v", "ref", "from"}
+		for _, varParam := range varParamNames {
+			if strings.EqualFold(key, varParam) {
+				return true
+			}
+		}
+
+		// If the value is very short (likely an identifier), it might be variable
+		if len(value) <= 3 {
+			return true
+		}
+	}
+
+	// Check for pure numeric fragments (but not too long)
+	if len(fragment) <= 6 && upd.isNumeric(fragment) {
+		return true
+	}
+
+	// Check for short hex-like patterns (common for IDs)
+	if len(fragment) <= 8 && upd.isHexLike(fragment) {
 		return true
 	}
 
 	return false
+}
+
+// isNumeric checks if a string contains only digits
+func (upd *URLPatternDetector) isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// isHexLike checks if a string looks like hexadecimal
+func (upd *URLPatternDetector) isHexLike(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // GetPatternStats returns statistics about detected patterns

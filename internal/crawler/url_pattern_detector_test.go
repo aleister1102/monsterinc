@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/aleister1102/monsterinc/internal/config"
@@ -278,4 +279,89 @@ func TestURLPatternDetector_Reset(t *testing.T) {
 	// Verify URLs can be processed again after reset
 	skipped := detector.ShouldSkipURL("https://example.com/page?tid=1")
 	assert.False(t, skipped, "After reset, first URL should not be skipped")
+}
+
+func TestURLPatternDetector_FragmentHandling(t *testing.T) {
+	config := config.AutoCalibrateConfig{
+		Enabled:           true,
+		MaxSimilarURLs:    1,
+		IgnoreParameters:  []string{"id", "page", "tid", "fid"},
+		AutoDetectLocales: false,
+	}
+
+	detector := NewURLPatternDetector(config, zerolog.Nop())
+
+	// Test fragment URLs with id=number pattern
+	testURLs := []struct {
+		url         string
+		shouldSkip  bool
+		description string
+	}{
+		{
+			url:         "https://open.oppomobile.com/wiki/doc#id=10071",
+			shouldSkip:  false,
+			description: "First URL with id fragment should not be skipped",
+		},
+		{
+			url:         "https://open.oppomobile.com/wiki/doc#id=10294",
+			shouldSkip:  true,
+			description: "Second URL with same pattern should be skipped",
+		},
+		{
+			url:         "https://open.oppomobile.com/wiki/doc#id=10456",
+			shouldSkip:  true,
+			description: "Third URL with same pattern should be skipped",
+		},
+		{
+			url:         "https://open.oppomobile.com/wiki/doc#section=intro",
+			shouldSkip:  false,
+			description: "URL with different fragment type should not be skipped",
+		},
+	}
+
+	for _, tt := range testURLs {
+		t.Run(tt.description, func(t *testing.T) {
+			result := detector.ShouldSkipURL(tt.url)
+			if result != tt.shouldSkip {
+				t.Errorf("Expected ShouldSkipURL(%s) = %v, got %v", tt.url, tt.shouldSkip, result)
+			}
+		})
+	}
+}
+
+func TestURLPatternDetector_isVariableFragment(t *testing.T) {
+	config := config.AutoCalibrateConfig{
+		Enabled:           true,
+		MaxSimilarURLs:    1,
+		IgnoreParameters:  []string{"id", "page"},
+		AutoDetectLocales: false,
+	}
+
+	detector := NewURLPatternDetector(config, zerolog.Nop())
+
+	tests := []struct {
+		fragment string
+		expected bool
+	}{
+		{"id=10071", true},       // Variable ID
+		{"id=10294", true},       // Variable ID
+		{"page=1", true},         // Variable page
+		{"page=2", true},         // Variable page
+		{"section=intro", false}, // Non-variable content
+		{"about", false},         // Static fragment
+		{"a", true},              // Short fragment
+		{"123", true},            // Numeric fragment
+		{"abc123", true},         // Hex-like fragment
+		{"introduction", false},  // Long static fragment
+		{"", false},              // Empty fragment
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("fragment_%s", tt.fragment), func(t *testing.T) {
+			result := detector.isVariableFragment(tt.fragment)
+			if result != tt.expected {
+				t.Errorf("Expected isVariableFragment(%s) = %v, got %v", tt.fragment, tt.expected, result)
+			}
+		})
+	}
 }

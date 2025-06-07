@@ -298,15 +298,19 @@ func (hae *HTMLAssetExtractor) hasRepeatedPathSegments(urlStr string) bool {
 
 	segments := strings.Split(path, "/")
 
-	// Look for 3+ consecutive identical segments
-	for i := 0; i < len(segments)-2; i++ {
-		if segments[i] != "" && segments[i] == segments[i+1] && segments[i] == segments[i+2] {
+	// Only check for obvious infinite loops - 4+ consecutive identical segments
+	// and segments must be at least 3 characters to avoid false positives
+	for i := 0; i < len(segments)-3; i++ {
+		if len(segments[i]) >= 3 && segments[i] != "" &&
+			segments[i] == segments[i+1] &&
+			segments[i] == segments[i+2] &&
+			segments[i] == segments[i+3] {
 			return true
 		}
 	}
 
-	// Check if we have more than 10 segments (also suspicious)
-	if len(segments) > 10 {
+	// Check if we have more than 15 segments (very suspicious)
+	if len(segments) > 15 {
 		return true
 	}
 
