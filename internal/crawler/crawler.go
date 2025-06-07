@@ -343,15 +343,30 @@ func (cr *Crawler) createCollector() (*colly.Collector, error) {
 	collector := colly.NewCollector(collectorOptions...)
 	collector.SetRequestTimeout(cr.requestTimeout)
 
-	// Configure HTTP transport with optional TLS certificate verification skip
-	collector.WithTransport(&http.Transport{
+	// Create base HTTP transport
+	baseTransport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: cr.config.InsecureSkipTLSVerify,
 		},
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 2,
 		IdleConnTimeout:     90 * time.Second,
-	})
+	}
+
+	// Wrap with retry transport if retries are enabled
+	var transport http.RoundTripper = baseTransport
+	if cr.config.RetryConfig.MaxRetries > 0 {
+		transport = NewRetryTransport(baseTransport, cr.config.RetryConfig, cr.logger)
+		cr.logger.Info().
+			Int("max_retries", cr.config.RetryConfig.MaxRetries).
+			Int("base_delay_secs", cr.config.RetryConfig.BaseDelaySecs).
+			Int("max_delay_secs", cr.config.RetryConfig.MaxDelaySecs).
+			Bool("enable_jitter", cr.config.RetryConfig.EnableJitter).
+			Ints("retry_status_codes", cr.config.RetryConfig.RetryStatusCodes).
+			Msg("Colly configured with retry transport for rate limiting")
+	}
+
+	collector.WithTransport(transport)
 
 	err := collector.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
@@ -375,7 +390,23 @@ func (cr *Crawler) setupCallbacks() {
 // setupHTTPClient creates HTTP client for HEAD requests
 func (cr *Crawler) setupHTTPClient() error {
 	httpClientFactory := common.NewHTTPClientFactory(cr.logger)
-	client, err := httpClientFactory.CreateCrawlerClient(cr.requestTimeout, "", nil, cr.config.InsecureSkipTLSVerify)
+
+	// Convert retry config to RetryHandlerConfig
+	retryConfig := common.RetryHandlerConfig{
+		MaxRetries:       cr.config.RetryConfig.MaxRetries,
+		BaseDelay:        time.Duration(cr.config.RetryConfig.BaseDelaySecs) * time.Second,
+		MaxDelay:         time.Duration(cr.config.RetryConfig.MaxDelaySecs) * time.Second,
+		EnableJitter:     cr.config.RetryConfig.EnableJitter,
+		RetryStatusCodes: cr.config.RetryConfig.RetryStatusCodes,
+	}
+
+	client, err := httpClientFactory.CreateCrawlerClientWithRetry(
+		cr.requestTimeout,
+		"",
+		nil,
+		cr.config.InsecureSkipTLSVerify,
+		retryConfig,
+	)
 	if err != nil {
 		return common.WrapError(err, "failed to create HTTP client for HEAD requests")
 	}

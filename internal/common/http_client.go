@@ -63,9 +63,10 @@ func DefaultHTTPClientConfig() HTTPClientConfig {
 
 // FastHTTPClient wraps fasthttp.Client to provide compatibility with the existing interface
 type FastHTTPClient struct {
-	client *fasthttp.Client
-	config HTTPClientConfig
-	logger zerolog.Logger
+	client       *fasthttp.Client
+	config       HTTPClientConfig
+	logger       zerolog.Logger
+	retryHandler *RetryHandler
 }
 
 // NewHTTPClient creates a new HTTP client with the given configuration using fasthttp
@@ -179,6 +180,26 @@ func (c *FastHTTPClient) Do(req *HTTPRequest) (*HTTPResponse, error) {
 	})
 
 	return resp, nil
+}
+
+// SetRetryHandler sets the retry handler for this client
+func (c *FastHTTPClient) SetRetryHandler(retryHandler *RetryHandler) {
+	c.retryHandler = retryHandler
+}
+
+// DoWithRetry performs an HTTP request with retry logic if retry handler is configured
+func (c *FastHTTPClient) DoWithRetry(req *HTTPRequest) (*HTTPResponse, error) {
+	if c.retryHandler == nil {
+		// Fallback to regular Do method if no retry handler
+		return c.Do(req)
+	}
+
+	ctx := req.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	return c.retryHandler.DoWithRetry(ctx, c, req)
 }
 
 // HTTPRequest represents an HTTP request
@@ -348,6 +369,30 @@ func (f *HTTPClientFactory) CreateCrawlerClient(timeout time.Duration, proxy str
 	return builder.Build()
 }
 
+// CreateCrawlerClientWithRetry creates an HTTP client optimized for web crawling with retry support
+func (f *HTTPClientFactory) CreateCrawlerClientWithRetry(timeout time.Duration, proxy string, customHeaders map[string]string, insecureSkipVerify bool, retryConfig RetryHandlerConfig) (*FastHTTPClient, error) {
+	client, err := f.CreateCrawlerClient(timeout, proxy, customHeaders, insecureSkipVerify)
+	if err != nil {
+		return nil, err
+	}
+
+	// Configure retry handler if retries are enabled
+	if retryConfig.MaxRetries > 0 {
+		retryHandler := NewRetryHandler(retryConfig, f.logger)
+		client.SetRetryHandler(retryHandler)
+
+		f.logger.Info().
+			Int("max_retries", retryConfig.MaxRetries).
+			Dur("base_delay", retryConfig.BaseDelay).
+			Dur("max_delay", retryConfig.MaxDelay).
+			Bool("enable_jitter", retryConfig.EnableJitter).
+			Ints("retry_status_codes", retryConfig.RetryStatusCodes).
+			Msg("Crawler HTTP client configured with retry handler")
+	}
+
+	return client, nil
+}
+
 // CreateHTTPXClient creates an HTTP client compatible with httpx runner requirements
 func (f *HTTPClientFactory) CreateHTTPXClient(timeout time.Duration, proxy string, followRedirects bool, maxRedirects int) (*FastHTTPClient, error) {
 	return NewHTTPClientBuilder(f.logger).
@@ -433,7 +478,7 @@ func (f *Fetcher) FetchFileContent(input FetchFileContentInput) (*FetchFileConte
 		Context: ctx,
 	}
 
-	resp, err := f.httpClient.Do(req)
+	resp, err := f.httpClient.DoWithRetry(req)
 	if err != nil {
 		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to execute HTTP request")
 		return nil, NewNetworkError(input.URL, "HTTP request failed", err)

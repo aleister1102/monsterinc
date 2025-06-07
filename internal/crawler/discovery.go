@@ -115,7 +115,7 @@ func (cr *Crawler) shouldSkipURLByContentLength(normalizedURL string) bool {
 		Context: ctx,
 	}
 
-	resp, err := cr.httpClient.Do(req)
+	resp, err := cr.httpClient.DoWithRetry(req)
 	if err != nil {
 		// If HEAD request fails, don't skip - let the main crawler handle it
 		cr.logger.Debug().Str("url", normalizedURL).Err(err).Msg("HEAD request failed, allowing URL")

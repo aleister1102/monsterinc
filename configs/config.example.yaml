@@ -145,6 +145,31 @@ crawler_config:
   # Default: false
   enable_content_length_check: false
 
+  # Retry configuration: Settings for handling rate limits and failed requests.
+  retry_config:
+    # Maximum number of retry attempts for 429 (Too Many Requests) errors.
+    # Set to 0 to disable retries.
+    # Default: 3
+    max_retries: 3
+    # Base delay in seconds for exponential backoff.
+    # The actual delay will be: base_delay * 2^attempt
+    # Default: 10
+    base_delay_secs: 10
+    # Maximum delay in seconds for exponential backoff.
+    # Delays will be capped at this value.
+    # Default: 60
+    max_delay_secs: 60
+    # Enable jitter to randomize delays slightly to prevent thundering herd.
+    # Default: true
+    enable_jitter: true
+    # HTTP status codes that should trigger retries.
+    # Default: [429] (Too Many Requests)
+    retry_status_codes:
+      - 429
+      # - 502  # Bad Gateway (uncomment if needed)
+      # - 503  # Service Unavailable (uncomment if needed)
+      # - 504  # Gateway Timeout (uncomment if needed)
+
   # Crawler scope configuration: Fine-grained control over what the crawler visits.
   scope:
     # List of hostnames the crawler is explicitly allowed from visiting.
