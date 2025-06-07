@@ -394,6 +394,15 @@ log_config:
   # Default: 3
   max_log_backups: 3
 
+  # Log organization settings (NEW FEATURE)
+  # Whether to organize logs into subdirectories based on scan/monitor sessions.
+  # When enabled, logs will be structured as:
+  # - logs/scans/{scanID}/monsterinc.log (for scan sessions)
+  # - logs/monitors/{cycleID}/monsterinc.log (for monitor cycles)
+  # This prevents file locking issues when multiple processes write to logs simultaneously.
+  # Default: true
+  use_subdirs: true
+
 
 
 # DiffConfig: Configuration for comparing current scan results with previous ones.
