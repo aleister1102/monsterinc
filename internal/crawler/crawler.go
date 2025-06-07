@@ -50,6 +50,8 @@ type Crawler struct {
 	disallowedExtMap map[string]bool
 	// Headless browser manager
 	headlessBrowserManager *HeadlessBrowserManager
+	// URL pattern detector for auto-calibrate
+	patternDetector *URLPatternDetector
 }
 
 // NewCrawler initializes a new Crawler based on the provided configuration
@@ -121,6 +123,7 @@ func (cr *Crawler) initialize() error {
 
 	cr.initializeURLBatcher()
 	cr.initializeExtensionMap()
+	cr.initializePatternDetector()
 	cr.logInitialization()
 	return nil
 }
@@ -148,6 +151,11 @@ func (cr *Crawler) initializeExtensionMap() {
 			cr.disallowedExtMap[ext] = true
 		}
 	}
+}
+
+// initializePatternDetector sets up URL pattern detector for auto-calibrate
+func (cr *Crawler) initializePatternDetector() {
+	cr.patternDetector = NewURLPatternDetector(cr.config.AutoCalibrate, cr.logger)
 }
 
 // startURLBatchProcessor starts the background URL batch processor
@@ -528,5 +536,32 @@ func (cr *Crawler) EnsureFullShutdown() {
 		cr.logger.Debug().Msg("Colly collector confirmed stopped")
 	}
 
+	// Log pattern detector statistics before shutdown
+	if cr.patternDetector != nil {
+		cr.logPatternDetectorStats()
+	}
+
 	cr.logger.Info().Msg("Crawler full shutdown confirmed")
+}
+
+// logPatternDetectorStats logs statistics from the pattern detector
+func (cr *Crawler) logPatternDetectorStats() {
+	stats := cr.patternDetector.GetPatternStats()
+	if len(stats) == 0 {
+		return
+	}
+
+	cr.logger.Info().
+		Int("pattern_count", len(stats)).
+		Msg("URL pattern detection statistics")
+
+	// Log top patterns
+	for pattern, count := range stats {
+		if count > 1 {
+			cr.logger.Debug().
+				Str("pattern", pattern).
+				Int("count", count).
+				Msg("URL pattern detected")
+		}
+	}
 }

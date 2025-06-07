@@ -15,6 +15,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3
 	github.com/shirou/gopsutil/v3 v3.24.2
+	github.com/stretchr/testify v1.10.0
 	github.com/valyala/fasthttp v1.62.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1

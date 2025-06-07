@@ -33,6 +33,12 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 		return
 	}
 
+	// Check if URL should be skipped due to pattern similarity (auto-calibrate)
+	if cr.patternDetector.ShouldSkipURL(normalizedURL) {
+		cr.addDiscoveredURL(normalizedURL)
+		return
+	}
+
 	// Only check content length if enabled in config
 	if cr.config.EnableContentLengthCheck && cr.shouldSkipURLByContentLength(normalizedURL) {
 		cr.addDiscoveredURL(normalizedURL)

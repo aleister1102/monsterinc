@@ -287,23 +287,45 @@ type CrawlerConfig struct {
 	SeedURLs                 []string              `json:"seed_urls,omitempty" yaml:"seed_urls,omitempty" validate:"omitempty,dive,url"`
 	UserAgent                string                `json:"user_agent,omitempty" yaml:"user_agent,omitempty"`
 	HeadlessBrowser          HeadlessBrowserConfig `json:"headless_browser,omitempty" yaml:"headless_browser,omitempty"`
+	AutoCalibrate            AutoCalibrateConfig   `json:"auto_calibrate,omitempty" yaml:"auto_calibrate,omitempty"`
 }
 
 func NewDefaultCrawlerConfig() CrawlerConfig {
 	return CrawlerConfig{
 		AutoAddSeedHostnames:     true,
 		EnableContentLengthCheck: false,
-		IncludeSubdomains:        false,
-		InsecureSkipTLSVerify:    true, // Set to true by default for web crawling
-		MaxConcurrentRequests:    10,
+		IncludeSubdomains:        DefaultCrawlerIncludeSubdomains,
+		InsecureSkipTLSVerify:    true,
+		MaxConcurrentRequests:    DefaultCrawlerMaxConcurrentRequests,
 		MaxContentLengthMB:       2,
-		MaxDepth:                 3,
-		RequestTimeoutSecs:       30,
-		RespectRobotsTxt:         false,
-		SeedURLs:                 []string{},
-		UserAgent:                "MonsterInc-Crawler/1.0",
+		MaxDepth:                 DefaultCrawlerMaxDepth,
+		RequestTimeoutSecs:       DefaultCrawlerRequestTimeoutSecs,
+		RespectRobotsTxt:         DefaultCrawlerRespectRobotsTxt,
 		Scope:                    NewDefaultCrawlerScopeConfig(),
+		SeedURLs:                 []string{},
+		UserAgent:                DefaultCrawlerUserAgent,
 		HeadlessBrowser:          NewDefaultHeadlessBrowserConfig(),
+		AutoCalibrate:            NewDefaultAutoCalibrateConfig(),
+	}
+}
+
+type AutoCalibrateConfig struct {
+	// Whether auto-calibrate feature is enabled
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// Maximum number of similar URLs to allow per pattern before skipping
+	MaxSimilarURLs int `json:"max_similar_urls,omitempty" yaml:"max_similar_urls,omitempty" validate:"omitempty,min=1"`
+	// Parameters to ignore when detecting similar URL patterns
+	IgnoreParameters []string `json:"ignore_parameters,omitempty" yaml:"ignore_parameters,omitempty"`
+	// Enable logging when URLs are skipped due to pattern similarity
+	EnableSkipLogging bool `json:"enable_skip_logging" yaml:"enable_skip_logging"`
+}
+
+func NewDefaultAutoCalibrateConfig() AutoCalibrateConfig {
+	return AutoCalibrateConfig{
+		Enabled:           true,
+		MaxSimilarURLs:    1,
+		IgnoreParameters:  []string{"tid", "fid", "page", "id", "p", "offset", "limit"},
+		EnableSkipLogging: true,
 	}
 }
 

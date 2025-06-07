@@ -185,6 +185,32 @@ crawler_config:
   # Default: true
   auto_add_seed_hostnames: true
 
+  # Auto-calibrate configuration: Settings for detecting and skipping similar URL patterns.
+  auto_calibrate:
+    # Whether auto-calibrate feature is enabled.
+    # When enabled, the crawler will detect similar URL patterns and skip crawling
+    # URLs that match patterns already seen (useful for forum pages with similar structures).
+    # Default: true
+    enabled: true
+    # Maximum number of similar URLs to allow per pattern before skipping.
+    # For example, if set to 1, only the first URL of each pattern will be crawled.
+    # Default: 1
+    max_similar_urls: 1
+    # Parameters to ignore when detecting similar URL patterns.
+    # URLs that differ only in these parameters will be considered the same pattern.
+    # Default: ["tid", "fid", "page", "id", "p", "offset", "limit"]
+    ignore_parameters:
+      - "tid"    # Thread ID
+      - "fid"    # Forum ID  
+      - "page"   # Page number
+      - "id"     # Generic ID
+      - "p"      # Page shorthand
+      - "offset" # Pagination offset
+      - "limit"  # Pagination limit
+    # Enable logging when URLs are skipped due to pattern similarity.
+    # Default: true
+    enable_skip_logging: true
+
   # Headless browser configuration: Settings for using headless browser for dynamic content crawling.
   # WARNING: On Windows, antivirus software may block the browser automation tools.
   # If you encounter errors with "leakless.exe" or "virus/potentially unwanted software",
