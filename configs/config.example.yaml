@@ -6,7 +6,6 @@
 # Default: "onetime"
 mode: "onetime"
 
-
 # Resource Limiter configuration: Settings for monitoring system resources and auto-shutdown.
 resource_limiter_config:
   # Maximum memory usage for the application in MB before triggering garbage collection.
@@ -39,7 +38,6 @@ resource_limiter_config:
   # Whether to enable automatic shutdown when resource thresholds are exceeded.
   # Default: true
   enable_auto_shutdown: true
-
 
 # HTTPX Runner configuration: Settings for the httpx tool.
 httpx_runner_config:
@@ -418,6 +416,26 @@ scheduler_config:
   # Path to the SQLite database file used for storing scan history.
   # Default: "database/scheduler/scheduler_history.db"
   sqlite_db_path: "database/scheduler/scheduler_history.db"
+
+# Batch Processor configuration: Settings for processing large input files in batches.
+batch_processor_config:
+  # Maximum number of items to process in each batch.
+  # When input file has more than threshold_size items, it will be split into batches of this size.
+  # Default: 100
+  batch_size: 100
+  # Maximum number of concurrent batches to process at the same time.
+  # Set to 1 for sequential processing (recommended for stability).
+  # Default: 1
+  max_concurrent_batch: 1
+  # Timeout for each batch processing in minutes.
+  # If a batch takes longer than this, it will be cancelled.
+  # Default: 30
+  batch_timeout_mins: 30
+  # Minimum number of items in input file to trigger batch processing.
+  # Files with fewer items than this will be processed normally without batching.
+  # For example, if set to 500, files with 1700 lines will create 17 batches of 100 items each.
+  # Default: 500
+  threshold_size: 500
 
 # Extractor configuration: Settings for custom path extraction.
 extractor_config:

@@ -86,6 +86,7 @@ type GlobalConfig struct {
 	ResourceLimiterConfig ResourceLimiterConfig `json:"resource_limiter_config,omitempty" yaml:"resource_limiter_config,omitempty"`
 	SchedulerConfig       SchedulerConfig       `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
 	StorageConfig         StorageConfig         `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
+	BatchProcessorConfig  BatchProcessorConfig  `json:"batch_processor_config,omitempty" yaml:"batch_processor_config,omitempty"`
 }
 
 func NewDefaultGlobalConfig() *GlobalConfig {
@@ -96,13 +97,14 @@ func NewDefaultGlobalConfig() *GlobalConfig {
 		ExtractorConfig:       NewDefaultExtractorConfig(),
 		HttpxRunnerConfig:     NewDefaultHTTPXRunnerConfig(),
 		LogConfig:             NewDefaultLogConfig(),
-		Mode:                  "",
+		Mode:                  "onetime",
 		MonitorConfig:         NewDefaultMonitorConfig(),
 		NotificationConfig:    NewDefaultNotificationConfig(),
 		ReporterConfig:        NewDefaultReporterConfig(),
 		ResourceLimiterConfig: NewDefaultResourceLimiterConfig(),
 		SchedulerConfig:       NewDefaultSchedulerConfig(),
 		StorageConfig:         NewDefaultStorageConfig(),
+		BatchProcessorConfig:  NewDefaultBatchProcessorConfig(),
 	}
 }
 
@@ -486,6 +488,22 @@ func NewDefaultResourceLimiterConfig() ResourceLimiterConfig {
 		SystemMemThreshold: 0.5,   // 50% system memory
 		CPUThreshold:       0.5,   // 50% CPU usage
 		EnableAutoShutdown: true,  // Enable auto-shutdown by default
+	}
+}
+
+type BatchProcessorConfig struct {
+	BatchSize          int `json:"batch_size,omitempty" yaml:"batch_size,omitempty" validate:"omitempty,min=1"`
+	MaxConcurrentBatch int `json:"max_concurrent_batch,omitempty" yaml:"max_concurrent_batch,omitempty" validate:"omitempty,min=1"`
+	BatchTimeoutMins   int `json:"batch_timeout_mins,omitempty" yaml:"batch_timeout_mins,omitempty" validate:"omitempty,min=1"`
+	ThresholdSize      int `json:"threshold_size,omitempty" yaml:"threshold_size,omitempty" validate:"omitempty,min=1"`
+}
+
+func NewDefaultBatchProcessorConfig() BatchProcessorConfig {
+	return BatchProcessorConfig{
+		BatchSize:          100,
+		MaxConcurrentBatch: 1,
+		BatchTimeoutMins:   30,
+		ThresholdSize:      500,
 	}
 }
 

@@ -26,6 +26,7 @@ type MonitoringService struct {
 
 	// Core components
 	urlManager      *URLManager
+	batchURLManager *BatchURLManager // Added for batch processing
 	cycleTracker    *CycleTracker
 	eventAggregator *EventAggregator
 	urlChecker      *URLChecker
@@ -73,6 +74,7 @@ func NewMonitoringService(
 
 	// Initialize modular components
 	urlManager := NewURLManager(instanceLogger)
+	batchURLManager := NewBatchURLManager(gCfg.BatchProcessorConfig, instanceLogger) // Initialize batch URL manager
 	cycleTracker := createInitialCycleTracker()
 	mutexManager := NewURLMutexManager(instanceLogger)
 
@@ -94,6 +96,7 @@ func NewMonitoringService(
 		logger:             instanceLogger,
 		notificationHelper: notificationHelper,
 		urlManager:         urlManager,
+		batchURLManager:    batchURLManager,
 		cycleTracker:       cycleTracker,
 		eventAggregator:    eventAggregator,
 		urlChecker:         urlChecker,
@@ -124,6 +127,16 @@ func (s *MonitoringService) GetCurrentlyMonitorUrls() []string {
 // Preload adds multiple URLs to the monitored list
 func (s *MonitoringService) Preload(initialURLs []string) {
 	s.urlManager.PreloadURLs(initialURLs)
+
+	// Log batch processing information
+	if len(initialURLs) > 0 {
+		useBatching, batchCount, _ := s.batchURLManager.GetBatchingInfo(len(initialURLs))
+		s.logger.Info().
+			Int("url_count", len(initialURLs)).
+			Bool("uses_batching", useBatching).
+			Int("batch_count", batchCount).
+			Msg("URLs preloaded for monitoring with batch processing capability")
+	}
 }
 
 // LoadAndMonitorFromSources loads and monitors URLs from various sources
@@ -180,6 +193,70 @@ func (s *MonitoringService) TriggerCycleEndReport() {
 
 	s.generateAndSendCycleReport(monitoredURLs, changedURLs, cycleID)
 	s.finalizeCycle()
+}
+
+// ExecuteBatchMonitoring executes monitoring for URLs using batch processing
+func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFile string) error {
+	s.logger.Info().Str("input_file", inputFile).Msg("Starting batch monitoring execution")
+
+	// Load URLs using batch URL manager
+	batchTracker, err := s.batchURLManager.LoadURLsInBatches(ctx, inputFile)
+	if err != nil {
+		return common.WrapError(err, "failed to load URLs for batch monitoring")
+	}
+
+	cycleID := s.GenerateNewCycleID()
+	s.batchURLManager.ResetCycle(batchTracker, cycleID)
+
+	s.logger.Info().
+		Str("cycle_id", cycleID).
+		Int("total_urls", len(batchTracker.AllURLs)).
+		Bool("uses_batching", batchTracker.UsedBatching).
+		Int("total_batches", batchTracker.TotalBatches).
+		Msg("Batch monitoring cycle started")
+
+	var totalProcessed int
+	for {
+		batch, hasMore := s.batchURLManager.GetNextBatch(batchTracker)
+		if len(batch) == 0 {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			s.logger.Info().Msg("Batch monitoring interrupted by context cancellation")
+			return ctx.Err()
+		default:
+		}
+
+		// Execute monitoring for current batch
+		batchResult, err := s.batchURLManager.ExecuteBatchMonitoring(ctx, batch, cycleID, s.urlChecker)
+		if err != nil {
+			s.logger.Error().Err(err).Msg("Batch monitoring execution failed")
+			return err
+		}
+
+		totalProcessed += len(batchResult.ProcessedURLs)
+		s.batchURLManager.CompleteCurrentBatch(batchTracker)
+
+		s.logger.Info().
+			Int("batch_processed", len(batchResult.ProcessedURLs)).
+			Int("total_processed", totalProcessed).
+			Bool("has_more", hasMore).
+			Msg("Batch monitoring completed")
+
+		if !hasMore {
+			break
+		}
+	}
+
+	s.logger.Info().
+		Str("cycle_id", cycleID).
+		Int("total_processed", totalProcessed).
+		Int("total_batches", batchTracker.ProcessedBatches).
+		Msg("Batch monitoring cycle completed")
+
+	return nil
 }
 
 // Stop gracefully stops the monitoring service

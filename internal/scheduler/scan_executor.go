@@ -10,6 +10,7 @@ import (
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
+	"github.com/aleister1102/monsterinc/internal/scanner"
 )
 
 type scanAttemptConfig struct {
@@ -240,10 +241,42 @@ func (s *Scheduler) performScanAndGenerateReport(
 	baseSummary models.ScanSummaryData,
 	dbScanID int64,
 ) (models.ScanSummaryData, []string, error) {
+	// Create batch workflow orchestrator for scheduler scans
+	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(s.globalConfig, s.scanner, s.logger)
 
-	scanResult, _, reportPaths, err := s.scanner.ExecuteSingleScanWorkflowWithReporting(
-		ctx, s.globalConfig, s.logger, htmlURLs, scanSessionID, baseSummary.TargetSource, "automated")
+	// Execute batch scan workflow
+	batchResult, err := batchOrchestrator.ExecuteBatchScan(
+		ctx,
+		s.globalConfig,
+		s.scanTargetsFile, // Use the original file for batch processing
+		scanSessionID,
+		baseSummary.TargetSource,
+		"automated",
+	)
+
 	if err != nil {
+		s.updateDBOnFailure(dbScanID, err)
+		return s.buildErrorSummary(baseSummary, err), nil, err
+	}
+
+	var scanResult models.ScanSummaryData
+	var reportPaths []string
+
+	if batchResult != nil {
+		scanResult = batchResult.SummaryData
+		reportPaths = batchResult.ReportFilePaths
+
+		// Log batch processing information
+		if batchResult.UsedBatching {
+			s.logger.Info().
+				Str("scan_session_id", scanSessionID).
+				Int("total_batches", batchResult.TotalBatches).
+				Int("processed_batches", batchResult.ProcessedBatches).
+				Bool("interrupted", batchResult.InterruptedAt > 0).
+				Msg("Scheduler batch scan completed")
+		}
+	} else {
+		err = fmt.Errorf("batch scan returned nil result")
 		s.updateDBOnFailure(dbScanID, err)
 		return s.buildErrorSummary(baseSummary, err), nil, err
 	}

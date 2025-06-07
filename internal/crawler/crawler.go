@@ -462,10 +462,7 @@ func (cr *Crawler) GetRootTargetForDiscoveredURL(discoveredURL string) string {
 	currentURL := discoveredURL
 	visited := make(map[string]bool) // Prevent infinite loops
 
-	for {
-		if visited[currentURL] {
-			break // Infinite loop detected
-		}
+	for !visited[currentURL] {
 		visited[currentURL] = true
 
 		parentURL, exists := cr.urlParentMap[currentURL]

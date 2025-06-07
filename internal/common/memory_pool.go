@@ -44,7 +44,8 @@ func NewSlicePool(initialCapacity int) *SlicePool {
 	return &SlicePool{
 		pool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, initialCapacity)
+				slice := make([]byte, 0, initialCapacity)
+				return &slice
 			},
 		},
 	}
@@ -52,14 +53,14 @@ func NewSlicePool(initialCapacity int) *SlicePool {
 
 // Get retrieves a slice from the pool
 func (sp *SlicePool) Get() []byte {
-	return sp.pool.Get().([]byte)
+	return *(sp.pool.Get().(*[]byte))
 }
 
 // Put returns a slice to the pool after resetting it
 func (sp *SlicePool) Put(slice []byte) {
 	if slice != nil {
 		slice = slice[:0] // Reset length but keep capacity
-		sp.pool.Put(slice)
+		sp.pool.Put(&slice)
 	}
 }
 
@@ -73,7 +74,8 @@ func NewStringSlicePool(initialCapacity int) *StringSlicePool {
 	return &StringSlicePool{
 		pool: sync.Pool{
 			New: func() interface{} {
-				return make([]string, 0, initialCapacity)
+				slice := make([]string, 0, initialCapacity)
+				return &slice
 			},
 		},
 	}
@@ -81,14 +83,14 @@ func NewStringSlicePool(initialCapacity int) *StringSlicePool {
 
 // Get retrieves a string slice from the pool
 func (ssp *StringSlicePool) Get() []string {
-	return ssp.pool.Get().([]string)
+	return *(ssp.pool.Get().(*[]string))
 }
 
 // Put returns a string slice to the pool after resetting it
 func (ssp *StringSlicePool) Put(slice []string) {
 	if slice != nil {
 		slice = slice[:0] // Reset length but keep capacity
-		ssp.pool.Put(slice)
+		ssp.pool.Put(&slice)
 	}
 }
 

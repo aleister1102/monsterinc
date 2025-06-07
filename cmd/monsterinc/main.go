@@ -300,7 +300,7 @@ func runOnetimeScan(
 	scanTargetsFile string,
 	baseLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
-	scanner *scanner.Scanner,
+	scannerInstance *scanner.Scanner,
 ) {
 	// Load seed URLs using TargetManager
 	targetManager := urlhandler.NewTargetManager(baseLogger)
@@ -350,18 +350,50 @@ func runOnetimeScan(
 	// Send scan start notification
 	notificationHelper.SendScanStartNotification(ctx, startSummary)
 
-	// Execute complete scan workflow using the new shared function
+	// Execute complete scan workflow using batch processing
 	scanSessionID := time.Now().Format("20060102-150405")
 
-	summaryData, _, reportFilePaths, workflowErr := scanner.ExecuteSingleScanWorkflowWithReporting(
+	// Create batch workflow orchestrator
+	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(gCfg, scannerInstance, baseLogger)
+
+	// Execute batch scan
+	batchResult, workflowErr := batchOrchestrator.ExecuteBatchScan(
 		ctx,
 		gCfg,
-		baseLogger,
-		scanUrls,
+		scanTargetsFile,
 		scanSessionID,
 		targetSource,
 		scanMode,
 	)
+
+	var summaryData models.ScanSummaryData
+	var reportFilePaths []string
+
+	if batchResult != nil {
+		summaryData = batchResult.SummaryData
+		reportFilePaths = batchResult.ReportFilePaths
+
+		// Log batch processing information
+		if batchResult.UsedBatching {
+			baseLogger.Info().
+				Int("total_batches", batchResult.TotalBatches).
+				Int("processed_batches", batchResult.ProcessedBatches).
+				Bool("interrupted", batchResult.InterruptedAt > 0).
+				Msg("Batch scan workflow completed")
+		}
+	} else {
+		// Fallback to default summary if batch result is nil
+		summaryData = models.GetDefaultScanSummaryData()
+		summaryData.ScanSessionID = scanSessionID
+		summaryData.TargetSource = targetSource
+		summaryData.ScanMode = scanMode
+		summaryData.Targets = scanUrls
+		summaryData.TotalTargets = len(scanUrls)
+		summaryData.Status = string(models.ScanStatusFailed)
+		if workflowErr != nil {
+			summaryData.ErrorMessages = []string{workflowErr.Error()}
+		}
+	}
 
 	// Handle workflow error or context cancellation
 	if workflowErr != nil || ctx.Err() != nil {
