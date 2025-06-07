@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
@@ -27,12 +26,7 @@ func NewBatchWorkflowOrchestrator(
 	scanner *Scanner,
 	logger zerolog.Logger,
 ) *BatchWorkflowOrchestrator {
-	bpConfig := common.BatchProcessorConfig{
-		BatchSize:          gCfg.BatchProcessorConfig.BatchSize,
-		MaxConcurrentBatch: gCfg.BatchProcessorConfig.MaxConcurrentBatch,
-		BatchTimeout:       time.Duration(gCfg.BatchProcessorConfig.BatchTimeoutMins) * time.Minute,
-		ThresholdSize:      gCfg.BatchProcessorConfig.ThresholdSize,
-	}
+	bpConfig := gCfg.ScanBatchConfig.ToBatchProcessorConfig()
 
 	return &BatchWorkflowOrchestrator{
 		logger:         logger.With().Str("component", "BatchWorkflowOrchestrator").Logger(),
@@ -103,7 +97,7 @@ func (bwo *BatchWorkflowOrchestrator) ExecuteBatchScan(
 	if !useBatching {
 		bwo.logger.Info().
 			Int("target_count", len(targetURLs)).
-			Int("threshold", gCfg.BatchProcessorConfig.ThresholdSize).
+			Int("threshold", gCfg.ScanBatchConfig.ThresholdSize).
 			Msg("Target count below batching threshold, processing all at once")
 
 		// Execute single scan workflow

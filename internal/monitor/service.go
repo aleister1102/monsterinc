@@ -87,7 +87,7 @@ func NewMonitoringService(
 
 	// Initialize modular components
 	urlManager := NewURLManager(instanceLogger)
-	batchURLManager := NewBatchURLManager(gCfg.BatchProcessorConfig, instanceLogger) // Initialize batch URL manager
+	batchURLManager := NewBatchURLManager(gCfg.MonitorBatchConfig, instanceLogger) // Initialize batch URL manager
 	cycleTracker := createInitialCycleTracker()
 	mutexManager := NewURLMutexManager(instanceLogger)
 

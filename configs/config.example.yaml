@@ -482,25 +482,45 @@ scheduler_config:
   # Default: "database/scheduler/scheduler_history.db"
   sqlite_db_path: "database/scheduler/scheduler_history.db"
 
-# Batch Processor configuration: Settings for processing large input files in batches.
-batch_processor_config:
-  # Maximum number of items to process in each batch.
-  # When input file has more than threshold_size items, it will be split into batches of this size.
-  # Default: 100
-  batch_size: 100
-  # Maximum number of concurrent batches to process at the same time.
-  # Set to 1 for sequential processing (recommended for stability).
+# Scan Batch configuration: Settings for processing large scan target files in batches.
+scan_batch_config:
+  # Maximum number of targets to process in each scan batch.
+  # When input file has more than threshold_size targets, it will be split into batches of this size.
+  # Default: 200 (larger than monitor due to typically faster processing)
+  batch_size: 200
+  # Maximum number of concurrent scan batches to process at the same time.
+  # Set to 2 for parallel processing of scan batches (scan service can handle more concurrency).
+  # Default: 2
+  max_concurrent_batch: 2
+  # Timeout for each scan batch processing in minutes.
+  # If a batch takes longer than this, it will be cancelled.
+  # Default: 45 (longer timeout for complex scanning operations)
+  batch_timeout_mins: 45
+  # Minimum number of targets in input file to trigger batch processing.
+  # Files with fewer targets than this will be processed normally without batching.
+  # For example, if set to 1000, files with 2500 targets will create 13 batches of 200 targets each.
+  # Default: 1000
+  threshold_size: 1000
+
+# Monitor Batch configuration: Settings for processing large monitor target files in batches.
+monitor_batch_config:
+  # Maximum number of URLs to process in each monitor batch.
+  # When input file has more than threshold_size URLs, it will be split into batches of this size.
+  # Default: 50 (smaller than scan due to more intensive monitoring operations)
+  batch_size: 50
+  # Maximum number of concurrent monitor batches to process at the same time.
+  # Set to 1 for sequential processing (recommended for monitoring stability).
   # Default: 1
   max_concurrent_batch: 1
-  # Timeout for each batch processing in minutes.
+  # Timeout for each monitor batch processing in minutes.
   # If a batch takes longer than this, it will be cancelled.
-  # Default: 30
-  batch_timeout_mins: 30
-  # Minimum number of items in input file to trigger batch processing.
-  # Files with fewer items than this will be processed normally without batching.
-  # For example, if set to 500, files with 1700 lines will create 17 batches of 100 items each.
-  # Default: 500
-  threshold_size: 500
+  # Default: 20 (shorter timeout for monitoring operations)
+  batch_timeout_mins: 20
+  # Minimum number of URLs in input file to trigger batch processing.
+  # Files with fewer URLs than this will be processed normally without batching.
+  # For example, if set to 200, files with 500 URLs will create 10 batches of 50 URLs each.
+  # Default: 200
+  threshold_size: 200
 
 # Extractor configuration: Settings for custom path extraction.
 extractor_config:

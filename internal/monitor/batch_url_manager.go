@@ -2,7 +2,6 @@ package monitor
 
 import (
 	"context"
-	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
@@ -14,17 +13,12 @@ type BatchURLManager struct {
 	urlManager     *URLManager
 	batchProcessor *common.BatchProcessor
 	logger         zerolog.Logger
-	batchConfig    config.BatchProcessorConfig
+	batchConfig    config.MonitorBatchConfig
 }
 
 // NewBatchURLManager creates a new BatchURLManager
-func NewBatchURLManager(batchConfig config.BatchProcessorConfig, logger zerolog.Logger) *BatchURLManager {
-	bpConfig := common.BatchProcessorConfig{
-		BatchSize:          batchConfig.BatchSize,
-		MaxConcurrentBatch: batchConfig.MaxConcurrentBatch,
-		BatchTimeout:       time.Duration(batchConfig.BatchTimeoutMins) * time.Minute,
-		ThresholdSize:      batchConfig.ThresholdSize,
-	}
+func NewBatchURLManager(batchConfig config.MonitorBatchConfig, logger zerolog.Logger) *BatchURLManager {
+	bpConfig := batchConfig.ToBatchProcessorConfig()
 
 	return &BatchURLManager{
 		urlManager:     NewURLManager(logger),
