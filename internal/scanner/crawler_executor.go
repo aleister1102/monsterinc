@@ -13,7 +13,8 @@ import (
 // CrawlerExecutor handles the execution of the crawler component
 // Separates crawler execution logic from the main scanner
 type CrawlerExecutor struct {
-	logger zerolog.Logger
+	logger          zerolog.Logger
+	progressDisplay *common.ProgressDisplayManager
 }
 
 // NewCrawlerExecutor creates a new crawler executor
@@ -21,6 +22,11 @@ func NewCrawlerExecutor(logger zerolog.Logger) *CrawlerExecutor {
 	return &CrawlerExecutor{
 		logger: logger.With().Str("module", "CrawlerExecutor").Logger(),
 	}
+}
+
+// SetProgressDisplay sets the progress display manager
+func (ce *CrawlerExecutor) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
+	ce.progressDisplay = progressDisplay
 }
 
 // CrawlerExecutionInput contains parameters for crawler execution
@@ -56,6 +62,11 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 		return result
 	}
 
+	// Update progress - starting crawler
+	if ce.progressDisplay != nil {
+		ce.progressDisplay.UpdateScanProgress(1, 4, "Crawler", fmt.Sprintf("Starting crawler with %d seed URLs", len(input.CrawlerConfig.SeedURLs)))
+	}
+
 	ce.logger.Info().
 		Int("seed_count", len(input.CrawlerConfig.SeedURLs)).
 		Str("session_id", input.ScanSessionID).
@@ -65,8 +76,19 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 	crawlerInstance, err := crawler.NewCrawler(input.CrawlerConfig, ce.logger)
 	if err != nil {
 		ce.logger.Error().Err(err).Msg("Failed to initialize crawler")
+
+		// Update progress - failed
+		if ce.progressDisplay != nil {
+			ce.progressDisplay.UpdateScanProgress(1, 4, "Failed", fmt.Sprintf("Crawler initialization failed: %v", err))
+		}
+
 		result.Error = fmt.Errorf("failed to initialize crawler: %w", err)
 		return result
+	}
+
+	// Update progress - crawler running
+	if ce.progressDisplay != nil {
+		ce.progressDisplay.UpdateScanProgress(1, 4, "Crawling", "Crawler is running and discovering URLs")
 	}
 
 	crawlerInstance.Start(input.Context)
@@ -76,6 +98,11 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 
 	result.DiscoveredURLs = crawlerInstance.GetDiscoveredURLs()
 	result.CrawlerInstance = crawlerInstance
+
+	// Update progress - crawler completed
+	if ce.progressDisplay != nil {
+		ce.progressDisplay.UpdateScanProgress(1, 4, "Crawler Complete", fmt.Sprintf("Crawler completed: %d URLs discovered", len(result.DiscoveredURLs)))
+	}
 
 	ce.logger.Info().
 		Int("discovered_count", len(result.DiscoveredURLs)).

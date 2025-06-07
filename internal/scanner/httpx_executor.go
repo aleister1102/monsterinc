@@ -18,6 +18,7 @@ import (
 type HTTPXExecutor struct {
 	logger          zerolog.Logger
 	crawlerInstance *crawler.Crawler
+	progressDisplay *common.ProgressDisplayManager
 }
 
 // NewHTTPXExecutor creates a new HTTPX executor
@@ -30,6 +31,11 @@ func NewHTTPXExecutor(logger zerolog.Logger) *HTTPXExecutor {
 // SetCrawlerInstance sets the crawler instance for root target tracking
 func (he *HTTPXExecutor) SetCrawlerInstance(crawlerInstance *crawler.Crawler) {
 	he.crawlerInstance = crawlerInstance
+}
+
+// SetProgressDisplay sets the progress display manager
+func (he *HTTPXExecutor) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
+	he.progressDisplay = progressDisplay
 }
 
 // HTTPXExecutionInput holds the parameters for HTTPX probing execution
@@ -68,16 +74,33 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 	he.logger.Info().Int("url_count", len(input.DiscoveredURLs)).Str("session_id", input.ScanSessionID).Msg("Starting HTTPX probing")
 
+	// Update progress - starting probing
+	if he.progressDisplay != nil {
+		he.progressDisplay.UpdateScanProgress(2, 4, "Probing", fmt.Sprintf("Starting HTTPX probing of %d URLs", len(input.DiscoveredURLs)))
+	}
+
 	runnerResults, err := he.runHTTPXRunner(input.Context, input.HttpxRunnerConfig, input.PrimaryRootTargetURL, input.ScanSessionID)
 
 	// Handle context cancellation during execution - immediate response
 	if err != nil && (input.Context.Err() == context.Canceled || input.Context.Err() == context.DeadlineExceeded) {
 		he.logger.Info().Str("session_id", input.ScanSessionID).Msg("HTTPX probing cancelled immediately")
+
+		// Update progress - cancelled
+		if he.progressDisplay != nil {
+			he.progressDisplay.UpdateScanProgress(2, 4, "Cancelled", "HTTPX probing cancelled")
+		}
+
 		result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
 		result.Error = input.Context.Err()
 		return result
 	} else if err != nil {
 		he.logger.Error().Err(err).Str("session_id", input.ScanSessionID).Msg("HTTPX probing failed")
+
+		// Update progress - failed
+		if he.progressDisplay != nil {
+			he.progressDisplay.UpdateScanProgress(2, 4, "Failed", fmt.Sprintf("HTTPX probing failed: %v", err))
+		}
+
 		result.Error = err
 		return result
 	}
@@ -85,12 +108,24 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 	// Final context check after completion
 	if cancelled := common.CheckCancellation(input.Context); cancelled.Cancelled {
 		he.logger.Info().Str("session_id", input.ScanSessionID).Msg("Context cancelled after HTTPX completion")
+
+		// Update progress - cancelled
+		if he.progressDisplay != nil {
+			he.progressDisplay.UpdateScanProgress(2, 4, "Cancelled", "HTTPX probing cancelled after completion")
+		}
+
 		result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
 		result.Error = cancelled.Error
 		return result
 	}
 
 	result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
+
+	// Update progress - completed
+	if he.progressDisplay != nil {
+		he.progressDisplay.UpdateScanProgress(2, 4, "Probing Complete", fmt.Sprintf("HTTPX probing completed: %d results", len(result.ProbeResults)))
+	}
+
 	he.logger.Info().Int("count", len(result.ProbeResults)).Str("session_id", input.ScanSessionID).Msg("HTTPX probing completed successfully")
 
 	return result

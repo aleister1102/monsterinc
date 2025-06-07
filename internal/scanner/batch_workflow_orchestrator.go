@@ -141,6 +141,11 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		Int("batch_count", batchCount).
 		Msg("Starting batched scan execution")
 
+	// Update progress display - initialize batch processing
+	if bwo.scanner.progressDisplay != nil {
+		bwo.scanner.progressDisplay.UpdateScanProgress(0, int64(batchCount), "Batch Processing", fmt.Sprintf("Starting batch scan: %d batches", batchCount))
+	}
+
 	// Optimize configuration for memory efficiency during batch processing
 	batchSize, _ := bwo.batchProcessor.GetBatchingStats(len(targetURLs))
 	bwo.optimizeConfigForMemoryEfficiency(gCfg, batchSize)
@@ -161,12 +166,25 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 
 	// Process function for each batch
 	processFunc := func(ctx context.Context, batch []string, batchIndex int) error {
+		batchNumber := batchIndex + 1 // Make it 1-based for display
+
 		bwo.logger.Info().
 			Int("batch_index", batchIndex).
+			Int("batch_number", batchNumber).
 			Int("batch_size", len(batch)).
-			Int("progress", batchIndex+1).
+			Int("progress", batchNumber).
 			Int("total", batchCount).
 			Msg("Processing scan batch")
+
+		// Update progress display - current batch progress
+		if bwo.scanner.progressDisplay != nil {
+			bwo.scanner.progressDisplay.UpdateScanProgress(
+				int64(batchNumber-1),
+				int64(batchCount),
+				"Batch Processing",
+				fmt.Sprintf("Processing batch %d/%d (%d targets)", batchNumber, batchCount, len(batch)),
+			)
+		}
 
 		// Log memory usage before batch
 		var memStats runtime.MemStats
@@ -195,7 +213,19 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			bwo.logger.Error().
 				Err(err).
 				Int("batch_index", batchIndex).
+				Int("batch_number", batchNumber).
 				Msg("Batch scan failed")
+
+			// Update progress display - batch failed
+			if bwo.scanner.progressDisplay != nil {
+				bwo.scanner.progressDisplay.UpdateScanProgress(
+					int64(batchNumber),
+					int64(batchCount),
+					"Batch Failed",
+					fmt.Sprintf("Batch %d/%d failed: %v", batchNumber, batchCount, err),
+				)
+			}
+
 			lastBatchError = err
 			return err
 		}
@@ -205,12 +235,28 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		allReportPaths = append(allReportPaths, batchReportPaths...)
 		processedBatches++
 
+		// Update progress display - batch completed
+		if bwo.scanner.progressDisplay != nil {
+			completedTargets := processedBatches * len(batch) // Approximate
+			if processedBatches == batchCount {
+				completedTargets = len(targetURLs) // Exact for last batch
+			}
+
+			bwo.scanner.progressDisplay.UpdateScanProgress(
+				int64(batchNumber),
+				int64(batchCount),
+				"Batch Completed",
+				fmt.Sprintf("Completed batch %d/%d (%d targets processed)", batchNumber, batchCount, completedTargets),
+			)
+		}
+
 		// Force garbage collection after each batch to free memory
 		runtime.GC()
 		runtime.ReadMemStats(&memStats)
 
 		bwo.logger.Info().
 			Int("batch_index", batchIndex).
+			Int("batch_number", batchNumber).
 			Int("batch_targets", len(batch)).
 			Int("total_processed", processedBatches).
 			Uint64("alloc_mb_after_gc", memStats.Alloc/1024/1024).
@@ -230,6 +276,26 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			Int("total_batches", batchCount).
 			Int("interrupted_at", interruptedAt).
 			Msg("Batch processing was interrupted or failed")
+
+		// Update progress display - interrupted
+		if bwo.scanner.progressDisplay != nil {
+			bwo.scanner.progressDisplay.UpdateScanProgress(
+				int64(processedBatches),
+				int64(batchCount),
+				"Interrupted",
+				fmt.Sprintf("Batch processing interrupted at %d/%d", processedBatches, batchCount),
+			)
+		}
+	} else {
+		// Update progress display - all batches completed
+		if bwo.scanner.progressDisplay != nil {
+			bwo.scanner.progressDisplay.UpdateScanProgress(
+				int64(batchCount),
+				int64(batchCount),
+				"Batch Complete",
+				fmt.Sprintf("All %d batches completed successfully (%d targets)", batchCount, len(targetURLs)),
+			)
+		}
 	}
 
 	// Finalize aggregated summary

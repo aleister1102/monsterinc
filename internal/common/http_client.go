@@ -370,7 +370,13 @@ func (f *HTTPClientFactory) CreateCrawlerClient(timeout time.Duration, proxy str
 }
 
 // CreateCrawlerClientWithRetry creates an HTTP client optimized for web crawling with retry support
-func (f *HTTPClientFactory) CreateCrawlerClientWithRetry(timeout time.Duration, proxy string, customHeaders map[string]string, insecureSkipVerify bool, retryConfig RetryHandlerConfig) (*FastHTTPClient, error) {
+func (f *HTTPClientFactory) CreateCrawlerClientWithRetry(
+	timeout time.Duration,
+	proxy string,
+	customHeaders map[string]string,
+	insecureSkipVerify bool,
+	retryConfig RetryHandlerConfig,
+) (*FastHTTPClient, error) {
 	client, err := f.CreateCrawlerClient(timeout, proxy, customHeaders, insecureSkipVerify)
 	if err != nil {
 		return nil, err

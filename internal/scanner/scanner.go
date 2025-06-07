@@ -68,6 +68,14 @@ func NewScanner(
 // SetProgressDisplay đặt progress display manager
 func (s *Scanner) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
 	s.progressDisplay = progressDisplay
+	
+	// Pass progress display to executors
+	if s.httpxExecutor != nil {
+		s.httpxExecutor.SetProgressDisplay(progressDisplay)
+	}
+	if s.crawlerExecutor != nil {
+		s.crawlerExecutor.SetProgressDisplay(progressDisplay)
+	}
 }
 
 // ExecuteSingleScanWorkflowWithReporting performs complete scan workflow with reporting
