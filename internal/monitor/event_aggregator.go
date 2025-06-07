@@ -352,9 +352,13 @@ func (ea *EventAggregator) sendFetchErrorsNotification(errors []models.MonitorFe
 }
 
 func (ea *EventAggregator) getOperationContext() context.Context {
-	// Use parent context if available, otherwise use background
 	if ea.parentCtx != nil {
 		return ea.parentCtx
 	}
 	return context.Background()
+}
+
+// UpdateLogger updates the logger for this component
+func (ea *EventAggregator) UpdateLogger(newLogger zerolog.Logger) {
+	ea.logger = newLogger.With().Str("component", "EventAggregator").Logger()
 }

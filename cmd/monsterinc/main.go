@@ -295,7 +295,7 @@ func runApplicationLogic(
 	monitorTargetsFile := ""
 	if flags.MonitorTargetsFile != "" {
 		monitorTargetsFile = flags.MonitorTargetsFile
-		zLogger.Info().Str("file", monitorTargetsFile).Msg("Using -mt for monitor targets.")
+		// zLogger.Info().Str("file", monitorTargetsFile).Msg("Using -mt for monitor targets.")
 	}
 
 	if gCfg.Mode == "onetime" && scanTargetsFile != "" {

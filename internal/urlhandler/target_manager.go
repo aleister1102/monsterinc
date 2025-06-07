@@ -26,7 +26,7 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string) ([]models.
 
 	// Only source: Command-line file option
 	if inputFileOption != "" {
-		tm.logger.Info().Str("file", inputFileOption).Msg("Loading targets from command-line file option")
+		// tm.logger.Info().Str("file", inputFileOption).Msg("Loading targets from command-line file option")
 		urls, err := ReadURLsFromFile(inputFileOption, tm.logger)
 		if err != nil {
 			return nil, determinedSource, common.WrapError(err, "failed to load URLs from file '"+inputFileOption+"'")

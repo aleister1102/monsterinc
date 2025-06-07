@@ -177,11 +177,11 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 
 	// Process function for monitoring URLs
 	processFunc := func(ctx context.Context, batch []string, batchIndex int) error {
-		bum.logger.Info().
-			Int("batch_index", batchIndex).
-			Int("batch_size", len(batch)).
-			Str("cycle_id", cycleID).
-			Msg("Processing monitor batch")
+		// bum.logger.Info().
+		// 	Int("batch_index", batchIndex).
+		// 	Int("batch_size", len(batch)).
+		// 	Str("cycle_id", cycleID).
+		// 	Msg("Processing monitor batch")
 
 		// Process each URL in the batch
 		for _, url := range batch {
@@ -261,7 +261,13 @@ func (bum *BatchURLManager) GetBatchingInfo(urlCount int) (useBatching bool, bat
 	return
 }
 
-// GetCurrentURLs returns all currently monitored URLs
+// GetCurrentURLs returns the current URLs from the underlying URLManager
 func (bum *BatchURLManager) GetCurrentURLs() []string {
 	return bum.urlManager.GetCurrentURLs()
+}
+
+// UpdateLogger updates the logger for this component and its URLManager
+func (bum *BatchURLManager) UpdateLogger(newLogger zerolog.Logger) {
+	bum.logger = newLogger.With().Str("component", "BatchURLManager").Logger()
+	bum.urlManager.UpdateLogger(newLogger)
 }

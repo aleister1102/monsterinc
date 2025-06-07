@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -128,7 +130,7 @@ func (s *Scheduler) monitorWorker(ctx context.Context, id int) {
 			default:
 			}
 
-			s.logger.Info().Int("worker_id", id).Str("url", job.URL).Msg("Monitor worker processing job.")
+			// s.logger.Info().Int("worker_id", id).Str("url", job.URL).Msg("Monitor worker processing job.")
 			// Ensure monitoringService is not nil before calling CheckURL
 			if s.monitoringService != nil {
 				s.monitoringService.CheckURL(job.URL) // This should be a blocking call per URL
@@ -149,7 +151,7 @@ func (s *Scheduler) monitorWorker(ctx context.Context, id int) {
 
 // executeMonitoringCycle performs a monitoring cycle for all monitored URLs
 func (s *Scheduler) executeMonitoringCycle(ctx context.Context, cycleType string) {
-	s.logger.Info().Str("cycle_type", cycleType).Msg("Starting monitor cycle")
+	// s.logger.Info().Str("cycle_type", cycleType).Msg("Starting monitor cycle")
 
 	if !s.canExecuteMonitorCycle(ctx) {
 		return
@@ -171,18 +173,24 @@ func (s *Scheduler) executeMonitoringCycle(ctx context.Context, cycleType string
 
 	s.notificationHelper.SendMonitoredUrlsNotification(ctx, targets, cycleID)
 
-	jobsDispatched, stopped := s.dispatchMonitorJobs(ctx, targets)
+	// Use batch monitoring instead of individual job dispatch
+	err := s.executeBatchMonitoring(ctx, targets, cycleID)
+	if err != nil {
+		s.logger.Error().
+			Err(err).
+			Str("cycle_type", cycleType).
+			Str("cycle_id", cycleID).
+			Msg("Batch monitoring failed")
+	}
 
 	s.logger.Info().
 		Str("cycle_type", cycleType).
 		Str("cycle_id", cycleID).
-		Int("jobs_dispatched", jobsDispatched).
-		Bool("stopped_early", stopped).
+		Int("target_count", len(targets)).
 		Msg("Monitor cycle completed")
 
-	if jobsDispatched > 0 {
-		s.waitForJobsAndTriggerReport(jobsDispatched, stopped)
-	}
+	// Always trigger report after monitoring cycle completes
+	s.monitoringService.TriggerCycleEndReport()
 }
 
 func (s *Scheduler) canExecuteMonitorCycle(ctx context.Context) bool {
@@ -206,7 +214,7 @@ func (s *Scheduler) canExecuteMonitorCycle(ctx context.Context) bool {
 func (s *Scheduler) initializeMonitorCycle() string {
 	cycleID := s.monitoringService.GenerateNewCycleID()
 	s.monitoringService.SetCurrentCycleID(cycleID)
-	s.logger.Info().Str("cycle_type", "periodic").Str("cycle_id", cycleID).Msg("Starting new monitoring cycle with generated ID.")
+	// s.logger.Info().Str("cycle_type", "periodic").Str("cycle_id", cycleID).Msg("Starting new monitoring cycle with generated ID.")
 	return cycleID
 }
 
@@ -227,7 +235,7 @@ func (s *Scheduler) dispatchMonitorJobs(
 ) (jobsDispatched int, stoppedPrematurely bool) {
 	var cycleWG sync.WaitGroup
 
-	s.logger.Info().Int("total_targets", len(targets)).Msg("Starting to dispatch monitor jobs")
+	// s.logger.Info().Int("total_targets", len(targets)).Msg("Starting to dispatch monitor jobs")
 
 	stopped := false
 	for _, url := range targets {
@@ -279,5 +287,65 @@ func (s *Scheduler) tryDispatchJob(url string, cycleWG *sync.WaitGroup, ctx cont
 		s.logger.Debug().Str("url", url).Msg("Job dispatch cancelled due to context cancellation")
 		cycleWG.Done()
 		return false
+	}
+}
+
+// executeBatchMonitoring executes monitoring using batch processing
+func (s *Scheduler) executeBatchMonitoring(ctx context.Context, targets []string, cycleID string) error {
+	s.logger.Info().
+		Int("target_count", len(targets)).
+		Str("cycle_id", cycleID).
+		Msg("Starting batch monitoring execution")
+
+	// Create a temporary file with targets for batch monitoring
+	tmpFile, err := s.createTempTargetFile(targets)
+	if err != nil {
+		return err
+	}
+	defer s.cleanupTempFile(tmpFile)
+
+	// Execute batch monitoring
+	err = s.monitoringService.ExecuteBatchMonitoring(ctx, tmpFile)
+	if err != nil {
+		s.logger.Error().
+			Err(err).
+			Str("cycle_id", cycleID).
+			Msg("Batch monitoring execution failed")
+		return err
+	}
+
+	s.logger.Info().
+		Str("cycle_id", cycleID).
+		Int("target_count", len(targets)).
+		Msg("Batch monitoring execution completed")
+
+	return nil
+}
+
+// createTempTargetFile creates a temporary file with target URLs
+func (s *Scheduler) createTempTargetFile(targets []string) (string, error) {
+	tmpFile, err := os.CreateTemp("", "monitor_targets_*.txt")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer tmpFile.Close()
+
+	for _, target := range targets {
+		if _, err := tmpFile.WriteString(target + "\n"); err != nil {
+			os.Remove(tmpFile.Name())
+			return "", fmt.Errorf("failed to write to temp file: %w", err)
+		}
+	}
+
+	return tmpFile.Name(), nil
+}
+
+// cleanupTempFile removes the temporary file
+func (s *Scheduler) cleanupTempFile(filePath string) {
+	if err := os.Remove(filePath); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("file_path", filePath).
+			Msg("Failed to cleanup temporary target file")
 	}
 }

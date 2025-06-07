@@ -369,11 +369,38 @@ func (s *MonitoringService) GenerateNewCycleID() string {
 	// Tạo logger riêng cho cycle này
 	if cycleLogger, err := logger.NewWithCycleID(s.gCfg.LogConfig, newCycleID); err == nil {
 		s.logger = cycleLogger
+
+		// Cập nhật logger cho tất cả các component
+		s.updateAllComponentLoggers(cycleLogger)
 	} else {
 		s.logger.Warn().Err(err).Str("cycle_id", newCycleID).Msg("Failed to create cycle logger, using default logger")
 	}
 
 	return newCycleID
+}
+
+// updateAllComponentLoggers cập nhật logger cho tất cả các component
+func (s *MonitoringService) updateAllComponentLoggers(newLogger zerolog.Logger) {
+	// Cập nhật logger cho các component có method UpdateLogger
+	if s.urlManager != nil {
+		s.urlManager.UpdateLogger(newLogger)
+	}
+
+	if s.batchURLManager != nil {
+		s.batchURLManager.UpdateLogger(newLogger)
+	}
+
+	if s.urlChecker != nil {
+		s.urlChecker.UpdateLogger(newLogger)
+	}
+
+	if s.eventAggregator != nil {
+		s.eventAggregator.UpdateLogger(newLogger)
+	}
+
+	if s.mutexManager != nil {
+		s.mutexManager.UpdateLogger(newLogger)
+	}
 }
 
 // SetCurrentCycleID sets the current cycle ID

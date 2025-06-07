@@ -113,6 +113,11 @@ func (um *URLManager) RemoveURL(url string) bool {
 	return false
 }
 
+// UpdateLogger updates the logger for this component
+func (um *URLManager) UpdateLogger(newLogger zerolog.Logger) {
+	um.logger = newLogger.With().Str("component", "URLManager").Logger()
+}
+
 // Private helper methods
 
 func (um *URLManager) isValidURL(url string) bool {

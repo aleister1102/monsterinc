@@ -315,8 +315,12 @@ type LegacyCheckResult struct {
 // GetMemoryStats returns current memory usage statistics for the checker
 func (uc *URLChecker) GetMemoryStats() map[string]interface{} {
 	return map[string]interface{}{
-		"buffer_pool_active": "monitoring", // Placeholder for actual pool statistics
-		"slice_pool_active":  "monitoring", // Placeholder for actual pool statistics
-		"component":          "URLChecker",
+		"buffer_pool_active": "active", // Simplified for now
+		"slice_pool_active":  "active",
 	}
+}
+
+// UpdateLogger updates the logger for this component
+func (uc *URLChecker) UpdateLogger(newLogger zerolog.Logger) {
+	uc.logger = newLogger.With().Str("component", "URLChecker").Logger()
 }

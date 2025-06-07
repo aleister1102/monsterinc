@@ -30,7 +30,7 @@ func (pfs *ParquetFileHistory) StoreFileRecord(record models.FileHistoryRecord) 
 		return err // Error already logged in getHistoryFilePath
 	}
 
-	pfs.logger.Info().Str("url", record.URL).Str("path", historyFilePath).Msg("Storing file record")
+	// pfs.logger.Info().Str("url", record.URL).Str("path", historyFilePath).Msg("Storing file record")
 
 	// Load existing records
 	existingRecords, err := pfs.loadExistingRecords(historyFilePath)

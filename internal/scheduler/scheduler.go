@@ -155,7 +155,7 @@ func (s *Scheduler) tryStartMonitorService(ctx context.Context) bool {
 		return false
 	}
 
-	s.logger.Info().Str("targets_file", s.monitorTargetsFile).Msg("Starting monitor service")
+	// s.logger.Info().Str("targets_file", s.monitorTargetsFile).Msg("Starting monitor service")
 	s.monitoringService.SetParentContext(ctx)
 	s.wg.Add(1)
 	go s.runMonitorService(ctx)
@@ -257,13 +257,13 @@ func (s *Scheduler) calculateNextScanTime() (time.Time, error) {
 func (s *Scheduler) runMonitorService(ctx context.Context) {
 	defer s.wg.Done()
 
-	s.logger.Info().Msg("Monitor service starting")
+	// s.logger.Info().Msg("Monitor service starting")
 
 	if err := s.loadInitialMonitorTargets(); err != nil {
 		s.logger.Warn().Err(err).Msg("Failed to load initial monitor targets, monitor will continue without them")
 	}
 
-	s.logger.Info().Msg("Calling initializeMonitorWorkers")
+	// s.logger.Info().Msg("Calling initializeMonitorWorkers")
 	s.initializeMonitorWorkers(ctx)
 
 	s.logger.Info().Msg("Monitor workers initialized, waiting for shutdown")

@@ -272,7 +272,7 @@ func (nh *NotificationHelper) SendMonitoredUrlsNotification(ctx context.Context,
 		return
 	}
 
-	nh.logger.Info().Int("url_count", len(monitoredURLs)).Str("cycle_id", cycleID).Msg("Preparing to send monitored URLs notification.")
+	// nh.logger.Info().Int("url_count", len(monitoredURLs)).Str("cycle_id", cycleID).Msg("Preparing to send monitored URLs notification.")
 
 	payload := FormatInitialMonitoredURLsMessage(monitoredURLs, cycleID, nh.cfg)
 	nh.sendSimpleMonitorNotification(ctx, payload, "monitored URLs")
