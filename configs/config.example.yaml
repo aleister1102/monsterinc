@@ -145,6 +145,27 @@ crawler_config:
   # Default: false
   enable_content_length_check: false
 
+  # URL normalization: Remove duplicate URLs with only fragment or tracking parameter differences.
+  url_normalization:
+    # Strip fragments from URLs to avoid duplicates (e.g., #section).
+    # Default: true
+    strip_fragments: true
+    # Strip common tracking parameters (utm_*, fbclid, gclid, etc.).
+    # Default: true
+    strip_tracking_params: true
+    # Additional custom parameters to strip from URLs.
+    # Default: ["utm_source", "utm_medium", "utm_campaign", "fbclid", "gclid"]
+    custom_strip_params:
+      - "utm_source"
+      - "utm_medium"
+      - "utm_campaign"
+      - "utm_content"
+      - "utm_term"
+      - "fbclid"
+      - "gclid"
+      - "ref"
+      - "referrer"
+
   # Retry configuration: Settings for handling rate limits and failed requests.
   retry_config:
     # Maximum number of retry attempts for 429 (Too Many Requests) errors.
@@ -169,6 +190,21 @@ crawler_config:
       # - 502  # Bad Gateway (uncomment if needed)
       # - 503  # Service Unavailable (uncomment if needed)
       # - 504  # Gateway Timeout (uncomment if needed)
+
+    # Domain-level rate limiting: Blacklist domains with excessive rate limiting.
+    domain_level_rate_limit:
+      # Enable domain-level rate limiting and blacklisting.
+      # Default: true
+      enabled: true
+      # Maximum number of 429 errors per domain before blacklisting.
+      # Default: 10
+      max_rate_limit_errors: 10
+      # Duration to blacklist domain after hitting max errors (in minutes).
+      # Default: 30
+      blacklist_duration_mins: 30
+      # Clear blacklist after this many hours (cleanup old entries).
+      # Default: 6
+      blacklist_clear_after_hours: 6
 
   # Crawler scope configuration: Fine-grained control over what the crawler visits.
   scope:

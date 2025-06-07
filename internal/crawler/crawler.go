@@ -356,7 +356,7 @@ func (cr *Crawler) createCollector() (*colly.Collector, error) {
 	// Wrap with retry transport if retries are enabled
 	var transport http.RoundTripper = baseTransport
 	if cr.config.RetryConfig.MaxRetries > 0 {
-		transport = NewRetryTransport(baseTransport, cr.config.RetryConfig, cr.logger)
+		transport = NewRetryTransport(baseTransport, cr.config.RetryConfig, cr.config.URLNormalization, cr.logger)
 		cr.logger.Info().
 			Int("max_retries", cr.config.RetryConfig.MaxRetries).
 			Int("base_delay_secs", cr.config.RetryConfig.BaseDelaySecs).

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -316,4 +317,53 @@ func NormalizeURLSlice(urls []string) ([]string, error) {
 	}
 
 	return normalized, nil
+}
+
+// ExtractDomainFromURL extracts domain from URL
+func ExtractDomainFromURL(urlStr string) (string, error) {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return "", err
+	}
+	return parsedURL.Hostname(), nil
+}
+
+// IsValidHTTPURL checks if URL is valid HTTP/HTTPS
+func IsValidHTTPURL(urlStr string) bool {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+
+	scheme := strings.ToLower(parsedURL.Scheme)
+	return scheme == "http" || scheme == "https"
+}
+
+// CleanPath removes query parameters and fragments from path
+func CleanPath(path string) string {
+	// Remove query parameters
+	if queryIndex := strings.Index(path, "?"); queryIndex != -1 {
+		path = path[:queryIndex]
+	}
+
+	// Remove fragments
+	if fragmentIndex := strings.Index(path, "#"); fragmentIndex != -1 {
+		path = path[:fragmentIndex]
+	}
+
+	return path
+}
+
+// HasFileExtension checks if path has a file extension
+func HasFileExtension(path string, extensions []string) bool {
+	cleanPath := CleanPath(path)
+	ext := strings.ToLower(filepath.Ext(cleanPath))
+
+	for _, extension := range extensions {
+		if ext == strings.ToLower(extension) {
+			return true
+		}
+	}
+
+	return false
 }

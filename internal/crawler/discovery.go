@@ -11,21 +11,51 @@ import (
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 )
 
-// DiscoverURL processes a raw URL for potential crawling
-// This function validates, normalizes, and queues URLs for crawling based on scope rules
+// DiscoverURL normalizes, validates and potentially adds a URL to the crawl queue.
+// This method is called from various places (HTML parsing, redirects, etc.)
 func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
-	// Check context cancellation early to avoid unnecessary processing
-	if cr.isContextCancelled() {
+	if rawURL == "" {
 		return
 	}
 
-	normalizedURL, shouldSkip := cr.processRawURL(rawURL, base)
-	if shouldSkip {
+	// Apply URL normalization if available
+	var normalizedRawURL string
+	if cr.config.URLNormalization.StripFragments || cr.config.URLNormalization.StripTrackingParams {
+		normalizer := urlhandler.NewURLNormalizer(cr.config.URLNormalization)
+		if normalized, err := normalizer.NormalizeURL(rawURL); err == nil {
+			normalizedRawURL = normalized
+			if normalized != rawURL {
+				cr.logger.Debug().
+					Str("original_url", rawURL).
+					Str("normalized_url", normalized).
+					Msg("URL normalized during discovery")
+			}
+		} else {
+			normalizedRawURL = rawURL
+			cr.logger.Debug().
+				Str("url", rawURL).
+				Err(err).
+				Msg("Failed to normalize URL, using original")
+		}
+	} else {
+		normalizedRawURL = rawURL
+	}
+
+	normalizedURL, shouldProcess := cr.processRawURL(normalizedRawURL, base)
+	if !shouldProcess {
 		return
 	}
 
-	// Final context check before queuing for crawling
-	if cr.isContextCancelled() {
+	// Check if URL should be skipped due to pattern similarity
+	if cr.patternDetector.ShouldSkipURL(normalizedURL) {
+		cr.logger.Debug().
+			Str("url", normalizedURL).
+			Msg("Skipping URL due to pattern similarity (auto-calibrate)")
+		return
+	}
+
+	// Check scope, duplicates, and content-length as before
+	if !cr.isURLInScope(normalizedURL) {
 		return
 	}
 
@@ -33,15 +63,7 @@ func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
 		return
 	}
 
-	// Check if URL should be skipped due to pattern similarity (auto-calibrate)
-	if cr.patternDetector.ShouldSkipURL(normalizedURL) {
-		cr.addDiscoveredURL(normalizedURL)
-		return
-	}
-
-	// Only check content length if enabled in config
-	if cr.config.EnableContentLengthCheck && cr.shouldSkipURLByContentLength(normalizedURL) {
-		cr.addDiscoveredURL(normalizedURL)
+	if cr.shouldSkipURLByContentLength(normalizedURL) {
 		return
 	}
 
