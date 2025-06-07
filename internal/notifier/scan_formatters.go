@@ -2,6 +2,8 @@ package notifier
 
 import (
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -116,7 +118,7 @@ func determineScanCompleteMessageStyle(scanStatus models.ScanStatus, cfg config.
 
 // buildScanCompleteDescription creates the description for scan complete message
 func buildScanCompleteDescription(summary models.ScanSummaryData, statusEmoji string) string {
-	return fmt.Sprintf(
+	baseDescription := fmt.Sprintf(
 		"%s **Scan execution completed**\n\n"+
 			"**Session ID:** `%s`\n"+
 			"**Mode:** %s\n"+
@@ -128,6 +130,32 @@ func buildScanCompleteDescription(summary models.ScanSummaryData, statusEmoji st
 		strings.ToUpper(summary.Status),
 		formatDuration(summary.ScanDuration),
 	)
+
+	// Add batch processing info if this is a multi-part report
+	if strings.Contains(summary.ReportPath, "part") && strings.Contains(summary.ReportPath, "of") {
+		// Extract part info from report path or report part info
+		reportPartInfo := extractReportPartInfo(summary.ReportPath)
+		if reportPartInfo != "" {
+			baseDescription += fmt.Sprintf("\n%s", reportPartInfo)
+		}
+	}
+
+	return baseDescription
+}
+
+// extractReportPartInfo extracts part information from report path
+func extractReportPartInfo(reportPath string) string {
+	// Look for pattern like "part_1_of_3" in file name
+	if reportPath == "" {
+		return ""
+	}
+
+	// Simple check for multi-part reports
+	if strings.Contains(reportPath, "part") && strings.Contains(reportPath, "of") {
+		return "Report is split into multiple parts. This is part X."
+	}
+
+	return ""
 }
 
 // buildScanCompleteEmbed creates the embed for scan complete message
@@ -141,6 +169,7 @@ func buildScanCompleteEmbed(description, titleText string, embedColor int, summa
 
 	addProbeStatsField(embedBuilder, summary.ProbeStats)
 	addDiffStatsField(embedBuilder, summary.DiffStats)
+	addBatchProcessingField(embedBuilder, summary)
 	addReportField(embedBuilder, summary.ReportPath)
 	addErrorsField(embedBuilder, summary.ErrorMessages)
 
@@ -167,6 +196,39 @@ func addDiffStatsField(embedBuilder *DiscordEmbedBuilder, stats models.DiffStats
 			stats.Old,
 			stats.Changed),
 		true)
+}
+
+// addBatchProcessingField adds batch processing info if applicable
+func addBatchProcessingField(embedBuilder *DiscordEmbedBuilder, summary models.ScanSummaryData) {
+	// Check if this looks like a batch processing scenario
+	if strings.Contains(summary.ReportPath, "part") && strings.Contains(summary.ReportPath, "of") {
+		// Try to extract batch info from the file path
+		if batchInfo := extractBatchInfoFromPath(summary.ReportPath); batchInfo != "" {
+			embedBuilder.AddField("📦 Batch Processing", batchInfo, false)
+		}
+	}
+}
+
+// extractBatchInfoFromPath extracts batch processing information from file path
+func extractBatchInfoFromPath(reportPath string) string {
+	if reportPath == "" {
+		return ""
+	}
+
+	// Look for pattern like "part_1_of_3" in filename
+	fileName := filepath.Base(reportPath)
+
+	// Use regex to find part X of Y pattern
+	re := regexp.MustCompile(`part_(\d+)_of_(\d+)`)
+	matches := re.FindStringSubmatch(fileName)
+
+	if len(matches) == 3 {
+		partNum := matches[1]
+		totalParts := matches[2]
+		return fmt.Sprintf("**Report Parts:** %s of %s\n**Processing:** Multi-batch scanning completed", partNum, totalParts)
+	}
+
+	return ""
 }
 
 // addReportField adds report field to embed if report exists

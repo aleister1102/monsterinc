@@ -254,42 +254,6 @@ func (nh *NotificationHelper) sendCriticalErrorNotification(ctx context.Context,
 	}
 }
 
-// SendAggregatedFileChangesNotification sends a notification for aggregated file changes.
-func (nh *NotificationHelper) SendAggregatedFileChangesNotification(ctx context.Context, changes []models.FileChangeInfo, reportFilePath string) {
-	if !nh.canSendMonitorNotification() {
-		return
-	}
-
-	nh.logger.Info().Int("change_count", len(changes)).Str("report_path", reportFilePath).Msg("Preparing to send aggregated file changes notification.")
-
-	payload := FormatAggregatedFileChangesMessage(changes, nh.cfg)
-	nh.sendSimpleMonitorNotification(ctx, payload, "aggregated file changes")
-}
-
-// SendMonitoredUrlsNotification sends a notification about monitored URLs.
-func (nh *NotificationHelper) SendMonitoredUrlsNotification(ctx context.Context, monitoredURLs []string, cycleID string) {
-	if !nh.canSendMonitorNotification() {
-		return
-	}
-
-	// nh.logger.Info().Int("url_count", len(monitoredURLs)).Str("cycle_id", cycleID).Msg("Preparing to send monitored URLs notification.")
-
-	payload := FormatInitialMonitoredURLsMessage(monitoredURLs, cycleID, nh.cfg)
-	nh.sendSimpleMonitorNotification(ctx, payload, "monitored URLs")
-}
-
-// SendAggregatedMonitorErrorsNotification sends a notification for aggregated monitor errors.
-func (nh *NotificationHelper) SendAggregatedMonitorErrorsNotification(ctx context.Context, errors []models.MonitorFetchErrorInfo) {
-	if !nh.canSendMonitorNotification() || len(errors) == 0 {
-		return
-	}
-
-	nh.logger.Info().Int("error_count", len(errors)).Msg("Preparing to send aggregated monitor errors notification.")
-
-	payload := FormatAggregatedMonitorErrorsMessage(errors, nh.cfg)
-	nh.sendSimpleMonitorNotification(ctx, payload, "Aggregated monitor errors")
-}
-
 // SendMonitorCycleCompleteNotification sends a notification when a monitor cycle completes.
 func (nh *NotificationHelper) SendMonitorCycleCompleteNotification(ctx context.Context, data models.MonitorCycleCompleteData) {
 	if !nh.canSendMonitorNotification() {
@@ -302,10 +266,8 @@ func (nh *NotificationHelper) SendMonitorCycleCompleteNotification(ctx context.C
 
 	// Send notification with report attachment but DON'T cleanup the aggregated report
 	if data.ReportPath == "" {
-
 		nh.sendSimpleMonitorNotification(ctx, payload, "monitor cycle complete")
 	} else {
-
 		// Send notification with attachment but don't auto-delete the aggregated report
 		webhookURL := nh.getWebhookURL(MonitorServiceNotification)
 		if err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, data.ReportPath); err != nil {
@@ -321,16 +283,14 @@ func (nh *NotificationHelper) SendMonitorCycleCompleteNotification(ctx context.C
 	}
 }
 
-// SendMonitorInterruptNotification sends a notification when monitoring is interrupted.
-func (nh *NotificationHelper) SendMonitorInterruptNotification(ctx context.Context, summaryData models.ScanSummaryData) {
+// SendMonitoredUrlsNotification sends a notification about monitored URLs.
+func (nh *NotificationHelper) SendMonitoredUrlsNotification(ctx context.Context, monitoredURLs []string, cycleID string) {
 	if !nh.canSendMonitorNotification() {
 		return
 	}
 
-	nh.logger.Info().Str("session_id", summaryData.ScanSessionID).Str("component", summaryData.Component).Msg("Preparing to send monitor interrupt notification.")
-
-	payload := FormatInterruptNotificationMessage(summaryData, nh.cfg)
-	nh.sendSimpleMonitorNotification(ctx, payload, "monitor interrupt")
+	payload := FormatInitialMonitoredURLsMessage(monitoredURLs, cycleID, nh.cfg)
+	nh.sendSimpleMonitorNotification(ctx, payload, "monitored URLs")
 }
 
 // SendScanInterruptNotification sends a notification when a scan is interrupted.

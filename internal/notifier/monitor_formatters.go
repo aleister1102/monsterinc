@@ -65,19 +65,22 @@ func FormatAggregatedFileChangesMessage(changes []models.FileChangeInfo, cfg con
 	}
 
 	stats := calculateMonitorAggregatedStats(changes)
-	description := buildFileChangesDescription(stats)
+	batchStats := calculateBatchStatsFromChanges(changes)
+	description := buildFileChangesDescription(stats, batchStats)
 	embed := buildFileChangesEmbed(description, changes)
 	return buildStandardPayloadWithMentions(embed, cfg, content)
 }
 
 // buildFileChangesDescription creates the description for file changes message
-func buildFileChangesDescription(stats models.MonitorAggregatedStats) string {
+func buildFileChangesDescription(stats models.MonitorAggregatedStats, batchStats models.BatchStats) string {
 	return fmt.Sprintf(
 		"🔔 **File changes detected**\n\n"+
 			"**Total Changes:** %d\n"+
-			"**Total Extracted Paths:** %d",
+			"**Total Extracted Paths:** %d\n"+
+			"**Total Batches:** %d",
 		stats.TotalChanges,
 		stats.TotalPaths,
+		batchStats.TotalBatches,
 	)
 }
 
@@ -90,10 +93,32 @@ func buildFileChangesEmbed(description string, changes []models.FileChangeInfo) 
 		WithTimestamp(time.Now()).
 		WithFooter("MonsterInc Monitor", "")
 
+	addBatchInfoField(embedBuilder, changes)
 	addContentTypeBreakdownField(embedBuilder, changes)
 	addChangedURLsField(embedBuilder, changes)
 
 	return embedBuilder.Build()
+}
+
+// addBatchInfoField adds batch information field
+func addBatchInfoField(embedBuilder *DiscordEmbedBuilder, changes []models.FileChangeInfo) {
+	if len(changes) == 0 {
+		return
+	}
+
+	batchInfo := changes[0].BatchInfo
+	if batchInfo == nil {
+		return
+	}
+
+	embedBuilder.AddField("📅 Batch Information", fmt.Sprintf(
+		"**Batch Size:** %d\n"+
+			"**Batch Number:** %d\n"+
+			"**Total Batches:** %d",
+		batchInfo.BatchSize,
+		batchInfo.BatchNumber,
+		batchInfo.TotalBatches,
+	), true)
 }
 
 // addContentTypeBreakdownField adds content type breakdown field
@@ -148,6 +173,38 @@ func calculateMonitorAggregatedStats(changes []models.FileChangeInfo) models.Mon
 	}
 }
 
+func calculateBatchStatsFromChanges(changes []models.FileChangeInfo) models.BatchStats {
+	if len(changes) == 0 {
+		return models.BatchStats{}
+	}
+
+	// Extract batch info from changes - use the first change with batch info
+	var batchInfo *models.BatchInfo
+	for _, change := range changes {
+		if change.BatchInfo != nil {
+			batchInfo = change.BatchInfo
+			break
+		}
+	}
+
+	if batchInfo == nil {
+		return models.BatchStats{
+			UsedBatching:       false,
+			TotalBatches:       1,
+			CompletedBatches:   1,
+			TotalURLsProcessed: len(changes),
+		}
+	}
+
+	return models.BatchStats{
+		UsedBatching:       true,
+		TotalBatches:       batchInfo.TotalBatches,
+		CompletedBatches:   batchInfo.BatchNumber, // Current batch number indicates progress
+		MaxBatchSize:       batchInfo.BatchSize,
+		TotalURLsProcessed: len(changes),
+	}
+}
+
 func calculateContentTypeBreakdown(changes []models.FileChangeInfo) map[string]int {
 	breakdown := make(map[string]int)
 	for _, change := range changes {
@@ -167,18 +224,25 @@ func FormatAggregatedMonitorErrorsMessage(errors []models.MonitorFetchErrorInfo,
 		content += "\n"
 	}
 
-	description := buildMonitorErrorsDescription(errors)
+	batchStats := calculateBatchStatsFromErrors(errors)
+	description := buildMonitorErrorsDescription(errors, batchStats)
 	embed := buildMonitorErrorsEmbed(description, errors)
 	return buildStandardPayloadWithMentions(embed, cfg, content)
 }
 
 // buildMonitorErrorsDescription creates the description for monitor errors message
-func buildMonitorErrorsDescription(errors []models.MonitorFetchErrorInfo) string {
-	return fmt.Sprintf(
+func buildMonitorErrorsDescription(errors []models.MonitorFetchErrorInfo, batchStats models.BatchStats) string {
+	baseDesc := fmt.Sprintf(
 		"⚠️ **Monitor errors detected**\n\n"+
 			"**Total Errors:** %d",
 		len(errors),
 	)
+
+	if batchStats.UsedBatching {
+		baseDesc += fmt.Sprintf("\n**Total Batches:** %d", batchStats.TotalBatches)
+	}
+
+	return baseDesc
 }
 
 // buildMonitorErrorsEmbed creates the embed for monitor errors message
@@ -190,6 +254,7 @@ func buildMonitorErrorsEmbed(description string, errors []models.MonitorFetchErr
 		WithTimestamp(time.Now()).
 		WithFooter("MonsterInc Monitor", "")
 
+	addErrorBatchInfoField(embedBuilder, errors)
 	addErrorSamplesField(embedBuilder, errors)
 	return embedBuilder.Build()
 }
@@ -203,15 +268,35 @@ func FormatMonitorCycleCompleteMessage(data models.MonitorCycleCompleteData, cfg
 
 // buildCycleCompleteDescription creates the description for cycle complete message
 func buildCycleCompleteDescription(data models.MonitorCycleCompleteData) string {
-	return fmt.Sprintf(
-		"✅ **Monitoring cycle completed**\n\n"+
+	statusIcon := "✅"
+	statusText := "completed successfully"
+
+	if len(data.ChangedURLs) > 0 {
+		statusText = fmt.Sprintf("completed with %d changes detected", len(data.ChangedURLs))
+	}
+
+	baseDesc := fmt.Sprintf(
+		"%s **Monitoring cycle %s**\n\n"+
 			"**Cycle ID:** `%s`\n"+
 			"**Total Monitored:** %d\n"+
 			"**Changed URLs:** %d",
+		statusIcon,
+		statusText,
 		data.CycleID,
 		data.TotalMonitored,
 		len(data.ChangedURLs),
 	)
+
+	// Add batch information if available
+	if data.BatchStats != nil && data.BatchStats.UsedBatching {
+		baseDesc += fmt.Sprintf(
+			"\n**Batch Processing:** %d/%d batches completed",
+			data.BatchStats.CompletedBatches,
+			data.BatchStats.TotalBatches,
+		)
+	}
+
+	return baseDesc
 }
 
 // buildCycleCompleteEmbed creates the embed for cycle complete message
@@ -223,10 +308,29 @@ func buildCycleCompleteEmbed(description string, data models.MonitorCycleComplet
 		WithTimestamp(data.Timestamp).
 		WithFooter("MonsterInc Monitor", "")
 
+	addCycleBatchStatsField(embedBuilder, data.BatchStats)
 	addChangedURLsSummaryField(embedBuilder, data.ChangedURLs)
 	addCycleReportField(embedBuilder, data.ReportPath)
 
 	return embedBuilder.Build()
+}
+
+// addCycleBatchStatsField adds batch statistics field for cycle complete message
+func addCycleBatchStatsField(embedBuilder *DiscordEmbedBuilder, batchStats *models.BatchStats) {
+	if batchStats == nil || !batchStats.UsedBatching {
+		return
+	}
+
+	embedBuilder.AddField("📊 Batch Statistics", fmt.Sprintf(
+		"**Total Batches:** %d\n"+
+			"**Completed Batches:** %d\n"+
+			"**Max Batch Size:** %d\n"+
+			"**URLs Processed:** %d",
+		batchStats.TotalBatches,
+		batchStats.CompletedBatches,
+		batchStats.MaxBatchSize,
+		batchStats.TotalURLsProcessed,
+	), true)
 }
 
 // addChangedURLsSummaryField adds changed URLs summary field
@@ -294,4 +398,57 @@ func buildStandardPayloadWithMentions(embed models.DiscordEmbed, cfg config.Noti
 	}
 
 	return payloadBuilder.Build()
+}
+
+func calculateBatchStatsFromErrors(errors []models.MonitorFetchErrorInfo) models.BatchStats {
+	if len(errors) == 0 {
+		return models.BatchStats{}
+	}
+
+	// Extract batch info from errors - use the first error with batch info
+	var batchInfo *models.BatchInfo
+	for _, error := range errors {
+		if error.BatchInfo != nil {
+			batchInfo = error.BatchInfo
+			break
+		}
+	}
+
+	if batchInfo == nil {
+		return models.BatchStats{
+			UsedBatching:       false,
+			TotalBatches:       1,
+			CompletedBatches:   1,
+			TotalURLsProcessed: len(errors),
+		}
+	}
+
+	return models.BatchStats{
+		UsedBatching:       true,
+		TotalBatches:       batchInfo.TotalBatches,
+		CompletedBatches:   batchInfo.BatchNumber,
+		MaxBatchSize:       batchInfo.BatchSize,
+		TotalURLsProcessed: len(errors),
+	}
+}
+
+// addErrorBatchInfoField adds batch information field for errors
+func addErrorBatchInfoField(embedBuilder *DiscordEmbedBuilder, errors []models.MonitorFetchErrorInfo) {
+	if len(errors) == 0 {
+		return
+	}
+
+	batchInfo := errors[0].BatchInfo
+	if batchInfo == nil {
+		return
+	}
+
+	embedBuilder.AddField("📅 Batch Information", fmt.Sprintf(
+		"**Batch Size:** %d\n"+
+			"**Batch Number:** %d\n"+
+			"**Total Batches:** %d",
+		batchInfo.BatchSize,
+		batchInfo.BatchNumber,
+		batchInfo.TotalBatches,
+	), true)
 }
