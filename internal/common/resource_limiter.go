@@ -361,7 +361,7 @@ func (rl *ResourceLimiter) triggerGracefulShutdown() {
 	rl.mu.RUnlock()
 
 	if callback != nil {
-		rl.logger.Info().Msg("Triggering graceful shutdown due to memory limit")
+		rl.logger.Info().Msg("Triggering graceful shutdown due to resource limits")
 		go callback() // Run in goroutine to avoid blocking the monitor
 	} else {
 		rl.logger.Error().Msg("No shutdown callback registered, cannot trigger graceful shutdown")

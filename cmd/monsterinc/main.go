@@ -57,7 +57,7 @@ func main() {
 	resourceLimiter := common.NewResourceLimiter(resourceLimiterConfig, zLogger)
 	resourceLimiter.Start()
 
-	// Set shutdown callback to trigger graceful shutdown when resource limits are exceeded
+	// Set initial shutdown callback to trigger graceful shutdown when resource limits are exceeded
 	resourceLimiter.SetShutdownCallback(func() {
 		zLogger.Error().Msg("System resource limits exceeded, initiating graceful shutdown...")
 		cancel() // Cancel the main context to trigger shutdown
@@ -80,6 +80,34 @@ func main() {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize DiscordNotifier infra.")
 	}
 	notificationHelper := notifier.NewNotificationHelper(discordNotifier, gCfg.NotificationConfig, zLogger)
+
+	// Update resource limiter shutdown callback to include notification
+	resourceLimiter.SetShutdownCallback(func() {
+		zLogger.Error().Msg("System resource limits exceeded, initiating graceful shutdown...")
+
+		// Send critical error notification for resource limit trigger
+		criticalErrSummary := models.GetDefaultScanSummaryData()
+		criticalErrSummary.Component = "ResourceLimiter"
+		criticalErrSummary.ErrorMessages = []string{"System resource limits exceeded, application shutting down gracefully"}
+		criticalErrSummary.Status = string(models.ScanStatusInterrupted)
+
+		// Get current resource usage for the notification
+		resourceUsage := resourceLimiter.GetResourceUsage()
+		criticalErrSummary.ErrorMessages = append(criticalErrSummary.ErrorMessages,
+			fmt.Sprintf("System Memory: %.1f%% used (%d/%d MB)",
+				resourceUsage.SystemMemUsedPercent,
+				resourceUsage.SystemMemUsedMB,
+				resourceUsage.SystemMemTotalMB))
+
+		if resourceUsage.CPUUsagePercent > 0 {
+			criticalErrSummary.ErrorMessages = append(criticalErrSummary.ErrorMessages,
+				fmt.Sprintf("CPU Usage: %.1f%%", resourceUsage.CPUUsagePercent))
+		}
+
+		notificationHelper.SendCriticalErrorNotification(context.Background(), "ResourceLimiter", criticalErrSummary)
+
+		cancel() // Cancel the main context to trigger shutdown
+	})
 
 	scanner := initializeScanner(gCfg, zLogger)
 
