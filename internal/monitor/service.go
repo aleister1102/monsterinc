@@ -281,9 +281,21 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 	totalProcessed := 0
 	totalURLs := len(batchTracker.AllURLs)
 
-	// Update progress display
+	// Update progress display with batch info
 	if s.progressDisplay != nil {
 		s.progressDisplay.UpdateMonitorProgress(0, int64(totalURLs), "Batch", fmt.Sprintf("Starting batch monitoring of %d URLs", totalURLs))
+		s.progressDisplay.UpdateBatchProgress(common.ProgressTypeMonitor, 0, batchTracker.TotalBatches)
+
+		// Get aggregation interval from config
+		aggregationInterval := time.Duration(s.gCfg.MonitorConfig.AggregationIntervalSeconds) * time.Second
+		if s.eventAggregator != nil {
+			eventCounts := s.eventAggregator.GetEventCounts()
+			s.progressDisplay.UpdateMonitorEventCounts(
+				eventCounts["file_changes"],
+				eventCounts["fetch_errors"],
+				aggregationInterval,
+			)
+		}
 	}
 
 	// Process URLs in batches with memory optimization
@@ -312,9 +324,32 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 
 		s.batchURLManager.CompleteCurrentBatch(batchTracker)
 
-		// Update progress display
+		// Update progress display with detailed stats
 		if s.progressDisplay != nil {
 			s.progressDisplay.UpdateMonitorProgress(int64(totalProcessed), int64(totalURLs), "Batch", fmt.Sprintf("Processed %d/%d URLs", totalProcessed, totalURLs))
+
+			// Update batch progress
+			s.progressDisplay.UpdateBatchProgress(common.ProgressTypeMonitor, batchTracker.ProcessedBatches, batchTracker.TotalBatches)
+
+			// Update monitor stats (processed, failed, completed)
+			// Calculate cumulative stats
+			cumulativeSuccessful := totalProcessed
+			cumulativeFailed := (batchTracker.ProcessedBatches * len(batch)) - totalProcessed
+			if cumulativeFailed < 0 {
+				cumulativeFailed = 0
+			}
+			s.progressDisplay.UpdateMonitorStats(totalProcessed, cumulativeFailed, cumulativeSuccessful)
+
+			// Update event counts
+			if s.eventAggregator != nil {
+				eventCounts := s.eventAggregator.GetEventCounts()
+				aggregationInterval := time.Duration(s.gCfg.MonitorConfig.AggregationIntervalSeconds) * time.Second
+				s.progressDisplay.UpdateMonitorEventCounts(
+					eventCounts["file_changes"],
+					eventCounts["fetch_errors"],
+					aggregationInterval,
+				)
+			}
 		}
 
 		s.logger.Info().

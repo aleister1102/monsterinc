@@ -41,6 +41,28 @@ type ProgressInfo struct {
 	LastUpdateTime time.Time      `json:"last_update_time"`
 	EstimatedETA   time.Duration  `json:"estimated_eta"`
 	ProcessingRate float64        `json:"processing_rate"` // items per second
+
+	// Batch processing info
+	BatchInfo *BatchProgressInfo `json:"batch_info,omitempty"`
+
+	// Monitor specific info
+	MonitorInfo *MonitorProgressInfo `json:"monitor_info,omitempty"`
+}
+
+// BatchProgressInfo chứa thông tin về batch processing
+type BatchProgressInfo struct {
+	CurrentBatch int `json:"current_batch"`
+	TotalBatches int `json:"total_batches"`
+}
+
+// MonitorProgressInfo chứa thông tin chi tiết về monitoring
+type MonitorProgressInfo struct {
+	ProcessedURLs       int           `json:"processed_urls"`
+	FailedURLs          int           `json:"failed_urls"`
+	CompletedURLs       int           `json:"completed_urls"`
+	ChangedEventCount   int           `json:"changed_event_count"`
+	ErrorEventCount     int           `json:"error_event_count"`
+	AggregationInterval time.Duration `json:"aggregation_interval"`
 }
 
 // GetPercentage tính phần trăm hoàn thành
@@ -200,6 +222,60 @@ func (pdm *ProgressDisplayManager) SetMonitorStatus(status ProgressStatus, messa
 	pdm.monitorProgress.LastUpdateTime = time.Now()
 }
 
+// UpdateBatchProgress cập nhật thông tin batch processing
+func (pdm *ProgressDisplayManager) UpdateBatchProgress(progressType ProgressType, currentBatch, totalBatches int) {
+	pdm.mutex.Lock()
+	defer pdm.mutex.Unlock()
+
+	var targetProgress *ProgressInfo
+	switch progressType {
+	case ProgressTypeScan:
+		targetProgress = pdm.scanProgress
+	case ProgressTypeMonitor:
+		targetProgress = pdm.monitorProgress
+	default:
+		return
+	}
+
+	if targetProgress.BatchInfo == nil {
+		targetProgress.BatchInfo = &BatchProgressInfo{}
+	}
+
+	targetProgress.BatchInfo.CurrentBatch = currentBatch
+	targetProgress.BatchInfo.TotalBatches = totalBatches
+	targetProgress.LastUpdateTime = time.Now()
+}
+
+// UpdateMonitorEventCounts cập nhật số lượng events cho monitor
+func (pdm *ProgressDisplayManager) UpdateMonitorEventCounts(changedEvents, errorEvents int, aggregationInterval time.Duration) {
+	pdm.mutex.Lock()
+	defer pdm.mutex.Unlock()
+
+	if pdm.monitorProgress.MonitorInfo == nil {
+		pdm.monitorProgress.MonitorInfo = &MonitorProgressInfo{}
+	}
+
+	pdm.monitorProgress.MonitorInfo.ChangedEventCount = changedEvents
+	pdm.monitorProgress.MonitorInfo.ErrorEventCount = errorEvents
+	pdm.monitorProgress.MonitorInfo.AggregationInterval = aggregationInterval
+	pdm.monitorProgress.LastUpdateTime = time.Now()
+}
+
+// UpdateMonitorStats cập nhật thống kê chi tiết cho monitor
+func (pdm *ProgressDisplayManager) UpdateMonitorStats(processed, failed, completed int) {
+	pdm.mutex.Lock()
+	defer pdm.mutex.Unlock()
+
+	if pdm.monitorProgress.MonitorInfo == nil {
+		pdm.monitorProgress.MonitorInfo = &MonitorProgressInfo{}
+	}
+
+	pdm.monitorProgress.MonitorInfo.ProcessedURLs = processed
+	pdm.monitorProgress.MonitorInfo.FailedURLs = failed
+	pdm.monitorProgress.MonitorInfo.CompletedURLs = completed
+	pdm.monitorProgress.LastUpdateTime = time.Now()
+}
+
 // displayLoop vòng lặp hiển thị progress
 func (pdm *ProgressDisplayManager) displayLoop() {
 	for {
@@ -225,11 +301,11 @@ func (pdm *ProgressDisplayManager) displayProgress() {
 
 	// Display scan progress
 	scanLine := pdm.formatProgressLine(pdm.scanProgress)
-	fmt.Printf("📡 SCAN:    %s\n", scanLine)
+	fmt.Printf("📡 SCAN:    %s\r\n", scanLine)
 
 	// Display monitor progress
 	monitorLine := pdm.formatProgressLine(pdm.monitorProgress)
-	fmt.Printf("🔍 MONITOR: %s\n", monitorLine)
+	fmt.Printf("🔍 MONITOR: %s\r\n", monitorLine)
 
 	fmt.Print("\033[u") // Restore cursor position
 }
@@ -247,6 +323,11 @@ func (pdm *ProgressDisplayManager) formatProgressLine(progress *ProgressInfo) st
 		line.WriteString(fmt.Sprintf(" [%s]", progress.Stage))
 	}
 
+	// Batch info
+	if progress.BatchInfo != nil && progress.BatchInfo.TotalBatches > 0 {
+		line.WriteString(fmt.Sprintf(" [Batch %d/%d]", progress.BatchInfo.CurrentBatch, progress.BatchInfo.TotalBatches))
+	}
+
 	// Progress bar và percentage
 	if progress.Total > 0 && progress.Status == ProgressStatusRunning {
 		percentage := progress.GetPercentage()
@@ -261,6 +342,20 @@ func (pdm *ProgressDisplayManager) formatProgressLine(progress *ProgressInfo) st
 
 		if progress.ProcessingRate > 0 {
 			line.WriteString(fmt.Sprintf(" Rate: %.1f/s", progress.ProcessingRate))
+		}
+	}
+
+	// Monitor specific stats
+	if progress.Type == ProgressTypeMonitor && progress.MonitorInfo != nil {
+		mInfo := progress.MonitorInfo
+		line.WriteString(fmt.Sprintf(" [P:%d F:%d C:%d]", mInfo.ProcessedURLs, mInfo.FailedURLs, mInfo.CompletedURLs))
+
+		if mInfo.ChangedEventCount > 0 || mInfo.ErrorEventCount > 0 {
+			line.WriteString(fmt.Sprintf(" [Events: ±%d ✗%d]", mInfo.ChangedEventCount, mInfo.ErrorEventCount))
+		}
+
+		if mInfo.AggregationInterval > 0 {
+			line.WriteString(fmt.Sprintf(" [Agg: %s]", pdm.formatDuration(mInfo.AggregationInterval)))
 		}
 	}
 
