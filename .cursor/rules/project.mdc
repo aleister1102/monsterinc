@@ -11,4 +11,4 @@ Không sử dụng xitongsys/parquet-go mà sử dụng https://github.com/parqu
 
 Ngoài ra, sau khi thực hiện xong một task lớn thì luôn kiểm tra lại toàn bộ project xem có lỗi linter nào không rồi mới tiếp tục thực hiện task mới. Bên cạnh đó, xóa tất cả các log bạn thêm vào để debug.
 
-Bạn không cần import các built-in package, tôi sẽ tự làm.
+Bạn không cần import các built-in package, tôi sẽ tự làm. Không tự động commit.
