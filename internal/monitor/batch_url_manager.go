@@ -22,10 +22,16 @@ func NewBatchURLManager(batchConfig config.MonitorBatchConfig, logger zerolog.Lo
 	batchProcessorConfig := batchConfig.ToBatchProcessorConfig()
 	batchProcessor := common.NewBatchProcessor(batchProcessorConfig, logger)
 
+	managerLogger := logger.With().Str("component", "BatchURLManager").Logger()
+	managerLogger.Info().
+		Int("max_concurrent_batch", batchConfig.GetEffectiveMaxConcurrentBatch()).
+		Int("batch_size", batchConfig.BatchSize).
+		Msg("Monitor batch configuration initialized")
+
 	return &BatchURLManager{
 		urlManager:     NewURLManager(logger),
 		batchProcessor: batchProcessor,
-		logger:         logger.With().Str("component", "BatchURLManager").Logger(),
+		logger:         managerLogger,
 		batchConfig:    batchConfig,
 	}
 }

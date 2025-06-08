@@ -83,7 +83,19 @@ func NewMonitoringService(
 
 	// Initialize modular components
 	urlManager := NewURLManager(instanceLogger)
-	batchURLManager := NewBatchURLManager(gCfg.MonitorBatchConfig, instanceLogger) // Initialize batch URL manager
+
+	// Set MaxConcurrentBatch based on monitor worker count if not already set
+	monitorBatchConfig := gCfg.MonitorBatchConfig
+	monitorBatchConfig.SetMaxConcurrentFromMonitorWorkers(gCfg.MonitorConfig.MaxConcurrentChecks)
+
+	batchURLManager := NewBatchURLManager(monitorBatchConfig, instanceLogger) // Initialize batch URL manager
+
+	instanceLogger.Info().
+		Int("monitor_workers", gCfg.MonitorConfig.MaxConcurrentChecks).
+		Int("max_concurrent_batch", monitorBatchConfig.GetEffectiveMaxConcurrentBatch()).
+		Int("batch_size", monitorBatchConfig.BatchSize).
+		Msg("Monitor service batch configuration set based on worker count")
+
 	cycleTracker := createInitialCycleTracker()
 	mutexManager := NewURLMutexManager(instanceLogger)
 
