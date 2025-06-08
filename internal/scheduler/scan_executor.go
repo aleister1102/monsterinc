@@ -15,6 +15,10 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// External function to track active scan session - this should be defined in main.go
+var SetActiveScanSessionID func(string) = func(string) {}                         // Default no-op
+var GetAndSetInterruptNotificationSent func() bool = func() bool { return false } // Default no-op
+
 type scanAttemptConfig struct {
 	maxRetries          int
 	retryDelay          time.Duration
@@ -122,6 +126,10 @@ func (s *Scheduler) executeScanCycle(
 ) (models.ScanSummaryData, []string, error) {
 	startTime := time.Now()
 
+	// Track active scan session for interrupt handling
+	SetActiveScanSessionID(scanSessionID)
+	defer SetActiveScanSessionID("") // Clear when done
+
 	// Create scan logger
 	scanLogger, err := logger.NewWithScanID(s.globalConfig.LogConfig, scanSessionID)
 	if err != nil {
@@ -139,6 +147,25 @@ func (s *Scheduler) executeScanCycle(
 	htmlURLs, targetSource, err := s.loadAndPrepareScanTargets(predeterminedTargetSource)
 	if err != nil {
 		return s.buildErrorSummary(baseSummary, err), nil, err
+	}
+
+	// Build and send scan start notification
+	startSummary := models.GetDefaultScanSummaryData()
+	startSummary.ScanSessionID = scanSessionID
+	startSummary.TargetSource = targetSource
+	startSummary.ScanMode = "automated"
+	startSummary.Targets = htmlURLs
+	startSummary.TotalTargets = len(htmlURLs)
+	startSummary.Status = string(models.ScanStatusStarted)
+
+	s.logger.Info().
+		Str("scan_session_id", scanSessionID).
+		Str("target_source", targetSource).
+		Int("total_targets", len(htmlURLs)).
+		Msg("Sending scan start notification for automated scan")
+
+	if s.notificationHelper != nil {
+		s.notificationHelper.SendScanStartNotification(ctx, startSummary)
 	}
 
 	// Record scan start in DB
@@ -227,8 +254,14 @@ func (s *Scheduler) isContextCancellationError(err error) bool {
 }
 
 func (s *Scheduler) handleContextCancellation(summary models.ScanSummaryData) {
-	interruptSummary := s.buildInterruptSummary(summary)
-	s.notificationHelper.SendScanInterruptNotification(context.Background(), interruptSummary)
+	// Check if notification already sent to avoid duplicates
+	if !GetAndSetInterruptNotificationSent() {
+		interruptSummary := s.buildInterruptSummary(summary)
+		s.notificationHelper.SendScanInterruptNotification(context.Background(), interruptSummary)
+		s.logger.Info().Str("scan_session_id", summary.ScanSessionID).Msg("Sent scan interrupt notification from scheduler")
+	} else {
+		s.logger.Info().Str("scan_session_id", summary.ScanSessionID).Msg("Scan interrupt notification already sent, skipping duplicate from scheduler")
+	}
 }
 
 func (s *Scheduler) buildInterruptSummary(summary models.ScanSummaryData) models.ScanSummaryData {

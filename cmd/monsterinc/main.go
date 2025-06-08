@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,8 +23,59 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// Global state variables for tracking active sessions and interrupt notifications
+var (
+	activeScanSessionID        string
+	activeScanMutex            sync.RWMutex
+	interruptNotificationSent  bool
+	interruptNotificationMutex sync.Mutex
+)
+
+// setActiveScanSessionID safely sets the active scan session ID
+func setActiveScanSessionID(sessionID string) {
+	activeScanMutex.Lock()
+	defer activeScanMutex.Unlock()
+	activeScanSessionID = sessionID
+
+	// Reset interrupt notification flag when starting new scan
+	if sessionID != "" {
+		setInterruptNotificationSent(false)
+	}
+}
+
+// getActiveScanSessionID safely gets the active scan session ID
+func getActiveScanSessionID() string {
+	activeScanMutex.RLock()
+	defer activeScanMutex.RUnlock()
+	return activeScanSessionID
+}
+
+// setInterruptNotificationSent safely sets the interrupt notification flag
+func setInterruptNotificationSent(sent bool) {
+	interruptNotificationMutex.Lock()
+	defer interruptNotificationMutex.Unlock()
+	interruptNotificationSent = sent
+}
+
+// getAndSetInterruptNotificationSent atomically checks and sets the interrupt notification flag
+func getAndSetInterruptNotificationSent() bool {
+	interruptNotificationMutex.Lock()
+	defer interruptNotificationMutex.Unlock()
+
+	if interruptNotificationSent {
+		return true // Already sent
+	}
+
+	interruptNotificationSent = true
+	return false // First time
+}
+
 func main() {
 	fmt.Println("MonsterInc Crawler starting...")
+
+	// Set function pointer for scheduler to track active scans
+	scheduler.SetActiveScanSessionID = setActiveScanSessionID
+	scheduler.GetAndSetInterruptNotificationSent = getAndSetInterruptNotificationSent
 
 	flags := ParseFlags()
 
@@ -42,9 +94,16 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize progress display manager
-	progressDisplay := common.NewProgressDisplayManager(zLogger)
+	// Initialize progress display manager - ENABLED for progress tracking
+	// Initialize progress display with config
+	progressConfig := &common.ProgressDisplayConfig{
+		DisplayInterval:   gCfg.ProgressConfig.GetDisplayIntervalDuration(),
+		EnableProgress:    gCfg.ProgressConfig.EnableProgress,
+		ShowETAEstimation: gCfg.ProgressConfig.ShowETAEstimation,
+	}
+	progressDisplay := common.NewProgressDisplayManager(zLogger, progressConfig)
 	progressDisplay.Start()
+	defer progressDisplay.Stop()
 
 	// Start global resource limiter with config from file
 	resourceLimiterConfig := common.ResourceLimiterConfig{
@@ -61,14 +120,22 @@ func main() {
 	resourceLimiter := common.NewResourceLimiter(resourceLimiterConfig, zLogger)
 	resourceLimiter.Start()
 
-	// Set initial shutdown callback to trigger graceful shutdown when resource limits are exceeded
-	resourceLimiter.SetShutdownCallback(func() {
-		zLogger.Error().Msg("System resource limits exceeded, initiating graceful shutdown...")
-		cancel() // Cancel the main context to trigger shutdown
-	})
+	// Initialize global resource stats monitor for continuous monitoring
+	globalResourceStatsConfig := common.ResourceStatsMonitorConfig{
+		DisplayInterval: time.Duration(gCfg.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
+		ComponentName:   "Global",
+		ModuleName:      "System",
+	}
+	globalResourceStatsMonitor := common.NewResourceStatsMonitor(
+		resourceLimiter,
+		globalResourceStatsConfig,
+		zLogger,
+	)
+	globalResourceStatsMonitor.Start()
 
-	// Ensure global resource limiter is stopped on exit
+	// Ensure global resource limiter and stats monitor are stopped on exit
 	defer func() {
+		globalResourceStatsMonitor.Stop()
 		resourceLimiter.Stop()
 		common.StopGlobalResourceLimiter()
 	}()
@@ -88,6 +155,9 @@ func main() {
 	// Update resource limiter shutdown callback to include notification
 	resourceLimiter.SetShutdownCallback(func() {
 		zLogger.Error().Msg("System resource limits exceeded, initiating graceful shutdown...")
+
+		// Stop global resource stats monitor first
+		globalResourceStatsMonitor.Stop()
 
 		// Send critical error notification for resource limit trigger
 		criticalErrSummary := models.GetDefaultScanSummaryData()
@@ -120,7 +190,7 @@ func main() {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize monitoring service.")
 	}
 
-	setupSignalHandling(cancel, zLogger)
+	setupSignalHandling(cancel, zLogger, notificationHelper, gCfg, ms)
 
 	var schedulerPtr *scheduler.Scheduler
 
@@ -257,6 +327,9 @@ func preloadMonitoringTargets(
 func setupSignalHandling(
 	cancel context.CancelFunc,
 	zLogger zerolog.Logger,
+	notificationHelper *notifier.NotificationHelper,
+	gCfg *config.GlobalConfig,
+	monitoringService *monitor.MonitoringService,
 ) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -265,7 +338,58 @@ func setupSignalHandling(
 		sig := <-sigChan
 		zLogger.Warn().Str("signal", sig.String()).Msg("🚨 INTERRUPT SIGNAL RECEIVED - Initiating immediate shutdown...")
 
-		// Cancel context immediately - this will propagate to all components
+		// Create dedicated context with timeout for interrupt notifications
+		// This ensures notifications can be sent even if main context is cancelled
+		notificationCtx, notificationCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer notificationCancel()
+
+		// Send scan interrupt notification if there's an active scan
+		currentActiveScanID := getActiveScanSessionID()
+		if currentActiveScanID != "" && notificationHelper != nil {
+			// Check if notification already sent to avoid duplicates
+			if !getAndSetInterruptNotificationSent() {
+				interruptSummary := models.GetDefaultScanSummaryData()
+				interruptSummary.ScanSessionID = currentActiveScanID
+				interruptSummary.ScanMode = gCfg.Mode
+				interruptSummary.TargetSource = "global_interrupt"
+				interruptSummary.Status = string(models.ScanStatusInterrupted)
+				interruptSummary.ErrorMessages = []string{fmt.Sprintf("Scan interrupted by user signal (%s)", sig.String())}
+				interruptSummary.Component = "SignalHandler"
+
+				zLogger.Info().Str("scan_session_id", currentActiveScanID).Msg("Sending scan interrupt notification for active scan")
+				notificationHelper.SendScanInterruptNotification(notificationCtx, interruptSummary)
+			} else {
+				zLogger.Info().Str("scan_session_id", currentActiveScanID).Msg("Scan interrupt notification already sent, skipping duplicate")
+			}
+		}
+
+		// Send monitor interrupt notification if there's an active monitor cycle
+		if monitoringService != nil && notificationHelper != nil {
+			currentURLs := monitoringService.GetCurrentlyMonitorUrls()
+			if len(currentURLs) > 0 {
+				currentCycleID := monitoringService.GetCurrentCycleID()
+				if currentCycleID == "" {
+					currentCycleID = monitoringService.GenerateNewCycleID() // Create new cycle ID if none exists
+				}
+
+				interruptData := models.MonitorInterruptData{
+					CycleID:          currentCycleID,
+					TotalTargets:     len(currentURLs),
+					ProcessedTargets: 0, // We don't know how many were processed before interrupt
+					Timestamp:        time.Now(),
+					Reason:           "user_signal",
+					LastActivity:     fmt.Sprintf("Monitor service interrupted by user signal (%s)", sig.String()),
+				}
+
+				zLogger.Info().Str("cycle_id", currentCycleID).Int("monitored_urls", len(currentURLs)).Msg("Sending monitor interrupt notification for active monitoring")
+				notificationHelper.SendMonitorInterruptNotification(notificationCtx, interruptData)
+			}
+		}
+
+		// Wait a moment for notifications to be sent before cancelling context
+		time.Sleep(1 * time.Second)
+
+		// Cancel context after notifications are sent - this will propagate to all components
 		cancel()
 
 		zLogger.Info().Msg("Cancellation signal sent to all components. Please wait for graceful shutdown...")
@@ -383,6 +507,16 @@ func runOnetimeScan(
 	// Create single session ID for the entire scan
 	scanSessionID := time.Now().Format("20060102-150405")
 
+	// Track active scan session ID for interrupt handling
+	setActiveScanSessionID(scanSessionID)
+
+	// Create scan logger with scanID for organized logging
+	scanLogger, err := logger.NewWithScanID(gCfg.LogConfig, scanSessionID)
+	if err != nil {
+		baseLogger.Warn().Err(err).Str("scan_session_id", scanSessionID).Msg("Failed to create scan logger, using default logger")
+		scanLogger = baseLogger
+	}
+
 	// Prepare scan summary data for start notification
 	startSummary := models.GetDefaultScanSummaryData()
 	startSummary.ScanSessionID = scanSessionID
@@ -395,10 +529,12 @@ func runOnetimeScan(
 
 	// Set up progress display for scanner
 	scannerInstance.SetProgressDisplay(progressDisplay)
-	progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Starting scan workflow")
+	if progressDisplay != nil {
+		progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Starting scan workflow")
+	}
 
 	// Create batch workflow orchestrator
-	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(gCfg, scannerInstance, baseLogger)
+	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(gCfg, scannerInstance, scanLogger)
 
 	// Execute batch scan
 	batchResult, workflowErr := batchOrchestrator.ExecuteBatchScan(
@@ -409,6 +545,9 @@ func runOnetimeScan(
 		targetSource,
 		scanMode,
 	)
+
+	// Clear active scan session when done
+	setActiveScanSessionID("")
 
 	var summaryData models.ScanSummaryData
 	var reportFilePaths []string
@@ -521,10 +660,17 @@ func runAutomatedScan(
 		return
 	}
 
-	// Set up progress display for monitoring service
+	// Set up progress display for scanner and monitoring service
+	scanner.SetProgressDisplay(progressDisplay)
+	if progressDisplay != nil {
+		progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Scanner ready for automated mode")
+	}
+
 	if monitoringService != nil {
 		monitoringService.SetProgressDisplay(progressDisplay)
-		progressDisplay.SetMonitorStatus(common.ProgressStatusRunning, "Monitoring service active")
+		if progressDisplay != nil {
+			progressDisplay.SetMonitorStatus(common.ProgressStatusRunning, "Monitoring service active")
+		}
 	}
 
 	// Initialize scheduler

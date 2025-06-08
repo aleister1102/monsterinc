@@ -104,11 +104,11 @@ func (s *Scheduler) setRunningState(running bool) bool {
 func (s *Scheduler) resetStopChannel() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Reset stopped state
 	s.isStopped = false
 	s.stopOnce = sync.Once{} // Reset the once
-	
+
 	// Close old channel if it exists and create new one
 	select {
 	case <-s.stopChan:
@@ -117,7 +117,7 @@ func (s *Scheduler) resetStopChannel() {
 		// Channel is open, close it
 		close(s.stopChan)
 	}
-	
+
 	s.stopChan = make(chan struct{})
 }
 

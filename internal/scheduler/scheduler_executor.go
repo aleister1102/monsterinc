@@ -80,6 +80,11 @@ func (s *Scheduler) checkContextError(ctx context.Context) error {
 func (s *Scheduler) runScanner(ctx context.Context) {
 	defer s.wg.Done()
 
+	// Execute first scan immediately on startup
+	s.logger.Info().Msg("Executing initial scan immediately on startup")
+	s.executeScanCycleWithRetries(ctx)
+
+	// Continue with regular scheduled cycles
 	for {
 		if s.shouldStopScanning(ctx) {
 			return
