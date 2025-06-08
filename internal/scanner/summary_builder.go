@@ -51,7 +51,11 @@ func (sb *SummaryBuilder) BuildSummary(input *SummaryInput) models.ScanSummaryDa
 	sb.calculateStats(&summary, input.ProbeResults, input.URLDiffResults)
 
 	// Set timing information
-	summary.ScanDuration = time.Since(input.StartTime)
+	if !input.StartTime.IsZero() {
+		summary.ScanDuration = time.Since(input.StartTime)
+	} else {
+		summary.ScanDuration = 0
+	}
 
 	// Determine status and handle errors
 	sb.determineStatus(&summary, input)
