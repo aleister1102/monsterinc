@@ -28,6 +28,14 @@ func (pdm *ProgressDisplayManager) UpdateScanProgress(current, total int64, stag
 	pdm.scanProgress.Message = message
 	pdm.scanProgress.LastUpdateTime = now
 	pdm.scanProgress.UpdateETA()
+
+	// Immediate display on progress update if significant change
+	if current > 0 && current%1 == 0 { // Show every step
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			pdm.displayProgress()
+		}()
+	}
 }
 
 // UpdateMonitorProgress cập nhật tiến trình monitor
@@ -58,6 +66,12 @@ func (pdm *ProgressDisplayManager) SetScanStatus(status ProgressStatus, message 
 	pdm.scanProgress.Status = status
 	pdm.scanProgress.Message = message
 	pdm.scanProgress.LastUpdateTime = time.Now()
+
+	// Immediate display on status change
+	go func() {
+		time.Sleep(100 * time.Millisecond) // Small delay to ensure lock is released
+		pdm.displayProgress()
+	}()
 }
 
 // SetMonitorStatus đặt trạng thái monitor
@@ -78,6 +92,26 @@ func (pdm *ProgressDisplayManager) UpdateBatchProgress(progressType ProgressType
 	batchInfo := &BatchProgressInfo{
 		CurrentBatch: currentBatch,
 		TotalBatches: totalBatches,
+	}
+
+	if progressType == ProgressTypeScan {
+		pdm.scanProgress.BatchInfo = batchInfo
+	} else {
+		pdm.monitorProgress.BatchInfo = batchInfo
+	}
+}
+
+// UpdateBatchProgressWithURLs cập nhật thông tin batch với URL tracking
+func (pdm *ProgressDisplayManager) UpdateBatchProgressWithURLs(progressType ProgressType, currentBatch, totalBatches, currentBatchURLs, totalURLs, processedURLs int) {
+	pdm.mutex.Lock()
+	defer pdm.mutex.Unlock()
+
+	batchInfo := &BatchProgressInfo{
+		CurrentBatch:     currentBatch,
+		TotalBatches:     totalBatches,
+		CurrentBatchURLs: currentBatchURLs,
+		TotalURLs:        totalURLs,
+		ProcessedURLs:    processedURLs,
 	}
 
 	if progressType == ProgressTypeScan {

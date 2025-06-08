@@ -6,6 +6,18 @@
 # Default: "onetime"
 mode: "onetime"
 
+# Progress Display configuration: Settings for displaying scan progress
+progress_config:
+  # How often to display progress updates (in seconds).
+  # Default: 3
+  display_interval: 3
+  # Whether to enable progress display.
+  # Default: true
+  enable_progress: true
+  # Whether to show ETA estimation in progress display.
+  # Default: true
+  show_eta_estimation: true
+
 # Resource Limiter configuration: Settings for monitoring system resources and auto-shutdown.
 resource_limiter_config:
   # Maximum memory usage for the application in MB before triggering garbage collection.
@@ -112,33 +124,131 @@ httpx_runner_config:
 
 # Crawler configuration: Settings for web crawling.
 crawler_config:
-  # Initial seed URLs to start crawling from. If empty, httpx results might be used as seeds.
-  # Default: []
-  seed_urls:
-    # - https://example.com/startpage
-  # User-Agent string for the crawler.
-  # Default: "MonsterIncCrawler/1.0"
-  user_agent: "MonsterIncCrawler/1.0"
-  # Timeout in seconds for each crawler request.
-  # Default: 20
-  request_timeout_secs: 10
+  # Whether to add seed URL hostnames to allowed scope automatically
+  # Default: true
+  auto_add_seed_hostnames: true
+  # Skip TLS certificate verification
+  # Default: false
+  insecure_skip_tls_verify: false
   # Maximum number of concurrent crawler requests.
   # * Reduce for more results
   # Default: 10
   max_concurrent_requests: 10
-  # Maximum depth to crawl (0 for unlimited, 1 for seed pages only).
+  # Maximum content size (MB) to fetch before HEAD request
+  # Default: 2
+  max_content_length_mb: 2
+  # Maximum crawl depth (0 for unlimited, 1 for seed pages only).
   # Default: 5
   max_depth: 5
-  # Whether to respect robots.txt directives.
-  # Default: true
+  # Timeout in seconds for each crawler request.
+  # Default: 20
+  request_timeout_secs: 10
+  # Whether to respect robots.txt rules
+  # Default: false
   respect_robots_txt: false
+  # URL scope restrictions
+  scope:
+    # Hostnames to exclude from crawling
+    disallowed_hostnames: []
+    # Subdomains to exclude from crawling
+    disallowed_subdomains: []
+    # File extensions to exclude from crawling
+    # Extensions are case-insensitive and should include the dot
+    disallowed_file_extensions:
+      - .css
+      - .png
+      - .jpg
+      - .jpeg
+      - .gif
+      - .ttf
+      - .woff
+      - .svg
+      - .otf
+      - .mp3
+      - .bmp
+      - .woff2
+      - .wav
+      - .mov
+      - .mp4
+      - .m4v
+      - .heic
+      - .ico
+      - .icon
+  # User agent string for crawler requests
+  user_agent: "MonsterIncCrawler/1.0"
 
-  # Whether to skip TLS certificate verification for HTTPS requests.
-  # When enabled, the crawler will accept any certificate, including self-signed or expired ones.
-  # Useful for testing internal sites or sites with certificate issues.
-  # Default: true
-  insecure_skip_tls_verify: true
+  # Auto-calibrate configuration: Settings for detecting and skipping similar URL patterns.
+  auto_calibrate:
+    # Whether auto-calibrate feature is enabled
+    # Default: true
+    enabled: true
+    # Maximum number of similar URLs to allow per pattern before skipping
+    # Default: 1
+    max_similar_urls: 1
+    # Parameters to ignore when detecting similar URL patterns
+    # Default: ["tid", "fid", "page", "id", "p", "offset", "limit"]
+    ignore_parameters:
+      - "tid"
+      - "fid"
+      - "page"
+      - "id"
+      - "p"
+      - "offset"
+      - "limit"
+    # Automatically detect and ignore locale codes in path segments
+    # Default: true
+    auto_detect_locales: true
+    # Custom locale codes to recognize
+    # Default: []
+    custom_locale_codes: []
+    # Enable logging when URLs are skipped due to pattern similarity
+    # Default: false
+    enable_skip_logging: false
 
+  # Headless browser configuration: Settings for dynamic content crawling
+  headless_browser:
+    # Whether headless browser crawling is enabled
+    # Default: false (disabled to avoid antivirus conflicts)
+    enabled: false
+    # Path to Chrome/Chromium executable
+    # Default: ""
+    chrome_path: ""
+    # User data directory for the browser
+    # Default: ""
+    user_data_dir: ""
+    # Browser window width for rendering
+    # Default: 1920
+    window_width: 1920
+    # Browser window height for rendering
+    # Default: 1080
+    window_height: 1080
+    # Page load timeout in seconds
+    # Default: 30
+    page_load_timeout_secs: 60
+    # Additional wait time in milliseconds after page load
+    # Default: 1000
+    wait_after_load_ms: 1000
+    # Whether to disable image loading for faster rendering
+    # Default: true
+    disable_images: true
+    # Whether to disable CSS loading
+    # Default: false
+    disable_css: false
+    # Whether to disable JavaScript execution
+    # Default: false
+    disable_javascript: false
+    # Whether to ignore HTTPS certificate errors
+    # Default: true
+    ignore_https_errors: true
+    # Number of browser instances in the pool
+    # Default: 3
+    pool_size: 3
+    # Additional browser arguments
+    # Default: []
+    browser_args:
+      - "--no-sandbox"
+      - "--disable-dev-shm-usage"
+      - "--disable-gpu"
 
   # URL normalization: Remove duplicate URLs with only fragment or tracking parameter differences.
   # NOTE: URL normalization processing now happens at Scanner level during URL preprocessing (Step 0)
@@ -182,11 +292,7 @@ crawler_config:
     enable_jitter: true
     # HTTP status codes that should trigger retries.
     # Default: [429] (Too Many Requests)
-    retry_status_codes:
-      - 429
-      # - 502  # Bad Gateway (uncomment if needed)
-      # - 503  # Service Unavailable (uncomment if needed)
-      # - 504  # Gateway Timeout (uncomment if needed)
+    retry_status_codes: [429]
 
     # Domain-level rate limiting: Blacklist domains with excessive rate limiting.
     domain_level_rate_limit:
@@ -195,140 +301,13 @@ crawler_config:
       enabled: true
       # Maximum number of 429 errors per domain before blacklisting.
       # Default: 10
-      max_rate_limit_errors: 10
+      max_rate_limit_errors: 3
       # Duration to blacklist domain after hitting max errors (in minutes).
       # Default: 30
       blacklist_duration_mins: 30
       # Clear blacklist after this many hours (cleanup old entries).
       # Default: 6
       blacklist_clear_after_hours: 6
-
-  # Crawler scope configuration: Fine-grained control over what the crawler visits.
-  scope:
-    # List of hostnames the crawler is explicitly allowed from visiting.
-    # Default: []
-    allowed_hostnames:
-      - "heytapimage.com"
-    # List of subdomains the crawler is explicitly allowed from visiting.
-    # Default: []
-    allowed_subdomains:
-      - "hd.oppo.com"
-    # List of hostnames the crawler is explicitly disallowed from visiting.
-    # Default: []
-    disallowed_hostnames:
-      - "oppo.com"
-      # - "internal.example.com"
-    # List of subdomains the crawler is explicitly disallowed from visiting.
-    # Default: []
-    disallowed_subdomains:
-      # - "admin" # disallows admin.example.com
-    # List of file extensions (with dots) that the crawler should not visit.
-    # This uses fast string comparison instead of regex for better performance.
-    # Default: [".js", ".txt", ".css", ".xml"]
-    disallowed_file_extensions:
-      # - ".js"
-      # - ".txt"
-      - ".css" 
-      # - ".xml"
-      # - ".pdf"
-      # - ".zip"
-      # - ".json"
-  # Maximum content length in MB to download for a page.
-  # Default: 2
-  max_content_length_mb: 2
-  # Automatically add seed URL hostnames to allowed hostnames list.
-  # When enabled, hostnames extracted from seed URLs will be automatically
-  # allowed (with highest priority after disallowed rules).
-  # This ensures the crawler can always visit seed domains.
-  # Default: true
-  auto_add_seed_hostnames: true
-
-  # Auto-calibrate configuration: Settings for detecting and skipping similar URL patterns.
-  # NOTE: Auto-calibrate processing now happens at Scanner level during URL preprocessing (Step 0)
-  # before URLs are passed to the crawler. This improves efficiency and deduplication.
-  auto_calibrate:
-    # Whether auto-calibrate feature is enabled.
-    # When enabled, URLs will be preprocessed to detect similar patterns and skip duplicates
-    # during the initial preprocessing step before crawling begins.
-    # Default: true
-    enabled: true
-    # Maximum number of similar URLs to allow per pattern before skipping.
-    # For example, if set to 1, only the first URL of each pattern will be processed.
-    # Default: 1
-    max_similar_urls: 1
-    # Parameters to ignore when detecting similar URL patterns.
-    # URLs that differ only in these parameters will be considered the same pattern.
-    # Default: ["tid", "fid", "page", "id", "p", "offset", "limit"]
-    ignore_parameters:
-      - "tid"    # Thread ID
-      - "fid"    # Forum ID  
-      - "page"   # Page number
-      - "id"     # Generic ID
-      - "p"      # Page shorthand
-      - "offset" # Pagination offset
-      - "limit"  # Pagination limit
-    # Automatically detect and ignore locale codes in path segments
-    # When enabled, path segments that look like locale codes (e.g., /en/, /fr/, /de/)
-    # will be replaced with wildcards for pattern matching during preprocessing
-    # Default: true
-    auto_detect_locales: true
-    # Custom locale codes to recognize (in addition to built-in ISO codes)
-    # Default: []
-    custom_locale_codes: []
-    # Enable logging when URLs are skipped due to pattern similarity during preprocessing.
-    # Default: true
-    enable_skip_logging: true
-
-  # Headless browser configuration: Settings for using headless browser for dynamic content crawling.
-  # WARNING: On Windows, antivirus software may block the browser automation tools.
-  # If you encounter errors with "leakless.exe" or "virus/potentially unwanted software",
-  # the crawler will automatically fall back to traditional crawling.
-  headless_browser:
-    # Whether headless browser crawling is enabled.
-    # When enabled, the crawler will use a headless browser to render JavaScript-heavy pages.
-    # Default: false (disabled by default to avoid antivirus conflicts)
-    # ! Can be slow
-    enabled: false
-    # Path to Chrome/Chromium executable. If empty, the system default will be used.
-    # Default: ""
-    chrome_path: ""
-    # User data directory for the browser. If empty, a temporary directory will be used.
-    # Default: ""
-    user_data_dir: ""
-    # Browser window width for rendering.
-    # Default: 1920
-    window_width: 1920
-    # Browser window height for rendering.
-    # Default: 1080
-    window_height: 1080
-    # Page load timeout in seconds.
-    # Default: 30
-    page_load_timeout_secs: 60
-    # Additional wait time in milliseconds after page load.
-    # Default: 1000
-    wait_after_load_ms: 5000
-    # Whether to disable image loading for faster rendering.
-    # Default: true
-    disable_images: true
-    # Whether to disable CSS loading.
-    # Default: false
-    disable_css: true
-    # Whether to disable JavaScript execution.
-    # Default: false
-    disable_javascript: false
-    # Whether to ignore HTTPS certificate errors.
-    # Default: true
-    ignore_https_errors: true
-    # Number of browser instances in the pool.
-    # * Increase for reducing errors when running multiple crawling goroutines
-    # Default: 3
-    pool_size: 3
-    # Additional browser arguments.
-    # Default: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
-    browser_args:
-      - "--no-sandbox"
-      - "--disable-dev-shm-usage"
-      - "--disable-gpu"
 
 # Reporter configuration: Settings for generating HTML reports.
 reporter_config:
@@ -384,13 +363,13 @@ notification_config:
     # - "123456789012345678" # Example Role ID
   # Send a notification when a scan completes successfully.
   # Default: false
-  notify_on_success: true
+  notify_on_success: false
   # Send a notification when a scan fails.
   # Default: true
-  notify_on_failure: true
+  notify_on_failure: false
   # Send a notification when a scan starts.
   # Default: false
-  notify_on_scan_start: true
+  notify_on_scan_start: false
   # Send a notification on critical errors during the application run.
   # Default: true
   notify_on_critical_error: true
@@ -411,7 +390,7 @@ log_config:
   # "fatal": A severe error that will prevent the application from continuing. After logging, the application will exit.
   # "panic": Similar to fatal, but also initiates a panic.
   # Default: "info"
-  log_level: "debug"
+  log_level: "info"
 
   # Log output format.
   # Valid formats: "console", "json", "text".
@@ -466,17 +445,17 @@ diff_reporter_config:
 monitor_config:
   # Whether the monitoring feature is enabled.
   # Default: false
-  enabled: true
+  enabled: false
   # Interval in seconds for how often to check monitored files.
   # Default: 3600 (1 hour)
-  check_interval_seconds: 180
+  check_interval_seconds: 3600 # 24 hours
   # Maximum number of concurrent checks for monitored files.
   # Default: 5
   max_concurrent_checks: 5
   # Whether to store the full content of a file when a change is detected.
   # If false, only hash/metadata might be stored.
   # Default: false
-  store_full_content_on_change: true
+  store_full_content_on_change: false
   # Timeout in seconds for HTTP requests made by the monitor.
   # Default: 30
   http_timeout_seconds: 30
@@ -499,23 +478,16 @@ monitor_config:
     - ".html"
     - ".htm"
 
-  # Aggregation settings for monitor notifications (file changes and errors)
-
-
-  # Maximum number of diff results to include in a single HTML diff report file.
-  # If the total number of diff results exceeds this value, the report will be split into multiple files.
-  # A value of 0 means no limit (all results in one file). Default: 500
-  max_diff_results_per_report_file: 500
 
 
 # Scheduler configuration: Settings for automated periodic scans (when mode is "automated").
 scheduler_config:
   # Scan cycle interval in minutes. The time between the end of one scan and the start of the next.
   # Default: 10080 (equivalent to 7 days)
-  cycle_minutes: 3
+  cycle_minutes: 10080
   # Number of retry attempts if a scheduled scan fails.
   # Default: 2
-  retry_attempts: 1
+  retry_attempts: 2
   # Path to the SQLite database file used for storing scan history.
   # Default: "database/scheduler/scheduler_history.db"
   sqlite_db_path: "database/scheduler/scheduler_history.db"
@@ -527,19 +499,17 @@ scan_batch_config:
   # Default: 200 (larger than monitor due to typically faster processing)
   batch_size: 200
   # Maximum number of concurrent scan batches to process at the same time.
-  # Set to 0 to auto-calculate based on crawler threads (50% of threads, min 1, max 8).
-  # Override with specific value if needed.
-  # Default: 0 (auto-calculated)
-  max_concurrent_batch: 0
+  # Set to 2 for parallel processing of scan batches (scan service can handle more concurrency).
+  # Default: 1 (sequential processing)
+  max_concurrent_batch: 1
   # Timeout for each scan batch processing in minutes.
   # If a batch takes longer than this, it will be cancelled.
   # Default: 45 (longer timeout for complex scanning operations)
   batch_timeout_mins: 45
   # Minimum number of targets in input file to trigger batch processing.
   # Files with fewer targets than this will be processed normally without batching.
-  # For example, if set to 1000, files with 2500 targets will create 13 batches of 200 targets each.
-  # Default: 1000
-  threshold_size: 1000
+  # Default: 500 (larger threshold due to higher processing capacity)
+  threshold_size: 500
 
 # Monitor Batch configuration: Settings for processing large monitor target files in batches.
 monitor_batch_config:
@@ -548,10 +518,9 @@ monitor_batch_config:
   # Default: 50 (smaller than scan due to more intensive monitoring operations)
   batch_size: 50
   # Maximum number of concurrent monitor batches to process at the same time.
-  # Set to 0 to auto-calculate based on monitor workers (50% of workers, min 1, max 4).
-  # Override with specific value if needed.
-  # Default: 0 (auto-calculated)
-  max_concurrent_batch: 0
+  # Set to 1 for sequential processing (recommended for monitoring stability).
+  # Default: 1
+  max_concurrent_batch: 1
   # Timeout for each monitor batch processing in minutes.
   # If a batch takes longer than this, it will be cancelled.
   # Default: 20 (shorter timeout for monitoring operations)

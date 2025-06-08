@@ -2,12 +2,18 @@ package common
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 )
+
+// ProgressDisplayConfig chứa cấu hình cho progress display
+type ProgressDisplayConfig struct {
+	DisplayInterval   time.Duration
+	EnableProgress    bool
+	ShowETAEstimation bool
+}
 
 // ProgressDisplayManager quản lý hiển thị tiến trình
 type ProgressDisplayManager struct {
@@ -21,11 +27,21 @@ type ProgressDisplayManager struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	lastDisplayed   string // Track last displayed content to avoid duplicates
+	config          *ProgressDisplayConfig
 }
 
 // NewProgressDisplayManager tạo progress display manager mới
-func NewProgressDisplayManager(logger zerolog.Logger) *ProgressDisplayManager {
+func NewProgressDisplayManager(logger zerolog.Logger, config *ProgressDisplayConfig) *ProgressDisplayManager {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Use default config if nil
+	if config == nil {
+		config = &ProgressDisplayConfig{
+			DisplayInterval:   3 * time.Second,
+			EnableProgress:    true,
+			ShowETAEstimation: true,
+		}
+	}
 
 	return &ProgressDisplayManager{
 		scanProgress: &ProgressInfo{
@@ -40,6 +56,7 @@ func NewProgressDisplayManager(logger zerolog.Logger) *ProgressDisplayManager {
 		stopChan: make(chan struct{}),
 		ctx:      ctx,
 		cancel:   cancel,
+		config:   config,
 	}
 }
 
@@ -52,8 +69,14 @@ func (pdm *ProgressDisplayManager) Start() {
 		return
 	}
 
+	// Check if progress is enabled
+	if !pdm.config.EnableProgress {
+		pdm.logger.Debug().Msg("Progress display disabled in configuration")
+		return
+	}
+
 	pdm.isRunning = true
-	pdm.displayTicker = time.NewTicker(3 * time.Second) // Tăng thời gian update lên 3 giây để giảm spam
+	pdm.displayTicker = time.NewTicker(pdm.config.DisplayInterval)
 
 	go pdm.displayLoop()
 }
@@ -73,9 +96,6 @@ func (pdm *ProgressDisplayManager) Stop() {
 	if pdm.displayTicker != nil {
 		pdm.displayTicker.Stop()
 	}
-
-	// Clear the progress line and move cursor to new line
-	fmt.Print("\r\033[K\n")
 
 	close(pdm.stopChan)
 }
