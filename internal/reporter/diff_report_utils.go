@@ -88,8 +88,9 @@ func (r *HtmlDiffReporter) checkFileSizeAndSplit(filePath string, displayResults
 
 	// Split results into smaller chunks based on estimated size per result
 	avgSizePerResult := fileInfo.Size() / int64(len(displayResults))
-	// Apply 75% safety margin to the Discord limit
-	safeDiscordLimit := int64(float64(maxDiscordFileSize) * 0.75)
+
+	// Use more aggressive safety margin (50%) due to HTML template overhead
+	safeDiscordLimit := int64(float64(maxDiscordFileSize) * 0.50)
 	maxResultsPerFile := int(safeDiscordLimit / avgSizePerResult)
 
 	if maxResultsPerFile <= 0 {
@@ -102,33 +103,99 @@ func (r *HtmlDiffReporter) checkFileSizeAndSplit(filePath string, displayResults
 		Int64("safe_discord_limit", safeDiscordLimit).
 		Msg("Calculated split parameters for oversized report")
 
-	// Generate chunked reports
-	totalChunks := (len(displayResults) + maxResultsPerFile - 1) / maxResultsPerFile
+	// Generate chunked reports with iterative splitting if needed
+	return r.generateChunkedReportsWithSizeCheck(displayResults, cycleID, maxResultsPerFile)
+}
+
+// generateChunkedReportsWithSizeCheck generates chunked reports and checks each file size
+func (r *HtmlDiffReporter) generateChunkedReportsWithSizeCheck(displayResults []models.DiffResultDisplay, cycleID string, initialMaxResults int) ([]string, error) {
+	const maxDiscordFileSize = 10 * 1024 * 1024 // 10MB in bytes
 	var allOutputPaths []string
 
-	for i := range totalChunks {
-		start := i * maxResultsPerFile
-		end := start + maxResultsPerFile
-		if end > len(displayResults) {
-			end = len(displayResults)
+	maxResultsPerFile := initialMaxResults
+	remainingResults := displayResults
+	partNum := 1
+
+	for len(remainingResults) > 0 {
+		// Determine chunk size for this iteration
+		chunkSize := maxResultsPerFile
+		if chunkSize > len(remainingResults) {
+			chunkSize = len(remainingResults)
 		}
 
-		chunk := displayResults[start:end]
-		partInfo := fmt.Sprintf("Part %d of %d", i+1, totalChunks)
+		chunk := remainingResults[:chunkSize]
+		partInfo := fmt.Sprintf("Part %d", partNum) // Will update total later
 
 		pageData := r.createAggregatedPageData(chunk, partInfo)
-		outputPath := r.buildOutputPath(cycleID, i+1, totalChunks, true)
+		outputPath := r.buildOutputPath(cycleID, partNum, 999, true) // Use 999 as placeholder
 
 		if err := r.directoryMgr.EnsureOutputDirectories(filepath.Dir(outputPath)); err != nil {
-			return allOutputPaths, fmt.Errorf("failed to ensure output directory for chunk %d: %w", i+1, err)
+			return allOutputPaths, fmt.Errorf("failed to ensure output directory for chunk %d: %w", partNum, err)
 		}
 
 		reportPath, err := r.writeReportToFile(pageData, outputPath)
 		if err != nil {
-			return allOutputPaths, fmt.Errorf("failed to write chunk %d: %w", i+1, err)
+			return allOutputPaths, fmt.Errorf("failed to write chunk %d: %w", partNum, err)
 		}
 
+		// Check file size after generation
+		fileInfo, err := os.Stat(reportPath)
+		if err != nil {
+			return allOutputPaths, fmt.Errorf("failed to check size of generated file %s: %w", reportPath, err)
+		}
+
+		if fileInfo.Size() > maxDiscordFileSize {
+			// File is still too big, split further
+			r.logger.Warn().
+				Str("file_path", reportPath).
+				Float64("file_size_mb", float64(fileInfo.Size())/(1024*1024)).
+				Int("chunk_size", chunkSize).
+				Msg("Generated file still exceeds limit, splitting further")
+
+			// Remove the oversized file
+			if err := os.Remove(reportPath); err != nil {
+				r.logger.Warn().Err(err).Str("file_path", reportPath).Msg("Failed to remove oversized chunk")
+			}
+
+			// Reduce chunk size significantly and try again
+			newMaxResults := chunkSize / 2
+			if newMaxResults < 1 {
+				newMaxResults = 1
+			}
+
+			r.logger.Info().
+				Int("old_chunk_size", chunkSize).
+				Int("new_chunk_size", newMaxResults).
+				Msg("Reducing chunk size for next iteration")
+
+			maxResultsPerFile = newMaxResults
+			continue // Retry with smaller chunk
+		}
+
+		// File size is acceptable
 		allOutputPaths = append(allOutputPaths, reportPath)
+		remainingResults = remainingResults[chunkSize:]
+		partNum++
+
+		r.logger.Info().
+			Str("report_path", reportPath).
+			Float64("file_size_mb", float64(fileInfo.Size())/(1024*1024)).
+			Int("chunk_size", chunkSize).
+			Int("remaining_results", len(remainingResults)).
+			Msg("Successfully generated report chunk within size limit")
+	}
+
+	// Update part info in filenames to reflect actual total
+	totalParts := len(allOutputPaths)
+	for i, oldPath := range allOutputPaths {
+		newPath := r.buildOutputPath(cycleID, i+1, totalParts, true)
+		if oldPath != newPath {
+			if err := os.Rename(oldPath, newPath); err != nil {
+				r.logger.Warn().Err(err).Str("old_path", oldPath).Str("new_path", newPath).Msg("Failed to rename report file")
+			} else {
+				allOutputPaths[i] = newPath
+			}
+		}
 	}
 
 	return allOutputPaths, nil
