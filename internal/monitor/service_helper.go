@@ -29,15 +29,16 @@ func (s *MonitoringService) handleCheckResult(url string, result LegacyCheckResu
 func (s *MonitoringService) generateAndSendCycleReport(monitoredURLs, changedURLs []string, cycleID string) {
 	var reportPaths []string
 
-	// Always try to generate report if reporter is available (even if no changes)
-	if s.urlChecker.htmlDiffReporter != nil {
+	// Only generate report if there are changes or if we need to track new URLs
+	if s.urlChecker.htmlDiffReporter != nil && len(changedURLs) > 0 {
 		s.logger.Info().
 			Int("monitored_urls", len(monitoredURLs)).
 			Int("changed_urls", len(changedURLs)).
 			Str("cycle_id", cycleID).
-			Msg("Generating aggregated HTML diff report for monitored URLs")
+			Msg("Generating HTML diff report for changed URLs only")
 
-		generatedReportPaths, err := s.urlChecker.htmlDiffReporter.GenerateDiffReport(monitoredURLs, cycleID)
+		// Generate report only for URLs that have changes - this will significantly reduce file size
+		generatedReportPaths, err := s.urlChecker.htmlDiffReporter.GenerateDiffReport(changedURLs, cycleID)
 		if err != nil {
 			s.logger.Error().Err(err).Msg("Failed to generate cycle end diff report")
 		} else if len(generatedReportPaths) > 0 {
@@ -46,12 +47,13 @@ func (s *MonitoringService) generateAndSendCycleReport(monitoredURLs, changedURL
 			s.logger.Info().
 				Str("main_report_path", reportPaths[0]).
 				Int("total_reports", len(reportPaths)).
-				Msg("Successfully generated HTML diff report")
+				Int("changed_urls_reported", len(changedURLs)).
+				Msg("Successfully generated HTML diff report for changed URLs")
 		}
-
-		if len(changedURLs) == 0 {
-			s.logger.Info().Int("monitored_count", len(monitoredURLs)).Msg("No changes detected - report generated but shows no differences")
-		}
+	} else if s.urlChecker.htmlDiffReporter != nil {
+		s.logger.Info().
+			Int("monitored_count", len(monitoredURLs)).
+			Msg("No changes detected - skipping report generation to save resources")
 	} else {
 		s.logger.Warn().Msg("HtmlDiffReporter is not available, sending notification without report")
 	}

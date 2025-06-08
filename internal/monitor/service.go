@@ -160,6 +160,34 @@ func (s *MonitoringService) GetCurrentlyMonitorUrls() []string {
 	return s.urlManager.GetCurrentURLs()
 }
 
+// GetCurrentProgress returns current monitoring progress
+func (s *MonitoringService) GetCurrentProgress() (processedTargets, totalTargets int) {
+	if s.progressDisplay == nil {
+		return 0, len(s.urlManager.GetCurrentURLs())
+	}
+
+	// Get monitor progress from progress display
+	monitorProgress := s.progressDisplay.GetMonitorProgress()
+	if monitorProgress == nil {
+		return 0, len(s.urlManager.GetCurrentURLs())
+	}
+
+	// If monitor info is available, use processed URLs count
+	if monitorProgress.MonitorInfo != nil {
+		processedTargets = monitorProgress.MonitorInfo.ProcessedURLs + monitorProgress.MonitorInfo.FailedURLs
+	} else {
+		// Fallback to progress current count
+		processedTargets = int(monitorProgress.Current)
+	}
+
+	totalTargets = int(monitorProgress.Total)
+	if totalTargets == 0 {
+		totalTargets = len(s.urlManager.GetCurrentURLs())
+	}
+
+	return processedTargets, totalTargets
+}
+
 // Preload adds multiple URLs to the monitored list
 func (s *MonitoringService) Preload(initialURLs []string) {
 	s.urlManager.PreloadURLs(initialURLs)

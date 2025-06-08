@@ -82,9 +82,12 @@ func (r *HtmlDiffReporter) fetchLatestDiffResults(monitoredURLs []string) (map[s
 // processDiffResults processes diff results into display format
 func (r *HtmlDiffReporter) processDiffResults(latestDiffsMap map[string]*models.ContentDiffResult) []models.DiffResultDisplay {
 	var diffResultsDisplay []models.DiffResultDisplay
+	skippedIdentical := 0
 
 	for url, diffResult := range latestDiffsMap {
+		// Skip URLs that have no changes (identical content)
 		if diffResult == nil || diffResult.IsIdentical {
+			skippedIdentical++
 			continue
 		}
 
@@ -95,11 +98,11 @@ func (r *HtmlDiffReporter) processDiffResults(latestDiffsMap map[string]*models.
 			summary = r.diffUtils.CreateDiffSummary(diffResult.Diffs)
 			diffHTML = r.diffUtils.GenerateDiffHTML(diffResult.Diffs)
 		} else if diffResult.OldHash == "" {
-			// New empty file case
-			summary = "New empty file detected"
-			diffHTML = template.HTML("<div class='new-file-notice'>✨ This is a newly discovered empty file.</div>")
+			// New file case (first time monitoring this URL)
+			summary = "New file detected"
+			diffHTML = template.HTML("<div class='new-file-notice'>✨ This is a newly discovered file.</div>")
 		} else {
-			// Other cases where no diffs available
+			// Other cases where no diffs available but changes detected
 			summary = "Changes detected but no diff available"
 			diffHTML = template.HTML("<div class='no-diff-notice'>⚠️ Changes were detected but diff information is not available.</div>")
 		}
@@ -124,6 +127,12 @@ func (r *HtmlDiffReporter) processDiffResults(latestDiffsMap map[string]*models.
 	sort.Slice(diffResultsDisplay, func(i, j int) bool {
 		return diffResultsDisplay[i].URL < diffResultsDisplay[j].URL
 	})
+
+	r.logger.Info().
+		Int("total_diff_results", len(latestDiffsMap)).
+		Int("changed_urls_included", len(diffResultsDisplay)).
+		Int("identical_urls_skipped", skippedIdentical).
+		Msg("Processed diff results - including only URLs with changes or new URLs")
 
 	return diffResultsDisplay
 }

@@ -83,27 +83,31 @@ func (r *HtmlDiffReporter) checkFileSizeAndSplit(filePath string, displayResults
 
 	// Remove the original oversized file
 	if err := os.Remove(filePath); err != nil {
-		r.logger.Warn().Err(err).Str("file_path", filePath).Msg("Failed to remove oversized report file")
+		r.logger.Warn().Err(err).Str("file_path", filePath).Msg("Failed to remove oversized file")
 	}
 
-	// Split results into smaller chunks based on estimated size per result
+	// Calculate split parameters with very conservative 25% safety margin
 	avgSizePerResult := fileInfo.Size() / int64(len(displayResults))
 
-	// Use more aggressive safety margin (50%) due to HTML template overhead
-	safeDiscordLimit := int64(float64(maxDiscordFileSize) * 0.50)
+	// Use very conservative 25% of Discord limit to account for HTML overhead and variance
+	safeDiscordLimit := int64(float64(maxDiscordFileSize) * 0.25)
 	maxResultsPerFile := int(safeDiscordLimit / avgSizePerResult)
 
-	if maxResultsPerFile <= 0 {
-		maxResultsPerFile = 1 // Ensure at least 1 result per file
+	// Ensure minimum viable split (at least 1 result per file, max 10 results for very large files)
+	if maxResultsPerFile < 1 {
+		maxResultsPerFile = 1
+	} else if maxResultsPerFile > 10 && avgSizePerResult > 500*1024 { // If avg > 500KB, limit to 10 items
+		maxResultsPerFile = 10
 	}
 
 	r.logger.Info().
-		Int("avg_size_per_result", int(avgSizePerResult)).
+		Int64("avg_size_per_result", avgSizePerResult).
+		Int64("safe_limit_bytes", safeDiscordLimit).
 		Int("max_results_per_file", maxResultsPerFile).
-		Int64("safe_discord_limit", safeDiscordLimit).
-		Msg("Calculated split parameters for oversized report")
+		Int("total_results", len(displayResults)).
+		Msg("Calculated file splitting parameters with 25% safety margin")
 
-	// Generate chunked reports with iterative splitting if needed
+	// Generate chunked reports with iterative size checking and aggressive splitting
 	return r.generateChunkedReportsWithSizeCheck(displayResults, cycleID, maxResultsPerFile)
 }
 
@@ -157,8 +161,8 @@ func (r *HtmlDiffReporter) generateChunkedReportsWithSizeCheck(displayResults []
 				r.logger.Warn().Err(err).Str("file_path", reportPath).Msg("Failed to remove oversized chunk")
 			}
 
-			// Reduce chunk size significantly and try again
-			newMaxResults := chunkSize / 2
+			// Reduce chunk size very aggressively and try again
+			newMaxResults := chunkSize / 3 // More aggressive than /2
 			if newMaxResults < 1 {
 				newMaxResults = 1
 			}

@@ -99,3 +99,13 @@ func (pdm *ProgressDisplayManager) Stop() {
 
 	close(pdm.stopChan)
 }
+
+// GetMonitorProgress returns a copy of current monitor progress info
+func (pdm *ProgressDisplayManager) GetMonitorProgress() *ProgressInfo {
+	pdm.mutex.RLock()
+	defer pdm.mutex.RUnlock()
+
+	// Return a copy to avoid race conditions
+	progressCopy := *pdm.monitorProgress
+	return &progressCopy
+}

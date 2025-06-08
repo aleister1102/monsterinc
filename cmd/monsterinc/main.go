@@ -381,16 +381,23 @@ func setupSignalHandling(
 					currentCycleID = monitoringService.GenerateNewCycleID() // Create new cycle ID if none exists
 				}
 
+				// Get actual progress from monitoring service instead of hardcoded 0
+				processedTargets, totalTargets := monitoringService.GetCurrentProgress()
+
 				interruptData := models.MonitorInterruptData{
 					CycleID:          currentCycleID,
-					TotalTargets:     len(currentURLs),
-					ProcessedTargets: 0, // We don't know how many were processed before interrupt
+					TotalTargets:     totalTargets,
+					ProcessedTargets: processedTargets,
 					Timestamp:        time.Now(),
 					Reason:           "user_signal",
 					LastActivity:     fmt.Sprintf("Monitor service interrupted by user signal (%s)", sig.String()),
 				}
 
-				zLogger.Info().Str("cycle_id", currentCycleID).Int("monitored_urls", len(currentURLs)).Msg("Sending monitor interrupt notification for active monitoring")
+				zLogger.Info().
+					Str("cycle_id", currentCycleID).
+					Int("total_targets", totalTargets).
+					Int("processed_targets", processedTargets).
+					Msg("Sending monitor interrupt notification for active monitoring")
 				notificationHelper.SendMonitorInterruptNotification(notificationCtx, interruptData)
 				notificationSent = true
 			}
