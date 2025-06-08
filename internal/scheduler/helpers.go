@@ -8,9 +8,6 @@ const (
 	// DefaultRetryDelay is the default delay between retry attempts
 	DefaultRetryDelay = 5 * time.Minute
 
-	// DefaultWorkerCount is the default number of monitor workers
-	DefaultWorkerCount = 1
-
 	// ScanStatusStarted represents a started scan
 	ScanStatusStarted = "STARTED"
 

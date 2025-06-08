@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/monitor"
@@ -30,12 +29,9 @@ type Scheduler struct {
 	stopChan           chan struct{}
 	wg                 sync.WaitGroup
 	isRunning          bool
+	isStopped          bool
 	mu                 sync.Mutex
-
-	// Monitor worker coordination
-	monitorWorkerChan chan MonitorJob
-	monitorWorkerWG   sync.WaitGroup
-	monitorTicker     *time.Ticker
+	stopOnce           sync.Once
 }
 
 // NewScheduler creates a new Scheduler instance
@@ -93,6 +89,10 @@ func (s *Scheduler) setRunningState(running bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.isStopped {
+		return false
+	}
+
 	if running && s.isRunning {
 		return false
 	}
@@ -102,25 +102,56 @@ func (s *Scheduler) setRunningState(running bool) bool {
 
 // resetStopChannel resets the stop channel
 func (s *Scheduler) resetStopChannel() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	// Reset stopped state
+	s.isStopped = false
+	s.stopOnce = sync.Once{} // Reset the once
+	
+	// Close old channel if it exists and create new one
+	select {
+	case <-s.stopChan:
+		// Channel already closed or empty
+	default:
+		// Channel is open, close it
+		close(s.stopChan)
+	}
+	
 	s.stopChan = make(chan struct{})
 }
 
 // Stop gracefully stops the scheduler
 func (s *Scheduler) Stop() {
-	s.logger.Info().Msg("Stopping scheduler...")
+	s.stopOnce.Do(func() {
+		s.logger.Info().Msg("Stopping scheduler...")
 
-	// Signal all goroutines to stop
-	close(s.stopChan)
-
-	// Wait for all goroutines to finish
-	s.wg.Wait()
-
-	// Close database connection
-	if s.db != nil {
-		if err := s.db.Close(); err != nil {
-			s.logger.Error().Err(err).Msg("Error closing scheduler database")
+		s.mu.Lock()
+		if s.isStopped {
+			s.mu.Unlock()
+			return
 		}
-	}
+		s.isStopped = true
+		s.mu.Unlock()
 
-	s.logger.Info().Msg("Scheduler stopped")
+		// Signal all goroutines to stop
+		select {
+		case <-s.stopChan:
+			// Channel already closed
+		default:
+			close(s.stopChan)
+		}
+
+		// Wait for all goroutines to finish
+		s.wg.Wait()
+
+		// Close database connection
+		if s.db != nil {
+			if err := s.db.Close(); err != nil {
+				s.logger.Error().Err(err).Msg("Error closing scheduler database")
+			}
+		}
+
+		s.logger.Info().Msg("Scheduler stopped")
+	})
 }
