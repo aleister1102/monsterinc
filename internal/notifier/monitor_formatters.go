@@ -310,7 +310,7 @@ func buildCycleCompleteEmbed(description string, data models.MonitorCycleComplet
 
 	addCycleBatchStatsField(embedBuilder, data.BatchStats)
 	addChangedURLsSummaryField(embedBuilder, data.ChangedURLs)
-	addCycleReportField(embedBuilder, data.ReportPath)
+	addCycleReportsField(embedBuilder, data.ReportPaths)
 
 	return embedBuilder.Build()
 }
@@ -341,12 +341,18 @@ func addChangedURLsSummaryField(embedBuilder *DiscordEmbedBuilder, changedURLs [
 	}
 }
 
-// addCycleReportField adds cycle report field if available
-func addCycleReportField(embedBuilder *DiscordEmbedBuilder, reportPath string) {
-	if reportPath != "" {
+// addCycleReportsField adds cycle reports field if available
+func addCycleReportsField(embedBuilder *DiscordEmbedBuilder, reportPaths []string) {
+	if len(reportPaths) == 0 {
+		embedBuilder.AddField("📄 Report", "No changes detected - no report generated.", false)
+	} else if len(reportPaths) == 1 {
 		embedBuilder.AddField("📄 Report", "Cycle report is attached below.", false)
 	} else {
-		embedBuilder.AddField("📄 Report", "No changes detected - no report generated.", false)
+		reportText := fmt.Sprintf("Cycle reports (%d parts) are attached below.", len(reportPaths))
+		if len(reportPaths) > 2 {
+			reportText += "\n*Note: Report was split into multiple files to comply with Discord's 10MB file size limit.*"
+		}
+		embedBuilder.AddField("📄 Reports", reportText, false)
 	}
 }
 

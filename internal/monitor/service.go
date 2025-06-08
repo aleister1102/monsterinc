@@ -133,6 +133,14 @@ func NewMonitoringService(
 	// Set shutdown callback for resource limiter
 	resourceLimiter.SetShutdownCallback(func() {
 		instanceLogger.Warn().Msg("Resource limiter triggered graceful shutdown")
+
+		// Send interrupt notification before shutdown
+		cycleID := service.cycleTracker.GetCurrentCycleID()
+		if cycleID != "" && service.notificationHelper != nil {
+			currentURLs := service.urlManager.GetCurrentURLs()
+			service.sendMonitorInterruptNotification(context.Background(), cycleID, len(currentURLs), 0, "resource_limit", "Monitor service interrupted due to resource limits exceeded")
+		}
+
 		service.Stop()
 	})
 
@@ -179,12 +187,6 @@ func (s *MonitoringService) CheckURL(url string) {
 		return
 	}
 
-	// Update progress display
-	if s.progressDisplay != nil {
-		currentURLs := s.urlManager.GetCurrentURLs()
-		s.progressDisplay.UpdateMonitorProgress(1, int64(len(currentURLs)), "Checking", fmt.Sprintf("Checking %s", url))
-	}
-
 	if s.serviceCtx != nil {
 		select {
 		case <-s.serviceCtx.Done():
@@ -199,30 +201,23 @@ func (s *MonitoringService) CheckURL(url string) {
 		s.logger.Warn().Err(err).Str("url", url).Msg("Memory limit exceeded, triggering GC")
 		s.resourceLimiter.ForceGC()
 
-		// Recheck after GC
+		// Check again after GC
 		if err := s.resourceLimiter.CheckMemoryLimit(); err != nil {
 			s.logger.Error().Err(err).Str("url", url).Msg("Memory limit still exceeded after GC, skipping URL")
 			return
 		}
 	}
 
-	if err := s.resourceLimiter.CheckGoroutineLimit(); err != nil {
-		s.logger.Warn().Err(err).Str("url", url).Msg("Goroutine limit exceeded, skipping URL")
-		return
-	}
+	// Process URL using the URLChecker with current cycle ID
+	cycleID := s.cycleTracker.GetCurrentCycleID()
+	urlCheckResult := s.urlChecker.CheckURLWithContext(s.serviceCtx, url, cycleID)
 
-	// Check again after acquiring mutex
-	if s.serviceCtx != nil {
-		select {
-		case <-s.serviceCtx.Done():
-			s.logger.Debug().Str("url", url).Msg("URL check cancelled after acquiring mutex")
-			return
-		default:
+	// Handle result - reduced logging for performance
+	if !urlCheckResult.Success {
+		if urlCheckResult.ErrorInfo != nil {
+			s.logger.Debug().Str("url", url).Str("error", urlCheckResult.ErrorInfo.Error).Msg("URL check failed")
 		}
 	}
-
-	result := s.performURLCheck(url)
-	s.handleCheckResult(url, result)
 }
 
 // TriggerCycleEndReport triggers the end-of-cycle report generation
@@ -238,23 +233,15 @@ func (s *MonitoringService) TriggerCycleEndReport() {
 	s.cycleTracker.ClearChangedURLs()
 }
 
-// ExecuteBatchMonitoring executes monitoring for URLs using batch processing with memory optimization
+// ExecuteBatchMonitoring executes batch monitoring from file input
 func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFile string) error {
-	s.logger.Info().Str("input_file", inputFile).Msg("Starting batch monitoring execution")
+	s.updateServiceContext(ctx)
 
-	// Check resource limits before starting batch processing
+	// Optimized memory check - no logging for successful checks
 	if err := s.resourceLimiter.CheckMemoryLimit(); err != nil {
 		s.logger.Warn().Err(err).Msg("Memory limit near threshold, triggering GC before batch processing")
 		s.resourceLimiter.ForceGC()
 	}
-
-	// Get resource usage before processing
-	resourceUsageBefore := s.resourceLimiter.GetResourceUsage()
-	s.logger.Info().
-		Int64("memory_mb", resourceUsageBefore.AllocMB).
-		Int("goroutines", resourceUsageBefore.Goroutines).
-		Float64("system_mem_percent", resourceUsageBefore.SystemMemUsedPercent).
-		Msg("Resource usage before batch monitoring")
 
 	// Load URLs using batch URL manager
 	batchTracker, err := s.batchURLManager.LoadURLsInBatches(ctx, inputFile)
@@ -266,12 +253,12 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 	totalProcessed := 0
 	totalFailed := 0
 	totalURLs := len(batchTracker.AllURLs)
+	var allChangedURLs []string // Track all changed URLs across batches
 
-	// Update progress display with batch info
+	// Start progress display for monitoring
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateMonitorProgress(0, int64(totalURLs), "Batch", fmt.Sprintf("Starting batch monitoring of %d URLs", totalURLs))
-		s.progressDisplay.UpdateBatchProgress(common.ProgressTypeMonitor, 0, batchTracker.TotalBatches)
-		s.progressDisplay.UpdateMonitorStats(0, 0, 0)
+		s.progressDisplay.UpdateMonitorProgress(0, int64(totalURLs), "Starting", "Initializing batch monitoring")
+		s.progressDisplay.UpdateBatchProgressWithURLs(common.ProgressTypeMonitor, 0, batchTracker.TotalBatches, 0, totalURLs, 0)
 	}
 
 	// Process URLs in batches with memory optimization
@@ -281,20 +268,30 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 			break
 		}
 
+		// Update progress display for current batch
+		if s.progressDisplay != nil {
+			currentCompleted := totalProcessed + totalFailed
+			s.progressDisplay.UpdateMonitorProgress(int64(currentCompleted), int64(totalURLs), "Processing", fmt.Sprintf("Batch %d/%d", batchTracker.CurrentBatch, batchTracker.TotalBatches))
+			s.progressDisplay.UpdateBatchProgressWithURLs(common.ProgressTypeMonitor, batchTracker.CurrentBatch, batchTracker.TotalBatches, len(batch), totalURLs, currentCompleted)
+			s.progressDisplay.UpdateMonitorStats(totalProcessed, totalFailed, len(allChangedURLs))
+		}
+
 		// Use optimized URL slice from pool
 		urlSlice := s.stringSlicePool.Get()
 		urlSlice = append(urlSlice, batch...)
 
-		// Execute batch monitoring with memory monitoring
+		// Execute batch monitoring with progress callback for display updates
 		progressCallback := func(batchProcessed, batchFailed int) {
-			if s.progressDisplay != nil {
-				// Calculate cumulative progress including this batch
+			// Update progress display every 10 items
+			if batchProcessed%10 == 0 || batchProcessed == len(batch) {
 				cumulativeProcessed := totalProcessed + batchProcessed
 				cumulativeFailed := totalFailed + batchFailed
 				currentCompleted := cumulativeProcessed + cumulativeFailed
 
-				s.progressDisplay.UpdateMonitorProgress(int64(currentCompleted), int64(totalURLs), "Processing", fmt.Sprintf("Processed %d/%d URLs", currentCompleted, totalURLs))
-				s.progressDisplay.UpdateMonitorStats(cumulativeProcessed, cumulativeFailed, cumulativeProcessed)
+				if s.progressDisplay != nil {
+					s.progressDisplay.UpdateMonitorProgress(int64(currentCompleted), int64(totalURLs), "Processing", fmt.Sprintf("Batch %d/%d", batchTracker.CurrentBatch, batchTracker.TotalBatches))
+					s.progressDisplay.UpdateMonitorStats(cumulativeProcessed, cumulativeFailed, len(allChangedURLs))
+				}
 			}
 		}
 
@@ -306,59 +303,70 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 		// Update stats based on batch result
 		if err != nil {
 			s.logger.Error().Err(err).Msg("Batch monitoring failed")
-			totalFailed += len(batch) // Assume all URLs in batch failed
-		} else {
+			totalFailed += len(batch)
+
+			// Check if context was cancelled (interrupt)
+			if ctx.Err() != nil {
+				s.logger.Warn().Err(ctx.Err()).Msg("Batch monitoring interrupted by context cancellation")
+
+				// Send interrupt notification
+				s.sendMonitorInterruptNotification(ctx, cycleID, totalURLs, totalProcessed+totalFailed, "context_canceled", "Batch monitoring interrupted by context cancellation")
+
+				break // Exit the batch processing loop
+			}
+		} else if batchResult != nil {
 			totalProcessed += len(batchResult.ProcessedURLs)
 			totalFailed += len(batch) - len(batchResult.ProcessedURLs)
+
+			// Accumulate changed URLs
+			allChangedURLs = append(allChangedURLs, batchResult.ChangedURLs...)
 		}
 
 		s.batchURLManager.CompleteCurrentBatch(batchTracker)
-
-		// Update progress display with current totals
-		if s.progressDisplay != nil {
-			currentCompleted := totalProcessed + totalFailed
-			s.progressDisplay.UpdateMonitorProgress(int64(currentCompleted), int64(totalURLs), "Processing", fmt.Sprintf("Processed %d/%d URLs", currentCompleted, totalURLs))
-			s.progressDisplay.UpdateBatchProgress(common.ProgressTypeMonitor, batchTracker.ProcessedBatches, batchTracker.TotalBatches)
-			s.progressDisplay.UpdateMonitorStats(totalProcessed, totalFailed, totalProcessed)
-		}
-
-		s.logger.Info().
-			Int("batch_processed", len(batch)).
-			Int("batch_successful", len(batchResult.ProcessedURLs)).
-			Int("total_processed", totalProcessed).
-			Int("total_failed", totalFailed).
-			Bool("has_more", hasMore).
-			Msg("Batch monitoring completed")
 
 		if !hasMore {
 			break
 		}
 
-		// Check resource usage and trigger GC if needed
+		// Optimized memory check - no logging for successful checks
 		if err := s.resourceLimiter.CheckMemoryLimit(); err != nil {
-			s.logger.Warn().Err(err).Msg("Memory limit approaching, triggering GC between batches")
 			s.resourceLimiter.ForceGC()
 		}
 	}
 
-	// Log final resource usage
-	resourceUsageAfter := s.resourceLimiter.GetResourceUsage()
-	// Update progress display - completed
+	// Add all changed URLs to cycle tracker
+	for _, changedURL := range allChangedURLs {
+		s.cycleTracker.AddChangedURL(changedURL)
+	}
+
+	// Final completion with progress display update
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateMonitorProgress(int64(totalURLs), int64(totalURLs), "Complete", fmt.Sprintf("Completed: %d successful, %d failed", totalProcessed, totalFailed))
-		s.progressDisplay.SetMonitorStatus(common.ProgressStatusComplete, fmt.Sprintf("Processed %d URLs", totalURLs))
+		s.progressDisplay.UpdateMonitorProgress(int64(totalURLs), int64(totalURLs), "Complete", "Batch monitoring completed")
+		s.progressDisplay.UpdateMonitorStats(totalProcessed, totalFailed, len(allChangedURLs))
+		s.progressDisplay.SetMonitorStatus(common.ProgressStatusComplete, fmt.Sprintf("Completed %d/%d URLs | P:%d F:%d C:%d", totalURLs, totalURLs, totalProcessed, totalFailed, len(allChangedURLs)))
 	}
 
 	s.logger.Info().
 		Str("cycle_id", cycleID).
 		Int("total_processed", totalProcessed).
 		Int("total_failed", totalFailed).
+		Int("total_changed", len(allChangedURLs)).
 		Int("total_batches", batchTracker.ProcessedBatches).
-		Int64("memory_before_mb", resourceUsageBefore.AllocMB).
-		Int64("memory_after_mb", resourceUsageAfter.AllocMB).
-		Int("goroutines_before", resourceUsageBefore.Goroutines).
-		Int("goroutines_after", resourceUsageAfter.Goroutines).
-		Msg("Batch monitoring cycle completed")
+		Msgf("👁 Monitor: ✅ 100.0%% (%d/%d) | P:%d F:%d C:%d | Completed",
+			totalURLs, totalURLs, totalProcessed, totalFailed, len(allChangedURLs))
+
+	// Trigger cycle end report and notifications
+	s.logger.Info().
+		Str("cycle_id", cycleID).
+		Int("total_changed", len(allChangedURLs)).
+		Int("total_processed", totalProcessed).
+		Msg("🚀 TRIGGERING CYCLE END REPORT AND DISCORD NOTIFICATION")
+
+	s.TriggerCycleEndReport()
+
+	s.logger.Info().
+		Str("cycle_id", cycleID).
+		Msg("✅ CYCLE END REPORT AND NOTIFICATION COMPLETED")
 
 	return nil
 }
@@ -373,6 +381,13 @@ func (s *MonitoringService) Stop() {
 	}
 
 	s.logger.Info().Msg("Stopping monitoring service")
+
+	// Send interrupt notification if there's an active cycle
+	cycleID := s.cycleTracker.GetCurrentCycleID()
+	if cycleID != "" && s.notificationHelper != nil {
+		currentURLs := s.urlManager.GetCurrentURLs()
+		s.sendMonitorInterruptNotification(context.Background(), cycleID, len(currentURLs), 0, "service_stopped", "Monitor service stopped gracefully")
+	}
 
 	// Stop resource limiter first
 	if s.resourceLimiter != nil {
@@ -441,4 +456,9 @@ func (s *MonitoringService) updateAllComponentLoggers(newLogger zerolog.Logger) 
 // SetCurrentCycleID sets the current cycle ID for tracking
 func (s *MonitoringService) SetCurrentCycleID(cycleID string) {
 	s.cycleTracker.SetCurrentCycleID(cycleID)
+}
+
+// GetCurrentCycleID gets the current cycle ID
+func (s *MonitoringService) GetCurrentCycleID() string {
+	return s.cycleTracker.GetCurrentCycleID()
 }

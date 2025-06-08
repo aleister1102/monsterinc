@@ -27,33 +27,41 @@ func (s *MonitoringService) handleCheckResult(url string, result LegacyCheckResu
 
 // generateAndSendCycleReport generates and sends a cycle completion report
 func (s *MonitoringService) generateAndSendCycleReport(monitoredURLs, changedURLs []string, cycleID string) {
-	var reportPath string
+	var reportPaths []string
 
-	// Only generate report if there are changes and reporter is available
-	if len(changedURLs) > 0 && s.urlChecker.htmlDiffReporter != nil {
-		reportPaths, err := s.urlChecker.htmlDiffReporter.GenerateDiffReport(monitoredURLs, cycleID)
+	// Always try to generate report if reporter is available (even if no changes)
+	if s.urlChecker.htmlDiffReporter != nil {
+		s.logger.Info().
+			Int("monitored_urls", len(monitoredURLs)).
+			Int("changed_urls", len(changedURLs)).
+			Str("cycle_id", cycleID).
+			Msg("Generating aggregated HTML diff report for monitored URLs")
+
+		generatedReportPaths, err := s.urlChecker.htmlDiffReporter.GenerateDiffReport(monitoredURLs, cycleID)
 		if err != nil {
 			s.logger.Error().Err(err).Msg("Failed to generate cycle end diff report")
-		} else if len(reportPaths) > 0 {
-			// Use the first report path for notification (main report)
-			reportPath = reportPaths[0]
+		} else if len(generatedReportPaths) > 0 {
+			// Use all generated report paths
+			reportPaths = generatedReportPaths
 			s.logger.Info().
-				Str("main_report_path", reportPath).
+				Str("main_report_path", reportPaths[0]).
 				Int("total_reports", len(reportPaths)).
-				Msg("Generated cycle end diff report(s)")
+				Msg("Successfully generated HTML diff report")
 		}
-	} else if len(changedURLs) == 0 {
-		s.logger.Info().Int("monitored_count", len(monitoredURLs)).Msg("No changes detected - sending notification without report")
+
+		if len(changedURLs) == 0 {
+			s.logger.Info().Int("monitored_count", len(monitoredURLs)).Msg("No changes detected - report generated but shows no differences")
+		}
 	} else {
 		s.logger.Warn().Msg("HtmlDiffReporter is not available, sending notification without report")
 	}
 
 	// Always send cycle complete notification
-	s.sendCycleCompleteNotification(cycleID, changedURLs, reportPath, len(monitoredURLs))
+	s.sendCycleCompleteNotification(cycleID, changedURLs, reportPaths, len(monitoredURLs))
 }
 
 // sendCycleCompleteNotification sends a notification when a monitoring cycle completes
-func (s *MonitoringService) sendCycleCompleteNotification(cycleID string, changedURLs []string, reportPath string, totalMonitored int) {
+func (s *MonitoringService) sendCycleCompleteNotification(cycleID string, changedURLs []string, reportPaths []string, totalMonitored int) {
 	if s.notificationHelper == nil {
 		return
 	}
@@ -79,12 +87,30 @@ func (s *MonitoringService) sendCycleCompleteNotification(cycleID string, change
 	data := models.MonitorCycleCompleteData{
 		CycleID:        cycleID,
 		ChangedURLs:    changedURLs,
-		ReportPath:     reportPath,
+		ReportPaths:    reportPaths,
 		TotalMonitored: totalMonitored,
 		Timestamp:      time.Now(),
 		BatchStats:     batchStats,
 	}
 	s.notificationHelper.SendMonitorCycleCompleteNotification(s.serviceCtx, data)
+}
+
+// sendMonitorInterruptNotification sends a notification when monitor service is interrupted
+func (s *MonitoringService) sendMonitorInterruptNotification(ctx context.Context, cycleID string, totalTargets, processedTargets int, reason, lastActivity string) {
+	if s.notificationHelper == nil {
+		return
+	}
+
+	interruptData := models.MonitorInterruptData{
+		CycleID:          cycleID,
+		TotalTargets:     totalTargets,
+		ProcessedTargets: processedTargets,
+		Timestamp:        time.Now(),
+		Reason:           reason,
+		LastActivity:     lastActivity,
+	}
+
+	s.notificationHelper.SendMonitorInterruptNotification(ctx, interruptData)
 }
 
 // performCleanShutdown performs a clean shutdown of the service

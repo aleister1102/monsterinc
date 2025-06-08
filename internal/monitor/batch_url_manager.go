@@ -39,6 +39,7 @@ func NewBatchURLManager(batchConfig config.MonitorBatchConfig, logger zerolog.Lo
 // BatchMonitorResult holds the result of batch monitoring
 type BatchMonitorResult struct {
 	ProcessedURLs    []string
+	ChangedURLs      []string // Add tracking for changed URLs
 	BatchResults     []common.BatchResult
 	TotalBatches     int
 	ProcessedBatches int
@@ -164,6 +165,7 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 		Msg("Executing batch monitoring")
 
 	var processedURLs []string
+	var changedURLs []string // Track changed URLs
 	var failedCount int
 
 	// Calculate total batches for batch info
@@ -175,13 +177,10 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 
 	// Process function for monitoring URLs
 	processFunc := func(ctx context.Context, batch []string, batchIndex int) error {
-		// Process each URL in the batch
-		for _, url := range batch {
+		// Process each URL in the batch with optimized batching
+		for i, url := range batch {
 			select {
 			case <-ctx.Done():
-				bum.logger.Info().
-					Str("url", url).
-					Msg("Batch monitoring interrupted by context cancellation")
 				return ctx.Err()
 			default:
 			}
@@ -191,72 +190,70 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 				batchIndex+1, // batchIndex is 0-based, but we want 1-based numbering
 				totalBatches,
 				len(batch),
-				len(processedURLs), // URLs processed so far
+				i, // Current position in batch
 			)
 
 			// Execute URL check with batch context
 			checkResult := urlChecker.CheckURLWithBatchContext(ctx, url, cycleID, batchInfo)
 			if checkResult.Success {
 				processedURLs = append(processedURLs, url)
+
+				// Track changed URLs
+				if checkResult.FileChangeInfo != nil {
+					changedURLs = append(changedURLs, url)
+				}
 			} else {
 				failedCount++
 			}
 
-			// Call progress callback if provided
-			if progressCallback != nil {
+			// Update progress callback periodically (every 10 items) to reduce overhead
+			if progressCallback != nil && (i%10 == 0 || i == len(batch)-1) {
 				progressCallback(len(processedURLs), failedCount)
 			}
-
-			bum.logger.Debug().
-				Str("url", url).
-				Bool("success", checkResult.Success).
-				Msg("URL monitoring completed")
 		}
-
-		bum.logger.Info().
-			Int("batch_index", batchIndex).
-			Int("processed_urls", len(processedURLs)).
-			Int("failed_urls", failedCount).
-			Msg("Monitor batch processing completed")
 
 		return nil
 	}
 
+	// Execute batch processing
 	batchResults, err := bum.batchProcessor.ProcessBatches(ctx, urls, processFunc)
+	if err != nil {
+		bum.logger.Error().Err(err).
+			Int("processed_urls", len(processedURLs)).
+			Int("failed_urls", failedCount).
+			Msg("Batch monitoring failed")
+		return nil, err
+	}
 
-	result := &BatchMonitorResult{
+	// Final progress update
+	if progressCallback != nil {
+		progressCallback(len(processedURLs), failedCount)
+	}
+
+	bum.logger.Info().
+		Int("batch_index", 0).
+		Int("processed_urls", len(processedURLs)).
+		Int("failed_urls", failedCount).
+		Msg("Monitor batch processing completed")
+
+	// Determine interrupted batch
+	interruptedAt := 0
+	for i, result := range batchResults {
+		if !result.Success {
+			interruptedAt = i + 1
+			break
+		}
+	}
+
+	return &BatchMonitorResult{
 		ProcessedURLs:    processedURLs,
+		ChangedURLs:      changedURLs,
 		BatchResults:     batchResults,
 		TotalBatches:     len(batchResults),
 		ProcessedBatches: len(batchResults),
 		UsedBatching:     len(batchResults) > 1,
-		InterruptedAt:    0,
-	}
-
-	if err != nil {
-		bum.logger.Error().
-			Err(err).
-			Int("processed_urls", len(processedURLs)).
-			Int("failed_urls", failedCount).
-			Msg("Batch monitoring failed or was interrupted")
-
-		// Find where interruption occurred
-		for i, batchResult := range batchResults {
-			if !batchResult.Success {
-				result.InterruptedAt = i + 1
-				break
-			}
-		}
-	}
-
-	bum.logger.Info().
-		Int("total_urls", len(urls)).
-		Int("processed_urls", len(processedURLs)).
-		Int("failed_urls", failedCount).
-		Bool("interrupted", err != nil).
-		Msg("Batch monitoring execution completed")
-
-	return result, err
+		InterruptedAt:    interruptedAt,
+	}, nil
 }
 
 // GetBatchingInfo returns information about how the URLs would be batched

@@ -291,22 +291,21 @@ func (nh *NotificationHelper) sendCriticalErrorNotification(ctx context.Context,
 // SendMonitorCycleCompleteNotification sends a notification when a monitor cycle completes.
 func (nh *NotificationHelper) SendMonitorCycleCompleteNotification(ctx context.Context, data models.MonitorCycleCompleteData) {
 	if !nh.canSendMonitorNotification() {
+		nh.logger.Warn().Str("cycle_id", data.CycleID).Msg("❌ MONITOR NOTIFICATION DISABLED OR WEBHOOK NOT CONFIGURED")
 		return
 	}
 
-	nh.logger.Info().Str("cycle_id", data.CycleID).Int("total_monitored", data.TotalMonitored).Int("changed_count", len(data.ChangedURLs)).Msg("Preparing to send monitor cycle complete notification.")
+	nh.logger.Info().Str("cycle_id", data.CycleID).Int("total_monitored", data.TotalMonitored).Int("changed_count", len(data.ChangedURLs)).Msg("📤 SENDING MONITOR CYCLE COMPLETE NOTIFICATION TO DISCORD")
 
 	payload := FormatMonitorCycleCompleteMessage(data, nh.cfg)
 
-	// Send notification with report attachment but DON'T cleanup the aggregated report
-	if data.ReportPath == "" {
+	// Handle multiple report paths similar to scan service
+	if len(data.ReportPaths) == 0 {
 		nh.sendSimpleMonitorNotification(ctx, payload, "monitor cycle complete")
+		nh.logger.Info().Str("cycle_id", data.CycleID).Msg("✅ MONITOR CYCLE COMPLETE NOTIFICATION SENT SUCCESSFULLY (NO REPORTS)")
 	} else {
-		// Send notification with attachment but don't auto-delete the aggregated report
-		webhookURL := nh.getWebhookURL(MonitorServiceNotification)
-		if err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, data.ReportPath); err != nil {
-			nh.logger.Error().Err(err).Str("webhook_url", webhookURL).Str("notification_type", "monitor cycle complete").Msg("Failed to send monitor notification with attachment")
-		}
+		// Send notification with first report attached, then send additional reports
+		nh.sendMonitorNotificationWithAllReports(ctx, data, payload)
 	}
 
 	// Clean up ONLY partial diff reports if cleanup is enabled
@@ -315,6 +314,91 @@ func (nh *NotificationHelper) SendMonitorCycleCompleteNotification(ctx context.C
 			nh.logger.Error().Err(err).Msg("Failed to cleanup partial diff reports")
 		}
 	}
+}
+
+// sendMonitorNotificationWithAllReports sends monitor notification with all report files
+func (nh *NotificationHelper) sendMonitorNotificationWithAllReports(ctx context.Context, data models.MonitorCycleCompleteData, payload models.DiscordMessagePayload) {
+	webhookURL := nh.getWebhookURL(MonitorServiceNotification)
+
+	// Update payload to indicate multiple reports if there are more than 1
+	if len(data.ReportPaths) > 1 {
+		nh.adjustPayloadForMultipleReports(payload, len(data.ReportPaths))
+	}
+
+	// Try to send notification with first report attached
+	if err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, data.ReportPaths[0]); err != nil {
+		nh.logger.Error().Err(err).Str("webhook_url", webhookURL).Str("notification_type", "monitor cycle complete").Msg("❌ FAILED TO SEND MONITOR NOTIFICATION WITH ATTACHMENT")
+
+		// Fallback: Send notification without attachment
+		nh.logger.Info().Str("cycle_id", data.CycleID).Msg("📤 FALLING BACK TO SEND NOTIFICATION WITHOUT ATTACHMENT")
+
+		// Modify payload to indicate reports are available but not attached
+		nh.adjustPayloadForAttachmentFailure(payload, strings.Join(data.ReportPaths, ", "))
+
+		if fallbackErr := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, ""); fallbackErr != nil {
+			nh.logger.Error().Err(fallbackErr).Str("cycle_id", data.CycleID).Msg("❌ FAILED TO SEND FALLBACK NOTIFICATION WITHOUT ATTACHMENT")
+		} else {
+			nh.logger.Info().Str("cycle_id", data.CycleID).Int("report_count", len(data.ReportPaths)).Msg("✅ MONITOR CYCLE COMPLETE NOTIFICATION SENT SUCCESSFULLY (FALLBACK WITHOUT ATTACHMENT)")
+		}
+		return
+	}
+
+	nh.logger.Info().Str("cycle_id", data.CycleID).Str("first_report_path", data.ReportPaths[0]).Msg("✅ MONITOR CYCLE COMPLETE NOTIFICATION WITH REPORT SENT SUCCESSFULLY TO DISCORD")
+
+	// Send additional reports as follow-up messages if there are more than 1
+	for i := 1; i < len(data.ReportPaths); i++ {
+		nh.sendAdditionalMonitorReport(ctx, data, webhookURL, data.ReportPaths[i], i+1, len(data.ReportPaths))
+
+		// Small delay between sends
+		if i < len(data.ReportPaths)-1 {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+}
+
+// sendAdditionalMonitorReport sends additional monitor report files as simple attachments
+func (nh *NotificationHelper) sendAdditionalMonitorReport(ctx context.Context, data models.MonitorCycleCompleteData, webhookURL string, reportPath string, partNum, totalParts int) {
+	payload := nh.buildSimpleMonitorReportPayload(data.CycleID, partNum, totalParts)
+
+	nh.logger.Info().
+		Str("cycle_id", data.CycleID).
+		Int("part", partNum).
+		Int("total_parts", totalParts).
+		Msg("Sending additional monitor report file.")
+
+	if err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, reportPath); err != nil {
+		nh.logger.Error().Err(err).Int("part", partNum).Msg("Failed to send additional monitor report")
+
+		// Try fallback without attachment for additional reports too
+		nh.logger.Info().Str("cycle_id", data.CycleID).Int("part", partNum).Msg("📤 FALLING BACK TO SEND ADDITIONAL REPORT WITHOUT ATTACHMENT")
+
+		// Modify payload to indicate report is available but not attached
+		nh.adjustPayloadForAttachmentFailure(payload, reportPath)
+
+		if fallbackErr := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, ""); fallbackErr != nil {
+			nh.logger.Error().Err(fallbackErr).Str("cycle_id", data.CycleID).Int("part", partNum).Msg("❌ FAILED TO SEND FALLBACK ADDITIONAL REPORT")
+		} else {
+			nh.logger.Info().Str("cycle_id", data.CycleID).Int("part", partNum).Msg("✅ ADDITIONAL MONITOR REPORT SENT SUCCESSFULLY (FALLBACK WITHOUT ATTACHMENT)")
+		}
+	} else {
+		nh.logger.Info().Str("cycle_id", data.CycleID).Int("part", partNum).Msg("✅ Additional monitor report sent successfully")
+	}
+}
+
+// buildSimpleMonitorReportPayload creates a minimal payload for additional monitor reports
+func (nh *NotificationHelper) buildSimpleMonitorReportPayload(cycleID string, partNum, totalParts int) models.DiscordMessagePayload {
+	embed := NewDiscordEmbedBuilder().
+		WithTitle(fmt.Sprintf("📎 Monitor Report %d/%d", partNum, totalParts)).
+		WithDescription(fmt.Sprintf("**Cycle ID:** `%s`", cycleID)).
+		WithColor(DefaultEmbedColor).
+		WithTimestamp(time.Now()).
+		Build()
+
+	return NewDiscordMessagePayloadBuilder().
+		WithUsername(DiscordUsername).
+		WithAvatarURL(DiscordAvatarURL).
+		AddEmbed(embed).
+		Build()
 }
 
 // SendMonitoredUrlsNotification sends a notification about monitored URLs.
@@ -412,4 +496,16 @@ func (nh *NotificationHelper) SendMonitorErrorNotification(ctx context.Context, 
 	nh.sendSimpleMonitorNotification(ctx, payload, "monitor error")
 
 	nh.logger.Info().Str("cycle_id", data.CycleID).Msg("Monitor error notification sent successfully")
+}
+
+// adjustPayloadForAttachmentFailure modifies payload to indicate report is available but not attached
+func (nh *NotificationHelper) adjustPayloadForAttachmentFailure(payload models.DiscordMessagePayload, reportPath string) {
+	for embedIdx := range payload.Embeds {
+		for fieldIdx, field := range payload.Embeds[embedIdx].Fields {
+			if field.Name == "📄 Report" {
+				payload.Embeds[embedIdx].Fields[fieldIdx].Value = fmt.Sprintf("Report generated, but not attached (check local files or configuration). Report path: %s", reportPath)
+				break
+			}
+		}
+	}
 }

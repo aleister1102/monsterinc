@@ -485,7 +485,7 @@ type MonitorCycleCompleteData struct {
 	CycleID        string           // Unique identifier for the monitoring cycle
 	ChangedURLs    []string         // List of URLs that had changes detected during this cycle.
 	FileChanges    []FileChangeInfo // Detailed information about file changes
-	ReportPath     string           // Path to the aggregated HTML diff report for all monitored URLs.
+	ReportPaths    []string         // Paths to the aggregated HTML diff reports for all monitored URLs.
 	TotalMonitored int              // Total number of URLs being monitored in this cycle.
 	Timestamp      time.Time        // Timestamp when the cycle completed.
 	BatchStats     *BatchStats      `json:"batch_stats,omitempty"` // Statistics about batch processing for this cycle
