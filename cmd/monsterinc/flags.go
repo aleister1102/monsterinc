@@ -25,6 +25,7 @@ func ParseFlags() AppFlags {
 
 	modeFlag := flag.String("mode", "", "Mode to run the tool: onetime or automated (overrides config file if set)")
 	modeFlagAlias := flag.String("m", "", "Alias for --mode")
+
 	flag.Parse()
 
 	flags := AppFlags{}

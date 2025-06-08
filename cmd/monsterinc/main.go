@@ -305,6 +305,9 @@ func runApplicationLogic(
 		// zLogger.Info().Str("file", monitorTargetsFile).Msg("Using -mt for monitor targets.")
 	}
 
+	// Set notification helper for scanner
+	scanner.SetNotificationHelper(notificationHelper)
+
 	if gCfg.Mode == "onetime" && scanTargetsFile != "" {
 		runOnetimeScan(
 			ctx,
@@ -378,9 +381,12 @@ func runOnetimeScan(
 	scanUrls := targetManager.GetTargetStrings(scanTargets) // Convert to string slice for notification
 	baseLogger.Info().Int("count", len(scanUrls)).Str("source", targetSource).Msg("Starting onetime scan with seed URLs.")
 
+	// Create single session ID for the entire scan
+	scanSessionID := time.Now().Format("20060102-150405")
+
 	// Prepare scan summary data for start notification
 	startSummary := models.GetDefaultScanSummaryData()
-	startSummary.ScanSessionID = time.Now().Format("20060102-150405")
+	startSummary.ScanSessionID = scanSessionID
 	startSummary.TargetSource = targetSource
 	startSummary.ScanMode = scanMode
 	startSummary.Targets = scanUrls
@@ -391,9 +397,6 @@ func runOnetimeScan(
 	// Set up progress display for scanner
 	scannerInstance.SetProgressDisplay(progressDisplay)
 	progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Starting scan workflow")
-
-	// Execute complete scan workflow using batch processing
-	scanSessionID := time.Now().Format("20060102-150405")
 
 	// Create batch workflow orchestrator
 	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(gCfg, scannerInstance, baseLogger)
@@ -458,9 +461,20 @@ func runOnetimeScan(
 
 		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification, reportFilePaths) // reportFilePaths might be nil
 
-		// Shutdown scanner even on error to clean up singleton crawler
+		// Shutdown scanner even on error to clean up singleton crawler with timeout
 		baseLogger.Info().Msg("Shutting down scanner after onetime scan error")
-		scannerInstance.Shutdown()
+		shutdownDone := make(chan struct{})
+		go func() {
+			defer close(shutdownDone)
+			scannerInstance.Shutdown()
+		}()
+
+		select {
+		case <-shutdownDone:
+			baseLogger.Info().Msg("Scanner shutdown completed successfully after error")
+		case <-time.After(10 * time.Second):
+			baseLogger.Warn().Msg("Scanner shutdown timeout reached after error, forcing exit")
+		}
 
 		return
 	}
@@ -469,9 +483,20 @@ func runOnetimeScan(
 	baseLogger.Info().Str("scanSessionID", scanSessionID).Msg("Onetime scan workflow completed successfully via orchestrator. Sending completion notification.")
 	notificationHelper.SendScanCompletionNotification(ctx, summaryData, notifier.ScanServiceNotification, reportFilePaths)
 
-	// Shutdown scanner to clean up singleton crawler
+	// Shutdown scanner to clean up singleton crawler with timeout
 	baseLogger.Info().Msg("Shutting down scanner after onetime scan completion")
-	scannerInstance.Shutdown()
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		scannerInstance.Shutdown()
+	}()
+
+	select {
+	case <-shutdownDone:
+		baseLogger.Info().Msg("Scanner shutdown completed successfully")
+	case <-time.After(10 * time.Second):
+		baseLogger.Warn().Msg("Scanner shutdown timeout reached, forcing exit")
+	}
 
 	baseLogger.Info().Msg("MonsterInc Crawler finished (onetime mode).")
 }
