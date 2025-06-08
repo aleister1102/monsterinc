@@ -18,7 +18,7 @@ type ScanBatchConfig struct {
 func NewDefaultScanBatchConfig() ScanBatchConfig {
 	return ScanBatchConfig{
 		BatchSize:          200,  // Larger batch size for scan service
-		MaxConcurrentBatch: 2,    // Higher concurrency for scan service
+		MaxConcurrentBatch: 0,    // Will be set based on crawler thread count
 		BatchTimeoutMins:   45,   // Longer timeout for scan service
 		ThresholdSize:      1000, // Higher threshold for scan service
 	}
@@ -36,7 +36,7 @@ type MonitorBatchConfig struct {
 func NewDefaultMonitorBatchConfig() MonitorBatchConfig {
 	return MonitorBatchConfig{
 		BatchSize:          50,  // Smaller batch size for monitor service
-		MaxConcurrentBatch: 1,   // Sequential processing for monitor service
+		MaxConcurrentBatch: 0,   // Will be set based on monitor worker count
 		BatchTimeoutMins:   20,  // Shorter timeout for monitor service
 		ThresholdSize:      200, // Lower threshold for monitor service
 	}
@@ -65,4 +65,50 @@ func (mbc MonitorBatchConfig) ToBatchProcessorConfig() common.BatchProcessorConf
 		BatchTimeout:       time.Duration(mbc.BatchTimeoutMins) * time.Minute,
 		ThresholdSize:      mbc.ThresholdSize,
 	}
+}
+
+// SetMaxConcurrentFromCrawlerThreads sets MaxConcurrentBatch based on crawler thread count
+func (sbc *ScanBatchConfig) SetMaxConcurrentFromCrawlerThreads(crawlerThreads int) {
+	if sbc.MaxConcurrentBatch == 0 {
+		// Use 50% of crawler threads for batch concurrency, minimum 1, maximum 8
+		maxConcurrent := crawlerThreads / 2
+		if maxConcurrent < 1 {
+			maxConcurrent = 1
+		}
+		if maxConcurrent > 8 {
+			maxConcurrent = 8
+		}
+		sbc.MaxConcurrentBatch = maxConcurrent
+	}
+}
+
+// SetMaxConcurrentFromMonitorWorkers sets MaxConcurrentBatch based on monitor worker count
+func (mbc *MonitorBatchConfig) SetMaxConcurrentFromMonitorWorkers(monitorWorkers int) {
+	if mbc.MaxConcurrentBatch == 0 {
+		// Use 50% of monitor workers for batch concurrency, minimum 1, maximum 4
+		maxConcurrent := monitorWorkers / 2
+		if maxConcurrent < 1 {
+			maxConcurrent = 1
+		}
+		if maxConcurrent > 4 {
+			maxConcurrent = 4
+		}
+		mbc.MaxConcurrentBatch = maxConcurrent
+	}
+}
+
+// GetEffectiveMaxConcurrentBatch returns the effective MaxConcurrentBatch value
+func (sbc ScanBatchConfig) GetEffectiveMaxConcurrentBatch() int {
+	if sbc.MaxConcurrentBatch <= 0 {
+		return 2 // fallback default
+	}
+	return sbc.MaxConcurrentBatch
+}
+
+// GetEffectiveMaxConcurrentBatch returns the effective MaxConcurrentBatch value
+func (mbc MonitorBatchConfig) GetEffectiveMaxConcurrentBatch() int {
+	if mbc.MaxConcurrentBatch <= 0 {
+		return 1 // fallback default
+	}
+	return mbc.MaxConcurrentBatch
 }

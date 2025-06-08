@@ -13,7 +13,7 @@ type MonitorConfig struct {
 	MaxContentSize              int  `json:"max_content_size,omitempty" yaml:"max_content_size,omitempty" validate:"omitempty,min=1"` // Max content size in bytes
 	MonitorInsecureSkipVerify   bool `json:"monitor_insecure_skip_verify" yaml:"monitor_insecure_skip_verify"`
 	StoreFullContentOnChange    bool `json:"store_full_content_on_change" yaml:"store_full_content_on_change"`
-	MaxDiffResultsPerReportFile int  `json:"max_diff_results_per_report_file,omitempty" yaml:"max_diff_results_per_report_file,omitempty" validate:"omitempty,min=1"` // Maximum number of diff results per HTML report file
+	MaxDiffResultsPerReportFile int  `json:"max_diff_results_per_report_file,omitempty" yaml:"max_diff_results_per_report_file,omitempty" validate:"omitempty,min=0"` // Maximum number of diff results per HTML report file. 0 means no limit.
 }
 
 // NewDefaultMonitorConfig creates default monitor configuration
