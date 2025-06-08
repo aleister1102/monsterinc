@@ -42,6 +42,14 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 	processedBatches := 0
 	interruptedAt := 0
 
+	// Always merge batch results to avoid separate reports per batch
+	// But still respect max_probe_results_per_report_file for Discord file size limits
+	var allProbeResults []models.ProbeResult
+	var allURLDiffResults map[string]models.URLDiffResult
+
+	allURLDiffResults = make(map[string]models.URLDiffResult)
+	bwo.logger.Info().Msg("Aggregating all batch results into merged reports (respecting Discord file size limits)")
+
 	// Initialize summary data
 	aggregatedSummary = models.GetDefaultScanSummaryData()
 	aggregatedSummary.ScanSessionID = scanSessionID
@@ -62,15 +70,16 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			Int("total", batchCount).
 			Msg("Processing scan batch")
 
-		// Update progress display - current batch progress
+		// Update progress display - reset for current batch
 		if bwo.scanner.progressDisplay != nil {
-			bwo.scanner.progressDisplay.UpdateScanProgress(
-				int64(batchNumber-1),
-				int64(batchCount),
+			// Reset progress for new batch to get accurate ETA
+			bwo.scanner.progressDisplay.ResetBatchProgress(
+				common.ProgressTypeScan,
+				batchNumber,
+				batchCount,
 				"Batch Processing",
-				fmt.Sprintf("Processing batch %d/%d (%d targets)", batchNumber, batchCount, len(batch)),
+				fmt.Sprintf("Starting batch %d/%d (%d targets)", batchNumber, batchCount, len(batch)),
 			)
-			bwo.scanner.progressDisplay.UpdateBatchProgress(common.ProgressTypeScan, batchNumber-1, batchCount)
 		}
 
 		// Log memory usage before batch
@@ -85,15 +94,14 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		// Create batch-specific session ID
 		batchSessionID := fmt.Sprintf("%s-batch-%d", scanSessionID, batchIndex)
 
-		// Execute scan for this batch
-		batchSummary, _, batchReportPaths, err := bwo.scanner.ExecuteSingleScanWorkflowWithReporting(
+		var batchSummary models.ScanSummaryData
+		var err error
+
+		// Always execute core workflow without generating reports per batch
+		batchProbeResults, batchURLDiffResults, err := bwo.scanner.ExecuteScanWorkflow(
 			ctx,
-			gCfg,
-			bwo.logger,
 			batch,
 			batchSessionID,
-			targetSource,
-			scanMode,
 		)
 
 		if err != nil {
@@ -101,13 +109,13 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 				Err(err).
 				Int("batch_index", batchIndex).
 				Int("batch_number", batchNumber).
-				Msg("Batch scan failed")
+				Msg("Batch scan workflow failed")
 
 			// Update progress display - batch failed
 			if bwo.scanner.progressDisplay != nil {
 				bwo.scanner.progressDisplay.UpdateScanProgress(
-					int64(batchNumber),
-					int64(batchCount),
+					5, // Complete workflow for failed batch
+					5,
 					"Batch Failed",
 					fmt.Sprintf("Batch %d/%d failed: %v", batchNumber, batchCount, err),
 				)
@@ -118,9 +126,32 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			return err
 		}
 
+		// Aggregate probe results and URL diff results
+		allProbeResults = append(allProbeResults, batchProbeResults...)
+		for url, diffResult := range batchURLDiffResults {
+			allURLDiffResults[url] = diffResult
+		}
+
+		// Create summary for this batch (without reports)
+		summaryBuilder := NewSummaryBuilder(bwo.logger)
+		summaryInput := &SummaryInput{
+			ScanSessionID:  batchSessionID,
+			TargetSource:   targetSource,
+			ScanMode:       scanMode,
+			Targets:        batch,
+			ProbeResults:   batchProbeResults,
+			URLDiffResults: batchURLDiffResults,
+		}
+		batchSummary = summaryBuilder.BuildSummary(summaryInput)
+
+		bwo.logger.Info().
+			Int("batch_index", batchIndex).
+			Int("batch_probe_results", len(batchProbeResults)).
+			Int("total_accumulated_results", len(allProbeResults)).
+			Msg("Batch results accumulated for merged report")
+
 		// Aggregate results
 		bwo.aggregateBatchResults(&aggregatedSummary, batchSummary)
-		allReportPaths = append(allReportPaths, batchReportPaths...)
 		processedBatches++
 
 		// Update progress display - batch completed
@@ -131,8 +162,8 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			}
 
 			bwo.scanner.progressDisplay.UpdateScanProgress(
-				int64(batchNumber),
-				int64(batchCount),
+				5, // Complete workflow for successful batch
+				5,
 				"Batch Completed",
 				fmt.Sprintf("Completed batch %d/%d (%d targets processed)", batchNumber, batchCount, completedTargets),
 			)
@@ -169,8 +200,8 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		// Update progress display - interrupted
 		if bwo.scanner.progressDisplay != nil {
 			bwo.scanner.progressDisplay.UpdateScanProgress(
-				int64(processedBatches),
-				int64(batchCount),
+				0, // Reset on interruption
+				5,
 				"Interrupted",
 				fmt.Sprintf("Batch processing interrupted at %d/%d", processedBatches, batchCount),
 			)
@@ -179,11 +210,32 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		// Update progress display - all batches completed
 		if bwo.scanner.progressDisplay != nil {
 			bwo.scanner.progressDisplay.UpdateScanProgress(
-				int64(batchCount),
-				int64(batchCount),
+				5, // Complete workflow
+				5,
 				"Batch Complete",
-				fmt.Sprintf("All %d batches completed successfully (%d targets)", batchCount, len(targetURLs)),
+				fmt.Sprintf("All %d batches completed successfully (%d targets)\n", batchCount, len(targetURLs)),
 			)
+		}
+	}
+
+	// Generate merged report from all batch results if we have any
+	if len(allProbeResults) > 0 && (err == nil && processedBatches > 0) {
+		bwo.logger.Info().
+			Int("total_probe_results", len(allProbeResults)).
+			Int("total_url_diffs", len(allURLDiffResults)).
+			Msg("Generating merged report from all batch results")
+
+		reportGenerator := NewReportGenerator(&gCfg.ReporterConfig, bwo.logger)
+		reportInput := NewReportGenerationInputWithDiff(allProbeResults, allURLDiffResults, scanSessionID)
+		mergedReportPaths, reportErr := reportGenerator.GenerateReports(reportInput)
+
+		if reportErr != nil {
+			bwo.logger.Warn().Err(reportErr).Msg("Failed to generate merged report")
+		} else {
+			allReportPaths = mergedReportPaths
+			bwo.logger.Info().
+				Strs("report_paths", mergedReportPaths).
+				Msg("Merged report generated successfully")
 		}
 	}
 
@@ -205,6 +257,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		Int("processed_batches", processedBatches).
 		Bool("interrupted", interruptedAt > 0).
 		Int("total_reports", len(allReportPaths)).
+		Bool("used_merge_reports", true).
 		Msg("Batch scan execution completed")
 
 	// Log comprehensive summary
