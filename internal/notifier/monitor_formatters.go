@@ -452,3 +452,146 @@ func addErrorBatchInfoField(embedBuilder *DiscordEmbedBuilder, errors []models.M
 		batchInfo.TotalBatches,
 	), true)
 }
+
+// FormatMonitorStartMessage formats the message for monitor service start
+func FormatMonitorStartMessage(data models.MonitorStartData, cfg config.NotificationConfig) models.DiscordMessagePayload {
+	description := fmt.Sprintf(
+		"🚀 **Monitor service started successfully**\n\n"+
+			"**Cycle ID:** `%s`\n"+
+			"**Total Targets:** %d\n"+
+			"**Target Source:** %s\n"+
+			"**Mode:** %s\n"+
+			"**Cycle Interval:** %d minutes",
+		data.CycleID,
+		data.TotalTargets,
+		data.TargetSource,
+		data.Mode,
+		data.CycleInterval,
+	)
+
+	embed := NewDiscordEmbedBuilder().
+		WithTitle("🔄 Monitor Service Started").
+		WithDescription(description).
+		WithColor(models.MonitorStatusStarted.GetColor()).
+		WithTimestamp(data.Timestamp).
+		WithFooter("MonsterInc Monitor", "").
+		AddField("📊 Service Status", "Ready to monitor file changes", false).
+		Build()
+
+	return buildStandardPayload(embed)
+}
+
+// FormatMonitorInterruptMessage formats the message for monitor service interruption
+func FormatMonitorInterruptMessage(data models.MonitorInterruptData, cfg config.NotificationConfig) models.DiscordMessagePayload {
+	progressPercentage := 0.0
+	if data.TotalTargets > 0 {
+		progressPercentage = float64(data.ProcessedTargets) / float64(data.TotalTargets) * 100
+	}
+
+	description := fmt.Sprintf(
+		"⚠️ **Monitor service interrupted**\n\n"+
+			"**Cycle ID:** `%s`\n"+
+			"**Progress:** %d/%d targets (%.1f%%)\n"+
+			"**Reason:** %s\n"+
+			"**Last Activity:** %s",
+		data.CycleID,
+		data.ProcessedTargets,
+		data.TotalTargets,
+		progressPercentage,
+		data.Reason,
+		data.LastActivity,
+	)
+
+	embed := NewDiscordEmbedBuilder().
+		WithTitle("⚠️ Monitor Service Interrupted").
+		WithDescription(description).
+		WithColor(models.MonitorStatusInterrupted.GetColor()).
+		WithTimestamp(data.Timestamp).
+		WithFooter("MonsterInc Monitor", "").
+		AddField("🔄 Next Steps", "Monitor service will restart in the next scheduled cycle", false).
+		Build()
+
+	// Add mentions for critical interruptions
+	content := ""
+	if len(cfg.MentionRoleIDs) > 0 && data.Reason != "user_signal" {
+		content = buildMentionContent(cfg.MentionRoleIDs)
+	}
+
+	return buildStandardPayloadWithMentions(embed, cfg, content)
+}
+
+// FormatMonitorErrorMessage formats the message for monitor service errors
+func FormatMonitorErrorMessage(data models.MonitorErrorData, cfg config.NotificationConfig) models.DiscordMessagePayload {
+	severityIcon := "❌"
+	if data.Recoverable {
+		severityIcon = "⚠️"
+	}
+
+	description := fmt.Sprintf(
+		"%s **Monitor service error occurred**\n\n"+
+			"**Cycle ID:** `%s`\n"+
+			"**Error Type:** %s\n"+
+			"**Component:** %s\n"+
+			"**Recoverable:** %v\n"+
+			"**Total Targets:** %d",
+		severityIcon,
+		data.CycleID,
+		data.ErrorType,
+		data.Component,
+		data.Recoverable,
+		data.TotalTargets,
+	)
+
+	color := models.MonitorStatusError.GetColor()
+	title := "❌ Monitor Service Error"
+	if data.Recoverable {
+		color = models.DiscordColorWarning
+		title = "⚠️ Monitor Service Warning"
+	}
+
+	embed := NewDiscordEmbedBuilder().
+		WithTitle(title).
+		WithDescription(description).
+		WithColor(color).
+		WithTimestamp(data.Timestamp).
+		WithFooter("MonsterInc Monitor", "").
+		AddField("🔍 Error Details", data.ErrorMessage, false).
+		Build()
+
+	// Add field for recovery instructions
+	if data.Recoverable {
+		embed.Fields = append(embed.Fields, models.NewDiscordEmbedField(
+			"🔄 Recovery",
+			"The monitor service will attempt to continue or restart automatically",
+			false,
+		))
+	} else {
+		embed.Fields = append(embed.Fields, models.NewDiscordEmbedField(
+			"⚠️ Action Required",
+			"Manual intervention may be required to restore monitor service",
+			false,
+		))
+	}
+
+	// Add mentions for critical errors
+	content := ""
+	if len(cfg.MentionRoleIDs) > 0 && !data.Recoverable {
+		content = buildMentionContent(cfg.MentionRoleIDs)
+	}
+
+	return buildStandardPayloadWithMentions(embed, cfg, content)
+}
+
+// buildMentionContent creates mention content for critical notifications
+func buildMentionContent(roleIDs []string) string {
+	if len(roleIDs) == 0 {
+		return ""
+	}
+
+	mentions := make([]string, len(roleIDs))
+	for i, roleID := range roleIDs {
+		mentions[i] = fmt.Sprintf("<@&%s>", roleID)
+	}
+
+	return strings.Join(mentions, " ")
+}

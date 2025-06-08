@@ -97,11 +97,8 @@ func (nh *NotificationHelper) SendScanCompletionNotification(ctx context.Context
 		return
 	}
 
-	if len(reportFilePaths) > 0 {
-		nh.sendMultiPartReports(ctx, summary, webhookURL, reportFilePaths)
-	} else {
-		nh.sendSingleReport(ctx, summary, webhookURL)
-	}
+	// Always send only summary notification (no individual report parts)
+	nh.sendSummaryOnlyReport(ctx, summary, webhookURL, reportFilePaths)
 }
 
 // shouldSendScanCompletionNotification checks if notification should be sent based on config and scan status
@@ -117,42 +114,91 @@ func (nh *NotificationHelper) shouldSendScanCompletionNotification(summary model
 	return true
 }
 
-// sendMultiPartReports sends multiple report parts sequentially
-func (nh *NotificationHelper) sendMultiPartReports(ctx context.Context, summary models.ScanSummaryData, webhookURL string, reportFilePaths []string) {
-	for i, reportPath := range reportFilePaths {
-		payload := nh.buildReportPayload(summary, i, len(reportFilePaths))
-		nh.sendReportPart(ctx, summary, webhookURL, reportPath, payload, i+1, len(reportFilePaths))
+// sendSummaryOnlyReport sends a single notification with all report files attached
+func (nh *NotificationHelper) sendSummaryOnlyReport(ctx context.Context, summary models.ScanSummaryData, webhookURL string, reportFilePaths []string) {
+	if len(reportFilePaths) > 0 {
+		// Send single notification with all reports
+		nh.sendSingleNotificationWithAllReports(ctx, summary, webhookURL, reportFilePaths)
+	} else {
+		// No reports to attach
+		nh.sendSingleReport(ctx, summary, webhookURL)
+	}
+}
 
+// sendSingleNotificationWithAllReports sends one notification with all report files attached
+func (nh *NotificationHelper) sendSingleNotificationWithAllReports(ctx context.Context, summary models.ScanSummaryData, webhookURL string, reportFilePaths []string) {
+	payload := FormatScanCompleteMessageWithReports(summary, nh.cfg, true)
+
+	// Update payload to indicate multiple reports in single notification
+	if len(reportFilePaths) > 1 {
+		nh.adjustPayloadForMultipleReports(payload, len(reportFilePaths))
+	}
+
+	nh.logger.Info().
+		Str("status", summary.Status).
+		Str("session_id", summary.ScanSessionID).
+		Int("report_count", len(reportFilePaths)).
+		Msg("Attempting to send scan completion notification with all reports.")
+
+	// Send notification with first report attached, then send additional reports separately
+	err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, reportFilePaths[0])
+	if err != nil {
+		nh.logger.Error().Err(err).Msg("Failed to send scan completion notification")
+		return
+	}
+
+	nh.logger.Info().Msg("Scan completion notification sent successfully.")
+
+	// Send additional reports as follow-up messages if there are more than 1
+	for i := 1; i < len(reportFilePaths); i++ {
+		nh.sendAdditionalReport(ctx, summary, webhookURL, reportFilePaths[i], i+1, len(reportFilePaths))
+
+		// Small delay between sends
 		if i < len(reportFilePaths)-1 {
-			time.Sleep(1 * time.Second)
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
 }
 
-// buildReportPayload creates the appropriate payload for a report part
-func (nh *NotificationHelper) buildReportPayload(summary models.ScanSummaryData, partIndex, totalParts int) models.DiscordMessagePayload {
-	isPrimaryMessage := (partIndex == 0)
+// sendAdditionalReport sends additional report files as simple attachments
+func (nh *NotificationHelper) sendAdditionalReport(ctx context.Context, summary models.ScanSummaryData, webhookURL string, reportPath string, partNum, totalParts int) {
+	payload := nh.buildSimpleReportPayload(summary.ScanSessionID, partNum, totalParts)
 
-	if isPrimaryMessage {
-		payload := FormatScanCompleteMessage(summary, nh.cfg)
-		if totalParts > 1 {
-			nh.adjustPayloadForMultiPart(payload, partIndex+1, totalParts)
-		}
-		return payload
+	nh.logger.Info().
+		Str("session_id", summary.ScanSessionID).
+		Int("part", partNum).
+		Int("total_parts", totalParts).
+		Msg("Sending additional report file.")
+
+	err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, reportPath)
+	if err != nil {
+		nh.logger.Error().Err(err).Int("part", partNum).Msg("Failed to send additional report")
 	}
-
-	return FormatSecondaryReportPartMessage(summary.ScanSessionID, partIndex+1, totalParts, &nh.cfg)
 }
 
-// adjustPayloadForMultiPart modifies the payload to indicate it's part of a multi-part report
-func (nh *NotificationHelper) adjustPayloadForMultiPart(payload models.DiscordMessagePayload, partNum, totalParts int) {
+// buildSimpleReportPayload creates a minimal payload for additional reports
+func (nh *NotificationHelper) buildSimpleReportPayload(sessionID string, partNum, totalParts int) models.DiscordMessagePayload {
+	embed := NewDiscordEmbedBuilder().
+		WithTitle(fmt.Sprintf("📎 Report %d/%d", partNum, totalParts)).
+		WithDescription(fmt.Sprintf("**Session:** `%s`", sessionID)).
+		WithColor(DefaultEmbedColor).
+		WithTimestamp(time.Now()).
+		Build()
+
+	return NewDiscordMessagePayloadBuilder().
+		WithUsername(DiscordUsername).
+		WithAvatarURL(DiscordAvatarURL).
+		AddEmbed(embed).
+		Build()
+}
+
+// adjustPayloadForMultipleReports modifies payload to indicate multiple reports are being sent
+func (nh *NotificationHelper) adjustPayloadForMultipleReports(payload models.DiscordMessagePayload, reportCount int) {
 	for embedIdx := range payload.Embeds {
-		payload.Embeds[embedIdx].Description += fmt.Sprintf("\nReport is split into %d parts. This is part %d.", totalParts, partNum)
-
 		foundReportField := false
 		for fieldIdx, field := range payload.Embeds[embedIdx].Fields {
 			if field.Name == "📄 Report" {
-				payload.Embeds[embedIdx].Fields[fieldIdx].Value = fmt.Sprintf("Report part %d of %d is attached.", partNum, totalParts)
+				payload.Embeds[embedIdx].Fields[fieldIdx].Value = fmt.Sprintf("%d reports will be sent (main report attached, additional files follow).", reportCount)
 				foundReportField = true
 				break
 			}
@@ -161,28 +207,16 @@ func (nh *NotificationHelper) adjustPayloadForMultiPart(payload models.DiscordMe
 		if !foundReportField && payload.Embeds[embedIdx].Title != "" {
 			payload.Embeds[embedIdx].Fields = append(payload.Embeds[embedIdx].Fields, models.DiscordEmbedField{
 				Name:   "📄 Report",
-				Value:  fmt.Sprintf("Report part %d of %d is attached.", partNum, totalParts),
+				Value:  fmt.Sprintf("%d reports will be sent (main report attached, additional files follow).", reportCount),
 				Inline: false,
 			})
 		}
 	}
 }
 
-// sendReportPart sends a single report part and handles cleanup
-func (nh *NotificationHelper) sendReportPart(ctx context.Context, summary models.ScanSummaryData, webhookURL, reportPath string, payload models.DiscordMessagePayload, partNum, totalParts int) {
-	nh.logger.Info().Str("status", summary.Status).Str("session_id", summary.ScanSessionID).Int("part", partNum).Int("total_parts", totalParts).Msgf("Attempting to send scan completion notification (part %d/%d).", partNum, totalParts)
-
-	err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, reportPath)
-	if err != nil {
-		nh.logger.Error().Err(err).Int("part", partNum).Msgf("Failed to send scan completion notification (part %d/%d)", partNum, totalParts)
-	} else {
-		nh.logger.Info().Int("part", partNum).Msgf("Scan completion notification (part %d/%d) sent successfully.", partNum, totalParts)
-	}
-}
-
 // sendSingleReport sends a single report without attachments
 func (nh *NotificationHelper) sendSingleReport(ctx context.Context, summary models.ScanSummaryData, webhookURL string) {
-	payload := FormatScanCompleteMessage(summary, nh.cfg)
+	payload := FormatScanCompleteMessageWithReports(summary, nh.cfg, false)
 	nh.adjustPayloadForNoAttachments(payload, summary)
 
 	nh.logger.Info().Str("status", summary.Status).Str("session_id", summary.ScanSessionID).Msg("Attempting to send scan completion notification (no report attachments).")
@@ -316,4 +350,66 @@ func (nh *NotificationHelper) sendSimpleScanNotification(ctx context.Context, pa
 	if err != nil {
 		nh.logger.Error().Err(err).Msgf("Failed to send %s notification", notificationType)
 	}
+}
+
+// handleMonitorContextCancellation handles monitor context cancellation
+func (nh *NotificationHelper) handleMonitorContextCancellation() {
+	nh.logger.Info().Msg("Context cancelled, stopping monitor service")
+}
+
+// SendMonitorStartNotification sends a notification when monitor service starts.
+func (nh *NotificationHelper) SendMonitorStartNotification(ctx context.Context, data models.MonitorStartData) {
+	if !nh.canSendMonitorNotification() {
+		nh.logger.Info().Str("cycle_id", data.CycleID).Msg("Monitor start notification disabled or webhook not configured")
+		return
+	}
+
+	nh.logger.Info().
+		Str("cycle_id", data.CycleID).
+		Int("total_targets", data.TotalTargets).
+		Msg("Preparing to send monitor start notification")
+
+	payload := FormatMonitorStartMessage(data, nh.cfg)
+	nh.sendSimpleMonitorNotification(ctx, payload, "monitor start")
+
+	nh.logger.Info().Str("cycle_id", data.CycleID).Msg("Monitor start notification sent successfully")
+}
+
+// SendMonitorInterruptNotification sends a notification when monitor service is interrupted.
+func (nh *NotificationHelper) SendMonitorInterruptNotification(ctx context.Context, data models.MonitorInterruptData) {
+	if !nh.canSendMonitorNotification() {
+		nh.logger.Info().Str("cycle_id", data.CycleID).Msg("Monitor interrupt notification disabled or webhook not configured")
+		return
+	}
+
+	nh.logger.Info().
+		Str("cycle_id", data.CycleID).
+		Str("reason", data.Reason).
+		Int("processed_targets", data.ProcessedTargets).
+		Msg("Preparing to send monitor interrupt notification")
+
+	payload := FormatMonitorInterruptMessage(data, nh.cfg)
+	nh.sendSimpleMonitorNotification(ctx, payload, "monitor interrupt")
+
+	nh.logger.Info().Str("cycle_id", data.CycleID).Msg("Monitor interrupt notification sent successfully")
+}
+
+// SendMonitorErrorNotification sends a notification when monitor service encounters an error.
+func (nh *NotificationHelper) SendMonitorErrorNotification(ctx context.Context, data models.MonitorErrorData) {
+	if !nh.canSendMonitorNotification() {
+		nh.logger.Info().Str("cycle_id", data.CycleID).Msg("Monitor error notification disabled or webhook not configured")
+		return
+	}
+
+	nh.logger.Info().
+		Str("cycle_id", data.CycleID).
+		Str("error_type", data.ErrorType).
+		Str("component", data.Component).
+		Bool("recoverable", data.Recoverable).
+		Msg("Preparing to send monitor error notification")
+
+	payload := FormatMonitorErrorMessage(data, nh.cfg)
+	nh.sendSimpleMonitorNotification(ctx, payload, "monitor error")
+
+	nh.logger.Info().Str("cycle_id", data.CycleID).Msg("Monitor error notification sent successfully")
 }

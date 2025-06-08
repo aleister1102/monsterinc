@@ -24,7 +24,20 @@ func NewDiscordNotifier(logger zerolog.Logger, httpClient *common.HTTPClient) (*
 
 // SendNotification sends a notification to Discord
 func (dn *DiscordNotifier) SendNotification(ctx context.Context, webhookURL string, payload models.DiscordMessagePayload, filePath string) error {
-	// Implementation would go here
-	// For now, this is a placeholder to satisfy the interface
+	if webhookURL == "" {
+		dn.logger.Warn().Msg("Discord webhook URL is empty, skipping notification")
+		return nil
+	}
+
+	dn.logger.Info().Str("webhook_url", webhookURL).Str("file_path", filePath).Msg("Sending Discord notification")
+
+	// Send the notification using HTTP client
+	err := dn.httpClient.SendDiscordNotification(ctx, webhookURL, payload, filePath)
+	if err != nil {
+		dn.logger.Error().Err(err).Str("webhook_url", webhookURL).Msg("Failed to send Discord notification")
+		return err
+	}
+
+	dn.logger.Info().Str("webhook_url", webhookURL).Msg("Discord notification sent successfully")
 	return nil
 }

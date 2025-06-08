@@ -89,6 +89,23 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 	return addMentionsIfNeeded(payloadBuilder, scanStatus.IsFailure(), cfg).Build()
 }
 
+// FormatScanCompleteMessageWithReports formats the message when a scan completes with report info
+func FormatScanCompleteMessageWithReports(summary models.ScanSummaryData, cfg config.NotificationConfig, hasReports bool) models.DiscordMessagePayload {
+	scanStatus := models.ScanStatus(summary.Status)
+	content, embedColor, statusEmoji, titleText := determineScanCompleteMessageStyle(scanStatus, cfg)
+
+	description := buildScanCompleteDescription(summary, statusEmoji)
+	embed := buildScanCompleteEmbedWithReports(description, titleText, embedColor, summary, hasReports)
+
+	payloadBuilder := NewDiscordMessagePayloadBuilder().
+		WithUsername(DiscordUsername).
+		WithAvatarURL(DiscordAvatarURL).
+		WithContent(content).
+		AddEmbed(embed)
+
+	return addMentionsIfNeeded(payloadBuilder, scanStatus.IsFailure(), cfg).Build()
+}
+
 // determineScanCompleteMessageStyle determines the styling based on scan status
 func determineScanCompleteMessageStyle(scanStatus models.ScanStatus, cfg config.NotificationConfig) (string, int, string, string) {
 	var content string
@@ -171,6 +188,29 @@ func buildScanCompleteEmbed(description, titleText string, embedColor int, summa
 	addDiffStatsField(embedBuilder, summary.DiffStats)
 	addBatchProcessingField(embedBuilder, summary)
 	addReportField(embedBuilder, summary.ReportPath)
+	addErrorsField(embedBuilder, summary.ErrorMessages)
+
+	return embedBuilder.Build()
+}
+
+// buildScanCompleteEmbedWithReports creates the embed for scan complete message with report info
+func buildScanCompleteEmbedWithReports(description, titleText string, embedColor int, summary models.ScanSummaryData, hasReports bool) models.DiscordEmbed {
+	embedBuilder := NewDiscordEmbedBuilder().
+		WithTitle(fmt.Sprintf("🛡️ %s", titleText)).
+		WithDescription(description).
+		WithColor(embedColor).
+		WithTimestamp(time.Now()).
+		WithFooter("MonsterInc Scanner", "")
+
+	addProbeStatsField(embedBuilder, summary.ProbeStats)
+	addDiffStatsField(embedBuilder, summary.DiffStats)
+	addBatchProcessingField(embedBuilder, summary)
+
+	// Use hasReports parameter instead of relying on summary.ReportPath
+	if hasReports {
+		embedBuilder.AddField("📄 Report", "Detailed report is attached below.", false)
+	}
+
 	addErrorsField(embedBuilder, summary.ErrorMessages)
 
 	return embedBuilder.Build()
@@ -351,57 +391,4 @@ func buildCriticalErrorEmbed(description string, summary models.ScanSummaryData)
 	}
 
 	return embedBuilder.Build()
-}
-
-// FormatSecondaryReportPartMessage formats messages for secondary report parts
-func FormatSecondaryReportPartMessage(scanSessionID string, partNumber int, totalParts int, cfg *config.NotificationConfig) models.DiscordMessagePayload {
-	description := buildSecondaryReportDescription(scanSessionID, partNumber, totalParts)
-	embed := buildSecondaryReportEmbed(description, partNumber, totalParts)
-	content := buildSecondaryReportContent(cfg)
-	return buildSecondaryReportPayload(embed, content)
-}
-
-// buildSecondaryReportDescription creates the description for secondary report message
-func buildSecondaryReportDescription(scanSessionID string, partNumber, totalParts int) string {
-	return fmt.Sprintf(
-		"📄 **Additional report part**\n\n"+
-			"**Session ID:** `%s`\n"+
-			"**Part:** %d of %d",
-		scanSessionID,
-		partNumber,
-		totalParts,
-	)
-}
-
-// buildSecondaryReportEmbed creates the embed for secondary report message
-func buildSecondaryReportEmbed(description string, partNumber, totalParts int) models.DiscordEmbed {
-	return NewDiscordEmbedBuilder().
-		WithTitle(fmt.Sprintf("📄 Report Part %d/%d", partNumber, totalParts)).
-		WithDescription(description).
-		WithColor(DefaultEmbedColor).
-		WithTimestamp(time.Now()).
-		Build()
-}
-
-// buildSecondaryReportContent creates content for secondary report message
-func buildSecondaryReportContent(cfg *config.NotificationConfig) string {
-	if cfg == nil || len(cfg.MentionRoleIDs) == 0 {
-		return ""
-	}
-
-	var mentions []string
-	for _, roleID := range cfg.MentionRoleIDs {
-		mentions = append(mentions, fmt.Sprintf("<@&%s>", roleID))
-	}
-	return strings.Join(mentions, " ") + "\n"
-}
-
-// buildSecondaryReportPayload creates payload for secondary report message
-func buildSecondaryReportPayload(embed models.DiscordEmbed, content string) models.DiscordMessagePayload {
-	return NewDiscordMessagePayloadBuilder().
-		WithUsername(DiscordUsername).
-		WithAvatarURL(DiscordAvatarURL).
-		WithContent(content).
-		AddEmbed(embed).
-		Build()
 }
