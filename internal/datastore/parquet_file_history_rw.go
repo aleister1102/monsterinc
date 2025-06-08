@@ -68,7 +68,12 @@ func (pfs *ParquetFileHistory) StoreFileRecord(record models.FileHistoryRecord) 
 		return fmt.Errorf("writing parquet data to '%s': %w", historyFilePath, err)
 	}
 
-	pfs.logger.Info().Str("url", record.URL).Int("total_records", len(allRecords)).Msg("Successfully stored/updated file history record.")
+	// Only log every 50 records or at debug level to reduce log spam
+	if len(allRecords)%50 == 0 || len(allRecords) == 1 {
+		pfs.logger.Info().Str("url", record.URL).Int("total_records", len(allRecords)).Msg("Successfully stored/updated file history record.")
+	} else {
+		pfs.logger.Debug().Str("url", record.URL).Int("total_records", len(allRecords)).Msg("Successfully stored/updated file history record.")
+	}
 	return nil
 }
 

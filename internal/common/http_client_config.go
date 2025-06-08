@@ -44,7 +44,6 @@ func DefaultHTTPClientConfig() HTTPClientConfig {
 		CustomHeaders: map[string]string{
 			"Accept":                    "*/*",
 			"Accept-Language":           "en-US,en;q=0.9",
-			"Accept-Encoding":           "gzip, deflate, br", // Added brotli for HTTP/2
 			"Connection":                "keep-alive",
 			"Sec-Fetch-Mode":            "navigate",
 			"Sec-Fetch-Site":            "none",
