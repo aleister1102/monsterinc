@@ -19,12 +19,14 @@ type HTTPXExecutor struct {
 	logger          zerolog.Logger
 	crawlerInstance *crawler.Crawler
 	progressDisplay *common.ProgressDisplayManager
+	httpxManager    *HTTPXManager // Added httpx manager for singleton instance
 }
 
 // NewHTTPXExecutor creates a new HTTPX executor
 func NewHTTPXExecutor(logger zerolog.Logger) *HTTPXExecutor {
 	return &HTTPXExecutor{
-		logger: logger.With().Str("module", "HTTPXExecutor").Logger(),
+		logger:       logger.With().Str("module", "HTTPXExecutor").Logger(),
+		httpxManager: NewHTTPXManager(logger),
 	}
 }
 
@@ -36,6 +38,17 @@ func (he *HTTPXExecutor) SetCrawlerInstance(crawlerInstance *crawler.Crawler) {
 // SetProgressDisplay sets the progress display manager
 func (he *HTTPXExecutor) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
 	he.progressDisplay = progressDisplay
+}
+
+// Shutdown gracefully shuts down the httpx executor and its managed components
+func (he *HTTPXExecutor) Shutdown() {
+	he.logger.Info().Msg("Shutting down HTTPX executor")
+
+	if he.httpxManager != nil {
+		he.httpxManager.Shutdown()
+	}
+
+	he.logger.Info().Msg("HTTPX executor shutdown complete")
 }
 
 // HTTPXExecutionInput holds the parameters for HTTPX probing execution
@@ -76,7 +89,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 	// Update progress - starting probing
 	if he.progressDisplay != nil {
-		he.progressDisplay.UpdateScanProgress(2, 4, "Probing", fmt.Sprintf("Starting HTTPX probing of %d URLs", len(input.DiscoveredURLs)))
+		he.progressDisplay.UpdateScanProgress(2, 5, "Probing", fmt.Sprintf("Starting HTTPX probing of %d URLs\n", len(input.DiscoveredURLs)))
 	}
 
 	runnerResults, err := he.runHTTPXRunner(input.Context, input.HttpxRunnerConfig, input.PrimaryRootTargetURL, input.ScanSessionID)
@@ -87,7 +100,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 		// Update progress - cancelled
 		if he.progressDisplay != nil {
-			he.progressDisplay.UpdateScanProgress(2, 4, "Cancelled", "HTTPX probing cancelled")
+			he.progressDisplay.UpdateScanProgress(2, 5, "Cancelled", "HTTPX probing cancelled")
 		}
 
 		result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
@@ -98,7 +111,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 		// Update progress - failed
 		if he.progressDisplay != nil {
-			he.progressDisplay.UpdateScanProgress(2, 4, "Failed", fmt.Sprintf("HTTPX probing failed: %v", err))
+			he.progressDisplay.UpdateScanProgress(2, 5, "Failed", fmt.Sprintf("HTTPX probing failed: %v", err))
 		}
 
 		result.Error = err
@@ -111,7 +124,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 		// Update progress - cancelled
 		if he.progressDisplay != nil {
-			he.progressDisplay.UpdateScanProgress(2, 4, "Cancelled", "HTTPX probing cancelled after completion")
+			he.progressDisplay.UpdateScanProgress(2, 5, "Cancelled", "HTTPX probing cancelled after completion")
 		}
 
 		result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
@@ -123,7 +136,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 	// Update progress - completed
 	if he.progressDisplay != nil {
-		he.progressDisplay.UpdateScanProgress(2, 4, "Probing Complete", fmt.Sprintf("HTTPX probing completed: %d results", len(result.ProbeResults)))
+		he.progressDisplay.UpdateScanProgress(2, 5, "Probing Complete", fmt.Sprintf("HTTPX probing completed: %d results", len(result.ProbeResults)))
 	}
 
 	he.logger.Info().Int("count", len(result.ProbeResults)).Str("session_id", input.ScanSessionID).Msg("HTTPX probing completed successfully")
@@ -131,28 +144,9 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 	return result
 }
 
-// runHTTPXRunner creates and runs the httpx runner
-// Encapsulates the logic for setting up and executing the httpx tool
+// runHTTPXRunner uses the managed httpx runner instead of creating new instances
 func (he *HTTPXExecutor) runHTTPXRunner(ctx context.Context, runnerConfig *httpxrunner.Config, primaryRootTargetURL, scanSessionID string) ([]models.ProbeResult, error) {
-	runner, err := httpxrunner.NewRunner(runnerConfig, primaryRootTargetURL, he.logger)
-	if err != nil {
-		he.logger.Error().Err(err).Str("session_id", scanSessionID).Msg("Failed to create HTTPX runner")
-		return nil, fmt.Errorf("failed to create HTTPX runner for session %s: %w", scanSessionID, err)
-	}
-
-	if err := runner.Run(ctx); err != nil {
-		he.logger.Warn().Err(err).Str("session_id", scanSessionID).Msg("HTTPX probing encountered errors")
-
-		// Continue with partial results unless cancelled
-		if ctx.Err() == context.Canceled {
-			he.logger.Info().Str("session_id", scanSessionID).Msg("HTTPX cancelled")
-			return runner.GetResults(), ctx.Err()
-		}
-
-		return runner.GetResults(), fmt.Errorf("httpx execution failed for session %s: %w", scanSessionID, err)
-	}
-
-	return runner.GetResults(), nil
+	return he.httpxManager.ExecuteRunnerBatch(ctx, runnerConfig, primaryRootTargetURL, scanSessionID)
 }
 
 // processHTTPXResults maps the raw httpx results to models.ProbeResult and assigns RootTargetURL

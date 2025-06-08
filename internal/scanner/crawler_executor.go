@@ -15,12 +15,14 @@ import (
 type CrawlerExecutor struct {
 	logger          zerolog.Logger
 	progressDisplay *common.ProgressDisplayManager
+	crawlerManager  *CrawlerManager // Added crawler manager for singleton instance
 }
 
 // NewCrawlerExecutor creates a new crawler executor
 func NewCrawlerExecutor(logger zerolog.Logger) *CrawlerExecutor {
 	return &CrawlerExecutor{
-		logger: logger.With().Str("module", "CrawlerExecutor").Logger(),
+		logger:         logger.With().Str("module", "CrawlerExecutor").Logger(),
+		crawlerManager: NewCrawlerManager(logger), // Initialize crawler manager
 	}
 }
 
@@ -45,8 +47,7 @@ type CrawlerExecutionResult struct {
 	Error           error
 }
 
-// Execute runs the crawler and returns discovered URLs
-// Renamed from executeCrawler for clarity and moved to dedicated executor
+// Execute runs the crawler using managed singleton instance and returns discovered URLs
 func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutionResult {
 	result := &CrawlerExecutionResult{}
 
@@ -64,52 +65,53 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 
 	// Update progress - starting crawler
 	if ce.progressDisplay != nil {
-		ce.progressDisplay.UpdateScanProgress(1, 4, "Crawler", fmt.Sprintf("Starting crawler with %d seed URLs", len(input.CrawlerConfig.SeedURLs)))
+		ce.progressDisplay.UpdateScanProgress(1, 5, "Crawler", fmt.Sprintf("Starting crawler with %d seed URLs", len(input.CrawlerConfig.SeedURLs)))
 	}
 
 	ce.logger.Info().
 		Int("seed_count", len(input.CrawlerConfig.SeedURLs)).
 		Str("session_id", input.ScanSessionID).
 		Str("primary_target", input.PrimaryRootTargetURL).
-		Msg("Starting crawler")
+		Msg("Starting crawler using managed instance")
 
-	crawlerInstance, err := crawler.NewCrawler(input.CrawlerConfig, ce.logger)
+	// Disable auto-calibrate since URLs have been preprocessed at Scanner level
+	ce.crawlerManager.DisableAutoCalibrateForPreprocessedURLs()
+
+	// Execute crawler batch using managed instance
+	batchResult, err := ce.crawlerManager.ExecuteCrawlerBatch(
+		input.Context,
+		input.CrawlerConfig,
+		input.CrawlerConfig.SeedURLs,
+		input.ScanSessionID,
+		ce.progressDisplay,
+	)
+
 	if err != nil {
-		ce.logger.Error().Err(err).Msg("Failed to initialize crawler")
+		ce.logger.Error().Err(err).Msg("Failed to execute crawler batch")
 
 		// Update progress - failed
 		if ce.progressDisplay != nil {
-			ce.progressDisplay.UpdateScanProgress(1, 4, "Failed", fmt.Sprintf("Crawler initialization failed: %v", err))
+			ce.progressDisplay.UpdateScanProgress(1, 5, "Failed", fmt.Sprintf("Crawler execution failed: %v", err))
 		}
 
-		result.Error = fmt.Errorf("failed to initialize crawler: %w", err)
+		result.Error = fmt.Errorf("failed to execute crawler batch: %w", err)
 		return result
 	}
 
-	// Update progress - crawler running
-	if ce.progressDisplay != nil {
-		ce.progressDisplay.UpdateScanProgress(1, 4, "Crawling", "Crawler is running and discovering URLs")
-	}
-
-	crawlerInstance.Start(input.Context)
-
-	// Đảm bảo crawler đã shutdown hoàn toàn trước khi lấy results
-	crawlerInstance.EnsureFullShutdown()
-
-	result.DiscoveredURLs = crawlerInstance.GetDiscoveredURLs()
-	result.CrawlerInstance = crawlerInstance
+	result.DiscoveredURLs = batchResult.DiscoveredURLs
+	result.CrawlerInstance = batchResult.CrawlerInstance
 
 	// Update progress - crawler completed
 	if ce.progressDisplay != nil {
-		ce.progressDisplay.UpdateScanProgress(1, 4, "Crawler Complete", fmt.Sprintf("Crawler completed: %d URLs discovered", len(result.DiscoveredURLs)))
+		ce.progressDisplay.UpdateScanProgress(1, 5, "Crawler Complete", fmt.Sprintf("Discovered %d URLs", len(result.DiscoveredURLs)))
 	}
 
 	ce.logger.Info().
 		Int("discovered_count", len(result.DiscoveredURLs)).
 		Str("session_id", input.ScanSessionID).
-		Msg("Crawler completed")
+		Msg("Crawler completed using managed instance")
 
-	// Only warn if no URLs discovered - removed debug logs
+	// Only warn if no URLs discovered
 	if len(result.DiscoveredURLs) == 0 {
 		ce.logger.Warn().
 			Str("session_id", input.ScanSessionID).
@@ -117,4 +119,13 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 	}
 
 	return result
+}
+
+// Shutdown gracefully shuts down the crawler executor and its managed crawler
+func (ce *CrawlerExecutor) Shutdown() {
+	ce.logger.Info().Msg("Shutting down crawler executor")
+	if ce.crawlerManager != nil {
+		ce.crawlerManager.Shutdown()
+	}
+	ce.logger.Info().Msg("Crawler executor shutdown complete")
 }
