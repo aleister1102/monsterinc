@@ -34,8 +34,13 @@ func (pdm *ProgressDisplayManager) displayProgress() {
 		progressBar := pdm.createProgressBar(percentage, 20)
 
 		if pdm.scanProgress.BatchInfo != nil {
+			// Ensure CurrentBatch is never 0 in display (should be 1-based)
+			displayBatch := pdm.scanProgress.BatchInfo.CurrentBatch
+			if displayBatch == 0 {
+				displayBatch = 1
+			}
 			output.WriteString(fmt.Sprintf("🔍 Scan [Batch %d/%d]: %s %s %.1f%% (%d/%d)",
-				pdm.scanProgress.BatchInfo.CurrentBatch,
+				displayBatch,
 				pdm.scanProgress.BatchInfo.TotalBatches,
 				icon,
 				progressBar,

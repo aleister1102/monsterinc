@@ -11,9 +11,15 @@ func (pdm *ProgressDisplayManager) UpdateScanProgress(current, total int64, stag
 
 	now := time.Now()
 
-	if pdm.scanProgress.Status == ProgressStatusIdle && current > 0 {
+	// Initialize or reset for new progress tracking
+	if pdm.scanProgress.Status == ProgressStatusIdle || current == 0 {
 		pdm.scanProgress.StartTime = now
 		pdm.scanProgress.Status = ProgressStatusRunning
+	}
+
+	// Reset start time for batch progress to get accurate ETA per batch
+	if pdm.scanProgress.BatchInfo != nil && pdm.scanProgress.Current == 0 && current > 0 {
+		pdm.scanProgress.StartTime = now
 	}
 
 	pdm.scanProgress.Current = current
@@ -93,4 +99,41 @@ func (pdm *ProgressDisplayManager) UpdateMonitorStats(processed, failed, complet
 	pdm.monitorProgress.MonitorInfo.ProcessedURLs = processed
 	pdm.monitorProgress.MonitorInfo.FailedURLs = failed
 	pdm.monitorProgress.MonitorInfo.CompletedURLs = completed
+}
+
+// ResetBatchProgress resets progress for a new batch with fresh timing
+func (pdm *ProgressDisplayManager) ResetBatchProgress(progressType ProgressType, currentBatch, totalBatches int, stage, message string) {
+	pdm.mutex.Lock()
+	defer pdm.mutex.Unlock()
+
+	now := time.Now()
+
+	if progressType == ProgressTypeScan {
+		pdm.scanProgress.Current = 0
+		pdm.scanProgress.Total = 5 // Standard workflow steps
+		pdm.scanProgress.Stage = stage
+		pdm.scanProgress.Message = message
+		pdm.scanProgress.StartTime = now // Reset timer for accurate ETA
+		pdm.scanProgress.LastUpdateTime = now
+		pdm.scanProgress.EstimatedETA = 0
+		pdm.scanProgress.Status = ProgressStatusRunning
+
+		// Update batch info
+		pdm.scanProgress.BatchInfo = &BatchProgressInfo{
+			CurrentBatch: currentBatch,
+			TotalBatches: totalBatches,
+		}
+	} else {
+		pdm.monitorProgress.Current = 0
+		pdm.monitorProgress.StartTime = now
+		pdm.monitorProgress.LastUpdateTime = now
+		pdm.monitorProgress.EstimatedETA = 0
+		pdm.monitorProgress.Status = ProgressStatusRunning
+
+		if pdm.monitorProgress.BatchInfo == nil {
+			pdm.monitorProgress.BatchInfo = &BatchProgressInfo{}
+		}
+		pdm.monitorProgress.BatchInfo.CurrentBatch = currentBatch
+		pdm.monitorProgress.BatchInfo.TotalBatches = totalBatches
+	}
 }

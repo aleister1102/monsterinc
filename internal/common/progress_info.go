@@ -37,7 +37,7 @@ func (pi *ProgressInfo) GetElapsedTime() time.Duration {
 
 // UpdateETA cập nhật thời gian ước tính hoàn thành
 func (pi *ProgressInfo) UpdateETA() {
-	if pi.Current == 0 || pi.Total == 0 {
+	if pi.Current == 0 || pi.Total == 0 || pi.Current >= pi.Total {
 		pi.EstimatedETA = 0
 		return
 	}
@@ -45,9 +45,24 @@ func (pi *ProgressInfo) UpdateETA() {
 	elapsed := pi.GetElapsedTime()
 	remaining := pi.Total - pi.Current
 
-	if pi.Current > 0 {
+	// Ensure we have meaningful elapsed time (at least 1 second)
+	if elapsed.Seconds() < 1.0 {
+		pi.EstimatedETA = 0
+		return
+	}
+
+	if pi.Current > 0 && remaining > 0 {
 		avgTimePerItem := elapsed / time.Duration(pi.Current)
-		pi.EstimatedETA = avgTimePerItem * time.Duration(remaining)
+		estimatedETA := avgTimePerItem * time.Duration(remaining)
+
+		// Cap ETA at 24 hours to avoid unrealistic values
+		maxETA := 24 * time.Hour
+		if estimatedETA > maxETA {
+			pi.EstimatedETA = maxETA
+		} else {
+			pi.EstimatedETA = estimatedETA
+		}
+
 		pi.ProcessingRate = float64(pi.Current) / elapsed.Seconds()
 	}
 }
