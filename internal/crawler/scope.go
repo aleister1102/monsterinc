@@ -21,7 +21,6 @@ type ScopeSettings struct {
 	logger                   zerolog.Logger
 
 	autoAddSeedHostnames bool
-	originalSeedDomains  []string
 }
 
 // String returns a string representation of ScopeSettings for logging
@@ -177,85 +176,6 @@ func (s *ScopeSettings) hasDisallowedSubdomainPart(hostname string) bool {
 	}
 
 	return false
-}
-
-// isAllowedBySeedDomains checks if hostname is allowed by seed domain policy
-func (s *ScopeSettings) isAllowedBySeedDomains(hostname string) bool {
-	s.logger.Debug().
-		Str("hostname", hostname).
-		Strs("original_seed_domains", s.originalSeedDomains).
-		Msg("Checking hostname against seed base domains")
-
-	// Get the base domain of the hostname being checked
-	hostnameBaseDomain, err := urlhandler.GetBaseDomain(hostname)
-	if err != nil {
-		s.logger.Debug().
-			Str("hostname", hostname).
-			Err(err).
-			Msg("Failed to get base domain for hostname, checking as-is")
-		hostnameBaseDomain = hostname
-	}
-
-	s.logger.Debug().
-		Str("hostname", hostname).
-		Str("hostname_base_domain", hostnameBaseDomain).
-		Msg("Extracted base domain for hostname")
-
-	for _, seedBaseDomain := range s.originalSeedDomains {
-		// Check if the hostname's base domain matches the seed base domain
-		if hostnameBaseDomain == seedBaseDomain {
-			s.logger.Debug().
-				Str("hostname", hostname).
-				Str("hostname_base_domain", hostnameBaseDomain).
-				Str("seed_base_domain", seedBaseDomain).
-				Msg("Hostname base domain matches seed base domain")
-			return true
-		}
-
-		// Also check direct hostname matching for backward compatibility
-		if s.matchesSeedDomain(hostname, seedBaseDomain) {
-			s.logger.Debug().
-				Str("hostname", hostname).
-				Str("seed_base_domain", seedBaseDomain).
-				Msg("Hostname matches seed domain via matchesSeedDomain")
-			return true
-		}
-	}
-
-	s.logger.Debug().
-		Str("hostname", hostname).
-		Str("hostname_base_domain", hostnameBaseDomain).
-		Strs("seed_base_domains", s.originalSeedDomains).
-		Msg("Hostname not allowed by any seed base domain")
-	return false
-}
-
-// matchesSeedDomain checks if hostname matches or is subdomain of seed domain
-func (s *ScopeSettings) matchesSeedDomain(hostname, seedBaseDomain string) bool {
-	if hostname == seedBaseDomain {
-		return true
-	}
-
-	if !strings.HasSuffix(hostname, "."+seedBaseDomain) {
-		return false
-	}
-
-	// Check if specific subdomain is disallowed
-	subdomainPart := strings.TrimSuffix(hostname, "."+seedBaseDomain)
-	if containsString(subdomainPart, s.disallowedSubdomains) {
-		s.logger.Debug().
-			Str("hostname", hostname).
-			Str("seed_base", seedBaseDomain).
-			Str("subdomain_part", subdomainPart).
-			Msg("Allowed by seed domains, but subdomain part is disallowed")
-		return false
-	}
-
-	s.logger.Debug().
-		Str("hostname", hostname).
-		Str("seed_base_domain", seedBaseDomain).
-		Msg("Hostname allowed by seed domain policy")
-	return true
 }
 
 // checkPathScope checks if a given URL path is within the defined scope
