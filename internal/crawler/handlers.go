@@ -21,6 +21,11 @@ func (cr *Crawler) handleError(r *colly.Response, e error) {
 		Int("status", r.StatusCode).
 		Err(e).
 		Msg("Request failed")
+
+	// Notify stats monitor if available
+	if cr.statsCallback != nil {
+		cr.statsCallback.OnError(1)
+	}
 }
 
 // handleRequest processes colly request callbacks
@@ -110,6 +115,12 @@ func (cr *Crawler) extractAssetsFromResponse(r *colly.Response) {
 			Str("url", r.Request.URL.String()).
 			Int("assets", len(assets)).
 			Msg("Extracted assets")
+
+		// Notify stats monitor if available
+		if cr.statsCallback != nil {
+			cr.statsCallback.OnAssetsExtracted(int64(len(assets)))
+			cr.statsCallback.OnURLProcessed(1)
+		}
 	}
 }
 

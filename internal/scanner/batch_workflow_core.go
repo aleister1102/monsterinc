@@ -37,6 +37,9 @@ func NewBatchWorkflowOrchestrator(
 		Int("batch_size", scanBatchConfig.BatchSize).
 		Msg("Scan batch configuration initialized based on crawler threads")
 
+	// Update scanner logger to use the provided logger for this scan session
+	scanner.UpdateLogger(logger)
+
 	return &BatchWorkflowOrchestrator{
 		logger:         orchestratorLogger,
 		batchProcessor: common.NewBatchProcessor(bpConfig, logger),

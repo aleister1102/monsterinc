@@ -127,6 +127,22 @@ func (s *Scanner) SetProgressDisplay(progressDisplay *common.ProgressDisplayMana
 	}
 }
 
+// UpdateLogger updates the logger for this scanner and its components
+func (s *Scanner) UpdateLogger(newLogger zerolog.Logger) {
+	s.logger = newLogger.With().Str("module", "Scanner").Logger()
+
+	// Update logger for sub-components
+	if s.configBuilder != nil {
+		s.configBuilder.logger = newLogger.With().Str("module", "ConfigBuilder").Logger()
+	}
+	if s.urlPreprocessor != nil {
+		s.urlPreprocessor.logger = newLogger.With().Str("component", "URLPreprocessor").Logger()
+	}
+
+	// Note: CrawlerExecutor, HTTPXExecutor, and DiffStorageProcessor don't have UpdateLogger methods
+	// They use the logger passed to them during execution
+}
+
 // ExecuteSingleScanWorkflowWithReporting performs complete scan workflow with reporting
 func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 	ctx context.Context,

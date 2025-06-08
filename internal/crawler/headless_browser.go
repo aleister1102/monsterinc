@@ -3,6 +3,8 @@ package crawler
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"sync"
 	"time"
 
@@ -76,7 +78,13 @@ func (hbm *HeadlessBrowserManager) Start() error {
 		Set("disable-features", "VizDisplayCompositor").
 		Set("no-first-run").
 		Set("disable-default-apps").
-		Set("disable-sync")
+		Set("disable-sync").
+		Set("disable-background-timer-throttling").
+		Set("disable-backgrounding-occluded-windows").
+		Set("disable-ipc-flooding-protection").
+		Set("enable-automation").
+		Set("password-store", "basic").
+		Set("use-mock-keychain")
 
 	// Add user-defined args (skip this for now due to API complexity)
 	// User can configure via ChromePath and other specific configs
@@ -149,9 +157,11 @@ func (hbm *HeadlessBrowserManager) Stop() {
 		case err := <-done:
 			if err != nil {
 				hbm.logger.Error().Err(err).Msg("Failed to close shared browser")
+			} else {
+				hbm.logger.Debug().Msg("Shared browser closed successfully")
 			}
-		case <-time.After(5 * time.Second):
-			hbm.logger.Warn().Msg("Timeout closing shared browser, forcing cleanup")
+		case <-time.After(7 * time.Second):
+			hbm.logger.Warn().Msg("Timeout closing shared browser, will attempt force cleanup")
 		}
 	}
 
@@ -166,8 +176,10 @@ func (hbm *HeadlessBrowserManager) Stop() {
 		select {
 		case <-done:
 			hbm.logger.Debug().Msg("Launcher cleanup completed")
-		case <-time.After(3 * time.Second):
-			hbm.logger.Warn().Msg("Timeout cleaning up launcher, forcing exit")
+		case <-time.After(5 * time.Second):
+			hbm.logger.Warn().Msg("Timeout cleaning up launcher, attempting force cleanup")
+			// Try to force kill browser process if cleanup times out
+			hbm.forceKillBrowserProcess()
 		}
 	}
 
@@ -412,4 +424,48 @@ func (hbm *HeadlessBrowserManager) createNewPage() (*rod.Page, error) {
 
 	hbm.logger.Debug().Msg("Created new page instance as replacement")
 	return page, nil
+}
+
+// forceKillBrowserProcess attempts to force kill any remaining chromium/chrome processes
+func (hbm *HeadlessBrowserManager) forceKillBrowserProcess() {
+	hbm.logger.Warn().Msg("Attempting to force kill remaining browser processes")
+
+	switch runtime.GOOS {
+	case "windows":
+		hbm.forceKillBrowserProcessWindows()
+	case "linux", "darwin":
+		hbm.forceKillBrowserProcessUnix()
+	default:
+		hbm.logger.Warn().Str("os", runtime.GOOS).Msg("Unsupported OS for force kill browser process")
+	}
+}
+
+// forceKillBrowserProcessWindows force kills browser processes on Windows
+func (hbm *HeadlessBrowserManager) forceKillBrowserProcessWindows() {
+	processes := []string{"chrome.exe", "chromium.exe", "msedge.exe"}
+
+	for _, process := range processes {
+		cmd := exec.Command("taskkill", "/F", "/IM", process, "/T")
+		if err := cmd.Run(); err != nil {
+			// Don't log error as it's expected if process not found
+			hbm.logger.Debug().Str("process", process).Msg("Process not found or already terminated")
+		} else {
+			hbm.logger.Info().Str("process", process).Msg("Force killed browser process")
+		}
+	}
+}
+
+// forceKillBrowserProcessUnix force kills browser processes on Unix-like systems
+func (hbm *HeadlessBrowserManager) forceKillBrowserProcessUnix() {
+	processes := []string{"chrome", "chromium", "chromium-browser", "google-chrome"}
+
+	for _, process := range processes {
+		cmd := exec.Command("pkill", "-f", process)
+		if err := cmd.Run(); err != nil {
+			// Don't log error as it's expected if process not found
+			hbm.logger.Debug().Str("process", process).Msg("Process not found or already terminated")
+		} else {
+			hbm.logger.Info().Str("process", process).Msg("Force killed browser process")
+		}
+	}
 }

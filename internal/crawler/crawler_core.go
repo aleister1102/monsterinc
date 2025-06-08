@@ -13,6 +13,13 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// StatsCallback interface for notifying about crawler statistics
+type StatsCallback interface {
+	OnAssetsExtracted(count int64)
+	OnURLProcessed(count int64)
+	OnError(count int64)
+}
+
 // Crawler represents the web crawler instance with thread-safe operations
 type Crawler struct {
 	collector      *colly.Collector
@@ -45,6 +52,8 @@ type Crawler struct {
 	headlessBrowserManager *HeadlessBrowserManager
 	// URL pattern detector for auto-calibrate
 	patternDetector *URLPatternDetector
+	// Stats callback for monitoring
+	statsCallback StatsCallback
 }
 
 // NewCrawler initializes a new Crawler based on the provided configuration
@@ -162,6 +171,11 @@ func (cr *Crawler) DisableAutoCalibrate() {
 func (cr *Crawler) EnableAutoCalibrate() {
 	cr.logger.Debug().Msg("Auto-calibrate enabled")
 	cr.config.AutoCalibrate.Enabled = true
+}
+
+// SetStatsCallback sets the stats callback for monitoring
+func (cr *Crawler) SetStatsCallback(callback StatsCallback) {
+	cr.statsCallback = callback
 }
 
 // extractRootHostname extracts hostname from the first seed URL
