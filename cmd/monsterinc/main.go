@@ -343,8 +343,13 @@ func setupSignalHandling(
 		notificationCtx, notificationCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer notificationCancel()
 
+		// Track if any notification was sent
+		notificationSent := false
+
 		// Send scan interrupt notification if there's an active scan
 		currentActiveScanID := getActiveScanSessionID()
+		zLogger.Debug().Str("active_scan_id", currentActiveScanID).Msg("Checking for active scan session")
+
 		if currentActiveScanID != "" && notificationHelper != nil {
 			// Check if notification already sent to avoid duplicates
 			if !getAndSetInterruptNotificationSent() {
@@ -358,14 +363,18 @@ func setupSignalHandling(
 
 				zLogger.Info().Str("scan_session_id", currentActiveScanID).Msg("Sending scan interrupt notification for active scan")
 				notificationHelper.SendScanInterruptNotification(notificationCtx, interruptSummary)
+				notificationSent = true
 			} else {
 				zLogger.Info().Str("scan_session_id", currentActiveScanID).Msg("Scan interrupt notification already sent, skipping duplicate")
+				notificationSent = true
 			}
 		}
 
 		// Send monitor interrupt notification if there's an active monitor cycle
 		if monitoringService != nil && notificationHelper != nil {
 			currentURLs := monitoringService.GetCurrentlyMonitorUrls()
+			zLogger.Debug().Int("monitor_urls_count", len(currentURLs)).Msg("Checking for active monitor URLs")
+
 			if len(currentURLs) > 0 {
 				currentCycleID := monitoringService.GetCurrentCycleID()
 				if currentCycleID == "" {
@@ -383,7 +392,32 @@ func setupSignalHandling(
 
 				zLogger.Info().Str("cycle_id", currentCycleID).Int("monitored_urls", len(currentURLs)).Msg("Sending monitor interrupt notification for active monitoring")
 				notificationHelper.SendMonitorInterruptNotification(notificationCtx, interruptData)
+				notificationSent = true
 			}
+		} else {
+			zLogger.Debug().
+				Bool("has_monitoring_service", monitoringService != nil).
+				Bool("has_notification_helper", notificationHelper != nil).
+				Msg("Monitor service or notification helper not available")
+		}
+
+		// Send general interrupt notification if no specific notification was sent
+		if !notificationSent && notificationHelper != nil {
+			zLogger.Info().Msg("No active scan or monitor found, sending general interrupt notification")
+
+			generalInterruptSummary := models.GetDefaultScanSummaryData()
+			generalInterruptSummary.ScanMode = gCfg.Mode
+			generalInterruptSummary.TargetSource = "system_interrupt"
+			generalInterruptSummary.Status = string(models.ScanStatusInterrupted)
+			generalInterruptSummary.ErrorMessages = []string{fmt.Sprintf("MonsterInc service interrupted by user signal (%s)", sig.String())}
+			generalInterruptSummary.Component = "SystemService"
+			generalInterruptSummary.ScanSessionID = fmt.Sprintf("system-%s", time.Now().Format("20060102-150405"))
+
+			notificationHelper.SendScanInterruptNotification(notificationCtx, generalInterruptSummary)
+		} else if !notificationSent {
+			zLogger.Warn().Msg("No notification sent for interrupt - notification helper is not available")
+		} else {
+			zLogger.Debug().Msg("Specific interrupt notification already sent, skipping general notification")
 		}
 
 		// Wait a moment for notifications to be sent before cancelling context
