@@ -178,17 +178,17 @@ func TestHTTPClientBuilder_HTTP2Config(t *testing.T) {
 
 func ExampleHTTPClient() {
 	logger := zerolog.Nop()
-	
+
 	// Create HTTP client with HTTP/2 support
 	config := DefaultHTTPClientConfig()
 	config.EnableHTTP2 = true
-	
+
 	client, err := NewHTTPClient(config, logger)
 	if err != nil {
 		fmt.Printf("Error creating client: %v\n", err)
 		return
 	}
-	
+
 	// Make a request
 	req := &HTTPRequest{
 		URL:    "https://httpbin.org/get",
@@ -198,13 +198,13 @@ func ExampleHTTPClient() {
 		},
 		Context: context.Background(),
 	}
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("Error making request: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Status: %d\n", resp.StatusCode)
 	fmt.Printf("Content-Type: %s\n", resp.Headers["Content-Type"])
 }

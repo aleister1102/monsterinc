@@ -20,12 +20,20 @@ func NewDiscordEmbedBuilder() *DiscordEmbedBuilder {
 
 // WithTitle sets the Title for the DiscordEmbed.
 func (b *DiscordEmbedBuilder) WithTitle(title string) *DiscordEmbedBuilder {
+	// Truncate title if it's too long for Discord
+	if len(title) > 256 {
+		title = title[:253] + "..."
+	}
 	b.embed.Title = title
 	return b
 }
 
 // WithDescription sets the Description for the DiscordEmbed.
 func (b *DiscordEmbedBuilder) WithDescription(description string) *DiscordEmbedBuilder {
+	// Truncate description if it's too long for Discord
+	if len(description) > 4096 {
+		description = description[:4093] + "..."
+	}
 	b.embed.Description = description
 	return b
 }
@@ -86,6 +94,22 @@ func (b *DiscordEmbedBuilder) WithAuthor(name string, url string, iconURL string
 
 // AddField adds a DiscordEmbedField to the DiscordEmbed.
 func (b *DiscordEmbedBuilder) AddField(name string, value string, inline bool) *DiscordEmbedBuilder {
+	// Validate field before adding to prevent Discord API errors
+	if name == "" {
+		return b // Skip empty field names
+	}
+	if value == "" {
+		value = "N/A" // Provide default value for empty values
+	}
+
+	// Truncate values that are too long
+	if len(name) > 256 {
+		name = name[:253] + "..."
+	}
+	if len(value) > 1024 {
+		value = value[:1021] + "..."
+	}
+
 	b.embed.Fields = append(b.embed.Fields, models.DiscordEmbedField{
 		Name:   name,
 		Value:  value,

@@ -88,7 +88,9 @@ func (r *HtmlDiffReporter) checkFileSizeAndSplit(filePath string, displayResults
 
 	// Split results into smaller chunks based on estimated size per result
 	avgSizePerResult := fileInfo.Size() / int64(len(displayResults))
-	maxResultsPerFile := int(maxDiscordFileSize / avgSizePerResult * 80 / 100) // Use 80% of limit as safety margin
+	// Apply 75% safety margin to the Discord limit
+	safeDiscordLimit := int64(float64(maxDiscordFileSize) * 0.75)
+	maxResultsPerFile := int(safeDiscordLimit / avgSizePerResult)
 
 	if maxResultsPerFile <= 0 {
 		maxResultsPerFile = 1 // Ensure at least 1 result per file
@@ -97,6 +99,7 @@ func (r *HtmlDiffReporter) checkFileSizeAndSplit(filePath string, displayResults
 	r.logger.Info().
 		Int("avg_size_per_result", int(avgSizePerResult)).
 		Int("max_results_per_file", maxResultsPerFile).
+		Int64("safe_discord_limit", safeDiscordLimit).
 		Msg("Calculated split parameters for oversized report")
 
 	// Generate chunked reports

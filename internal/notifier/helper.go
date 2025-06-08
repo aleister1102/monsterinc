@@ -500,12 +500,37 @@ func (nh *NotificationHelper) SendMonitorErrorNotification(ctx context.Context, 
 
 // adjustPayloadForAttachmentFailure modifies payload to indicate report is available but not attached
 func (nh *NotificationHelper) adjustPayloadForAttachmentFailure(payload models.DiscordMessagePayload, reportPath string) {
+	const defaultMessage = "Report generated but could not be attached due to size limitations."
+
 	for embedIdx := range payload.Embeds {
+		foundReportField := false
+
+		// Look for existing report field and update it
 		for fieldIdx, field := range payload.Embeds[embedIdx].Fields {
-			if field.Name == "📄 Report" {
-				payload.Embeds[embedIdx].Fields[fieldIdx].Value = fmt.Sprintf("Report generated, but not attached (check local files or configuration). Report path: %s", reportPath)
+			if field.Name == "📄 Report" || field.Name == "📄 Reports" {
+				// Ensure the new value is not empty and has meaningful content
+				newValue := defaultMessage
+				if reportPath != "" {
+					newValue = fmt.Sprintf("%s Report path: %s", defaultMessage, reportPath)
+				}
+				payload.Embeds[embedIdx].Fields[fieldIdx].Value = newValue
+				foundReportField = true
 				break
 			}
+		}
+
+		// If no report field found, add a new one
+		if !foundReportField && payload.Embeds[embedIdx].Title != "" {
+			newValue := defaultMessage
+			if reportPath != "" {
+				newValue = fmt.Sprintf("%s Report path: %s", defaultMessage, reportPath)
+			}
+
+			payload.Embeds[embedIdx].Fields = append(payload.Embeds[embedIdx].Fields, models.DiscordEmbedField{
+				Name:   "📄 Report",
+				Value:  newValue,
+				Inline: false,
+			})
 		}
 	}
 }
