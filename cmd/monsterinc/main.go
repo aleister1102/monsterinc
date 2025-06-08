@@ -45,7 +45,6 @@ func main() {
 	// Initialize progress display manager
 	progressDisplay := common.NewProgressDisplayManager(zLogger)
 	progressDisplay.Start()
-	defer progressDisplay.Stop()
 
 	// Start global resource limiter with config from file
 	resourceLimiterConfig := common.ResourceLimiterConfig{
@@ -132,7 +131,7 @@ func main() {
 
 	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, scanner, ms, &schedulerPtr, progressDisplay)
 
-	shutdownServices(ms, scanner, schedulerPtr, zLogger, ctx)
+	shutdownServices(ms, scanner, schedulerPtr, progressDisplay, zLogger, ctx)
 }
 
 // loadConfiguration loads the global configuration from the specified file,
@@ -573,6 +572,7 @@ func shutdownServices(
 	ms *monitor.MonitoringService,
 	scanner *scanner.Scanner,
 	scheduler *scheduler.Scheduler,
+	progressDisplay *common.ProgressDisplayManager,
 	zLogger zerolog.Logger,
 	ctx context.Context,
 ) {
@@ -585,6 +585,11 @@ func shutdownServices(
 
 	go func() {
 		defer close(done)
+
+		// Stop progress display first to avoid overlapping messages
+		if progressDisplay != nil {
+			progressDisplay.Stop()
+		}
 
 		// Stop scheduler first (it will stop monitoring service internally)
 		if scheduler != nil {
