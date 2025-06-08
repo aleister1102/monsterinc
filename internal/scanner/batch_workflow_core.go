@@ -24,10 +24,21 @@ func NewBatchWorkflowOrchestrator(
 	scanner *Scanner,
 	logger zerolog.Logger,
 ) *BatchWorkflowOrchestrator {
-	bpConfig := gCfg.ScanBatchConfig.ToBatchProcessorConfig()
+	// Set MaxConcurrentBatch based on crawler threads if not already set
+	scanBatchConfig := gCfg.ScanBatchConfig
+	scanBatchConfig.SetMaxConcurrentFromCrawlerThreads(gCfg.CrawlerConfig.MaxConcurrentRequests)
+
+	bpConfig := scanBatchConfig.ToBatchProcessorConfig()
+
+	orchestratorLogger := logger.With().Str("component", "BatchWorkflowOrchestrator").Logger()
+	orchestratorLogger.Info().
+		Int("crawler_threads", gCfg.CrawlerConfig.MaxConcurrentRequests).
+		Int("max_concurrent_batch", scanBatchConfig.GetEffectiveMaxConcurrentBatch()).
+		Int("batch_size", scanBatchConfig.BatchSize).
+		Msg("Scan batch configuration initialized based on crawler threads")
 
 	return &BatchWorkflowOrchestrator{
-		logger:         logger.With().Str("component", "BatchWorkflowOrchestrator").Logger(),
+		logger:         orchestratorLogger,
 		batchProcessor: common.NewBatchProcessor(bpConfig, logger),
 		scanner:        scanner,
 		targetManager:  urlhandler.NewTargetManager(logger),
