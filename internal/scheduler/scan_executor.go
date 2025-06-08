@@ -22,9 +22,10 @@ type scanAttemptConfig struct {
 	initialTargetSource string
 }
 
+// executeScanCycleWithRetries executes scan cycle with retry logic
 func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 	if s.scanTargetsFile == "" {
-		s.logger.Info().Msg("Scheduler: No scan targets (-st) provided. Skipping scan cycle execution. Monitoring (if active) will continue via its own ticker.")
+		s.logger.Info().Msg("Scheduler: No scan targets (-st) provided. Skipping scan cycle execution.")
 		return
 	}
 
@@ -53,15 +54,14 @@ func (s *Scheduler) executeScanCycleWithRetries(ctx context.Context) {
 	}
 }
 
+// createScanAttemptConfig creates configuration for scan attempts
 func (s *Scheduler) createScanAttemptConfig() scanAttemptConfig {
 	_, initialTargetSource, _ := s.targetManager.LoadAndSelectTargets(s.scanTargetsFile)
-
 	if initialTargetSource == "" {
 		initialTargetSource = "ErrorDeterminingSource"
 	}
 
 	generator := NewTimeStampGenerator()
-
 	return scanAttemptConfig{
 		maxRetries:          s.globalConfig.SchedulerConfig.RetryAttempts,
 		retryDelay:          DefaultRetryDelay,
@@ -70,6 +70,7 @@ func (s *Scheduler) createScanAttemptConfig() scanAttemptConfig {
 	}
 }
 
+// shouldCancelScan checks if scan should be cancelled
 func (s *Scheduler) shouldCancelScan(ctx context.Context, attempt int) bool {
 	if result := common.CheckCancellationWithLog(ctx, s.logger, fmt.Sprintf("scan attempt %d", attempt+1)); result.Cancelled {
 		s.logger.Info().Int("attempt", attempt+1).Msg("Scan cancelled before attempt")
@@ -78,19 +79,20 @@ func (s *Scheduler) shouldCancelScan(ctx context.Context, attempt int) bool {
 	return false
 }
 
+// shouldCancelDuringRetryDelay checks if scan should be cancelled during retry delay
 func (s *Scheduler) shouldCancelDuringRetryDelay(ctx context.Context, config scanAttemptConfig) bool {
 	select {
 	case <-time.After(config.retryDelay):
 		return false
 	case <-ctx.Done():
-		s.logger.Info().Str("scan_session_id", config.scanSessionID).Msg("Scheduler: Context cancelled during retry delay. Stopping retry loop.")
+		s.logger.Info().Str("scan_session_id", config.scanSessionID).Msg("Scheduler: Context cancelled during retry delay.")
 		return true
 	}
 }
 
+// attemptScanCycle attempts a single scan cycle
 func (s *Scheduler) attemptScanCycle(ctx context.Context, config scanAttemptConfig, attempt int) bool {
 	summary, reportFilePaths, err := s.executeScanCycle(ctx, config.scanSessionID, config.initialTargetSource)
-
 	updatedSummary := s.updateSummaryWithAttemptResult(summary, attempt, err)
 
 	if err == nil {
@@ -112,6 +114,90 @@ func (s *Scheduler) attemptScanCycle(ctx context.Context, config scanAttemptConf
 	return false
 }
 
+// executeScanCycle executes a single scan cycle
+func (s *Scheduler) executeScanCycle(
+	ctx context.Context,
+	scanSessionID string,
+	predeterminedTargetSource string,
+) (models.ScanSummaryData, []string, error) {
+	startTime := time.Now()
+
+	// Create scan logger
+	scanLogger, err := logger.NewWithScanID(s.globalConfig.LogConfig, scanSessionID)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("scan_session_id", scanSessionID).Msg("Failed to create scan logger, using default logger")
+		scanLogger = s.logger
+	}
+
+	// Build base summary
+	baseSummary, err := s.buildBaseScanSummary(scanSessionID, predeterminedTargetSource)
+	if err != nil {
+		return models.ScanSummaryData{}, nil, err
+	}
+
+	// Load targets
+	htmlURLs, targetSource, err := s.loadAndPrepareScanTargets(predeterminedTargetSource)
+	if err != nil {
+		return s.buildErrorSummary(baseSummary, err), nil, err
+	}
+
+	// Record scan start in DB
+	dbScanID, err := s.recordScanStartToDB(scanSessionID, targetSource, htmlURLs, startTime)
+	if err != nil {
+		return s.buildErrorSummary(baseSummary, err), nil, err
+	}
+
+	// Execute batch scan using orchestrator
+	return s.executeSchedulerBatchScan(ctx, scanSessionID, baseSummary, dbScanID, scanLogger)
+}
+
+// executeSchedulerBatchScan executes batch scan with scheduler-specific handling
+func (s *Scheduler) executeSchedulerBatchScan(
+	ctx context.Context,
+	scanSessionID string,
+	baseSummary models.ScanSummaryData,
+	dbScanID int64,
+	scanLogger zerolog.Logger,
+) (models.ScanSummaryData, []string, error) {
+	// Create batch workflow orchestrator
+	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(s.globalConfig, s.scanner, scanLogger)
+
+	// Execute batch scan workflow
+	batchResult, err := batchOrchestrator.ExecuteBatchScan(
+		ctx,
+		s.globalConfig,
+		s.scanTargetsFile,
+		scanSessionID,
+		baseSummary.TargetSource,
+		"automated",
+	)
+
+	if err != nil {
+		s.updateDBOnFailure(dbScanID, err)
+		return s.buildErrorSummary(baseSummary, err), nil, err
+	}
+
+	if batchResult == nil {
+		err = fmt.Errorf("batch scan returned nil result")
+		s.updateDBOnFailure(dbScanID, err)
+		return s.buildErrorSummary(baseSummary, err), nil, err
+	}
+
+	// Update database with success
+	s.updateDBOnSuccess(dbScanID, batchResult.SummaryData)
+
+	scanLogger.Info().
+		Str("scan_session_id", scanSessionID).
+		Str("status", batchResult.SummaryData.Status).
+		Bool("used_batching", batchResult.UsedBatching).
+		Int("total_batches", batchResult.TotalBatches).
+		Msg("Scheduler scan cycle completed")
+
+	updatedSummary := s.updateSummaryWithScanResult(baseSummary, batchResult.SummaryData)
+	return updatedSummary, batchResult.ReportFilePaths, nil
+}
+
+// Helper functions for summary building and error handling
 func (s *Scheduler) updateSummaryWithAttemptResult(summary models.ScanSummaryData, attempt int, err error) models.ScanSummaryData {
 	builder := models.NewScanSummaryDataBuilder().
 		WithScanSessionID(summary.ScanSessionID).
@@ -166,7 +252,7 @@ func (s *Scheduler) buildInterruptSummary(summary models.ScanSummaryData) models
 
 func (s *Scheduler) handleFinalFailure(config scanAttemptConfig) {
 	summary := s.buildFailureSummary(config)
-	s.logger.Error().Str("scan_session_id", config.scanSessionID).Msg("Scheduler: All retry attempts exhausted. Cycle failed permanently.")
+	s.logger.Error().Str("scan_session_id", config.scanSessionID).Msg("Scheduler: All retry attempts exhausted.")
 	s.notificationHelper.SendScanCompletionNotification(
 		context.Background(),
 		summary,
@@ -186,40 +272,6 @@ func (s *Scheduler) buildFailureSummary(config scanAttemptConfig) models.ScanSum
 		Build()
 
 	return summary
-}
-
-func (s *Scheduler) executeScanCycle(
-	ctx context.Context,
-	scanSessionID string,
-	predeterminedTargetSource string,
-) (models.ScanSummaryData, []string, error) {
-	startTime := time.Now()
-
-	// Tạo logger riêng cho scan session này
-	scanLogger, err := logger.NewWithScanID(s.globalConfig.LogConfig, scanSessionID)
-	if err != nil {
-		s.logger.Warn().Err(err).Str("scan_session_id", scanSessionID).Msg("Failed to create scan logger, using default logger")
-		scanLogger = s.logger
-	}
-
-	baseSummary, err := s.buildBaseScanSummary(scanSessionID, predeterminedTargetSource)
-	if err != nil {
-		return models.ScanSummaryData{}, nil, err
-	}
-
-	htmlURLs, targetSource, err := s.loadAndPrepareScanTargets(predeterminedTargetSource)
-	if err != nil {
-		return s.buildErrorSummary(baseSummary, err), nil, err
-	}
-
-	dbScanID, err := s.recordScanStartToDB(scanSessionID, targetSource, htmlURLs, startTime)
-	if err != nil {
-		return s.buildErrorSummary(baseSummary, err), nil, err
-	}
-
-	s.sendScanStartNotification(ctx, baseSummary, scanSessionID, htmlURLs)
-
-	return s.performScanAndGenerateReportWithLogger(ctx, scanSessionID, htmlURLs, baseSummary, dbScanID, scanLogger)
 }
 
 func (s *Scheduler) buildBaseScanSummary(scanSessionID, targetSource string) (models.ScanSummaryData, error) {
@@ -243,66 +295,7 @@ func (s *Scheduler) buildErrorSummary(baseSummary models.ScanSummaryData, err er
 	return result
 }
 
-func (s *Scheduler) performScanAndGenerateReportWithLogger(
-	ctx context.Context,
-	scanSessionID string,
-	htmlURLs []string,
-	baseSummary models.ScanSummaryData,
-	dbScanID int64,
-	scanLogger zerolog.Logger,
-) (models.ScanSummaryData, []string, error) {
-	// Create batch workflow orchestrator for scheduler scans
-	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(s.globalConfig, s.scanner, scanLogger)
-
-	// Execute batch scan workflow
-	batchResult, err := batchOrchestrator.ExecuteBatchScan(
-		ctx,
-		s.globalConfig,
-		s.scanTargetsFile, // Use the original file for batch processing
-		scanSessionID,
-		baseSummary.TargetSource,
-		"automated",
-	)
-
-	if err != nil {
-		s.updateDBOnFailure(dbScanID, err)
-		return s.buildErrorSummary(baseSummary, err), nil, err
-	}
-
-	var scanResult models.ScanSummaryData
-	var reportPaths []string
-
-	if batchResult != nil {
-		scanResult = batchResult.SummaryData
-		reportPaths = batchResult.ReportFilePaths
-
-		// Log batch processing information
-		if batchResult.UsedBatching {
-			scanLogger.Info().
-				Str("scan_session_id", scanSessionID).
-				Int("total_batches", batchResult.TotalBatches).
-				Int("processed_batches", batchResult.ProcessedBatches).
-				Bool("interrupted", batchResult.InterruptedAt > 0).
-				Msg("Scheduler batch scan completed")
-		}
-	} else {
-		err = fmt.Errorf("batch scan returned nil result")
-		s.updateDBOnFailure(dbScanID, err)
-		return s.buildErrorSummary(baseSummary, err), nil, err
-	}
-
-	s.updateDBOnSuccess(dbScanID, scanResult)
-
-	scanLogger.Info().
-		Str("scan_session_id", scanSessionID).
-		Int("targets_processed", len(htmlURLs)).
-		Str("status", scanResult.Status).
-		Msg("Scan cycle completed successfully")
-
-	updatedSummary := s.updateSummaryWithScanResult(baseSummary, scanResult)
-	return updatedSummary, reportPaths, nil
-}
-
+// Database operations
 func (s *Scheduler) updateDBOnFailure(dbScanID int64, err error) {
 	err = s.db.UpdateScanCompletion(
 		dbScanID,
@@ -370,34 +363,17 @@ func (s *Scheduler) updateSummaryWithScanResult(baseSummary models.ScanSummaryDa
 	return result
 }
 
-func (s *Scheduler) sendScanStartNotification(ctx context.Context, baseSummary models.ScanSummaryData, scanSessionID string, htmlURLs []string) {
-	if s.notificationHelper != nil && len(htmlURLs) > 0 {
-		startNotificationSummary, err := models.NewScanSummaryDataBuilder().
-			WithScanSessionID(scanSessionID). // Use the direct scanSessionID for this specific notification
-			WithTargetSource(baseSummary.TargetSource).
-			WithScanMode(baseSummary.ScanMode).
-			WithStatus(models.ScanStatusStarted).
-			WithTargets(htmlURLs).
-			WithTotalTargets(len(htmlURLs)).
-			Build()
-		if err != nil {
-			s.logger.Error().Err(err).Msg("Scheduler: Failed to build scan summary for cycle attempt.")
-			return
-		}
-		s.logger.Info().Str("session_id", scanSessionID).Int("html_target_count", len(htmlURLs)).Msg("Scheduler: Sending scan start notification for HTML URLs.")
-		s.notificationHelper.SendScanStartNotification(ctx, startNotificationSummary)
-	}
-}
-
+// Target loading and preparation
 func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlURLs []string, determinedSource string, err error) {
 	s.logger.Info().Msg("Scheduler: Starting to load and prepare scan targets.")
 	targets, detSource, loadErr := s.targetManager.LoadAndSelectTargets(s.scanTargetsFile)
 	if loadErr != nil {
 		return nil, initialTargetSource, common.WrapError(loadErr, "failed to load targets")
 	}
+
 	determinedSource = detSource
 	if determinedSource == "" {
-		determinedSource = "UnknownSource" // Default if not determined
+		determinedSource = "UnknownSource"
 	}
 
 	if len(targets) == 0 {
@@ -411,11 +387,15 @@ func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlU
 		allTargetURLs[i] = target.NormalizedURL
 	}
 
-	// Without content type grouping, all loaded URLs are considered for both scanning (as HTML) and monitoring.
+	// All loaded URLs are used for scanning
 	htmlURLs = make([]string, len(allTargetURLs))
 	copy(htmlURLs, allTargetURLs)
 
-	s.logger.Info().Int("total_targets_loaded", len(allTargetURLs)).Str("determined_source", determinedSource).Msg("Scheduler: Target loading completed. All targets will be used for both scanning and monitoring.")
+	s.logger.Info().
+		Int("total_targets_loaded", len(allTargetURLs)).
+		Str("determined_source", determinedSource).
+		Msg("Scheduler: Target loading completed.")
+
 	return htmlURLs, determinedSource, nil
 }
 
@@ -429,6 +409,11 @@ func (s *Scheduler) recordScanStartToDB(
 	if err != nil {
 		return 0, common.WrapError(err, fmt.Sprintf("scheduler failed to record scan start in DB for session %s", scanSessionID))
 	}
-	s.logger.Info().Int64("db_scan_id", dbScanID).Str("scan_session_id", scanSessionID).Msg("Scheduler: Recorded scan start in database.")
+
+	s.logger.Info().
+		Int64("db_scan_id", dbScanID).
+		Str("scan_session_id", scanSessionID).
+		Msg("Scheduler: Recorded scan start in database.")
+
 	return dbScanID, nil
 }
