@@ -1,13 +1,18 @@
 package common
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 
 	"github.com/rs/zerolog"
 	"golang.org/x/net/http2"
@@ -174,4 +179,103 @@ func (c *HTTPClient) DoWithRetry(req *HTTPRequest) (*HTTPResponse, error) {
 	}
 
 	return c.retryHandler.DoWithRetry(ctx, c, req)
+}
+
+// SendDiscordNotification sends a notification to Discord webhook
+func (c *HTTPClient) SendDiscordNotification(ctx context.Context, webhookURL string, payload interface{}, filePath string) error {
+	if filePath == "" {
+		// Send JSON payload only
+		return c.sendDiscordJSON(ctx, webhookURL, payload)
+	}
+
+	// Send multipart form-data with file attachment
+	return c.sendDiscordMultipart(ctx, webhookURL, payload, filePath)
+}
+
+// sendDiscordJSON sends JSON payload to Discord webhook
+func (c *HTTPClient) sendDiscordJSON(ctx context.Context, webhookURL string, payload interface{}) error {
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return WrapError(err, "failed to marshal Discord payload")
+	}
+
+	req := &HTTPRequest{
+		URL:    webhookURL,
+		Method: "POST",
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body:    bytes.NewReader(jsonData),
+		Context: ctx,
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return WrapError(err, "failed to send Discord notification")
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("Discord webhook returned status %d: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	c.logger.Debug().Int("status_code", resp.StatusCode).Msg("Discord notification sent successfully")
+	return nil
+}
+
+// sendDiscordMultipart sends multipart form-data to Discord webhook with file attachment
+func (c *HTTPClient) sendDiscordMultipart(ctx context.Context, webhookURL string, payload interface{}, filePath string) error {
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	// Add JSON payload as form field
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return WrapError(err, "failed to marshal Discord payload")
+	}
+
+	if err := writer.WriteField("payload_json", string(jsonData)); err != nil {
+		return WrapError(err, "failed to write payload_json field")
+	}
+
+	// Add file attachment
+	file, err := os.Open(filePath)
+	if err != nil {
+		return WrapError(err, "failed to open file for Discord attachment")
+	}
+	defer file.Close()
+
+	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	if err != nil {
+		return WrapError(err, "failed to create form file")
+	}
+
+	if _, err := io.Copy(part, file); err != nil {
+		return WrapError(err, "failed to copy file content")
+	}
+
+	if err := writer.Close(); err != nil {
+		return WrapError(err, "failed to close multipart writer")
+	}
+
+	req := &HTTPRequest{
+		URL:    webhookURL,
+		Method: "POST",
+		Headers: map[string]string{
+			"Content-Type": writer.FormDataContentType(),
+		},
+		Body:    &buf,
+		Context: ctx,
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return WrapError(err, "failed to send Discord notification with attachment")
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("Discord webhook returned status %d: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	c.logger.Debug().Int("status_code", resp.StatusCode).Str("file", filePath).Msg("Discord notification with attachment sent successfully")
+	return nil
 }
