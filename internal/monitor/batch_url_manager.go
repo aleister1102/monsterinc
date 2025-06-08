@@ -156,6 +156,7 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 	urls []string,
 	cycleID string,
 	urlChecker *URLChecker,
+	progressCallback func(processed, failed int),
 ) (*BatchMonitorResult, error) {
 	bum.logger.Info().
 		Int("urls_count", len(urls)).
@@ -163,6 +164,7 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 		Msg("Executing batch monitoring")
 
 	var processedURLs []string
+	var failedCount int
 
 	// Calculate total batches for batch info
 	useBatching := bum.batchProcessor.ShouldUseBatching(len(urls))
@@ -173,20 +175,6 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 
 	// Process function for monitoring URLs
 	processFunc := func(ctx context.Context, batch []string, batchIndex int) error {
-		// bum.logger.Info().
-		// 	Int("batch_index", batchIndex).
-		// 	Int("batch_size", len(batch)).
-		// 	Str("cycle_id", cycleID).
-		// 	Msg("Processing monitor batch")
-
-		// Create batch info for this batch
-		batchInfo := models.NewBatchInfo(
-			batchIndex+1, // batchIndex is 0-based, but we want 1-based numbering
-			totalBatches,
-			len(batch),
-			len(processedURLs), // URLs processed so far
-		)
-
 		// Process each URL in the batch
 		for _, url := range batch {
 			select {
@@ -198,10 +186,25 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 			default:
 			}
 
+			// Create batch info for this batch
+			batchInfo := models.NewBatchInfo(
+				batchIndex+1, // batchIndex is 0-based, but we want 1-based numbering
+				totalBatches,
+				len(batch),
+				len(processedURLs), // URLs processed so far
+			)
+
 			// Execute URL check with batch context
 			checkResult := urlChecker.CheckURLWithBatchContext(ctx, url, cycleID, batchInfo)
 			if checkResult.Success {
 				processedURLs = append(processedURLs, url)
+			} else {
+				failedCount++
+			}
+
+			// Call progress callback if provided
+			if progressCallback != nil {
+				progressCallback(len(processedURLs), failedCount)
 			}
 
 			bum.logger.Debug().
@@ -213,9 +216,8 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 		bum.logger.Info().
 			Int("batch_index", batchIndex).
 			Int("processed_urls", len(processedURLs)).
+			Int("failed_urls", failedCount).
 			Msg("Monitor batch processing completed")
-
-		// Event aggregation removed - notifications handled in batch completion
 
 		return nil
 	}
@@ -235,6 +237,7 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 		bum.logger.Error().
 			Err(err).
 			Int("processed_urls", len(processedURLs)).
+			Int("failed_urls", failedCount).
 			Msg("Batch monitoring failed or was interrupted")
 
 		// Find where interruption occurred
@@ -249,6 +252,7 @@ func (bum *BatchURLManager) ExecuteBatchMonitoring(
 	bum.logger.Info().
 		Int("total_urls", len(urls)).
 		Int("processed_urls", len(processedURLs)).
+		Int("failed_urls", failedCount).
 		Bool("interrupted", err != nil).
 		Msg("Batch monitoring execution completed")
 

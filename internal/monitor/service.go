@@ -264,13 +264,14 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 
 	cycleID := s.GenerateNewCycleID()
 	totalProcessed := 0
+	totalFailed := 0
 	totalURLs := len(batchTracker.AllURLs)
 
 	// Update progress display with batch info
 	if s.progressDisplay != nil {
 		s.progressDisplay.UpdateMonitorProgress(0, int64(totalURLs), "Batch", fmt.Sprintf("Starting batch monitoring of %d URLs", totalURLs))
 		s.progressDisplay.UpdateBatchProgress(common.ProgressTypeMonitor, 0, batchTracker.TotalBatches)
-
+		s.progressDisplay.UpdateMonitorStats(0, 0, 0)
 	}
 
 	// Process URLs in batches with memory optimization
@@ -285,43 +286,47 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 		urlSlice = append(urlSlice, batch...)
 
 		// Execute batch monitoring with memory monitoring
-		batchResult, err := s.batchURLManager.ExecuteBatchMonitoring(ctx, urlSlice, cycleID, s.urlChecker)
+		progressCallback := func(batchProcessed, batchFailed int) {
+			if s.progressDisplay != nil {
+				// Calculate cumulative progress including this batch
+				cumulativeProcessed := totalProcessed + batchProcessed
+				cumulativeFailed := totalFailed + batchFailed
+				currentCompleted := cumulativeProcessed + cumulativeFailed
+
+				s.progressDisplay.UpdateMonitorProgress(int64(currentCompleted), int64(totalURLs), "Processing", fmt.Sprintf("Processed %d/%d URLs", currentCompleted, totalURLs))
+				s.progressDisplay.UpdateMonitorStats(cumulativeProcessed, cumulativeFailed, cumulativeProcessed)
+			}
+		}
+
+		batchResult, err := s.batchURLManager.ExecuteBatchMonitoring(ctx, urlSlice, cycleID, s.urlChecker, progressCallback)
 
 		// Return slice to pool
 		s.stringSlicePool.Put(urlSlice)
 
+		// Update stats based on batch result
 		if err != nil {
 			s.logger.Error().Err(err).Msg("Batch monitoring failed")
-			// Continue with next batch on error
+			totalFailed += len(batch) // Assume all URLs in batch failed
 		} else {
 			totalProcessed += len(batchResult.ProcessedURLs)
+			totalFailed += len(batch) - len(batchResult.ProcessedURLs)
 		}
 
 		s.batchURLManager.CompleteCurrentBatch(batchTracker)
 
-		// Update progress display with detailed stats
+		// Update progress display with current totals
 		if s.progressDisplay != nil {
-			s.progressDisplay.UpdateMonitorProgress(int64(totalProcessed), int64(totalURLs), "Batch", fmt.Sprintf("Processed %d/%d URLs", totalProcessed, totalURLs))
-
-			// Update batch progress
+			currentCompleted := totalProcessed + totalFailed
+			s.progressDisplay.UpdateMonitorProgress(int64(currentCompleted), int64(totalURLs), "Processing", fmt.Sprintf("Processed %d/%d URLs", currentCompleted, totalURLs))
 			s.progressDisplay.UpdateBatchProgress(common.ProgressTypeMonitor, batchTracker.ProcessedBatches, batchTracker.TotalBatches)
-
-			// Update monitor stats (processed, failed, completed)
-			// Calculate cumulative stats
-			cumulativeSuccessful := totalProcessed
-			cumulativeFailed := (batchTracker.ProcessedBatches * len(batch)) - totalProcessed
-			if cumulativeFailed < 0 {
-				cumulativeFailed = 0
-			}
-			s.progressDisplay.UpdateMonitorStats(totalProcessed, cumulativeFailed, cumulativeSuccessful)
-
-			// Update event counts
-			// Event aggregation removed - notifications handled in batch completion
+			s.progressDisplay.UpdateMonitorStats(totalProcessed, totalFailed, totalProcessed)
 		}
 
 		s.logger.Info().
 			Int("batch_processed", len(batch)).
+			Int("batch_successful", len(batchResult.ProcessedURLs)).
 			Int("total_processed", totalProcessed).
+			Int("total_failed", totalFailed).
 			Bool("has_more", hasMore).
 			Msg("Batch monitoring completed")
 
@@ -340,13 +345,14 @@ func (s *MonitoringService) ExecuteBatchMonitoring(ctx context.Context, inputFil
 	resourceUsageAfter := s.resourceLimiter.GetResourceUsage()
 	// Update progress display - completed
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateMonitorProgress(int64(totalProcessed), int64(totalURLs), "Complete", "Batch monitoring completed")
-		s.progressDisplay.SetMonitorStatus(common.ProgressStatusComplete, fmt.Sprintf("Processed %d URLs", totalProcessed))
+		s.progressDisplay.UpdateMonitorProgress(int64(totalURLs), int64(totalURLs), "Complete", fmt.Sprintf("Completed: %d successful, %d failed", totalProcessed, totalFailed))
+		s.progressDisplay.SetMonitorStatus(common.ProgressStatusComplete, fmt.Sprintf("Processed %d URLs", totalURLs))
 	}
 
 	s.logger.Info().
 		Str("cycle_id", cycleID).
 		Int("total_processed", totalProcessed).
+		Int("total_failed", totalFailed).
 		Int("total_batches", batchTracker.ProcessedBatches).
 		Int64("memory_before_mb", resourceUsageBefore.AllocMB).
 		Int64("memory_after_mb", resourceUsageAfter.AllocMB).
