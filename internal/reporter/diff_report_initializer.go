@@ -19,11 +19,6 @@ var assetsFS embed.FS
 //go:embed assets/img/favicon.ico
 var faviconICODiff []byte
 
-const (
-	// Default max diff results per report file for monitor service
-	DefaultMaxDiffResultsPerFile = 500
-)
-
 // FileHistoryStore defines an interface for accessing file history records.
 // This avoids a direct dependency on the concrete ParquetFileHistoryStore and facilitates testing.
 type FileHistoryStore interface {
@@ -51,9 +46,7 @@ func NewHtmlDiffReporter(logger zerolog.Logger, historyStore FileHistoryStore, m
 
 	if monitorConfig == nil {
 		logger.Warn().Msg("MonitorConfig is nil, using default values for diff reporter")
-		monitorConfig = &config.MonitorConfig{
-			MaxDiffResultsPerReportFile: DefaultMaxDiffResultsPerFile,
-		}
+		monitorConfig = &config.MonitorConfig{}
 	}
 
 	reporter := &HtmlDiffReporter{
@@ -101,20 +94,4 @@ func (r *HtmlDiffReporter) initializeTemplate() error {
 // copyAssets copies embedded assets to assets directory
 func (r *HtmlDiffReporter) copyAssets() error {
 	return r.assetManager.CopyEmbedDir(assetsFS, "assets", DefaultDiffReportAssetsDir)
-}
-
-// getMaxDiffResultsPerFile returns the configured max diff results per file
-func (r *HtmlDiffReporter) getMaxDiffResultsPerFile() int {
-	if r.config != nil {
-		// If MaxDiffResultsPerReportFile is 0, it means no limit (merge all into single file)
-		if r.config.MaxDiffResultsPerReportFile == 0 {
-			return 0
-		}
-		// If MaxDiffResultsPerReportFile is positive, use that value
-		if r.config.MaxDiffResultsPerReportFile > 0 {
-			return r.config.MaxDiffResultsPerReportFile
-		}
-	}
-	// Default case when config is nil or MaxDiffResultsPerReportFile is negative
-	return DefaultMaxDiffResultsPerFile
 }

@@ -224,6 +224,18 @@ func (c *HTTPClient) sendDiscordJSON(ctx context.Context, webhookURL string, pay
 
 // sendDiscordMultipart sends multipart form-data to Discord webhook with file attachment
 func (c *HTTPClient) sendDiscordMultipart(ctx context.Context, webhookURL string, payload interface{}, filePath string) error {
+	// Check file size before attempting to send
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return WrapError(err, "failed to get file info for Discord attachment")
+	}
+
+	const maxDiscordFileSize = 10 * 1024 * 1024 // 10MB in bytes
+	if fileInfo.Size() > maxDiscordFileSize {
+		return fmt.Errorf("file size %d bytes exceeds Discord limit of %d bytes (%.2f MB > 10 MB)",
+			fileInfo.Size(), maxDiscordFileSize, float64(fileInfo.Size())/(1024*1024))
+	}
+
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
@@ -276,6 +288,6 @@ func (c *HTTPClient) sendDiscordMultipart(ctx context.Context, webhookURL string
 		return fmt.Errorf("Discord webhook returned status %d: %s", resp.StatusCode, string(resp.Body))
 	}
 
-	c.logger.Debug().Int("status_code", resp.StatusCode).Str("file", filePath).Msg("Discord notification with attachment sent successfully")
+	c.logger.Debug().Int("status_code", resp.StatusCode).Str("file", filePath).Float64("file_size_mb", float64(fileInfo.Size())/(1024*1024)).Msg("Discord notification with attachment sent successfully")
 	return nil
 }

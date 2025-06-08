@@ -13,7 +13,7 @@ import (
 	"github.com/aleister1102/monsterinc/internal/models"
 )
 
-// GenerateDiffReport creates HTML report for multiple URLs with paging/splitting support
+// GenerateDiffReport creates HTML report for multiple URLs with automatic file size-based splitting
 func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string, cycleID string) ([]string, error) {
 	r.logger.Info().
 		Strs("monitored_urls", monitoredURLs).
@@ -36,18 +36,14 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string, cycleID st
 		return []string{}, nil
 	}
 
-	maxResults := r.getMaxDiffResultsPerFile()
-
-	// If maxResults is 0, it means no limit - generate single report with all results
-	if maxResults == 0 || len(displayResults) <= maxResults {
-		reportPath, err := r.generateSingleReport(displayResults, cycleID, true)
-		if err != nil {
-			return nil, err
-		}
-		return []string{reportPath}, nil
+	// Always generate single report first and check file size for automatic splitting
+	reportPath, err := r.generateSingleReport(displayResults, cycleID, true)
+	if err != nil {
+		return nil, err
 	}
 
-	return r.generateChunkedReports(displayResults, cycleID, maxResults)
+	// Check file size and split if necessary
+	return r.checkFileSizeAndSplit(reportPath, displayResults, cycleID)
 }
 
 // TODO: Check if this function is used
@@ -224,37 +220,4 @@ func (r *HtmlDiffReporter) generateSingleReport(displayResults []models.DiffResu
 	}
 
 	return r.writeReportToFile(pageData, outputFilePath)
-}
-
-// generateChunkedReports creates multiple HTML diff report files for large result sets
-func (r *HtmlDiffReporter) generateChunkedReports(displayResults []models.DiffResultDisplay, cycleID string, maxResults int) ([]string, error) {
-	totalChunks := (len(displayResults) + maxResults - 1) / maxResults
-	outputPaths := make([]string, 0, totalChunks)
-
-	for i := range totalChunks {
-		start := i * maxResults
-		end := start + maxResults
-		if end > len(displayResults) {
-			end = len(displayResults)
-		}
-
-		chunk := displayResults[start:end]
-		partInfo := fmt.Sprintf("Part %d of %d", i+1, totalChunks)
-
-		pageData := r.createAggregatedPageData(chunk, partInfo)
-		outputPath := r.buildOutputPath(cycleID, i+1, totalChunks, true)
-
-		if err := r.directoryMgr.EnsureOutputDirectories(filepath.Dir(outputPath)); err != nil {
-			return outputPaths, fmt.Errorf("failed to ensure output directory for chunk %d: %w", i+1, err)
-		}
-
-		reportPath, err := r.writeReportToFile(pageData, outputPath)
-		if err != nil {
-			return outputPaths, fmt.Errorf("failed to write chunk %d: %w", i+1, err)
-		}
-
-		outputPaths = append(outputPaths, reportPath)
-	}
-
-	return outputPaths, nil
 }
