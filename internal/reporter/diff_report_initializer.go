@@ -105,8 +105,16 @@ func (r *HtmlDiffReporter) copyAssets() error {
 
 // getMaxDiffResultsPerFile returns the configured max diff results per file
 func (r *HtmlDiffReporter) getMaxDiffResultsPerFile() int {
-	if r.config != nil && r.config.MaxDiffResultsPerReportFile > 0 {
-		return r.config.MaxDiffResultsPerReportFile
+	if r.config != nil {
+		// If MaxDiffResultsPerReportFile is 0, it means no limit (merge all into single file)
+		if r.config.MaxDiffResultsPerReportFile == 0 {
+			return 0
+		}
+		// If MaxDiffResultsPerReportFile is positive, use that value
+		if r.config.MaxDiffResultsPerReportFile > 0 {
+			return r.config.MaxDiffResultsPerReportFile
+		}
 	}
+	// Default case when config is nil or MaxDiffResultsPerReportFile is negative
 	return DefaultMaxDiffResultsPerFile
 }

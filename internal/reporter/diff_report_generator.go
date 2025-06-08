@@ -38,7 +38,8 @@ func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string, cycleID st
 
 	maxResults := r.getMaxDiffResultsPerFile()
 
-	if len(displayResults) <= maxResults {
+	// If maxResults is 0, it means no limit - generate single report with all results
+	if maxResults == 0 || len(displayResults) <= maxResults {
 		reportPath, err := r.generateSingleReport(displayResults, cycleID, true)
 		if err != nil {
 			return nil, err

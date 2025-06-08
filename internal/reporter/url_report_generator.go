@@ -18,7 +18,14 @@ func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, baseOu
 	}
 
 	maxResults := r.cfg.MaxProbeResultsPerReportFile
-	if maxResults <= 0 {
+
+	// If maxResults is 0, it means no limit - generate single report with all results
+	if maxResults == 0 {
+		return r.generateSingleReport(probeResults, baseOutputPath)
+	}
+
+	// If maxResults is negative, use default value
+	if maxResults < 0 {
 		maxResults = DefaultMaxResultsPerFile
 	}
 
