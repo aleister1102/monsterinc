@@ -13,23 +13,32 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// HeadlessBrowserManager manages a pool of browser instances for crawling
+// HeadlessBrowserManager manages a shared browser instance for crawling
 type HeadlessBrowserManager struct {
-	config      config.HeadlessBrowserConfig
-	logger      zerolog.Logger
-	browserPool chan *rod.Browser
-	launcher    *launcher.Launcher
-	mutex       sync.Mutex
-	isRunning   bool
+	config        config.HeadlessBrowserConfig
+	logger        zerolog.Logger
+	sharedBrowser *rod.Browser
+	pagePool      chan *rod.Page
+	launcher      *launcher.Launcher
+	launcherURL   string // Store launcher URL for reuse
+	mutex         sync.Mutex
+	isRunning     bool
+	maxConcurrent int // Max concurrent pages
 }
 
 // NewHeadlessBrowserManager creates a new headless browser manager
 func NewHeadlessBrowserManager(cfg config.HeadlessBrowserConfig, logger zerolog.Logger) *HeadlessBrowserManager {
+	maxConcurrent := cfg.PoolSize // Reuse pool size as max concurrent pages
+	if maxConcurrent < 1 {
+		maxConcurrent = 3
+	}
+
 	return &HeadlessBrowserManager{
-		config:      cfg,
-		logger:      logger.With().Str("component", "HeadlessBrowserManager").Logger(),
-		browserPool: make(chan *rod.Browser, cfg.PoolSize),
-		isRunning:   false,
+		config:        cfg,
+		logger:        logger.With().Str("component", "HeadlessBrowserManager").Logger(),
+		pagePool:      make(chan *rod.Page, maxConcurrent),
+		maxConcurrent: maxConcurrent,
+		isRunning:     false,
 	}
 }
 
@@ -83,25 +92,33 @@ func (hbm *HeadlessBrowserManager) Start() error {
 	}
 
 	hbm.launcher = launcher
+	hbm.launcherURL = launcherURL // Store launcher URL for reuse
 
-	// Create browser pool
-	for i := 0; i < hbm.config.PoolSize; i++ {
-		browser := rod.New().ControlURL(launcherURL)
-		if err := browser.Connect(); err != nil {
-			hbm.logger.Error().Err(err).Int("browser_index", i).Msg("Failed to connect browser")
+	// Create shared browser instance
+	sharedBrowser := rod.New().ControlURL(launcherURL)
+	if err := sharedBrowser.Connect(); err != nil {
+		return fmt.Errorf("failed to connect shared browser: %w", err)
+	}
+	hbm.sharedBrowser = sharedBrowser
+
+	// Pre-create page pool for better performance
+	for i := 0; i < hbm.maxConcurrent; i++ {
+		page, err := hbm.sharedBrowser.Page(proto.TargetCreateTarget{})
+		if err != nil {
+			hbm.logger.Error().Err(err).Int("page_index", i).Msg("Failed to create page")
 			continue
 		}
 
-		hbm.browserPool <- browser
-		hbm.logger.Debug().Int("browser_index", i).Msg("Browser instance created and added to pool")
+		hbm.pagePool <- page
+		hbm.logger.Debug().Int("page_index", i).Msg("Page instance created and added to pool")
 	}
 
 	hbm.isRunning = true
-	hbm.logger.Info().Int("pool_size", hbm.config.PoolSize).Msg("Headless browser manager started")
+	hbm.logger.Info().Int("max_concurrent", hbm.maxConcurrent).Msg("Shared headless browser manager started")
 	return nil
 }
 
-// Stop closes all browser instances and the launcher
+// Stop closes shared browser instance and the launcher
 func (hbm *HeadlessBrowserManager) Stop() {
 	hbm.mutex.Lock()
 	defer hbm.mutex.Unlock()
@@ -110,54 +127,125 @@ func (hbm *HeadlessBrowserManager) Stop() {
 		return
 	}
 
-	// Close all browsers in pool
-	close(hbm.browserPool)
-	for browser := range hbm.browserPool {
-		if browser != nil {
-			err := browser.Close()
+	// Close all pages in pool
+	close(hbm.pagePool)
+	for page := range hbm.pagePool {
+		if page != nil {
+			err := page.Close()
 			if err != nil {
-				hbm.logger.Error().Err(err).Msg("Failed to close browser")
+				hbm.logger.Error().Err(err).Msg("Failed to close page")
 			}
 		}
 	}
 
-	// Close launcher
+	// Close shared browser with timeout
+	if hbm.sharedBrowser != nil {
+		done := make(chan error, 1)
+		go func() {
+			done <- hbm.sharedBrowser.Close()
+		}()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				hbm.logger.Error().Err(err).Msg("Failed to close shared browser")
+			}
+		case <-time.After(5 * time.Second):
+			hbm.logger.Warn().Msg("Timeout closing shared browser, forcing cleanup")
+		}
+	}
+
+	// Close launcher with timeout
 	if hbm.launcher != nil {
-		hbm.launcher.Cleanup()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			hbm.launcher.Cleanup()
+		}()
+
+		select {
+		case <-done:
+			hbm.logger.Debug().Msg("Launcher cleanup completed")
+		case <-time.After(3 * time.Second):
+			hbm.logger.Warn().Msg("Timeout cleaning up launcher, forcing exit")
+		}
 	}
 
 	hbm.isRunning = false
-	hbm.logger.Info().Msg("Headless browser manager stopped")
+	hbm.logger.Info().Msg("Shared headless browser manager stopped")
 }
 
-// GetBrowser gets a browser from the pool
-func (hbm *HeadlessBrowserManager) GetBrowser() (*rod.Browser, error) {
+// GetPage gets a page from the pool or creates a new one
+func (hbm *HeadlessBrowserManager) GetPage() (*rod.Page, error) {
 	if !hbm.config.Enabled || !hbm.isRunning {
 		return nil, fmt.Errorf("headless browser manager not running or disabled")
 	}
 
+	// Log pool status for debugging
+	poolLen := len(hbm.pagePool)
+	hbm.logger.Debug().Int("pool_available", poolLen).Int("max_concurrent", hbm.maxConcurrent).Msg("Getting page from pool")
+
 	select {
-	case browser := <-hbm.browserPool:
-		return browser, nil
-	case <-time.After(10 * time.Second):
-		return nil, fmt.Errorf("timeout waiting for browser from pool")
+	case page := <-hbm.pagePool:
+		// Check if page is still alive
+		if page == nil {
+			hbm.logger.Warn().Msg("Received nil page from pool, creating new one")
+			// Try to create a new page as replacement
+			if newPage, createErr := hbm.createNewPage(); createErr == nil {
+				return newPage, nil
+			}
+			return nil, fmt.Errorf("received nil page and couldn't create replacement")
+		}
+
+		// Check if page is still healthy
+		if !hbm.isPageHealthy(page) {
+			hbm.logger.Warn().Msg("Page from pool is unhealthy, creating new one")
+			// Close the unhealthy page
+			if closeErr := page.Close(); closeErr != nil {
+				hbm.logger.Error().Err(closeErr).Msg("Failed to close unhealthy page")
+			}
+			// Try to create a new page as replacement
+			if newPage, createErr := hbm.createNewPage(); createErr == nil {
+				return newPage, nil
+			}
+			return nil, fmt.Errorf("received unhealthy page and couldn't create replacement")
+		}
+
+		return page, nil
+	case <-time.After(15 * time.Second): // Increased timeout
+		hbm.logger.Warn().Int("pool_available", poolLen).Int("max_concurrent", hbm.maxConcurrent).Msg("Page pool timeout, attempting to create new page")
+		// Try to create a new page as fallback
+		if newPage, createErr := hbm.createNewPage(); createErr == nil {
+			return newPage, nil
+		}
+		return nil, fmt.Errorf("timeout waiting for page from pool (available: %d/%d pages)", poolLen, hbm.maxConcurrent)
 	}
 }
 
-// ReturnBrowser returns a browser to the pool
-func (hbm *HeadlessBrowserManager) ReturnBrowser(browser *rod.Browser) {
-	if !hbm.isRunning || browser == nil {
+// ReturnPage returns a page to the pool
+func (hbm *HeadlessBrowserManager) ReturnPage(page *rod.Page) {
+	if !hbm.isRunning || page == nil {
 		return
 	}
 
+	// Check page health before returning to pool
+	if !hbm.isPageHealthy(page) {
+		hbm.logger.Warn().Msg("Unhealthy page detected during return, closing instead of returning to pool")
+		if err := page.Close(); err != nil {
+			hbm.logger.Error().Err(err).Msg("Failed to close unhealthy page")
+		}
+		return
+	}
+
+	// Always try to return to pool, with timeout to avoid blocking
 	select {
-	case hbm.browserPool <- browser:
-		// Successfully returned to pool
-	default:
-		// Pool is full, close the browser
-		err := browser.Close()
-		if err != nil {
-			hbm.logger.Error().Err(err).Msg("Failed to close browser")
+	case hbm.pagePool <- page:
+		hbm.logger.Debug().Msg("Page returned to pool successfully")
+	case <-time.After(1 * time.Second):
+		// Pool might be full or blocked, close the page to free resources
+		hbm.logger.Warn().Msg("Failed to return page to pool (timeout), closing page")
+		if err := page.Close(); err != nil {
+			hbm.logger.Error().Err(err).Msg("Failed to close page")
 		}
 	}
 }
@@ -176,31 +264,53 @@ type HeadlessCrawlResult struct {
 }
 
 // CrawlPage crawls a page using headless browser
-func (hbm *HeadlessBrowserManager) CrawlPage(ctx context.Context, url string) (*HeadlessCrawlResult, error) {
+func (hbm *HeadlessBrowserManager) CrawlPage(ctx context.Context, url string) (result *HeadlessCrawlResult, err error) {
+	var page *rod.Page
+	var pageReturned bool
+
+	// Recover from any panic to prevent crashing the entire crawler
+	defer func() {
+		if r := recover(); r != nil {
+			hbm.logger.Error().Interface("panic", r).Str("url", url).Msg("Recovered from panic in CrawlPage")
+
+			// Ensure page is properly handled even during panic
+			if page != nil && !pageReturned {
+				// Close page instead of returning to pool due to unknown state
+				if closeErr := page.Close(); closeErr != nil {
+					hbm.logger.Error().Err(closeErr).Msg("Failed to close page after panic")
+				}
+			}
+
+			result = &HeadlessCrawlResult{
+				URL:   url,
+				Error: fmt.Errorf("panic occurred while crawling %s: %v", url, r),
+			}
+			err = nil
+		}
+	}()
+
 	if !hbm.config.Enabled {
 		return nil, fmt.Errorf("headless browser is disabled")
 	}
 
-	browser, err := hbm.GetBrowser()
+	page, err = hbm.GetPage()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get browser: %w", err)
+		return nil, fmt.Errorf("failed to get page: %w", err)
 	}
-	defer hbm.ReturnBrowser(browser)
 
-	// Create page with timeout
+	// Ensure page is always returned to pool, even in case of panic
+	defer func() {
+		if !pageReturned {
+			hbm.ReturnPage(page)
+		}
+	}()
+
+	// Set timeout for page operations
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(hbm.config.PageLoadTimeoutSecs)*time.Second)
 	defer cancel()
 
-	page, err := browser.Context(timeoutCtx).Page(proto.TargetCreateTarget{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create page: %w", err)
-	}
-	defer func() {
-		err := page.Close()
-		if err != nil {
-			hbm.logger.Error().Err(err).Msg("Failed to close page")
-		}
-	}()
+	// Use context with timeout for page operations
+	page = page.Context(timeoutCtx)
 
 	// Set viewport
 	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
@@ -256,7 +366,14 @@ func (hbm *HeadlessBrowserManager) CrawlPage(ctx context.Context, url string) (*
 	}
 
 	// Get final URL (in case of redirects)
-	finalURL := page.MustInfo().URL
+	finalURL := url // Default to original URL
+	if info, err := page.Info(); err == nil {
+		finalURL = info.URL
+	}
+
+	// Mark page as returned before returning result
+	pageReturned = true
+	hbm.ReturnPage(page)
 
 	return &HeadlessCrawlResult{
 		HTML:  html,
@@ -264,4 +381,35 @@ func (hbm *HeadlessBrowserManager) CrawlPage(ctx context.Context, url string) (*
 		URL:   finalURL,
 		Error: nil,
 	}, nil
+}
+
+// isPageHealthy checks if a page instance is still healthy and connected
+func (hbm *HeadlessBrowserManager) isPageHealthy(page *rod.Page) bool {
+	if page == nil {
+		return false
+	}
+
+	// Try to get page info to check if page is still alive
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Try to get page info - this will fail if page is disconnected
+	_, err := page.Context(ctx).Info()
+	return err == nil
+}
+
+// createNewPage creates a new page instance for pool replacement
+func (hbm *HeadlessBrowserManager) createNewPage() (*rod.Page, error) {
+	if hbm.sharedBrowser == nil {
+		return nil, fmt.Errorf("shared browser not available")
+	}
+
+	// Create new page from shared browser
+	page, err := hbm.sharedBrowser.Page(proto.TargetCreateTarget{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new page: %w", err)
+	}
+
+	hbm.logger.Debug().Msg("Created new page instance as replacement")
+	return page, nil
 }
