@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 )
 
 // buildOutputPath constructs the output file path
@@ -77,7 +78,7 @@ func (r *HtmlReporter) processProbeResults(probeResults []*models.ProbeResult, p
 	statusCodes := make(map[int]struct{})
 	contentTypes := make(map[string]struct{})
 	techs := make(map[string]struct{})
-	rootTargetsEncountered := make(map[string]struct{})
+	hostnamesEncountered := make(map[string]struct{})
 
 	for _, pr := range probeResults {
 		displayPr := models.ToProbeResultDisplay(*pr)
@@ -86,12 +87,58 @@ func (r *HtmlReporter) processProbeResults(probeResults []*models.ProbeResult, p
 		displayResults = append(displayResults, displayPr)
 		r.updateCountsAndCollections(*pr, pageData, statusCodes, contentTypes, techs)
 
-		if displayPr.RootTargetURL != "" {
-			rootTargetsEncountered[displayPr.RootTargetURL] = struct{}{}
+		// Only add hostname to filter if the probe result has meaningful data
+		// (successful response or at least some useful information)
+		if r.shouldIncludeHostnameInFilter(pr) {
+			hostname := r.extractHostnameFromURL(displayPr.InputURL)
+			if hostname != "" {
+				hostnamesEncountered[hostname] = struct{}{}
+			}
 		}
 	}
 
-	r.finalizePageData(pageData, displayResults, statusCodes, contentTypes, techs, rootTargetsEncountered)
+	r.finalizePageData(pageData, displayResults, statusCodes, contentTypes, techs, hostnamesEncountered)
+}
+
+// shouldIncludeHostnameInFilter determines if a hostname should be included in the filter dropdown
+// Only include hostnames that have meaningful data (successful responses, interesting status codes, etc.)
+func (r *HtmlReporter) shouldIncludeHostnameInFilter(pr *models.ProbeResult) bool {
+	// Include if:
+	// 1. Successful response (2xx, 3xx)
+	// 2. Client error that might be interesting (4xx)
+	// 3. Has title, technologies, or other useful metadata
+	// 4. No major errors in probing
+
+	if pr.Error != "" && pr.StatusCode == 0 {
+		// Pure error with no response - skip
+		return false
+	}
+
+	if pr.StatusCode >= 200 && pr.StatusCode < 500 {
+		// Any response from 200-499 is potentially interesting
+		return true
+	}
+
+	if pr.Title != "" || len(pr.Technologies) > 0 || pr.ContentType != "" {
+		// Has useful metadata even if status code is not ideal
+		return true
+	}
+
+	if pr.StatusCode == 500 || pr.StatusCode == 502 || pr.StatusCode == 503 {
+		// Server errors might be interesting for security analysis
+		return true
+	}
+
+	// Skip other cases (timeouts, DNS errors, etc.)
+	return false
+}
+
+// extractHostnameFromURL extracts hostname from URL for grouping
+func (r *HtmlReporter) extractHostnameFromURL(urlStr string) string {
+	if hostname, err := urlhandler.ExtractHostname(urlStr); err == nil {
+		return hostname
+	}
+	return ""
 }
 
 // ensureRootTargetURL ensures RootTargetURL is properly set
@@ -128,7 +175,7 @@ func (r *HtmlReporter) updateCountsAndCollections(pr models.ProbeResult, pageDat
 }
 
 // finalizePageData sets final collections and data on page data
-func (r *HtmlReporter) finalizePageData(pageData *models.ReportPageData, displayResults []models.ProbeResultDisplay, statusCodes map[int]struct{}, contentTypes map[string]struct{}, techs map[string]struct{}, rootTargetsEncountered map[string]struct{}) {
+func (r *HtmlReporter) finalizePageData(pageData *models.ReportPageData, displayResults []models.ProbeResultDisplay, statusCodes map[int]struct{}, contentTypes map[string]struct{}, techs map[string]struct{}, hostnamesEncountered map[string]struct{}) {
 	pageData.ProbeResults = displayResults
 
 	// Convert maps to slices
@@ -141,8 +188,8 @@ func (r *HtmlReporter) finalizePageData(pageData *models.ReportPageData, display
 	for t := range techs {
 		pageData.UniqueTechnologies = append(pageData.UniqueTechnologies, t)
 	}
-	for rt := range rootTargetsEncountered {
-		pageData.UniqueRootTargets = append(pageData.UniqueRootTargets, rt)
+	for hn := range hostnamesEncountered {
+		pageData.UniqueHostnames = append(pageData.UniqueHostnames, hn)
 	}
 
 	// Convert ProbeResults to JSON for JavaScript

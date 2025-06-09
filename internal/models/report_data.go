@@ -55,7 +55,8 @@ type ReportPageData struct {
 	UniqueStatusCodes  []int
 	UniqueContentTypes []string
 	UniqueTechnologies []string
-	UniqueRootTargets  []string                 // Added for multi-target navigation
+	UniqueRootTargets  []string                 // Deprecated: keeping for backward compatibility
+	UniqueHostnames    []string                 // New: for hostname-based grouping
 	CustomCSS          template.CSS             // For embedded styles.css
 	ReportJs           template.JS              // Embedded custom report.js
 	URLDiffs           map[string]URLDiffResult `json:"url_diffs,omitempty"` // Added to hold raw diff results

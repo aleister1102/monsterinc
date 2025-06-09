@@ -48,11 +48,11 @@ type WriteResult struct {
 }
 
 // Write takes a slice of ProbeResult and writes them to a Parquet file
-func (pw *ParquetWriter) Write(ctx context.Context, currentProbeResults []models.ProbeResult, scanSessionID string, rootTarget string) error {
+func (pw *ParquetWriter) Write(ctx context.Context, currentProbeResults []models.ProbeResult, scanSessionID string, hostname string) error {
 	request := WriteRequest{
 		ProbeResults:  currentProbeResults,
 		ScanSessionID: scanSessionID,
-		RootTarget:    rootTarget,
+		RootTarget:    hostname,
 		ScanTime:      time.Now(),
 	}
 
@@ -125,9 +125,9 @@ func (pw *ParquetWriter) validateWriteRequest(request WriteRequest) error {
 		return common.NewValidationError("parquet_base_path", pw.config.ParquetBasePath, "ParquetBasePath is not configured")
 	}
 
-	sanitizedRootTarget := urlhandler.SanitizeFilename(request.RootTarget)
-	if sanitizedRootTarget == "" {
-		return common.NewValidationError("root_target", request.RootTarget, "sanitized root target is empty, cannot write parquet file")
+	sanitizedHostname := urlhandler.SanitizeFilename(request.RootTarget)
+	if sanitizedHostname == "" {
+		return common.NewValidationError("hostname", request.RootTarget, "sanitized hostname is empty, cannot write parquet file")
 	}
 
 	return nil
@@ -142,15 +142,15 @@ func (pw *ParquetWriter) checkCancellation(ctx context.Context, operation string
 }
 
 // prepareOutputFile prepares the output directory and file path
-func (pw *ParquetWriter) prepareOutputFile(rootTarget string) (string, error) {
-	sanitizedRootTarget := urlhandler.SanitizeFilename(rootTarget)
+func (pw *ParquetWriter) prepareOutputFile(hostname string) (string, error) {
+	sanitizedHostname := urlhandler.SanitizeFilename(hostname)
 
 	scanOutputDir := filepath.Join(pw.config.ParquetBasePath, "scan")
 	if err := os.MkdirAll(scanOutputDir, 0755); err != nil {
 		return "", common.WrapError(err, "failed to create scan-specific Parquet directory: "+scanOutputDir)
 	}
 
-	fileName := fmt.Sprintf("%s.parquet", sanitizedRootTarget)
+	fileName := fmt.Sprintf("%s.parquet", sanitizedHostname)
 	filePath := filepath.Join(scanOutputDir, fileName)
 
 	return filePath, nil
