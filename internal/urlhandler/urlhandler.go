@@ -83,27 +83,20 @@ func ResolveURL(href string, base *url.URL) (string, error) {
 func GetRootTargetForURL(discoveredURL string, seedURLs []string) string {
 	normalizedDiscovered, err := NormalizeURL(discoveredURL)
 	if err != nil {
-		// If the discovered URL is invalid, fallback.
-		if len(seedURLs) > 0 {
-			return seedURLs[0] // Return the first seed as a default.
-		}
-		return discoveredURL // Or the original invalid URL if no seeds.
+		// If the discovered URL is invalid, return the original URL itself as root target
+		return discoveredURL
 	}
 
 	var discoveredHost string
 	if parsedDiscovered, pErr := url.Parse(normalizedDiscovered); pErr == nil {
 		discoveredHost = parsedDiscovered.Hostname()
-	} else { // Should not happen if NormalizeURL succeeded without error
-		if len(seedURLs) > 0 {
-			return seedURLs[0]
-		}
+	} else {
+		// If parsing fails, return the discovered URL itself as root target
 		return discoveredURL
 	}
 
-	if discoveredHost == "" { // If hostname is empty (e.g. file:// URLs without host)
-		if len(seedURLs) > 0 {
-			return seedURLs[0]
-		}
+	if discoveredHost == "" {
+		// If hostname is empty (e.g. file:// URLs without host), return the discovered URL itself
 		return discoveredURL
 	}
 
@@ -119,11 +112,16 @@ func GetRootTargetForURL(discoveredURL string, seedURLs []string) string {
 		}
 	}
 
-	// Fallback if no matching seed host is found.
-	if len(seedURLs) > 0 {
-		return seedURLs[0]
+	// Instead of fallback to seedURLs[0], construct a proper root URL from the discovered URL
+	// This ensures each domain gets its own root target
+	if parsedDiscovered, err := url.Parse(normalizedDiscovered); err == nil {
+		// Construct root URL as scheme://hostname
+		rootURL := parsedDiscovered.Scheme + "://" + parsedDiscovered.Host
+		return rootURL
 	}
-	return discoveredURL // Absolute fallback.
+
+	// Absolute fallback - return the discovered URL itself
+	return discoveredURL
 }
 
 // GetBaseDomain extracts the base domain (e.g., "example.com" from "sub.example.com", or "example.co.uk" from "www.example.co.uk").
