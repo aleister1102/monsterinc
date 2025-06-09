@@ -65,7 +65,7 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 
 	// Update progress - starting crawler
 	if ce.progressDisplay != nil {
-		ce.progressDisplay.UpdateScanProgress(1, 5, "Crawler", fmt.Sprintf("Starting crawler with %d seed URLs", len(input.CrawlerConfig.SeedURLs)))
+		ce.progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", fmt.Sprintf("Starting crawler with %d seed URLs", len(input.CrawlerConfig.SeedURLs)))
 	}
 
 	ce.logger.Info().
@@ -74,8 +74,8 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 		Str("primary_target", input.PrimaryRootTargetURL).
 		Msg("Starting crawler using managed instance")
 
-	// Disable auto-calibrate since URLs have been preprocessed at Scanner level
-	ce.crawlerManager.DisableAutoCalibrateForPreprocessedURLs()
+	// Note: Auto-calibrate remains enabled for discovered URLs during crawling
+	// Only seed URLs have been preprocessed at Scanner level
 
 	// Execute crawler batch using managed instance
 	batchResult, err := ce.crawlerManager.ExecuteCrawlerBatch(
@@ -91,7 +91,7 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 
 		// Update progress - failed
 		if ce.progressDisplay != nil {
-			ce.progressDisplay.UpdateScanProgress(1, 5, "Failed", fmt.Sprintf("Crawler execution failed: %v", err))
+			ce.progressDisplay.UpdateWorkflowProgress(1, 5, "Failed", fmt.Sprintf("Crawler execution failed: %v", err))
 		}
 
 		result.Error = fmt.Errorf("failed to execute crawler batch: %w", err)
@@ -103,7 +103,7 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 
 	// Update progress - crawler completed
 	if ce.progressDisplay != nil {
-		ce.progressDisplay.UpdateScanProgress(1, 5, "Crawler Complete", fmt.Sprintf("Discovered %d URLs", len(result.DiscoveredURLs)))
+		ce.progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler Complete", fmt.Sprintf("Discovered %d URLs", len(result.DiscoveredURLs)))
 	}
 
 	ce.logger.Info().

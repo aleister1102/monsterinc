@@ -55,6 +55,19 @@ func (pi *ProgressInfo) UpdateETA() {
 		avgTimePerItem := elapsed / time.Duration(pi.Current)
 		estimatedETA := avgTimePerItem * time.Duration(remaining)
 
+		// For batch processing, try to use more realistic timing based on batch completion
+		if pi.BatchInfo != nil && pi.BatchInfo.TotalBatches > 1 {
+			// If we're in batch processing mode, use a more conservative approach
+			// Account for the fact that later batches might take longer due to discovered URLs
+			if pi.Current > 0 {
+				avgTimePerBatch := elapsed / time.Duration(pi.Current)
+				estimatedETA = avgTimePerBatch * time.Duration(remaining)
+
+				// Add a buffer for batch processing overhead (20%)
+				estimatedETA = time.Duration(float64(estimatedETA) * 1.2)
+			}
+		}
+
 		// Cap ETA at 24 hours to avoid unrealistic values
 		maxETA := 24 * time.Hour
 		if estimatedETA > maxETA {

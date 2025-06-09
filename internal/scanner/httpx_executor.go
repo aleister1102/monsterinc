@@ -89,7 +89,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 	// Update progress - starting probing
 	if he.progressDisplay != nil {
-		he.progressDisplay.UpdateScanProgress(2, 5, "Probing", fmt.Sprintf("Starting HTTPX probing of %d URLs\n", len(input.DiscoveredURLs)))
+		he.progressDisplay.UpdateWorkflowProgress(2, 5, "Probing", fmt.Sprintf("Starting HTTPX probing of %d URLs", len(input.DiscoveredURLs)))
 	}
 
 	runnerResults, err := he.runHTTPXRunner(input.Context, input.HttpxRunnerConfig, input.PrimaryRootTargetURL, input.ScanSessionID)
@@ -100,7 +100,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 		// Update progress - cancelled
 		if he.progressDisplay != nil {
-			he.progressDisplay.UpdateScanProgress(2, 5, "Cancelled", "HTTPX probing cancelled")
+			he.progressDisplay.UpdateWorkflowProgress(2, 5, "Cancelled", "HTTPX probing cancelled")
 		}
 
 		result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
@@ -111,7 +111,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 		// Update progress - failed
 		if he.progressDisplay != nil {
-			he.progressDisplay.UpdateScanProgress(2, 5, "Failed", fmt.Sprintf("HTTPX probing failed: %v", err))
+			he.progressDisplay.UpdateWorkflowProgress(2, 5, "Failed", fmt.Sprintf("HTTPX probing failed: %v", err))
 		}
 
 		result.Error = err
@@ -124,7 +124,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 		// Update progress - cancelled
 		if he.progressDisplay != nil {
-			he.progressDisplay.UpdateScanProgress(2, 5, "Cancelled", "HTTPX probing cancelled after completion")
+			he.progressDisplay.UpdateWorkflowProgress(2, 5, "Cancelled", "HTTPX probing cancelled after completion")
 		}
 
 		result.ProbeResults = he.processHTTPXResults(runnerResults, input.DiscoveredURLs, input.SeedURLs)
@@ -136,7 +136,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 
 	// Update progress - completed
 	if he.progressDisplay != nil {
-		he.progressDisplay.UpdateScanProgress(2, 5, "Probing Complete", fmt.Sprintf("HTTPX probing completed: %d results", len(result.ProbeResults)))
+		he.progressDisplay.UpdateWorkflowProgress(2, 5, "Probing Complete", fmt.Sprintf("HTTPX probing completed: %d results", len(result.ProbeResults)))
 	}
 
 	he.logger.Info().Int("count", len(result.ProbeResults)).Str("session_id", input.ScanSessionID).Msg("HTTPX probing completed successfully")

@@ -90,7 +90,7 @@ func (cm *CrawlerManager) ExecuteCrawlerBatch(
 
 	// Update progress
 	if progressDisplay != nil {
-		progressDisplay.UpdateScanProgress(10, 100, "Crawler", fmt.Sprintf("Running crawler batch with %d seed URLs\n", len(seedURLs)))
+		progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", fmt.Sprintf("Running crawler batch with %d seed URLs", len(seedURLs)))
 	}
 
 	cm.logger.Info().
@@ -108,7 +108,7 @@ func (cm *CrawlerManager) ExecuteCrawlerBatch(
 
 	// Update progress
 	if progressDisplay != nil {
-		progressDisplay.UpdateScanProgress(20, 100, "Crawler Complete", fmt.Sprintf("Crawler batch completed: %d URLs discovered", len(discoveredURLs)))
+		progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler Complete", fmt.Sprintf("Crawler batch completed: %d URLs discovered", len(discoveredURLs)))
 	}
 
 	cm.logger.Info().
@@ -151,7 +151,7 @@ func (cm *CrawlerManager) runCrawlerBatch(ctx context.Context, crawlerInstance *
 func (cm *CrawlerManager) runCrawlerBatchWithProgress(ctx context.Context, crawlerInstance *crawler.Crawler, seedURLs []string, progressDisplay *common.ProgressDisplayManager) ([]string, error) {
 	// Initial progress update
 	if progressDisplay != nil {
-		progressDisplay.UpdateScanProgress(1, 5, "Crawler", fmt.Sprintf("Starting crawler batch with %d seed URLs", len(seedURLs)))
+		progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", fmt.Sprintf("Starting crawler batch with %d seed URLs", len(seedURLs)))
 	}
 
 	// Start progress monitoring in background
@@ -170,7 +170,7 @@ func (cm *CrawlerManager) runCrawlerBatchWithProgress(ctx context.Context, crawl
 	// Final progress update
 	discoveredURLs := crawlerInstance.GetDiscoveredURLs()
 	if progressDisplay != nil {
-		progressDisplay.UpdateScanProgress(1, 5, "Crawler Complete", fmt.Sprintf("Completed: %d discovered URLs from %d seeds", len(discoveredURLs), len(seedURLs)))
+		progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler Complete", fmt.Sprintf("Completed: %d discovered URLs from %d seeds", len(discoveredURLs), len(seedURLs)))
 	}
 
 	return discoveredURLs, nil
@@ -192,7 +192,7 @@ func (cm *CrawlerManager) monitorCrawlerProgress(ctx context.Context, crawlerIns
 			discoveredCount := len(crawlerInstance.GetDiscoveredURLs())
 
 			// Update progress display with actual discovered URLs count
-			progressDisplay.UpdateScanProgress(1, 5, "Crawler", fmt.Sprintf("Processing: %d discovered URLs from %d seeds", discoveredCount, totalSeeds))
+			progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", fmt.Sprintf("Processing: %d discovered URLs from %d seeds", discoveredCount, totalSeeds))
 		}
 	}
 }
