@@ -127,6 +127,7 @@ func (hoc *HTTPXOptionsConfigurator) applyCustomHeaders(options *runner.Options,
 
 // applyExtractionConfig applies extraction-related configuration
 func (hoc *HTTPXOptionsConfigurator) applyExtractionConfig(options *runner.Options, config *Config) {
+	options.Asn = config.ExtractASN
 	options.ContentLength = config.ExtractContentLength
 	options.ExtractTitle = config.ExtractTitle
 	options.Location = config.ExtractLocation

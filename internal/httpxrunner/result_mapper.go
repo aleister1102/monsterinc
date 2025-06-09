@@ -3,6 +3,7 @@ package httpxrunner
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/projectdiscovery/httpx/runner"
@@ -58,6 +59,13 @@ func (prm *ProbeResultMapper) mapDuration(probeResult *models.ProbeResult, res r
 		return
 	}
 
+	// Try parsing as Go duration format first (e.g., "96.0199m", "30s", "1.5h")
+	if dur, err := time.ParseDuration(res.ResponseTime); err == nil {
+		probeResult.Duration = dur.Seconds()
+		return
+	}
+
+	// Fallback: try the old method for backward compatibility
 	durationStr := strings.TrimSuffix(res.ResponseTime, "s")
 	if dur, err := strconv.ParseFloat(durationStr, 64); err == nil {
 		probeResult.Duration = dur

@@ -244,6 +244,17 @@
             margin-bottom: 20px;
         }
 
+        .search-container .form-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.875rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .search-container .form-label i {
+            color: #007bff;
+        }
+
         .search-input {
             border: 2px solid #e9ecef;
             border-radius: 8px;
@@ -462,8 +473,11 @@
             <main class="col-md-12 px-md-4">
                 <!-- Search and Filter Section -->
                 <div class="search-container">
-                    <div class="row align-items-center">
+                    <div class="row align-items-end">
                     <div class="col-md-3">
+                            <label for="globalSearchInput" class="form-label mb-1">
+                                <i class="fas fa-search me-1"></i>Global Search
+                            </label>
                             <div class="input-group">
                                 <span class="input-group-text bg-light border-end-0">
                                     <i class="fas fa-search text-muted"></i>
@@ -472,6 +486,9 @@
                             </div>
                     </div>
                     <div class="col-md-2">
+                            <label for="rootURLFilter" class="form-label mb-1">
+                                <i class="fas fa-link me-1"></i>Root URL
+                            </label>
                             <select id="rootURLFilter" class="form-select filter-select">
                             <option value="">Filter by Root URL...</option>
                             {{range .UniqueRootTargets}}
@@ -480,6 +497,9 @@
                         </select>
                     </div>
                     <div class="col-md-2">
+                            <label for="statusCodeFilter" class="form-label mb-1">
+                                <i class="fas fa-signal me-1"></i>Status Code
+                            </label>
                             <select id="statusCodeFilter" class="form-select filter-select">
                             <option value="">Filter by Status Code...</option>
                             {{range .UniqueStatusCodes}}
@@ -488,6 +508,9 @@
                         </select>
                     </div>
                     <div class="col-md-2">
+                            <label for="contentTypeFilter" class="form-label mb-1">
+                                <i class="fas fa-file-alt me-1"></i>Content Type
+                            </label>
                             <select id="contentTypeFilter" class="form-select filter-select">
                             <option value="">Filter by Content Type...</option>
                             {{range .UniqueContentTypes}}
@@ -496,6 +519,9 @@
                         </select>
                     </div>
                     <div class="col-md-2">
+                            <label for="urlStatusFilter" class="form-label mb-1">
+                                <i class="fas fa-code-branch me-1"></i>Diff Status
+                            </label>
                             <select id="urlStatusFilter" class="form-select filter-select">
                             <option value="">Filter by Diff Status...</option>
                             <option value="new">New</option>
@@ -511,6 +537,9 @@
                     </div>
                     <div class="row mt-3">
                         <div class="col-md-3">
+                            <label for="techFilterInput" class="form-label mb-1">
+                                <i class="fas fa-cogs me-1"></i>Technology Filter
+                            </label>
                             <input type="text" id="techFilterInput" class="form-control search-input" placeholder='{{index .FilterPlaceholders "techSearch"}}'>
                         </div>
                         <div class="col-md-6"></div>
@@ -552,7 +581,8 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {{if not .ProbeResults}}
+                        {{/* KHÔNG lặp ở đây nữa nếu DataTables được cung cấp data từ JS array */}}
+                        {{/* {{if not .ProbeResults}}
                         <tr>
                                     <td colspan="8" class="text-center py-5">
                                         <i class="fas fa-search fa-3x text-muted mb-3"></i>
@@ -577,7 +607,7 @@
                                         <i class="fas fa-eye me-1"></i>View
                                     </button></td>
                         </tr>
-                        {{end}}
+                        {{end}} */}}
                     </tbody>
                 </table>
                     </div>

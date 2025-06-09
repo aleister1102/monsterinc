@@ -1,9 +1,9 @@
 package monitor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
@@ -16,7 +16,21 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// URLChecker handles checking individual URLs for changes
+// CheckResult represents the result of checking a URL
+type CheckResult struct {
+	URL            string
+	Changed        bool
+	NewHash        string
+	OldHash        string
+	ContentType    string
+	Content        []byte
+	Error          error
+	ProcessedAt    time.Time
+	DiffResult     *models.ContentDiffResult
+	ExtractedPaths []models.ExtractedPath
+}
+
+// URLChecker handles the checking of individual URLs with memory optimization
 type URLChecker struct {
 	logger           zerolog.Logger
 	gCfg             *config.GlobalConfig
@@ -26,9 +40,13 @@ type URLChecker struct {
 	contentDiffer    *differ.ContentDiffer
 	pathExtractor    *extractor.PathExtractor
 	htmlDiffReporter *reporter.HtmlDiffReporter
+
+	// Memory optimization components
+	bufferPool *common.BufferPool
+	slicePool  *common.SlicePool
 }
 
-// NewURLChecker creates a new URLChecker
+// NewURLChecker creates a new URLChecker with memory optimization
 func NewURLChecker(
 	logger zerolog.Logger,
 	gCfg *config.GlobalConfig,
@@ -48,374 +66,294 @@ func NewURLChecker(
 		contentDiffer:    contentDiffer,
 		pathExtractor:    pathExtractor,
 		htmlDiffReporter: htmlDiffReporter,
+		// Initialize memory pools
+		bufferPool: common.NewBufferPool(64 * 1024), // 64KB buffers
+		slicePool:  common.NewSlicePool(32 * 1024),  // 32KB slices
 	}
 }
 
-// CheckResult represents the result of checking a URL
-type CheckResult struct {
+// CheckURL checks a single URL for changes with memory optimization
+func (uc *URLChecker) CheckURL(ctx context.Context, url string) CheckResult {
+	result := CheckResult{
+		URL:         url,
+		ProcessedAt: time.Now(),
+	}
+
+	// Get buffer from pool for processing
+	buffer := uc.bufferPool.Get()
+	defer uc.bufferPool.Put(buffer)
+
+	// Fetch content with context and memory optimization
+	fetchResult, err := uc.fetchContentWithOptimization(ctx, url)
+	if err != nil {
+		result.Error = fmt.Errorf("failed to fetch content: %w", err)
+		return result
+	}
+
+	// Process content to get hash and type
+	update, err := uc.processor.ProcessContent(url, fetchResult.Content, fetchResult.ContentType)
+	if err != nil {
+		result.Error = fmt.Errorf("failed to process content: %w", err)
+		return result
+	}
+
+	result.NewHash = update.NewHash
+	result.ContentType = update.ContentType
+
+	// Store limited content if configured
+	if uc.gCfg.MonitorConfig.StoreFullContentOnChange {
+		// Use slice pool for content storage
+		contentSlice := uc.slicePool.Get()
+		defer uc.slicePool.Put(contentSlice)
+
+		if len(fetchResult.Content) <= cap(contentSlice) {
+			contentSlice = contentSlice[:len(fetchResult.Content)]
+			copy(contentSlice, fetchResult.Content)
+			result.Content = make([]byte, len(contentSlice))
+			copy(result.Content, contentSlice)
+		} else {
+			// Content too large for pool, use direct allocation
+			result.Content = make([]byte, len(fetchResult.Content))
+			copy(result.Content, fetchResult.Content)
+		}
+	}
+
+	// Get last known record to compare
+	lastRecord, err := uc.historyStore.GetLastKnownRecord(url)
+	if err != nil {
+		uc.logger.Error().Err(err).Str("url", url).Msg("Failed to get last known record")
+		// Continue with empty last record
+	}
+
+	if lastRecord != nil {
+		result.OldHash = lastRecord.Hash
+		result.Changed = lastRecord.Hash != update.NewHash
+	} else {
+		result.Changed = true // New URL, consider as changed
+	}
+
+	// Generate diff if content changed and differ is available
+	if result.Changed && uc.contentDiffer != nil {
+		if lastRecord != nil {
+			// Normal diff between old and new content
+			diffResult := uc.generateContentDiff(lastRecord, fetchResult.Content, result.ContentType, result.OldHash, result.NewHash)
+			result.DiffResult = diffResult
+		} else {
+			// First time monitoring this URL - treat all content as insertion
+			diffResult := uc.generateFirstTimeDiff(fetchResult.Content, result.ContentType, result.NewHash)
+			result.DiffResult = diffResult
+		}
+	}
+
+	// Extract paths if path extractor is available and content type is suitable
+	if uc.pathExtractor != nil && uc.shouldExtractPaths(result.ContentType) {
+		extractedPaths := uc.extractPathsWithOptimization(url, fetchResult.Content, result.ContentType)
+		result.ExtractedPaths = extractedPaths
+	}
+
+	// Store the new record
+	if err := uc.storeFileRecord(url, result, fetchResult); err != nil {
+		uc.logger.Error().Err(err).Str("url", url).Msg("Failed to store file record")
+		result.Error = fmt.Errorf("failed to store record: %w", err)
+	}
+
+	return result
+}
+
+// fetchContentWithOptimization fetches content using memory-optimized approach
+func (uc *URLChecker) fetchContentWithOptimization(ctx context.Context, url string) (*common.FetchFileContentResult, error) {
+	// Get previous ETag and LastModified to avoid unnecessary downloads
+	var previousETag, previousLastModified string
+	if lastRecord, err := uc.historyStore.GetLastKnownRecord(url); err == nil && lastRecord != nil {
+		previousETag = lastRecord.ETag
+		previousLastModified = lastRecord.LastModified
+	}
+
+	fetchInput := common.FetchFileContentInput{
+		URL:                  url,
+		PreviousETag:         previousETag,
+		PreviousLastModified: previousLastModified,
+		Context:              ctx,
+	}
+
+	return uc.fetcher.FetchFileContent(fetchInput)
+}
+
+// generateContentDiff generates diff between old and new content
+func (uc *URLChecker) generateContentDiff(lastRecord *models.FileHistoryRecord, newContent []byte, contentType, oldHash, newHash string) *models.ContentDiffResult {
+	var oldContent []byte
+	if lastRecord.Content != nil {
+		oldContent = lastRecord.Content
+	}
+
+	diffResult, err := uc.contentDiffer.GenerateDiff(oldContent, newContent, contentType, oldHash, newHash)
+	if err != nil {
+		uc.logger.Error().Err(err).Msg("Failed to generate content diff")
+		return nil
+	}
+
+	return diffResult
+}
+
+// generateFirstTimeDiff generates diff result for first-time monitoring, treating all content as insertion
+func (uc *URLChecker) generateFirstTimeDiff(newContent []byte, contentType, newHash string) *models.ContentDiffResult {
+	// For first time monitoring, treat empty content as old content
+	emptyContent := []byte{}
+
+	diffResult, err := uc.contentDiffer.GenerateDiff(emptyContent, newContent, contentType, "", newHash)
+	if err != nil {
+		uc.logger.Error().Err(err).Msg("Failed to generate first-time content diff")
+		return nil
+	}
+
+	return diffResult
+}
+
+// shouldExtractPaths determines if paths should be extracted from the content type
+func (uc *URLChecker) shouldExtractPaths(contentType string) bool {
+	// Extract paths from JavaScript and HTML files
+	return contentType == "application/javascript" ||
+		contentType == "text/javascript" ||
+		contentType == "text/html" ||
+		contentType == "application/json"
+}
+
+// extractPathsWithOptimization extracts paths using memory-optimized approach
+func (uc *URLChecker) extractPathsWithOptimization(sourceURL string, content []byte, contentType string) []models.ExtractedPath {
+	// Use buffer pool for path extraction processing
+	buffer := uc.bufferPool.Get()
+	defer uc.bufferPool.Put(buffer)
+
+	paths, err := uc.pathExtractor.ExtractPaths(sourceURL, content, contentType)
+	if err != nil {
+		uc.logger.Error().Err(err).Str("url", sourceURL).Msg("Failed to extract paths")
+		return nil
+	}
+
+	return paths
+}
+
+// storeFileRecord stores the file record with extracted paths and diff results
+func (uc *URLChecker) storeFileRecord(url string, result CheckResult, fetchResult *common.FetchFileContentResult) error {
+	record := models.FileHistoryRecord{
+		URL:          url,
+		Timestamp:    result.ProcessedAt.UnixMilli(),
+		Hash:         result.NewHash,
+		ContentType:  result.ContentType,
+		ETag:         fetchResult.ETag,
+		LastModified: fetchResult.LastModified,
+	}
+
+	// Store content if configured and changed
+	if result.Changed && uc.gCfg.MonitorConfig.StoreFullContentOnChange {
+		record.Content = result.Content
+	}
+
+	// Store diff result as JSON if available
+	if result.DiffResult != nil {
+		if diffJSON, err := uc.serializeDiffResult(result.DiffResult); err == nil {
+			record.DiffResultJSON = &diffJSON
+		} else {
+			uc.logger.Warn().Err(err).Msg("Failed to serialize diff result")
+		}
+	}
+
+	// Store extracted paths as JSON if available
+	if len(result.ExtractedPaths) > 0 {
+		if pathsJSON, err := uc.serializeExtractedPaths(result.ExtractedPaths); err == nil {
+			record.ExtractedPathsJSON = &pathsJSON
+		} else {
+			uc.logger.Warn().Err(err).Msg("Failed to serialize extracted paths")
+		}
+	}
+
+	return uc.historyStore.StoreFileRecord(record)
+}
+
+// serializeDiffResult serializes diff result to JSON string
+func (uc *URLChecker) serializeDiffResult(diffResult *models.ContentDiffResult) (string, error) {
+	if diffResult == nil {
+		return "", nil
+	}
+
+	jsonData, err := json.Marshal(diffResult)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal diff result: %w", err)
+	}
+
+	return string(jsonData), nil
+}
+
+// serializeExtractedPaths serializes extracted paths to JSON string
+func (uc *URLChecker) serializeExtractedPaths(paths []models.ExtractedPath) (string, error) {
+	if len(paths) == 0 {
+		return "", nil
+	}
+
+	jsonData, err := json.Marshal(paths)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal extracted paths: %w", err)
+	}
+
+	return string(jsonData), nil
+}
+
+// CheckURLWithContext checks a URL with legacy result format for backwards compatibility
+func (uc *URLChecker) CheckURLWithContext(ctx context.Context, url string, cycleID string) LegacyCheckResult {
+	return uc.CheckURLWithBatchContext(ctx, url, cycleID, nil)
+}
+
+// CheckURLWithBatchContext checks a URL with batch context information
+func (uc *URLChecker) CheckURLWithBatchContext(ctx context.Context, url string, cycleID string, batchInfo *models.BatchInfo) LegacyCheckResult {
+	result := uc.CheckURL(ctx, url)
+
+	if result.Error != nil {
+		return LegacyCheckResult{
+			ErrorInfo: &models.MonitorFetchErrorInfo{
+				URL:        url,
+				Error:      result.Error.Error(),
+				Source:     "fetch",
+				OccurredAt: result.ProcessedAt,
+				CycleID:    cycleID,
+				BatchInfo:  batchInfo,
+			},
+			Success: false,
+		}
+	}
+
+	if !result.Changed {
+		return LegacyCheckResult{Success: true}
+	}
+
+	// File changed - create change info
+	changeInfo := &models.FileChangeInfo{
+		URL:            url,
+		OldHash:        result.OldHash,
+		NewHash:        result.NewHash,
+		ContentType:    result.ContentType,
+		ChangeTime:     result.ProcessedAt,
+		ExtractedPaths: result.ExtractedPaths,
+		CycleID:        cycleID,
+		BatchInfo:      batchInfo,
+	}
+
+	// Note: HTML diff report will be generated later at cycle level for all changed URLs
+	// Individual URL diff results are stored in the file history
+
+	return LegacyCheckResult{
+		FileChangeInfo: changeInfo,
+		Success:        true,
+	}
+}
+
+// LegacyCheckResult represents the legacy result format for compatibility
+type LegacyCheckResult struct {
 	FileChangeInfo *models.FileChangeInfo
 	ErrorInfo      *models.MonitorFetchErrorInfo
 	Success        bool
 }
 
-// CheckURL checks a single URL for changes
-func (uc *URLChecker) CheckURL(url string, cycleID string) CheckResult {
-	uc.logger.Debug().Str("url", url).Str("cycle_id", cycleID).Msg("Starting URL check")
-
-	// Fetch content from URL
-	fetchResult, err := uc.fetchURLContent(url)
-	if err != nil {
-		return uc.createErrorResult(url, cycleID, "fetch", err)
-	}
-
-	// Process the fetched content
-	processedUpdate, err := uc.processURLContent(url, fetchResult)
-	if err != nil {
-		return uc.createErrorResult(url, cycleID, "process", err)
-	}
-
-	// Detect changes
-	fileChangeInfo, diffResult, err := uc.detectURLChanges(url, processedUpdate, fetchResult)
-	if err != nil {
-		return uc.createErrorResult(url, cycleID, "change_detection", err)
-	}
-
-	// Store the record
-	err = uc.storeURLRecord(url, processedUpdate, fetchResult, diffResult, cycleID)
-	if err != nil {
-		return uc.createErrorResult(url, cycleID, "store_history", err)
-	}
-
-	return uc.createSuccessResult(url, cycleID, fileChangeInfo)
-}
-
-// detectURLChanges detects if a URL has changed
-func (uc *URLChecker) detectURLChanges(
-	url string,
-	processedUpdate *models.MonitoredFileUpdate,
-	fetchResult *common.FetchFileContentResult,
-) (*models.FileChangeInfo, *models.ContentDiffResult, error) {
-	// Get the last known record for this URL
-	lastRecord, err := uc.getLastKnownRecord(url)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Handle new file case
-	if lastRecord == nil {
-		fileChangeInfo := uc.createNewFileChangeInfo(url, processedUpdate)
-		// Create a special diff result for new files
-		newFileDiffResult := uc.createNewFileDiffResult(url, fetchResult, processedUpdate)
-		return fileChangeInfo, newFileDiffResult, nil
-	}
-
-	// Check if content has changed
-	if !uc.hasContentChanged(lastRecord, processedUpdate) {
-		uc.logger.Debug().Str("url", url).Msg("No changes detected - hash matches")
-		return nil, nil, nil
-	}
-
-	uc.logChangeDetected(url, lastRecord.Hash, processedUpdate.NewHash)
-
-	// Generate comprehensive change information
-	diffResult := uc.generateContentDiff(url, lastRecord, fetchResult, processedUpdate)
-	extractedPaths := uc.extractPathsIfJavaScript(url, fetchResult)
-	diffReportPath := uc.generateSingleDiffReport(url, diffResult, lastRecord, processedUpdate, fetchResult)
-
-	fileChangeInfo := uc.createFileChangeInfo(url, lastRecord, processedUpdate, diffReportPath, extractedPaths)
-
-	return fileChangeInfo, diffResult, nil
-}
-
-// storeURLRecord stores the URL record in the history store
-func (uc *URLChecker) storeURLRecord(
-	url string,
-	processedUpdate *models.MonitoredFileUpdate,
-	fetchResult *common.FetchFileContentResult,
-	diffResult *models.ContentDiffResult,
-	cycleID string,
-) error {
-	// Create base file history record
-	record := uc.createBaseHistoryRecord(url, processedUpdate, fetchResult)
-
-	// Add optional content
-	uc.addContentToRecord(&record, fetchResult)
-
-	// Add diff result if available
-	uc.addDiffResultToRecord(&record, diffResult, url)
-
-	// Store the record
-	err := uc.historyStore.StoreFileRecord(record)
-	if err != nil {
-		return fmt.Errorf("failed to store file history record: %w", err)
-	}
-
-	uc.logRecordStored(url, processedUpdate.NewHash, cycleID)
-	return nil
-}
-
-// Private helper methods for URL fetching and processing
-
-func (uc *URLChecker) fetchURLContent(url string) (*common.FetchFileContentResult, error) {
-	fetchResult, err := uc.fetcher.FetchFileContent(common.FetchFileContentInput{URL: url})
-	if err != nil {
-		uc.logger.Error().Err(err).Str("url", url).Msg("Failed to fetch URL content")
-		return nil, err
-	}
-	return fetchResult, nil
-}
-
-func (uc *URLChecker) processURLContent(url string, fetchResult *common.FetchFileContentResult) (*models.MonitoredFileUpdate, error) {
-	processedUpdate, err := uc.processor.ProcessContent(url, fetchResult.Content, fetchResult.ContentType)
-	if err != nil {
-		uc.logger.Error().Err(err).Str("url", url).Msg("Failed to process URL content")
-		return nil, err
-	}
-	return processedUpdate, nil
-}
-
-// Private helper methods for change detection
-
-func (uc *URLChecker) getLastKnownRecord(url string) (*models.FileHistoryRecord, error) {
-	lastRecord, err := uc.historyStore.GetLastKnownRecord(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last known record: %w", err)
-	}
-	return lastRecord, nil
-}
-
-func (uc *URLChecker) createNewFileChangeInfo(url string, processedUpdate *models.MonitoredFileUpdate) *models.FileChangeInfo {
-	uc.logger.Info().Str("url", url).Msg("New file detected (no previous record)")
-	return &models.FileChangeInfo{
-		URL:         url,
-		OldHash:     "",
-		NewHash:     processedUpdate.NewHash,
-		ContentType: processedUpdate.ContentType,
-		ChangeTime:  processedUpdate.FetchedAt,
-	}
-}
-
-func (uc *URLChecker) createNewFileDiffResult(url string, fetchResult *common.FetchFileContentResult, processedUpdate *models.MonitoredFileUpdate) *models.ContentDiffResult {
-	uc.logger.Debug().Str("url", url).Msg("Creating diff result for new file")
-
-	// Extract paths if it's JavaScript content
-	extractedPaths := uc.extractPathsIfJavaScript(url, fetchResult)
-
-	// Create diffs showing entire content as insertion for new files
-	content := string(fetchResult.Content)
-	var diffs []models.ContentDiff
-	if len(strings.TrimSpace(content)) > 0 {
-		diffs = []models.ContentDiff{
-			{
-				Operation: models.DiffInsert,
-				Text:      content,
-			},
-		}
-	}
-
-	return &models.ContentDiffResult{
-		Timestamp:      processedUpdate.FetchedAt.UnixMilli(),
-		ContentType:    fetchResult.ContentType,
-		OldHash:        "",
-		NewHash:        processedUpdate.NewHash,
-		IsIdentical:    false, // New files are considered as changes
-		LinesAdded:     len(strings.Split(content, "\n")),
-		LinesDeleted:   0,
-		LinesChanged:   0,
-		Diffs:          diffs, // Show entire content as insertion
-		ErrorMessage:   "",
-		ExtractedPaths: extractedPaths,
-	}
-}
-
-func (uc *URLChecker) hasContentChanged(lastRecord *models.FileHistoryRecord, processedUpdate *models.MonitoredFileUpdate) bool {
-	return lastRecord.Hash != processedUpdate.NewHash
-}
-
-func (uc *URLChecker) logChangeDetected(url, oldHash, newHash string) {
-	uc.logger.Info().
-		Str("url", url).
-		Str("old_hash", oldHash).
-		Str("new_hash", newHash).
-		Msg("Change detected - generating diff")
-}
-
-func (uc *URLChecker) generateContentDiff(
-	url string,
-	lastRecord *models.FileHistoryRecord,
-	fetchResult *common.FetchFileContentResult,
-	processedUpdate *models.MonitoredFileUpdate,
-) *models.ContentDiffResult {
-	if uc.contentDiffer == nil {
-		return nil
-	}
-
-	var previousContent []byte
-	if lastRecord.Content != nil {
-		previousContent = lastRecord.Content
-	}
-
-	generatedDiff, err := uc.contentDiffer.GenerateDiff(
-		previousContent,
-		fetchResult.Content,
-		fetchResult.ContentType,
-		lastRecord.Hash,
-		processedUpdate.NewHash,
-	)
-	if err != nil {
-		uc.logger.Error().Err(err).Str("url", url).Msg("Failed to generate content diff")
-		return nil
-	}
-
-	return generatedDiff
-}
-
-func (uc *URLChecker) extractPathsIfJavaScript(url string, fetchResult *common.FetchFileContentResult) []models.ExtractedPath {
-	if uc.pathExtractor == nil || !uc.isJavaScriptContent(fetchResult.ContentType) {
-		return nil
-	}
-
-	paths, err := uc.pathExtractor.ExtractPaths(url, fetchResult.Content, fetchResult.ContentType)
-	if err != nil {
-		uc.logger.Error().Err(err).Str("url", url).Msg("Failed to extract paths from JavaScript content")
-		return nil
-	}
-
-	uc.logger.Debug().Str("url", url).Int("path_count", len(paths)).Msg("Extracted paths from JavaScript content")
-	return paths
-}
-
-func (uc *URLChecker) generateSingleDiffReport(
-	url string,
-	diffResult *models.ContentDiffResult,
-	lastRecord *models.FileHistoryRecord,
-	processedUpdate *models.MonitoredFileUpdate,
-	fetchResult *common.FetchFileContentResult,
-) *string {
-	if uc.htmlDiffReporter == nil || diffResult == nil {
-		return nil
-	}
-
-	reportPath, err := uc.htmlDiffReporter.GenerateSingleDiffReport(
-		url,
-		diffResult,
-		lastRecord.Hash,
-		processedUpdate.NewHash,
-		fetchResult.Content,
-	)
-	if err != nil {
-		uc.logger.Error().Err(err).Str("url", url).Msg("Failed to generate single diff report")
-		return nil
-	}
-
-	uc.logger.Debug().Str("url", url).Str("report_path", reportPath).Msg("Generated single diff report")
-	return &reportPath
-}
-
-func (uc *URLChecker) createFileChangeInfo(
-	url string,
-	lastRecord *models.FileHistoryRecord,
-	processedUpdate *models.MonitoredFileUpdate,
-	diffReportPath *string,
-	extractedPaths []models.ExtractedPath,
-) *models.FileChangeInfo {
-	return &models.FileChangeInfo{
-		URL:            url,
-		OldHash:        lastRecord.Hash,
-		NewHash:        processedUpdate.NewHash,
-		ContentType:    processedUpdate.ContentType,
-		ChangeTime:     processedUpdate.FetchedAt,
-		DiffReportPath: diffReportPath,
-		ExtractedPaths: extractedPaths,
-	}
-}
-
-// Private helper methods for record storage
-
-func (uc *URLChecker) createBaseHistoryRecord(
-	url string,
-	processedUpdate *models.MonitoredFileUpdate,
-	fetchResult *common.FetchFileContentResult,
-) models.FileHistoryRecord {
-	return models.FileHistoryRecord{
-		URL:          url,
-		Timestamp:    processedUpdate.FetchedAt.UnixMilli(),
-		Hash:         processedUpdate.NewHash,
-		ContentType:  processedUpdate.ContentType,
-		ETag:         fetchResult.ETag,
-		LastModified: fetchResult.LastModified,
-	}
-}
-
-func (uc *URLChecker) addContentToRecord(record *models.FileHistoryRecord, fetchResult *common.FetchFileContentResult) {
-	if uc.gCfg.MonitorConfig.StoreFullContentOnChange {
-		record.Content = fetchResult.Content
-	}
-}
-
-func (uc *URLChecker) addDiffResultToRecord(record *models.FileHistoryRecord, diffResult *models.ContentDiffResult, url string) {
-	if diffResult == nil {
-		return
-	}
-
-	diffJSON, err := json.Marshal(diffResult)
-	if err != nil {
-		uc.logger.Error().Err(err).Str("url", url).Msg("Failed to marshal diff result to JSON")
-		return
-	}
-
-	diffJSONStr := string(diffJSON)
-	record.DiffResultJSON = &diffJSONStr
-}
-
-func (uc *URLChecker) logRecordStored(url, hash, cycleID string) {
-	uc.logger.Debug().
-		Str("url", url).
-		Str("hash", hash).
-		Str("cycle_id", cycleID).
-		Msg("URL record stored successfully")
-}
-
-// Private helper methods for result creation
-
-func (uc *URLChecker) createErrorResult(url, cycleID, source string, err error) CheckResult {
-	errorInfo := &models.MonitorFetchErrorInfo{
-		URL:        url,
-		Error:      err.Error(),
-		Source:     source,
-		OccurredAt: time.Now(),
-		CycleID:    cycleID,
-	}
-	return CheckResult{ErrorInfo: errorInfo, Success: false}
-}
-
-func (uc *URLChecker) createSuccessResult(url, cycleID string, fileChangeInfo *models.FileChangeInfo) CheckResult {
-	if fileChangeInfo != nil {
-		fileChangeInfo.CycleID = cycleID
-		uc.logger.Info().Str("url", url).Str("cycle_id", cycleID).Msg("URL change detected and processed")
-		return CheckResult{FileChangeInfo: fileChangeInfo, Success: true}
-	}
-
-	uc.logger.Debug().Str("url", url).Str("cycle_id", cycleID).Msg("URL check completed - no changes")
-	return CheckResult{Success: true}
-}
-
-// isJavaScriptContent checks if the content type indicates JavaScript
-func (uc *URLChecker) isJavaScriptContent(contentType string) bool {
-	jsContentTypes := []string{
-		"application/javascript",
-		"application/x-javascript",
-		"text/javascript",
-		"application/ecmascript",
-		"text/ecmascript",
-	}
-
-	contentTypeLower := strings.ToLower(contentType)
-	for _, jsType := range jsContentTypes {
-		if strings.Contains(contentTypeLower, jsType) {
-			return true
-		}
-	}
-
-	return false
+// UpdateLogger updates the logger for this component
+func (uc *URLChecker) UpdateLogger(newLogger zerolog.Logger) {
+	uc.logger = newLogger.With().Str("component", "URLChecker").Logger()
 }

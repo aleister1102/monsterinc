@@ -3,6 +3,7 @@ package httpxrunner
 // Config holds the configuration for the httpx runner
 type Config struct {
 	CustomHeaders        map[string]string
+	ExtractASN           bool
 	ExtractBody          bool
 	ExtractCNAMEs        bool
 	ExtractContentLength bool
@@ -29,6 +30,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		CustomHeaders:        make(map[string]string),
+		ExtractASN:           true,
 		ExtractBody:          false,
 		ExtractCNAMEs:        true,
 		ExtractContentLength: true,

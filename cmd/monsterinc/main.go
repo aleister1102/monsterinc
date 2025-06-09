@@ -23,8 +23,59 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// Global state variables for tracking active sessions and interrupt notifications
+var (
+	activeScanSessionID        string
+	activeScanMutex            sync.RWMutex
+	interruptNotificationSent  bool
+	interruptNotificationMutex sync.Mutex
+)
+
+// setActiveScanSessionID safely sets the active scan session ID
+func setActiveScanSessionID(sessionID string) {
+	activeScanMutex.Lock()
+	defer activeScanMutex.Unlock()
+	activeScanSessionID = sessionID
+
+	// Reset interrupt notification flag when starting new scan
+	if sessionID != "" {
+		setInterruptNotificationSent(false)
+	}
+}
+
+// getActiveScanSessionID safely gets the active scan session ID
+func getActiveScanSessionID() string {
+	activeScanMutex.RLock()
+	defer activeScanMutex.RUnlock()
+	return activeScanSessionID
+}
+
+// setInterruptNotificationSent safely sets the interrupt notification flag
+func setInterruptNotificationSent(sent bool) {
+	interruptNotificationMutex.Lock()
+	defer interruptNotificationMutex.Unlock()
+	interruptNotificationSent = sent
+}
+
+// getAndSetInterruptNotificationSent atomically checks and sets the interrupt notification flag
+func getAndSetInterruptNotificationSent() bool {
+	interruptNotificationMutex.Lock()
+	defer interruptNotificationMutex.Unlock()
+
+	if interruptNotificationSent {
+		return true // Already sent
+	}
+
+	interruptNotificationSent = true
+	return false // First time
+}
+
 func main() {
 	fmt.Println("MonsterInc Crawler starting...")
+
+	// Set function pointer for scheduler to track active scans
+	scheduler.SetActiveScanSessionID = setActiveScanSessionID
+	scheduler.GetAndSetInterruptNotificationSent = getAndSetInterruptNotificationSent
 
 	flags := ParseFlags()
 
@@ -40,6 +91,55 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initialize progress display manager - ENABLED for progress tracking
+	// Initialize progress display with config
+	progressConfig := &common.ProgressDisplayConfig{
+		DisplayInterval:   gCfg.ProgressConfig.GetDisplayIntervalDuration(),
+		EnableProgress:    gCfg.ProgressConfig.EnableProgress,
+		ShowETAEstimation: gCfg.ProgressConfig.ShowETAEstimation,
+	}
+	progressDisplay := common.NewProgressDisplayManager(zLogger, progressConfig)
+	progressDisplay.Start()
+	defer progressDisplay.Stop()
+
+	// Start global resource limiter with config from file
+	resourceLimiterConfig := common.ResourceLimiterConfig{
+		MaxMemoryMB:        gCfg.ResourceLimiterConfig.MaxMemoryMB,
+		MaxGoroutines:      gCfg.ResourceLimiterConfig.MaxGoroutines,
+		CheckInterval:      time.Duration(gCfg.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
+		MemoryThreshold:    gCfg.ResourceLimiterConfig.MemoryThreshold,
+		GoroutineWarning:   gCfg.ResourceLimiterConfig.GoroutineWarning,
+		SystemMemThreshold: gCfg.ResourceLimiterConfig.SystemMemThreshold,
+		CPUThreshold:       gCfg.ResourceLimiterConfig.CPUThreshold,
+		EnableAutoShutdown: gCfg.ResourceLimiterConfig.EnableAutoShutdown,
+	}
+
+	resourceLimiter := common.NewResourceLimiter(resourceLimiterConfig, zLogger)
+	resourceLimiter.Start()
+
+	// Initialize global resource stats monitor for continuous monitoring
+	globalResourceStatsConfig := common.ResourceStatsMonitorConfig{
+		DisplayInterval: time.Duration(gCfg.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
+		ComponentName:   "Global",
+		ModuleName:      "System",
+	}
+	globalResourceStatsMonitor := common.NewResourceStatsMonitor(
+		resourceLimiter,
+		globalResourceStatsConfig,
+		zLogger,
+	)
+	globalResourceStatsMonitor.Start()
+
+	// Ensure global resource limiter and stats monitor are stopped on exit
+	defer func() {
+		globalResourceStatsMonitor.Stop()
+		resourceLimiter.Stop()
+		common.StopGlobalResourceLimiter()
+	}()
+
 	discordHttpClient, err := common.NewHTTPClientFactory(zLogger).CreateDiscordClient(
 		20 * time.Second,
 	)
@@ -52,6 +152,37 @@ func main() {
 	}
 	notificationHelper := notifier.NewNotificationHelper(discordNotifier, gCfg.NotificationConfig, zLogger)
 
+	// Update resource limiter shutdown callback to include notification
+	resourceLimiter.SetShutdownCallback(func() {
+		zLogger.Error().Msg("System resource limits exceeded, initiating graceful shutdown...")
+
+		// Stop global resource stats monitor first
+		globalResourceStatsMonitor.Stop()
+
+		// Send critical error notification for resource limit trigger
+		criticalErrSummary := models.GetDefaultScanSummaryData()
+		criticalErrSummary.Component = "ResourceLimiter"
+		criticalErrSummary.ErrorMessages = []string{"System resource limits exceeded, application shutting down gracefully"}
+		criticalErrSummary.Status = string(models.ScanStatusInterrupted)
+
+		// Get current resource usage for the notification
+		resourceUsage := resourceLimiter.GetResourceUsage()
+		criticalErrSummary.ErrorMessages = append(criticalErrSummary.ErrorMessages,
+			fmt.Sprintf("System Memory: %.1f%% used (%d/%d MB)",
+				resourceUsage.SystemMemUsedPercent,
+				resourceUsage.SystemMemUsedMB,
+				resourceUsage.SystemMemTotalMB))
+
+		if resourceUsage.CPUUsagePercent > 0 {
+			criticalErrSummary.ErrorMessages = append(criticalErrSummary.ErrorMessages,
+				fmt.Sprintf("CPU Usage: %.1f%%", resourceUsage.CPUUsagePercent))
+		}
+
+		notificationHelper.SendCriticalErrorNotification(context.Background(), "ResourceLimiter", criticalErrSummary)
+
+		cancel() // Cancel the main context to trigger shutdown
+	})
+
 	scanner := initializeScanner(gCfg, zLogger)
 
 	ms, err := initializeMonitoringService(gCfg, flags.MonitorTargetsFile, zLogger, notificationHelper)
@@ -59,16 +190,18 @@ func main() {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize monitoring service.")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	setupSignalHandling(cancel, zLogger)
+	setupSignalHandling(cancel, zLogger, notificationHelper, gCfg, ms)
 
 	var schedulerPtr *scheduler.Scheduler
-	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, scanner, ms, &schedulerPtr)
 
-	var monitorWg sync.WaitGroup
-	shutdownServices(ms, schedulerPtr, &monitorWg, zLogger, ctx)
+	// Set parent context for monitoring service to handle cancellation
+	if ms != nil {
+		ms.SetParentContext(ctx)
+	}
+
+	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, scanner, ms, &schedulerPtr, progressDisplay)
+
+	shutdownServices(ms, scanner, schedulerPtr, progressDisplay, zLogger, ctx)
 }
 
 // loadConfiguration loads the global configuration from the specified file,
@@ -157,7 +290,7 @@ func initializeMonitoringService(
 
 	// Preload monitor targets if provided
 	if monitorTargetsFile != "" {
-		if err := preloadMonitoringTargets(gCfg, ms, monitorTargetsFile, zLogger); err != nil {
+		if err := preloadMonitoringTargets(ms, monitorTargetsFile, zLogger); err != nil {
 			return nil, fmt.Errorf("failed to preload monitoring targets: %w", err)
 		}
 		zLogger.Info().Str("file", monitorTargetsFile).Msg("Preloaded monitoring targets from file.")
@@ -169,17 +302,12 @@ func initializeMonitoringService(
 // preloadMonitoringTargets preloads monitoring targets from a file.
 // Refactored ✅
 func preloadMonitoringTargets(
-	gCfg *config.GlobalConfig,
 	ms *monitor.MonitoringService,
 	monitorTargetsFile string,
 	zLogger zerolog.Logger,
 ) error {
 	targetManager := urlhandler.NewTargetManager(zLogger)
-	monitorTargets, _, err := targetManager.LoadAndSelectTargets(
-		monitorTargetsFile,
-		gCfg.MonitorConfig.InputURLs,
-		gCfg.MonitorConfig.InputFile,
-	)
+	monitorTargets, _, err := targetManager.LoadAndSelectTargets(monitorTargetsFile)
 	if err != nil {
 		return fmt.Errorf("failed to load monitor targets from file '%s': %w", monitorTargetsFile, err)
 	}
@@ -199,14 +327,120 @@ func preloadMonitoringTargets(
 func setupSignalHandling(
 	cancel context.CancelFunc,
 	zLogger zerolog.Logger,
+	notificationHelper *notifier.NotificationHelper,
+	gCfg *config.GlobalConfig,
+	monitoringService *monitor.MonitoringService,
 ) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		sig := <-sigChan
-		zLogger.Info().Str("signal", sig.String()).Msg("Received interrupt signal, initiating graceful shutdown...")
+		zLogger.Warn().Str("signal", sig.String()).Msg("🚨 INTERRUPT SIGNAL RECEIVED - Initiating immediate shutdown...")
+
+		// Create dedicated context with timeout for interrupt notifications
+		// This ensures notifications can be sent even if main context is cancelled
+		notificationCtx, notificationCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer notificationCancel()
+
+		// Track if any notification was sent
+		notificationSent := false
+
+		// Send scan interrupt notification if there's an active scan
+		currentActiveScanID := getActiveScanSessionID()
+		zLogger.Debug().Str("active_scan_id", currentActiveScanID).Msg("Checking for active scan session")
+
+		if currentActiveScanID != "" && notificationHelper != nil {
+			// Check if notification already sent to avoid duplicates
+			if !getAndSetInterruptNotificationSent() {
+				interruptSummary := models.GetDefaultScanSummaryData()
+				interruptSummary.ScanSessionID = currentActiveScanID
+				interruptSummary.ScanMode = gCfg.Mode
+				interruptSummary.TargetSource = "global_interrupt"
+				interruptSummary.Status = string(models.ScanStatusInterrupted)
+				interruptSummary.ErrorMessages = []string{fmt.Sprintf("Scan interrupted by user signal (%s)", sig.String())}
+				interruptSummary.Component = "SignalHandler"
+
+				zLogger.Info().Str("scan_session_id", currentActiveScanID).Msg("Sending scan interrupt notification for active scan")
+				notificationHelper.SendScanInterruptNotification(notificationCtx, interruptSummary)
+				notificationSent = true
+			} else {
+				zLogger.Info().Str("scan_session_id", currentActiveScanID).Msg("Scan interrupt notification already sent, skipping duplicate")
+				notificationSent = true
+			}
+		}
+
+		// Send monitor interrupt notification if there's an active monitor cycle
+		if monitoringService != nil && notificationHelper != nil {
+			currentURLs := monitoringService.GetCurrentlyMonitorUrls()
+			zLogger.Debug().Int("monitor_urls_count", len(currentURLs)).Msg("Checking for active monitor URLs")
+
+			if len(currentURLs) > 0 {
+				currentCycleID := monitoringService.GetCurrentCycleID()
+				if currentCycleID == "" {
+					currentCycleID = monitoringService.GenerateNewCycleID() // Create new cycle ID if none exists
+				}
+
+				// Get actual progress from monitoring service instead of hardcoded 0
+				processedTargets, totalTargets := monitoringService.GetCurrentProgress()
+
+				interruptData := models.MonitorInterruptData{
+					CycleID:          currentCycleID,
+					TotalTargets:     totalTargets,
+					ProcessedTargets: processedTargets,
+					Timestamp:        time.Now(),
+					Reason:           "user_signal",
+					LastActivity:     fmt.Sprintf("Monitor service interrupted by user signal (%s)", sig.String()),
+				}
+
+				zLogger.Info().
+					Str("cycle_id", currentCycleID).
+					Int("total_targets", totalTargets).
+					Int("processed_targets", processedTargets).
+					Msg("Sending monitor interrupt notification for active monitoring")
+				notificationHelper.SendMonitorInterruptNotification(notificationCtx, interruptData)
+				notificationSent = true
+			}
+		} else {
+			zLogger.Debug().
+				Bool("has_monitoring_service", monitoringService != nil).
+				Bool("has_notification_helper", notificationHelper != nil).
+				Msg("Monitor service or notification helper not available")
+		}
+
+		// Send general interrupt notification if no specific notification was sent
+		if !notificationSent && notificationHelper != nil {
+			zLogger.Info().Msg("No active scan or monitor found, sending general interrupt notification")
+
+			generalInterruptSummary := models.GetDefaultScanSummaryData()
+			generalInterruptSummary.ScanMode = gCfg.Mode
+			generalInterruptSummary.TargetSource = "system_interrupt"
+			generalInterruptSummary.Status = string(models.ScanStatusInterrupted)
+			generalInterruptSummary.ErrorMessages = []string{fmt.Sprintf("MonsterInc service interrupted by user signal (%s)", sig.String())}
+			generalInterruptSummary.Component = "SystemService"
+			generalInterruptSummary.ScanSessionID = fmt.Sprintf("system-%s", time.Now().Format("20060102-150405"))
+
+			notificationHelper.SendScanInterruptNotification(notificationCtx, generalInterruptSummary)
+		} else if !notificationSent {
+			zLogger.Warn().Msg("No notification sent for interrupt - notification helper is not available")
+		} else {
+			zLogger.Debug().Msg("Specific interrupt notification already sent, skipping general notification")
+		}
+
+		// Wait a moment for notifications to be sent before cancelling context
+		time.Sleep(1 * time.Second)
+
+		// Cancel context after notifications are sent - this will propagate to all components
 		cancel()
+
+		zLogger.Info().Msg("Cancellation signal sent to all components. Please wait for graceful shutdown...")
+
+		// Set up a secondary signal handler for force quit
+		go func() {
+			sig2 := <-sigChan
+			zLogger.Error().Str("signal", sig2.String()).Msg("🛑 SECOND INTERRUPT SIGNAL - Force quitting application!")
+			os.Exit(1)
+		}()
 	}()
 }
 
@@ -219,7 +453,9 @@ func runApplicationLogic(
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	scanner *scanner.Scanner,
-	monitoringService *monitor.MonitoringService, schedulerPtr **scheduler.Scheduler,
+	monitoringService *monitor.MonitoringService,
+	schedulerPtr **scheduler.Scheduler,
+	progressDisplay *common.ProgressDisplayManager,
 ) {
 	scanTargetsFile := ""
 	if flags.ScanTargetsFile != "" {
@@ -230,8 +466,11 @@ func runApplicationLogic(
 	monitorTargetsFile := ""
 	if flags.MonitorTargetsFile != "" {
 		monitorTargetsFile = flags.MonitorTargetsFile
-		zLogger.Info().Str("file", monitorTargetsFile).Msg("Using -mt for monitor targets.")
+		// zLogger.Info().Str("file", monitorTargetsFile).Msg("Using -mt for monitor targets.")
 	}
+
+	// Set notification helper for scanner
+	scanner.SetNotificationHelper(notificationHelper)
 
 	if gCfg.Mode == "onetime" && scanTargetsFile != "" {
 		runOnetimeScan(
@@ -241,6 +480,7 @@ func runApplicationLogic(
 			zLogger,
 			notificationHelper,
 			scanner,
+			progressDisplay,
 		)
 	} else if gCfg.Mode == "automated" {
 		runAutomatedScan(
@@ -253,6 +493,7 @@ func runApplicationLogic(
 			zLogger,
 			notificationHelper,
 			schedulerPtr,
+			progressDisplay,
 		)
 	}
 }
@@ -263,15 +504,12 @@ func runOnetimeScan(
 	scanTargetsFile string,
 	baseLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
-	scanner *scanner.Scanner,
+	scannerInstance *scanner.Scanner,
+	progressDisplay *common.ProgressDisplayManager,
 ) {
 	// Load seed URLs using TargetManager
 	targetManager := urlhandler.NewTargetManager(baseLogger)
-	scanTargets, targetSource, err := targetManager.LoadAndSelectTargets(
-		scanTargetsFile,
-		gCfg.InputConfig.InputURLs,
-		gCfg.InputConfig.InputFile,
-	)
+	scanTargets, targetSource, err := targetManager.LoadAndSelectTargets(scanTargetsFile)
 
 	if err != nil {
 		baseLogger.Error().Err(err).Msg("Failed to load seed URLs for onetime scan.")
@@ -307,9 +545,22 @@ func runOnetimeScan(
 	scanUrls := targetManager.GetTargetStrings(scanTargets) // Convert to string slice for notification
 	baseLogger.Info().Int("count", len(scanUrls)).Str("source", targetSource).Msg("Starting onetime scan with seed URLs.")
 
+	// Create single session ID for the entire scan
+	scanSessionID := time.Now().Format("20060102-150405")
+
+	// Track active scan session ID for interrupt handling
+	setActiveScanSessionID(scanSessionID)
+
+	// Create scan logger with scanID for organized logging
+	scanLogger, err := logger.NewWithScanID(gCfg.LogConfig, scanSessionID)
+	if err != nil {
+		baseLogger.Warn().Err(err).Str("scan_session_id", scanSessionID).Msg("Failed to create scan logger, using default logger")
+		scanLogger = baseLogger
+	}
+
 	// Prepare scan summary data for start notification
 	startSummary := models.GetDefaultScanSummaryData()
-	startSummary.ScanSessionID = time.Now().Format("20060102-150405")
+	startSummary.ScanSessionID = scanSessionID
 	startSummary.TargetSource = targetSource
 	startSummary.ScanMode = scanMode
 	startSummary.Targets = scanUrls
@@ -317,18 +568,56 @@ func runOnetimeScan(
 	// Send scan start notification
 	notificationHelper.SendScanStartNotification(ctx, startSummary)
 
-	// Execute complete scan workflow using the new shared function
-	scanSessionID := time.Now().Format("20060102-150405")
+	// Set up progress display for scanner
+	scannerInstance.SetProgressDisplay(progressDisplay)
+	if progressDisplay != nil {
+		progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Starting scan workflow")
+	}
 
-	summaryData, _, reportFilePaths, workflowErr := scanner.ExecuteSingleScanWorkflowWithReporting(
+	// Create batch workflow orchestrator
+	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(gCfg, scannerInstance, scanLogger)
+
+	// Execute batch scan
+	batchResult, workflowErr := batchOrchestrator.ExecuteBatchScan(
 		ctx,
 		gCfg,
-		baseLogger,
-		scanUrls,
+		scanTargetsFile,
 		scanSessionID,
 		targetSource,
 		scanMode,
 	)
+
+	// Clear active scan session when done
+	setActiveScanSessionID("")
+
+	var summaryData models.ScanSummaryData
+	var reportFilePaths []string
+
+	if batchResult != nil {
+		summaryData = batchResult.SummaryData
+		reportFilePaths = batchResult.ReportFilePaths
+
+		// Log batch processing information
+		if batchResult.UsedBatching {
+			baseLogger.Info().
+				Int("total_batches", batchResult.TotalBatches).
+				Int("processed_batches", batchResult.ProcessedBatches).
+				Bool("interrupted", batchResult.InterruptedAt > 0).
+				Msg("Batch scan workflow completed")
+		}
+	} else {
+		// Fallback to default summary if batch result is nil
+		summaryData = models.GetDefaultScanSummaryData()
+		summaryData.ScanSessionID = scanSessionID
+		summaryData.TargetSource = targetSource
+		summaryData.ScanMode = scanMode
+		summaryData.Targets = scanUrls
+		summaryData.TotalTargets = len(scanUrls)
+		summaryData.Status = string(models.ScanStatusFailed)
+		if workflowErr != nil {
+			summaryData.ErrorMessages = []string{workflowErr.Error()}
+		}
+	}
 
 	// Handle workflow error or context cancellation
 	if workflowErr != nil || ctx.Err() != nil {
@@ -350,12 +639,43 @@ func runOnetimeScan(
 		summaryData.TotalTargets = len(scanTargets)
 
 		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification, reportFilePaths) // reportFilePaths might be nil
+
+		// Shutdown scanner even on error to clean up singleton crawler with timeout
+		baseLogger.Info().Msg("Shutting down scanner after onetime scan error")
+		shutdownDone := make(chan struct{})
+		go func() {
+			defer close(shutdownDone)
+			scannerInstance.Shutdown()
+		}()
+
+		select {
+		case <-shutdownDone:
+			baseLogger.Info().Msg("Scanner shutdown completed successfully after error")
+		case <-time.After(10 * time.Second):
+			baseLogger.Warn().Msg("Scanner shutdown timeout reached after error, forcing exit")
+		}
+
 		return
 	}
 
 	// If successful, summaryData is already populated by ExecuteSingleScanWorkflowWithReporting with Completed status
 	baseLogger.Info().Str("scanSessionID", scanSessionID).Msg("Onetime scan workflow completed successfully via orchestrator. Sending completion notification.")
 	notificationHelper.SendScanCompletionNotification(ctx, summaryData, notifier.ScanServiceNotification, reportFilePaths)
+
+	// Shutdown scanner to clean up singleton crawler with timeout
+	baseLogger.Info().Msg("Shutting down scanner after onetime scan completion")
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		scannerInstance.Shutdown()
+	}()
+
+	select {
+	case <-shutdownDone:
+		baseLogger.Info().Msg("Scanner shutdown completed successfully")
+	case <-time.After(10 * time.Second):
+		baseLogger.Warn().Msg("Scanner shutdown timeout reached, forcing exit")
+	}
 
 	baseLogger.Info().Msg("MonsterInc Crawler finished (onetime mode).")
 }
@@ -370,6 +690,7 @@ func runAutomatedScan(
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	schedulerPtr **scheduler.Scheduler,
+	progressDisplay *common.ProgressDisplayManager,
 ) {
 	// Determine if the scheduler should run.
 	// Scheduler runs if scan targets are provided OR if monitor targets have been loaded into the service.
@@ -378,6 +699,19 @@ func runAutomatedScan(
 	if !automatedModeActive {
 		zLogger.Info().Msg("Automated mode: Neither scan targets (-st) nor monitor targets (-mt) were provided or loaded with valid URLs. Scheduler will not start.")
 		return
+	}
+
+	// Set up progress display for scanner and monitoring service
+	scanner.SetProgressDisplay(progressDisplay)
+	if progressDisplay != nil {
+		progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Scanner ready for automated mode")
+	}
+
+	if monitoringService != nil {
+		monitoringService.SetProgressDisplay(progressDisplay)
+		if progressDisplay != nil {
+			progressDisplay.SetMonitorStatus(common.ProgressStatusRunning, "Monitoring service active")
+		}
 	}
 
 	// Initialize scheduler
@@ -423,26 +757,65 @@ func runAutomatedScan(
 
 func shutdownServices(
 	ms *monitor.MonitoringService,
+	scanner *scanner.Scanner,
 	scheduler *scheduler.Scheduler,
-	monitorWg *sync.WaitGroup,
+	progressDisplay *common.ProgressDisplayManager,
 	zLogger zerolog.Logger,
 	ctx context.Context,
 ) {
-	if ms != nil {
-		zLogger.Info().Msg("Waiting for file monitoring service to shut down completely...")
-		monitorWg.Wait() // This ensures its goroutine finishes, which includes calling its Stop()
-		zLogger.Info().Msg("File monitoring service has shut down.")
-	}
+	shutdownTimeout := 30 * time.Second // Tăng timeout lên 30 giây
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer shutdownCancel()
 
-	if scheduler != nil {
-		zLogger.Info().Msg("Ensuring scheduler is stopped as part of final shutdown sequence...")
-		scheduler.Stop() // Call Stop here if not already stopped by interrupt logic in runApplicationLogic
-		zLogger.Info().Msg("Scheduler confirmed stopped in shutdownServices.")
-	}
+	// Create a done channel to signal completion
+	done := make(chan struct{})
 
-	if ctx.Err() == context.Canceled {
-		zLogger.Info().Msg("Application shutting down due to context cancellation.")
-	} else {
-		zLogger.Info().Msg("Application finished.")
+	go func() {
+		defer close(done)
+
+		// Stop progress display first to avoid overlapping messages
+		if progressDisplay != nil {
+			progressDisplay.Stop()
+		}
+
+		// Stop scheduler first (it will stop monitoring service internally)
+		if scheduler != nil {
+			zLogger.Info().Msg("Stopping scheduler...")
+			scheduler.Stop()
+			zLogger.Info().Msg("Scheduler stopped.")
+		} else if ms != nil {
+			// If no scheduler but monitoring service exists, stop it directly
+			zLogger.Info().Msg("Stopping monitoring service...")
+			ms.Stop()
+			zLogger.Info().Msg("Monitoring service stopped.")
+		}
+
+		// Shutdown scanner (which will shutdown the singleton crawler)
+		if scanner != nil {
+			zLogger.Info().Msg("Shutting down scanner...")
+			scanner.Shutdown()
+			zLogger.Info().Msg("Scanner shutdown completed.")
+		}
+
+		// Stop global resource limiter
+		zLogger.Info().Msg("Stopping resource limiter...")
+		common.StopGlobalResourceLimiter()
+		zLogger.Info().Msg("Resource limiter stopped.")
+
+		// Give a bit of time for final cleanup
+		time.Sleep(1 * time.Second)
+		zLogger.Info().Msg("Shutdown sequence completed.")
+	}()
+
+	// Wait for either shutdown completion or timeout
+	select {
+	case <-done:
+		if ctx.Err() == context.Canceled {
+			zLogger.Info().Msg("Application shutting down due to context cancellation.")
+		} else {
+			zLogger.Info().Msg("Application finished.")
+		}
+	case <-shutdownCtx.Done():
+		zLogger.Warn().Dur("timeout", shutdownTimeout).Msg("Shutdown timeout reached, forcing exit")
 	}
 }

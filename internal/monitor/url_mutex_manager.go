@@ -101,3 +101,8 @@ func (umm *URLMutexManager) logCleanupResults(removedCount int) {
 			Msg("Cleaned up unused URL check mutexes")
 	}
 }
+
+// UpdateLogger updates the logger for this component
+func (umm *URLMutexManager) UpdateLogger(newLogger zerolog.Logger) {
+	umm.logger = newLogger.With().Str("component", "URLMutexManager").Logger()
+}

@@ -11,6 +11,10 @@ type LoggerConfig struct {
 	FilePath      string
 	MaxSizeMB     int
 	MaxBackups    int
+	// New fields for organizing logs by scan/cycle
+	ScanID     string // Scan session ID for organizing scan logs
+	CycleID    string // Monitor cycle ID for organizing monitor logs
+	UseSubdirs bool   // Whether to create subdirectories based on scan/cycle ID
 }
 
 // LogFormat represents available log formats
@@ -45,5 +49,6 @@ func DefaultLoggerConfig() LoggerConfig {
 		EnableFile:    false,
 		MaxSizeMB:     100,
 		MaxBackups:    3,
+		UseSubdirs:    true, // Enable subdirectories by default
 	}
 }

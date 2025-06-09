@@ -19,14 +19,14 @@ func NewTargetManager(logger zerolog.Logger) *TargetManager {
 	}
 }
 
-// LoadAndSelectTargets loads targets from the best available source
-func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfigUrls []string, cfgInputFile string) ([]models.Target, string, error) {
+// LoadAndSelectTargets loads targets from the command-line file option
+func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string) ([]models.Target, string, error) {
 	var targets []models.Target
 	var determinedSource string
 
-	// Priority 1: Command-line file option
+	// Only source: Command-line file option
 	if inputFileOption != "" {
-		tm.logger.Info().Str("file", inputFileOption).Msg("Loading targets from command-line file option")
+		// tm.logger.Info().Str("file", inputFileOption).Msg("Loading targets from command-line file option")
 		urls, err := ReadURLsFromFile(inputFileOption, tm.logger)
 		if err != nil {
 			return nil, determinedSource, common.WrapError(err, "failed to load URLs from file '"+inputFileOption+"'")
@@ -34,28 +34,6 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string, inputConfi
 		targets = tm.convertURLsToTargets(urls)
 		determinedSource = inputFileOption
 		tm.logger.Info().Int("count", len(targets)).Str("source", determinedSource).Msg("Loaded targets from command-line file")
-		return targets, determinedSource, nil
-	}
-
-	// Priority 2: Config input_urls
-	if len(inputConfigUrls) > 0 {
-		tm.logger.Info().Int("count", len(inputConfigUrls)).Msg("Using targets from config input_urls")
-		targets = tm.convertURLsToTargets(inputConfigUrls)
-		determinedSource = "config_input_urls"
-		tm.logger.Info().Int("count", len(targets)).Str("source", determinedSource).Msg("Loaded targets from config input_urls")
-		return targets, determinedSource, nil
-	}
-
-	// Priority 3: Config input_file
-	if cfgInputFile != "" {
-		tm.logger.Info().Str("file", cfgInputFile).Msg("Loading targets from config input_file")
-		urls, err := ReadURLsFromFile(cfgInputFile, tm.logger)
-		if err != nil {
-			return nil, determinedSource, common.WrapError(err, "failed to load URLs from config input_file '"+cfgInputFile+"'")
-		}
-		targets = tm.convertURLsToTargets(urls)
-		determinedSource = cfgInputFile
-		tm.logger.Info().Int("count", len(targets)).Str("source", determinedSource).Msg("Loaded targets from config input_file")
 		return targets, determinedSource, nil
 	}
 

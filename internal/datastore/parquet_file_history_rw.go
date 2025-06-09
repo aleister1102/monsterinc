@@ -30,7 +30,7 @@ func (pfs *ParquetFileHistory) StoreFileRecord(record models.FileHistoryRecord) 
 		return err // Error already logged in getHistoryFilePath
 	}
 
-	pfs.logger.Info().Str("url", record.URL).Str("path", historyFilePath).Msg("Storing file record")
+	// pfs.logger.Info().Str("url", record.URL).Str("path", historyFilePath).Msg("Storing file record")
 
 	// Load existing records
 	existingRecords, err := pfs.loadExistingRecords(historyFilePath)
@@ -56,14 +56,24 @@ func (pfs *ParquetFileHistory) StoreFileRecord(record models.FileHistoryRecord) 
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			pfs.logger.Error().Err(err).Str("path", historyFilePath).Msg("Failed to close parquet file")
+		}
+	}()
 
 	// Write all records to the file
 	if err := pfs.writeParquetData(file, compressionOption, allRecords); err != nil {
 		return fmt.Errorf("writing parquet data to '%s': %w", historyFilePath, err)
 	}
 
-	pfs.logger.Info().Str("url", record.URL).Int("total_records", len(allRecords)).Msg("Successfully stored/updated file history record.")
+	// Only log every 50 records or at debug level to reduce log spam
+	if len(allRecords)%50 == 0 || len(allRecords) == 1 {
+		pfs.logger.Info().Str("url", record.URL).Int("total_records", len(allRecords)).Msg("Successfully stored/updated file history record.")
+	} else {
+		pfs.logger.Debug().Str("url", record.URL).Int("total_records", len(allRecords)).Msg("Successfully stored/updated file history record.")
+	}
 	return nil
 }
 
@@ -205,12 +215,17 @@ func readFileHistoryRecords(filePath string, logger zerolog.Logger) ([]models.Fi
 	osFile, err := os.Open(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.Info().Str("file", filePath).Msg("History file does not exist, returning empty records.")
+			// logger.Info().Str("file", filePath).Msg("History file does not exist, returning empty records.")
 			return []models.FileHistoryRecord{}, nil // Return empty slice if file doesn't exist
 		}
 		return nil, fmt.Errorf("failed to open history file '%s': %w", filePath, err)
 	}
-	defer osFile.Close()
+	defer func() {
+		err := osFile.Close()
+		if err != nil {
+			logger.Error().Err(err).Str("file", filePath).Msg("Failed to close history file")
+		}
+	}()
 
 	stat, err := osFile.Stat()
 	if err != nil {

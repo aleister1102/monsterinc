@@ -1,0 +1,546 @@
+# MonsterInc Example Configuration File
+# This file shows all available configuration options with their default values and explanations.
+# You can copy this file to config.yaml (or config.json) and modify it to your needs.
+
+# Global application mode. Can be "onetime" (run once) or "automated" (run periodically/continuously based on other settings).
+# Default: "onetime"
+mode: "onetime"
+
+# Progress Display configuration: Settings for displaying scan progress
+progress_config:
+  # How often to display progress updates (in seconds).
+  # Default: 3
+  display_interval: 3
+  # Whether to enable progress display.
+  # Default: true
+  enable_progress: true
+  # Whether to show ETA estimation in progress display.
+  # Default: true
+  show_eta_estimation: true
+
+# Resource Limiter configuration: Settings for monitoring system resources and auto-shutdown.
+resource_limiter_config:
+  # Maximum memory usage for the application in MB before triggering garbage collection.
+  # Default: 1024 (1GB)
+  max_memory_mb: 1024
+  # Maximum number of goroutines allowed.
+  # Default: 10000
+  max_goroutines: 10000
+  # How often to check resource usage (in seconds).
+  # Default: 30
+  check_interval_secs: 30
+  # Application memory threshold (percentage) before triggering warning and GC.
+  # Value between 0.1 and 1.0 (0.8 = 80%)
+  # Default: 0.8
+  memory_threshold: 0.8
+  # Goroutine count threshold (percentage) before triggering warning.
+  # Value between 0.1 and 1.0 (0.7 = 70%)
+  # Default: 0.7
+  goroutine_warning: 0.7
+  # System memory threshold (percentage) before triggering auto-shutdown.
+  # When system memory usage exceeds this threshold, the application will gracefully shutdown.
+  # Value between 0.1 and 1.0 (0.5 = 50% of total system memory)
+  # Default: 0.5
+  system_mem_threshold: 0.5
+  # CPU usage threshold (percentage) before triggering auto-shutdown.
+  # When CPU usage exceeds this threshold, the application will gracefully shutdown.
+  # Value between 0.1 and 1.0 (0.5 = 50% of CPU usage)
+  # Default: 0.5
+  cpu_threshold: 0.5
+  # Whether to enable automatic shutdown when resource thresholds are exceeded.
+  # Default: true
+  enable_auto_shutdown: true
+
+# HTTPX Runner configuration: Settings for the httpx tool.
+httpx_runner_config:
+  # HTTP method to use for requests.
+  # Default: "GET"
+  method: "GET"
+  # Specific URIs to request on each host (appended to the host). Useful for specific file checks.
+  # Default: []
+  request_uris:
+    # - /robots.txt
+    # - /.git/config
+  # Number of concurrent threads for httpx.
+  # Default: 25
+  threads: 25
+  # Maximum requests per second (0 for no limit).
+  # Default: 0
+  rate_limit: 0
+  # Timeout in seconds for each request.
+  # Default: 10
+  timeout_secs: 10
+  # Number of retries for failed requests.
+  # Default: 1
+  retries: 1
+  # Whether to follow HTTP redirects.
+  # Default: true
+  follow_redirects: true
+  # Maximum number of redirects to follow.
+  # Default: 10
+  max_redirects: 10
+  # Custom HTTP headers to include in requests (key: value).
+  # Default: {}
+  custom_headers:
+    # User-Agent: "MyCustomScanner/1.0"
+    # X-Custom-Header: "SomeValue"
+  # Enable verbose output for httpx (more detailed logging).
+  # Default: false
+  verbose: false
+  # Enable technology detection (Wappalyzer).
+  # Default: true
+  tech_detect: true
+  # Extract page titles.
+  # Default: true
+  extract_title: true
+  # Extract HTTP status codes.
+  # Default: true
+  extract_status_code: true
+  # Extract final location after redirects.
+  # Default: true
+  extract_location: true
+  # Extract content length.
+  # Default: true
+  extract_content_length: true
+  # Extract server header.
+  # Default: true
+  extract_server_header: true
+  # Extract content type.
+  # Default: true
+  extract_content_type: true
+  # Extract IP addresses of hosts.
+  # Default: true
+  extract_ips: true
+  # Extract ASN (Autonomous System Number) information.
+  # Default: true
+  extract_asn: true
+  # Extract HTTP response body (can be large, use with caution).
+  # Default: false
+  extract_body: false
+  # Extract HTTP response headers.
+  # Default: true
+  extract_headers: true
+
+
+# Crawler configuration: Settings for web crawling.
+crawler_config:
+  # Whether to add seed URL hostnames to allowed scope automatically
+  # Default: true
+  auto_add_seed_hostnames: true
+  # Skip TLS certificate verification
+  # Default: false
+  insecure_skip_tls_verify: false
+  # Maximum number of concurrent crawler requests.
+  # * Reduce for more results
+  # Default: 10
+  max_concurrent_requests: 10
+  # Maximum content size (MB) to fetch before HEAD request
+  # Default: 2
+  max_content_length_mb: 2
+  # Maximum crawl depth (0 for unlimited, 1 for seed pages only).
+  # Default: 5
+  max_depth: 5
+  # Timeout in seconds for each crawler request.
+  # Default: 20
+  request_timeout_secs: 10
+  # Whether to respect robots.txt rules
+  # Default: false
+  respect_robots_txt: false
+  # URL scope restrictions
+  scope:
+    # Hostnames to exclude from crawling
+    disallowed_hostnames: []
+    # Subdomains to exclude from crawling
+    disallowed_subdomains: []
+    # File extensions to exclude from crawling
+    # Extensions are case-insensitive and should include the dot
+    disallowed_file_extensions:
+      - .css
+      - .png
+      - .jpg
+      - .jpeg
+      - .gif
+      - .ttf
+      - .woff
+      - .svg
+      - .otf
+      - .mp3
+      - .bmp
+      - .woff2
+      - .wav
+      - .mov
+      - .mp4
+      - .m4v
+      - .heic
+      - .ico
+      - .icon
+  # User agent string for crawler requests
+  user_agent: "MonsterIncCrawler/1.0"
+
+  # Auto-calibrate configuration: Settings for detecting and skipping similar URL patterns.
+  auto_calibrate:
+    # Whether auto-calibrate feature is enabled
+    # Default: true
+    enabled: true
+    # Maximum number of similar URLs to allow per pattern before skipping
+    # Default: 1
+    max_similar_urls: 1
+    # Parameters to ignore when detecting similar URL patterns
+    # Default: ["tid", "fid", "page", "id", "p", "offset", "limit"]
+    ignore_parameters:
+      - "tid"
+      - "fid"
+      - "page"
+      - "id"
+      - "p"
+      - "offset"
+      - "limit"
+    # Automatically detect and ignore locale codes in path segments
+    # Default: true
+    auto_detect_locales: true
+    # Custom locale codes to recognize
+    # Default: []
+    custom_locale_codes: []
+    # Enable logging when URLs are skipped due to pattern similarity
+    # Default: false
+    enable_skip_logging: false
+
+  # Headless browser configuration: Settings for dynamic content crawling
+  headless_browser:
+    # Whether headless browser crawling is enabled
+    # Default: false (disabled to avoid antivirus conflicts)
+    enabled: false
+    # Path to Chrome/Chromium executable
+    # Default: ""
+    chrome_path: ""
+    # User data directory for the browser
+    # Default: ""
+    user_data_dir: ""
+    # Browser window width for rendering
+    # Default: 1920
+    window_width: 1920
+    # Browser window height for rendering
+    # Default: 1080
+    window_height: 1080
+    # Page load timeout in seconds
+    # Default: 30
+    page_load_timeout_secs: 60
+    # Additional wait time in milliseconds after page load
+    # Default: 1000
+    wait_after_load_ms: 1000
+    # Whether to disable image loading for faster rendering
+    # Default: true
+    disable_images: true
+    # Whether to disable CSS loading
+    # Default: false
+    disable_css: false
+    # Whether to disable JavaScript execution
+    # Default: false
+    disable_javascript: false
+    # Whether to ignore HTTPS certificate errors
+    # Default: true
+    ignore_https_errors: true
+    # Number of browser instances in the pool
+    # Default: 3
+    pool_size: 3
+    # Additional browser arguments
+    # Default: []
+    browser_args:
+      - "--no-sandbox"
+      - "--disable-dev-shm-usage"
+      - "--disable-gpu"
+
+  # URL normalization: Remove duplicate URLs with only fragment or tracking parameter differences.
+  # NOTE: URL normalization processing now happens at Scanner level during URL preprocessing (Step 0)
+  # before URLs are passed to the crawler. This improves efficiency and deduplication.
+  url_normalization:
+    # Strip fragments from URLs to avoid duplicates (e.g., #section).
+    # Default: true
+    strip_fragments: true
+    # Strip common tracking parameters (utm_*, fbclid, gclid, etc.).
+    # Default: true
+    strip_tracking_params: true
+    # Additional custom parameters to strip from URLs.
+    # Default: ["utm_source", "utm_medium", "utm_campaign", "fbclid", "gclid"]
+    custom_strip_params:
+      - "utm_source"
+      - "utm_medium"
+      - "utm_campaign"
+      - "utm_content"
+      - "utm_term"
+      - "fbclid"
+      - "gclid"
+      - "ref"
+      - "referrer"
+
+  # Retry configuration: Settings for handling rate limits and failed requests.
+  retry_config:
+    # Maximum number of retry attempts for 429 (Too Many Requests) errors.
+    # Set to 0 to disable retries.
+    # Default: 3
+    max_retries: 3
+    # Base delay in seconds for exponential backoff.
+    # The actual delay will be: base_delay * 2^attempt
+    # Default: 10
+    base_delay_secs: 10
+    # Maximum delay in seconds for exponential backoff.
+    # Delays will be capped at this value.
+    # Default: 60
+    max_delay_secs: 60
+    # Enable jitter to randomize delays slightly to prevent thundering herd.
+    # Default: true
+    enable_jitter: true
+    # HTTP status codes that should trigger retries.
+    # Default: [429] (Too Many Requests)
+    retry_status_codes: [429]
+
+    # Domain-level rate limiting: Blacklist domains with excessive rate limiting.
+    domain_level_rate_limit:
+      # Enable domain-level rate limiting and blacklisting.
+      # Default: true
+      enabled: true
+      # Maximum number of 429 errors per domain before blacklisting.
+      # Default: 10
+      max_rate_limit_errors: 3
+      # Duration to blacklist domain after hitting max errors (in minutes).
+      # Default: 30
+      blacklist_duration_mins: 30
+      # Clear blacklist after this many hours (cleanup old entries).
+      # Default: 6
+      blacklist_clear_after_hours: 6
+
+# Reporter configuration: Settings for generating HTML reports.
+reporter_config:
+  # Directory where HTML reports will be saved.
+  # Default: "reports"
+  output_dir: "reports/scan"
+  # Number of items to display per page in paginated sections of the report.
+  # Default: 25
+  items_per_page: 25
+  # Whether to embed assets (CSS, JS) directly into the HTML report for a single, portable file.
+  # Default: true
+  embed_assets: true
+  # Path to a custom HTML template for the report. If empty, a default template is used.
+  # Default: ""
+  template_path: "" # e.g., "/path/to/custom_report_template.html"
+  # Whether to generate a report even if no findings/results are available.
+  # Default: false
+  generate_empty_report: false
+  # Title for the generated HTML report.
+  # Default: "MonsterInc Scan Report"
+  report_title: "MonsterInc Scan Report"
+  # Enable DataTables for sortable/searchable tables in the report.
+  # Default: true
+  enable_data_tables: true
+  # MaxProbeResultsPerReportFile defines the maximum number of probe results to include in a single HTML report file.
+  # If the total number of probe results exceeds this value, the report will be split into multiple files.
+  # A value of 0 means no limit (all results in one file). Default: 1000
+  max_probe_results_per_report_file: 1000
+  # Note: The exact report filename will be determined by the application logic (e.g., incorporating timestamps or target names).
+
+# Storage configuration: Settings for how scan data is stored (e.g., Parquet files).
+storage_config:
+  # Base directory path where Parquet files (or other data) will be stored.
+  # Default: "data"
+  parquet_base_path: "database"
+  # Compression codec to use for Parquet files (e.g., "snappy", "gzip", "zstd", "none").
+  # Default: "zstd"
+  compression_codec: "zstd"
+
+# Notification configuration: Settings for sending notifications (e.g., via Discord).
+notification_config:
+  # Discord webhook URL for the Scan Service (onetime & automated scans).
+  # Default: ""
+  scan_service_discord_webhook_url: "" # e.g., "https://discord.com/api/webhooks/your/scan_service_webhook"
+
+  # Discord webhook URL for the File Monitoring Service.
+  # Default: ""
+  monitor_service_discord_webhook_url: "" # e.g., "https://discord.com/api/webhooks/your/monitor_service_webhook"
+
+  # List of Discord Role IDs to mention in notifications.
+  # Default: []
+  mention_role_ids:
+    # - "123456789012345678" # Example Role ID
+  # Send a notification when a scan completes successfully.
+  # Default: false
+  notify_on_success: false
+  # Send a notification when a scan fails.
+  # Default: true
+  notify_on_failure: false
+  # Send a notification when a scan starts.
+  # Default: false
+  notify_on_scan_start: false
+  # Send a notification on critical errors during the application run.
+  # Default: true
+  notify_on_critical_error: true
+
+  # Automatically delete single diff report files after a Discord notification has been successfully sent.
+  # This only deletes individual diff reports (diff_*.html), keeping aggregated reports intact.
+  # Default: true
+  auto_delete_partial_diff_reports: true
+
+# Logging configuration: Settings for application logging.
+log_config:
+  # Logging level. Determines the minimum severity of messages to be logged.
+  # Valid levels: "debug", "info", "warn", "error", "fatal", "panic".
+  # "debug": Detailed information, typically of interest only when diagnosing problems.
+  # "info": Confirmation that things are working as expected.
+  # "warn": An indication that something unexpected happened, or indicative of some problem in the near future (e.g., "disk space low"). The software is still working as expected.
+  # "error": Due to a more serious problem, the software has not been able to perform some function.
+  # "fatal": A severe error that will prevent the application from continuing. After logging, the application will exit.
+  # "panic": Similar to fatal, but also initiates a panic.
+  # Default: "info"
+  log_level: "info"
+
+  # Log output format.
+  # Valid formats: "console", "json", "text".
+  # "console": Human-readable, colored output for interactive terminals.
+  # "json":    Machine-readable JSON objects, one per line.
+  # "text":    Plain text output, similar to console but without color codes. Suitable for simple file logging or environments where color is not supported.
+  # Default: "console"
+  log_format: "console"
+
+  # Path to a log file. If empty, logs are written to standard error (stderr).
+  # Example: "/var/log/monsterinc.log" or "monsterinc.log" (for current directory).
+  # Default: ""
+  log_file: "logs/monsterinc.log"
+
+  # Log rotation settings (applicable when log_file is specified).
+  # These settings are handled by an internal log rotation library (lumberjack).
+
+  # Maximum size in megabytes of a log file before it gets rotated.
+  # Default: 100
+  max_log_size_mb: 100
+
+  # Maximum number of old log files to retain.
+  # Default: 3
+  max_log_backups: 3
+
+  # Log organization settings (NEW FEATURE)
+  # Whether to organize logs into subdirectories based on scan/monitor sessions.
+  # When enabled, logs will be structured as:
+  # - logs/scans/{scanID}/monsterinc.log (for scan sessions)
+  # - logs/monitors/{cycleID}/monsterinc.log (for monitor cycles)
+  # This prevents file locking issues when multiple processes write to logs simultaneously.
+  # Default: true
+  use_subdirs: true
+
+
+
+# DiffConfig: Configuration for comparing current scan results with previous ones.
+diff_config:
+  # Number of days to look back for previous scan data to compare against.
+  # Default: 7
+  previous_scan_lookback_days: 7
+
+# DiffReporterConfig: Configuration for generating content diff reports.
+diff_reporter_config:
+  # Maximum file size in MB for generating a detailed line-by-line diff.
+  # Files larger than this will still be reported as changed, but without a detailed diff.
+  # Default: 5
+  max_diff_file_size_mb: 5
+
+
+# MonitorConfig: Configuration for monitoring JS/HTML files for changes.
+monitor_config:
+  # Whether the monitoring feature is enabled.
+  # Default: false
+  enabled: false
+  # Interval in seconds for how often to check monitored files.
+  # Default: 3600 (1 hour)
+  check_interval_seconds: 3600 # 24 hours
+  # Maximum number of concurrent checks for monitored files.
+  # Default: 5
+  max_concurrent_checks: 5
+  # Whether to store the full content of a file when a change is detected.
+  # If false, only hash/metadata might be stored.
+  # Default: false
+  store_full_content_on_change: false
+  # Timeout in seconds for HTTP requests made by the monitor.
+  # Default: 30
+  http_timeout_seconds: 30
+  # Initial list of specific URLs to monitor. Full URLs are expected.
+  # Default: []
+  initial_monitor_urls:
+    # - https://example.com/main.js
+    # - https://example.com/app.js
+    # - https://anotherexample.com/index.html
+  # JavaScript file extensions to monitor (fast path comparison)
+  # Default: [".js", ".jsx", ".ts", ".tsx"]
+  js_file_extensions:
+    - ".js"
+    - ".jsx"
+    - ".ts"
+    - ".tsx"
+  # HTML file extensions to monitor (fast path comparison)
+  # Default: [".html", ".htm"]
+  html_file_extensions:
+    - ".html"
+    - ".htm"
+
+
+
+# Scheduler configuration: Settings for automated periodic scans (when mode is "automated").
+scheduler_config:
+  # Scan cycle interval in minutes. The time between the end of one scan and the start of the next.
+  # Default: 10080 (equivalent to 7 days)
+  cycle_minutes: 10080
+  # Number of retry attempts if a scheduled scan fails.
+  # Default: 2
+  retry_attempts: 2
+  # Path to the SQLite database file used for storing scan history.
+  # Default: "database/scheduler/scheduler_history.db"
+  sqlite_db_path: "database/scheduler/scheduler_history.db"
+
+# Scan Batch configuration: Settings for processing large scan target files in batches.
+scan_batch_config:
+  # Maximum number of targets to process in each scan batch.
+  # When input file has more than threshold_size targets, it will be split into batches of this size.
+  # Default: 200 (larger than monitor due to typically faster processing)
+  batch_size: 200
+  # Maximum number of concurrent scan batches to process at the same time.
+  # Set to 2 for parallel processing of scan batches (scan service can handle more concurrency).
+  # Default: 1 (sequential processing)
+  max_concurrent_batch: 1
+  # Timeout for each scan batch processing in minutes.
+  # If a batch takes longer than this, it will be cancelled.
+  # Default: 45 (longer timeout for complex scanning operations)
+  batch_timeout_mins: 45
+  # Minimum number of targets in input file to trigger batch processing.
+  # Files with fewer targets than this will be processed normally without batching.
+  # Default: 500 (larger threshold due to higher processing capacity)
+  threshold_size: 500
+
+# Monitor Batch configuration: Settings for processing large monitor target files in batches.
+monitor_batch_config:
+  # Maximum number of URLs to process in each monitor batch.
+  # When input file has more than threshold_size URLs, it will be split into batches of this size.
+  # Default: 50 (smaller than scan due to more intensive monitoring operations)
+  batch_size: 50
+  # Maximum number of concurrent monitor batches to process at the same time.
+  # Set to 1 for sequential processing (recommended for monitoring stability).
+  # Default: 1
+  max_concurrent_batch: 1
+  # Timeout for each monitor batch processing in minutes.
+  # If a batch takes longer than this, it will be cancelled.
+  # Default: 20 (shorter timeout for monitoring operations)
+  batch_timeout_mins: 20
+  # Minimum number of URLs in input file to trigger batch processing.
+  # Files with fewer URLs than this will be processed normally without batching.
+  # For example, if set to 200, files with 500 URLs will create 10 batches of 50 URLs each.
+  # Default: 200
+  threshold_size: 200
+
+# Extractor configuration: Settings for custom path extraction.
+extractor_config:
+  # List of custom regex patterns to extract paths/URLs from content.
+  # These regexes will be applied to the full content of downloaded files (e.g., JS, HTML).
+  # Each string in this list should be a valid Go regex.
+  # Example using block style (recommended for readability if manually editing):
+  custom_regexes:
+    - "/(?:[a-zA-Z0-9_\\-]+/)*[a-zA-Z0-9_\\-]+\\.js(?:\\?[^\\s\"]*)?" # Example: Finds /path/to/file.js?query
+    - "'(?:[a-zA-Z0-9_\\-]+/)*[a-zA-Z0-9_\\-]+\\.html(?:\\?[^\\s\']*)?'" # Example: Finds '/path/to/file.html'
+    - "https?:\\/\\/[^\\s\\\"\\'\\`]+" # Example: Finds http(s)://anything_not_whitespace_or_quote
+    # - "another_custom_regex_pattern"
+  # If you prefer flow style (ensure correct escaping and quoting if regexes contain special characters):
+  # custom_regexes: ["regex1", "regex2"]

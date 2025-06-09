@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -62,8 +63,14 @@ func ResolveURL(href string, base *url.URL) (string, error) {
 		return "", common.NewError("cannot process relative URL '" + trimmedHref + "' without a base URL")
 	}
 
-	// Resolve relative URL against base
-	resolvedURL := base.ResolveReference(&url.URL{Path: trimmedHref})
+	// Parse the href to create proper URL struct
+	parsedHref, err := url.Parse(trimmedHref)
+	if err != nil {
+		return "", common.WrapError(err, "error parsing href '"+trimmedHref+"'")
+	}
+
+	// Resolve relative URL against base using proper URL struct
+	resolvedURL := base.ResolveReference(parsedHref)
 	if resolvedURL == nil {
 		return "", common.NewError("error resolving href '" + trimmedHref + "' with base '" + base.String() + "'")
 	}
@@ -179,8 +186,13 @@ func SanitizeFilename(input string) string {
 	// 3. Replace multiple consecutive underscores with a single underscore.
 	name = multipleUnderscoresRegex.ReplaceAllString(name, "_")
 
-	// 4. Remove leading or trailing underscores that might result from replacements at the start/end.
-	name = strings.Trim(name, "_")
+	// 4. Clean up dots: remove multiple consecutive dots and dots next to underscores
+	name = strings.ReplaceAll(name, "..", "_") // Replace .. with _
+	name = strings.ReplaceAll(name, "_.", "_") // Replace _. with _
+	name = strings.ReplaceAll(name, "._", "_") // Replace ._ with _
+
+	// 5. Remove leading or trailing dots and underscores that might result from replacements
+	name = strings.Trim(name, "_.")
 
 	// If the name becomes empty after sanitization (e.g., input was just "http://"), provide a default.
 	if name == "" {
@@ -305,4 +317,53 @@ func NormalizeURLSlice(urls []string) ([]string, error) {
 	}
 
 	return normalized, nil
+}
+
+// ExtractDomainFromURL extracts domain from URL
+func ExtractDomainFromURL(urlStr string) (string, error) {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return "", err
+	}
+	return parsedURL.Hostname(), nil
+}
+
+// IsValidHTTPURL checks if URL is valid HTTP/HTTPS
+func IsValidHTTPURL(urlStr string) bool {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+
+	scheme := strings.ToLower(parsedURL.Scheme)
+	return scheme == "http" || scheme == "https"
+}
+
+// CleanPath removes query parameters and fragments from path
+func CleanPath(path string) string {
+	// Remove query parameters
+	if queryIndex := strings.Index(path, "?"); queryIndex != -1 {
+		path = path[:queryIndex]
+	}
+
+	// Remove fragments
+	if fragmentIndex := strings.Index(path, "#"); fragmentIndex != -1 {
+		path = path[:fragmentIndex]
+	}
+
+	return path
+}
+
+// HasFileExtension checks if path has a file extension
+func HasFileExtension(path string, extensions []string) bool {
+	cleanPath := CleanPath(path)
+	ext := strings.ToLower(filepath.Ext(cleanPath))
+
+	for _, extension := range extensions {
+		if ext == strings.ToLower(extension) {
+			return true
+		}
+	}
+
+	return false
 }

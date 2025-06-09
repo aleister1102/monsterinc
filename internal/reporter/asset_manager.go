@@ -2,6 +2,7 @@ package reporter
 
 import (
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -87,7 +88,6 @@ func (am *AssetManager) EmbedAssetContent(cssFS, jsFS embed.FS, isCSS bool) (str
 // EmbedAssetsIntoPageData embeds CSS and JS into page data
 func (am *AssetManager) EmbedAssetsIntoPageData(pageData PageDataInterface, cssFS, jsFS embed.FS, embedAssets bool) {
 	if !embedAssets {
-		am.logger.Info().Msg("Asset embedding is disabled. Styling/JS might be missing unless template handles external files.")
 		return
 	}
 
@@ -110,4 +110,10 @@ func (am *AssetManager) EmbedAssetsIntoPageData(pageData PageDataInterface, cssF
 type PageDataInterface interface {
 	SetCustomCSS(template.CSS)
 	SetReportJs(template.JS)
+}
+
+// TODO: Check if this function is used
+// EncodeFaviconToBase64 encodes favicon bytes to base64 string
+func EncodeFaviconToBase64(faviconBytes []byte) string {
+	return base64.StdEncoding.EncodeToString(faviconBytes)
 }

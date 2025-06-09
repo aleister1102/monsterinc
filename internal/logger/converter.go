@@ -19,11 +19,11 @@ func NewConfigConverter() *ConfigConverter {
 	}
 }
 
-// ConvertConfig converts config.LogConfig to LoggerConfig
+// ConvertConfig converts application config to logger config
 func (cc *ConfigConverter) ConvertConfig(cfg config.LogConfig) (LoggerConfig, error) {
 	level, err := cc.levelParser.ParseLevel(cfg.LogLevel)
 	if err != nil {
-		level = zerolog.InfoLevel
+		level = zerolog.InfoLevel // fallback to default
 	}
 
 	format := cc.formatParser.ParseFormat(cfg.LogFormat)
@@ -36,6 +36,10 @@ func (cc *ConfigConverter) ConvertConfig(cfg config.LogConfig) (LoggerConfig, er
 		FilePath:      cfg.LogFile,
 		MaxSizeMB:     cc.getMaxSizeMB(cfg.MaxLogSizeMB),
 		MaxBackups:    cc.getMaxBackups(cfg.MaxLogBackups),
+		// New fields default to empty/false - will be set by builder methods
+		ScanID:     "",
+		CycleID:    "",
+		UseSubdirs: true, // Enable by default
 	}, nil
 }
 

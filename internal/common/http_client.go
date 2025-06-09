@@ -1,61 +1,41 @@
 package common
 
 import (
+	"bytes"
+	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
-	"time"
+	"os"
+	"path/filepath"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/net/http2"
 )
 
-// HTTPClientConfig holds configuration for HTTP clients
-type HTTPClientConfig struct {
-	Timeout               time.Duration     // Request timeout
-	InsecureSkipVerify    bool              // Skip TLS verification
-	FollowRedirects       bool              // Whether to follow redirects
-	MaxRedirects          int               // Maximum number of redirects to follow
-	Proxy                 string            // Proxy URL (HTTP/SOCKS)
-	CustomHeaders         map[string]string // Custom headers to add to all requests
-	UserAgent             string            // User-Agent header
-	MaxIdleConns          int               // Maximum idle connections
-	MaxIdleConnsPerHost   int               // Maximum idle connections per host
-	MaxConnsPerHost       int               // Maximum connections per host
-	IdleConnTimeout       time.Duration     // Idle connection timeout
-	TLSHandshakeTimeout   time.Duration     // TLS handshake timeout
-	ExpectContinueTimeout time.Duration     // Expect 100-continue timeout
-	DialTimeout           time.Duration     // Connection dial timeout
-	KeepAlive             time.Duration     // Keep-alive duration
+// HTTPClient wraps net/http.Client to provide compatibility with the existing interface
+type HTTPClient struct {
+	client       *http.Client
+	config       HTTPClientConfig
+	logger       zerolog.Logger
+	retryHandler *RetryHandler
 }
 
-// DefaultHTTPClientConfig returns a default HTTP client configuration
-func DefaultHTTPClientConfig() HTTPClientConfig {
-	return HTTPClientConfig{
-		Timeout:               30 * time.Second,
-		InsecureSkipVerify:    false,
-		FollowRedirects:       true,
-		MaxRedirects:          10,
-		Proxy:                 "",
-		CustomHeaders:         make(map[string]string),
-		UserAgent:             "MonsterInc/1.0",
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
-		MaxConnsPerHost:       0, // 0 means no limit
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		DialTimeout:           30 * time.Second,
-		KeepAlive:             30 * time.Second,
-	}
-}
-
-// NewHTTPClient creates a new HTTP client with the given configuration
-func NewHTTPClient(config HTTPClientConfig, logger zerolog.Logger) (*http.Client, error) {
+// NewHTTPClient creates a new HTTP client with the given configuration using net/http
+func NewHTTPClient(config HTTPClientConfig, logger zerolog.Logger) (*HTTPClient, error) {
 	// Create custom transport
 	transport := &http.Transport{
+		MaxIdleConns:          config.MaxIdleConns,
+		MaxIdleConnsPerHost:   config.MaxIdleConnsPerHost,
+		MaxConnsPerHost:       config.MaxConnsPerHost,
+		IdleConnTimeout:       config.IdleConnTimeout,
+		TLSHandshakeTimeout:   config.TLSHandshakeTimeout,
+		ExpectContinueTimeout: config.ExpectContinueTimeout,
 		DialContext: (&net.Dialer{
 			Timeout:   config.DialTimeout,
 			KeepAlive: config.KeepAlive,
@@ -63,12 +43,15 @@ func NewHTTPClient(config HTTPClientConfig, logger zerolog.Logger) (*http.Client
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: config.InsecureSkipVerify,
 		},
-		MaxIdleConns:          config.MaxIdleConns,
-		MaxIdleConnsPerHost:   config.MaxIdleConnsPerHost,
-		MaxConnsPerHost:       config.MaxConnsPerHost,
-		IdleConnTimeout:       config.IdleConnTimeout,
-		TLSHandshakeTimeout:   config.TLSHandshakeTimeout,
-		ExpectContinueTimeout: config.ExpectContinueTimeout,
+	}
+
+	// Configure HTTP/2 support
+	if config.EnableHTTP2 {
+		if err := http2.ConfigureTransport(transport); err != nil {
+			logger.Warn().Err(err).Msg("Failed to configure HTTP/2, falling back to HTTP/1.1")
+		} else {
+			logger.Debug().Msg("HTTP/2 support enabled")
+		}
 	}
 
 	// Configure proxy if specified
@@ -86,7 +69,7 @@ func NewHTTPClient(config HTTPClientConfig, logger zerolog.Logger) (*http.Client
 		Timeout:   config.Timeout,
 	}
 
-	// Configure redirect policy
+	// Configure redirect handling
 	if !config.FollowRedirects {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -94,7 +77,7 @@ func NewHTTPClient(config HTTPClientConfig, logger zerolog.Logger) (*http.Client
 	} else if config.MaxRedirects > 0 {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			if len(via) >= config.MaxRedirects {
-				return http.ErrUseLastResponse
+				return fmt.Errorf("stopped after %d redirects", config.MaxRedirects)
 			}
 			return nil
 		}
@@ -105,284 +88,206 @@ func NewHTTPClient(config HTTPClientConfig, logger zerolog.Logger) (*http.Client
 		Bool("insecure_skip_verify", config.InsecureSkipVerify).
 		Bool("follow_redirects", config.FollowRedirects).
 		Int("max_redirects", config.MaxRedirects).
+		Bool("http2_enabled", config.EnableHTTP2).
 		Msg("HTTP client created")
 
-	return client, nil
-}
-
-// HTTPClientBuilder provides a fluent interface for building HTTP clients
-type HTTPClientBuilder struct {
-	config HTTPClientConfig
-	logger zerolog.Logger
-}
-
-// NewHTTPClientBuilder creates a new HTTP client builder
-func NewHTTPClientBuilder(logger zerolog.Logger) *HTTPClientBuilder {
-	return &HTTPClientBuilder{
-		config: DefaultHTTPClientConfig(),
+	return &HTTPClient{
+		client: client,
+		config: config,
 		logger: logger,
-	}
+	}, nil
 }
 
-// WithTimeout sets the request timeout
-func (b *HTTPClientBuilder) WithTimeout(timeout time.Duration) *HTTPClientBuilder {
-	b.config.Timeout = timeout
-	return b
-}
-
-// WithInsecureSkipVerify sets whether to skip TLS verification
-func (b *HTTPClientBuilder) WithInsecureSkipVerify(skip bool) *HTTPClientBuilder {
-	b.config.InsecureSkipVerify = skip
-	return b
-}
-
-// WithFollowRedirects sets whether to follow redirects
-func (b *HTTPClientBuilder) WithFollowRedirects(follow bool) *HTTPClientBuilder {
-	b.config.FollowRedirects = follow
-	return b
-}
-
-// WithMaxRedirects sets the maximum number of redirects
-func (b *HTTPClientBuilder) WithMaxRedirects(max int) *HTTPClientBuilder {
-	b.config.MaxRedirects = max
-	return b
-}
-
-// WithProxy sets the proxy URL
-func (b *HTTPClientBuilder) WithProxy(proxy string) *HTTPClientBuilder {
-	b.config.Proxy = proxy
-	return b
-}
-
-// WithUserAgent sets the User-Agent header
-func (b *HTTPClientBuilder) WithUserAgent(userAgent string) *HTTPClientBuilder {
-	b.config.UserAgent = userAgent
-	return b
-}
-
-// WithCustomHeader adds a custom header
-func (b *HTTPClientBuilder) WithCustomHeader(key, value string) *HTTPClientBuilder {
-	if b.config.CustomHeaders == nil {
-		b.config.CustomHeaders = make(map[string]string)
-	}
-	b.config.CustomHeaders[key] = value
-	return b
-}
-
-// WithCustomHeaders sets multiple custom headers
-func (b *HTTPClientBuilder) WithCustomHeaders(headers map[string]string) *HTTPClientBuilder {
-	if b.config.CustomHeaders == nil {
-		b.config.CustomHeaders = make(map[string]string)
-	}
-	for k, v := range headers {
-		b.config.CustomHeaders[k] = v
-	}
-	return b
-}
-
-// WithConnectionPooling configures connection pooling settings
-func (b *HTTPClientBuilder) WithConnectionPooling(maxIdle, maxIdlePerHost, maxPerHost int) *HTTPClientBuilder {
-	b.config.MaxIdleConns = maxIdle
-	b.config.MaxIdleConnsPerHost = maxIdlePerHost
-	b.config.MaxConnsPerHost = maxPerHost
-	return b
-}
-
-// WithTimeouts configures various timeout settings
-func (b *HTTPClientBuilder) WithTimeouts(dial, tlsHandshake, idleConn, expectContinue time.Duration) *HTTPClientBuilder {
-	b.config.DialTimeout = dial
-	b.config.TLSHandshakeTimeout = tlsHandshake
-	b.config.IdleConnTimeout = idleConn
-	b.config.ExpectContinueTimeout = expectContinue
-	return b
-}
-
-// WithKeepAlive sets the keep-alive duration
-func (b *HTTPClientBuilder) WithKeepAlive(keepAlive time.Duration) *HTTPClientBuilder {
-	b.config.KeepAlive = keepAlive
-	return b
-}
-
-// Build creates the HTTP client with the configured settings
-func (b *HTTPClientBuilder) Build() (*http.Client, error) {
-	return NewHTTPClient(b.config, b.logger)
-}
-
-// HTTPClientFactory provides methods to create common HTTP client configurations
-type HTTPClientFactory struct {
-	logger zerolog.Logger
-}
-
-// NewHTTPClientFactory creates a new HTTP client factory
-func NewHTTPClientFactory(logger zerolog.Logger) *HTTPClientFactory {
-	return &HTTPClientFactory{logger: logger}
-}
-
-// CreateDiscordClient creates an HTTP client optimized for Discord webhook calls
-func (f *HTTPClientFactory) CreateDiscordClient(timeout time.Duration) (*http.Client, error) {
-	return NewHTTPClientBuilder(f.logger).
-		WithTimeout(timeout).
-		WithUserAgent("MonsterInc Discord Bot/1.0").
-		WithFollowRedirects(true).
-		WithMaxRedirects(3).
-		Build()
-}
-
-// CreateMonitorClient creates an HTTP client optimized for file monitoring
-func (f *HTTPClientFactory) CreateMonitorClient(timeout time.Duration, insecureSkipVerify bool) (*http.Client, error) {
-	return NewHTTPClientBuilder(f.logger).
-		WithTimeout(timeout).
-		WithInsecureSkipVerify(insecureSkipVerify).
-		WithUserAgent("MonsterInc Monitor/1.0").
-		WithFollowRedirects(true).
-		WithMaxRedirects(5).
-		WithConnectionPooling(50, 10, 0).
-		Build()
-}
-
-// CreateCrawlerClient creates an HTTP client optimized for web crawling
-func (f *HTTPClientFactory) CreateCrawlerClient(timeout time.Duration, proxy string, customHeaders map[string]string) (*http.Client, error) {
-	builder := NewHTTPClientBuilder(f.logger).
-		WithTimeout(timeout).
-		WithUserAgent("MonsterInc Crawler/1.0").
-		WithFollowRedirects(true).
-		WithMaxRedirects(10).
-		WithConnectionPooling(100, 20, 0)
-
-	if proxy != "" {
-		builder = builder.WithProxy(proxy)
+// Do performs an HTTP request using net/http
+func (c *HTTPClient) Do(req *HTTPRequest) (*HTTPResponse, error) {
+	// Create net/http request
+	var body io.Reader
+	if req.Body != nil {
+		body = req.Body
 	}
 
-	if len(customHeaders) > 0 {
-		builder = builder.WithCustomHeaders(customHeaders)
-	}
-
-	return builder.Build()
-}
-
-// CreateHTTPXClient creates an HTTP client compatible with httpx runner requirements
-func (f *HTTPClientFactory) CreateHTTPXClient(timeout time.Duration, proxy string, followRedirects bool, maxRedirects int) (*http.Client, error) {
-	return NewHTTPClientBuilder(f.logger).
-		WithTimeout(timeout).
-		WithProxy(proxy).
-		WithFollowRedirects(followRedirects).
-		WithMaxRedirects(maxRedirects).
-		WithUserAgent("MonsterInc HTTPX/1.0").
-		WithConnectionPooling(200, 50, 0).
-		Build()
-}
-
-// CreateBasicClient creates a basic HTTP client with minimal configuration
-func (f *HTTPClientFactory) CreateBasicClient(timeout time.Duration) (*http.Client, error) {
-	return NewHTTPClientBuilder(f.logger).
-		WithTimeout(timeout).
-		Build()
-}
-
-// ErrNotModified is returned when content has not been modified (HTTP 304).
-var ErrNotModified = NewError("content not modified")
-
-// Fetcher handles fetching file content from URLs.
-type Fetcher struct {
-	httpClient *http.Client
-	logger     zerolog.Logger
-	cfg        *HTTPClientFetcherConfig // Renamed from config.MonitorConfig for clarity within http_client
-}
-
-// HTTPClientFetcherConfig holds configuration specific to the Fetcher's needs,
-// currently just MaxContentSize. This can be expanded if more monitor-specific
-// configurations are needed by the Fetcher that are not part of general HTTPClientConfig.
-type HTTPClientFetcherConfig struct {
-	MaxContentSize int
-	// Potentially add other fetcher-specific configs here like UserAgent if different from client's default
-}
-
-// NewFetcher creates a new Fetcher.
-// It now takes HTTPClientFetcherConfig.
-func NewFetcher(client *http.Client, logger zerolog.Logger, cfg *HTTPClientFetcherConfig) *Fetcher {
-	return &Fetcher{
-		httpClient: client,
-		logger:     logger.With().Str("component", "Fetcher").Logger(),
-		cfg:        cfg,
-	}
-}
-
-// FetchFileContentInput holds parameters for FetchFileContent.
-type FetchFileContentInput struct {
-	URL                  string
-	PreviousETag         string
-	PreviousLastModified string
-}
-
-// FetchFileContentResult holds results from FetchFileContent.
-type FetchFileContentResult struct {
-	Content        []byte
-	ContentType    string
-	ETag           string
-	LastModified   string
-	HTTPStatusCode int
-}
-
-// FetchFileContent fetches the content of a file from the given URL with support for conditional GETs.
-// It returns the content, content type, new ETag, new LastModified, and any error encountered.
-// If the server returns 304 Not Modified, it returns ErrNotModified.
-func (f *Fetcher) FetchFileContent(input FetchFileContentInput) (*FetchFileContentResult, error) {
-	req, err := http.NewRequest("GET", input.URL, nil)
+	httpReq, err := http.NewRequest(req.Method, req.URL, body)
 	if err != nil {
-		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to create new HTTP request")
-		return nil, WrapError(err, fmt.Sprintf("creating request for %s", input.URL))
+		return nil, WrapError(err, "failed to create HTTP request")
 	}
 
-	// Add conditional headers if previous values are available
-	if input.PreviousETag != "" {
-		req.Header.Set("If-None-Match", input.PreviousETag)
-	}
-	if input.PreviousLastModified != "" {
-		req.Header.Set("If-Modified-Since", input.PreviousLastModified)
+	// Set context if provided
+	if req.Context != nil {
+		httpReq = httpReq.WithContext(req.Context)
 	}
 
-	resp, err := f.httpClient.Do(req)
+	// Set custom headers from config first (default headers)
+	for key, value := range c.config.CustomHeaders {
+		httpReq.Header.Set(key, value)
+	}
+
+	// Set request-specific headers (these can override defaults)
+	for key, value := range req.Headers {
+		httpReq.Header.Set(key, value)
+	}
+
+	// Set user agent (ensure it's always set)
+	if c.config.UserAgent != "" {
+		httpReq.Header.Set("User-Agent", c.config.UserAgent)
+	}
+
+	// Ensure Accept header is set if not provided
+	if httpReq.Header.Get("Accept") == "" {
+		httpReq.Header.Set("Accept", "*/*")
+	}
+
+	// Perform request
+	resp, err := c.client.Do(httpReq)
 	if err != nil {
-		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to execute HTTP request")
-		return nil, NewNetworkError(input.URL, "HTTP request failed", err)
+		return nil, WrapError(err, "HTTP request failed")
 	}
 	defer resp.Body.Close()
 
-	result := &FetchFileContentResult{
-		ETag:           resp.Header.Get("ETag"),
-		LastModified:   resp.Header.Get("Last-Modified"),
-		ContentType:    resp.Header.Get("Content-Type"),
-		HTTPStatusCode: resp.StatusCode,
-	}
-
-	if resp.StatusCode == http.StatusNotModified {
-		f.logger.Debug().Str("url", input.URL).Msg("Content not modified (304)")
-		return result, ErrNotModified
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		f.logger.Warn().Str("url", input.URL).Int("status_code", resp.StatusCode).Msg("Received non-OK HTTP status")
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) // Read up to 1KB
-		result.Content = bodyBytes
-		return result, NewHTTPErrorWithURL(resp.StatusCode, string(bodyBytes), input.URL)
-	}
-
-	if resp.ContentLength > 0 && resp.ContentLength > int64(f.cfg.MaxContentSize) {
-		return nil, fmt.Errorf("content too large: %d bytes (max: %d bytes)", resp.ContentLength, f.cfg.MaxContentSize)
-	}
-
+	// Read response body
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		f.logger.Error().Err(err).Str("url", input.URL).Msg("Failed to read response body")
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, WrapError(err, "failed to read response body")
 	}
 
-	if len(bodyBytes) > f.cfg.MaxContentSize {
-		return nil, fmt.Errorf("content too large: %d bytes (max: %d bytes)", len(bodyBytes), f.cfg.MaxContentSize)
+	// Convert response
+	httpResp := &HTTPResponse{
+		StatusCode: resp.StatusCode,
+		Headers:    make(map[string]string),
+		Body:       bodyBytes,
 	}
 
-	result.Content = bodyBytes
+	// Copy headers
+	for key, values := range resp.Header {
+		if len(values) > 0 {
+			httpResp.Headers[key] = values[0] // Take first value if multiple
+		}
+	}
 
-	f.logger.Debug().Str("url", input.URL).Str("content_type", result.ContentType).Int("size", len(result.Content)).Msg("File content fetched successfully")
-	return result, nil
+	return httpResp, nil
+}
+
+// DoWithRetry performs an HTTP request with retry logic if retry handler is configured
+func (c *HTTPClient) DoWithRetry(req *HTTPRequest) (*HTTPResponse, error) {
+	if c.retryHandler == nil {
+		// Fallback to regular Do method if no retry handler
+		return c.Do(req)
+	}
+
+	ctx := req.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	return c.retryHandler.DoWithRetry(ctx, c, req)
+}
+
+// SendDiscordNotification sends a notification to Discord webhook
+func (c *HTTPClient) SendDiscordNotification(ctx context.Context, webhookURL string, payload interface{}, filePath string) error {
+	if filePath == "" {
+		// Send JSON payload only
+		return c.sendDiscordJSON(ctx, webhookURL, payload)
+	}
+
+	// Send multipart form-data with file attachment
+	return c.sendDiscordMultipart(ctx, webhookURL, payload, filePath)
+}
+
+// sendDiscordJSON sends JSON payload to Discord webhook
+func (c *HTTPClient) sendDiscordJSON(ctx context.Context, webhookURL string, payload interface{}) error {
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return WrapError(err, "failed to marshal Discord payload")
+	}
+
+	req := &HTTPRequest{
+		URL:    webhookURL,
+		Method: "POST",
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body:    bytes.NewReader(jsonData),
+		Context: ctx,
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return WrapError(err, "failed to send Discord notification")
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("Discord webhook returned status %d: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	c.logger.Debug().Int("status_code", resp.StatusCode).Msg("Discord notification sent successfully")
+	return nil
+}
+
+// sendDiscordMultipart sends multipart form-data to Discord webhook with file attachment
+func (c *HTTPClient) sendDiscordMultipart(ctx context.Context, webhookURL string, payload interface{}, filePath string) error {
+	// Check file size before attempting to send
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return WrapError(err, "failed to get file info for Discord attachment")
+	}
+
+	const maxDiscordFileSize = 10 * 1024 * 1024 // 10MB in bytes
+	if fileInfo.Size() > maxDiscordFileSize {
+		return fmt.Errorf("file size %d bytes exceeds Discord limit of %d bytes (%.2f MB > 10 MB)",
+			fileInfo.Size(), maxDiscordFileSize, float64(fileInfo.Size())/(1024*1024))
+	}
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	// Add JSON payload as form field
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return WrapError(err, "failed to marshal Discord payload")
+	}
+
+	if err := writer.WriteField("payload_json", string(jsonData)); err != nil {
+		return WrapError(err, "failed to write payload_json field")
+	}
+
+	// Add file attachment
+	file, err := os.Open(filePath)
+	if err != nil {
+		return WrapError(err, "failed to open file for Discord attachment")
+	}
+	defer file.Close()
+
+	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	if err != nil {
+		return WrapError(err, "failed to create form file")
+	}
+
+	if _, err := io.Copy(part, file); err != nil {
+		return WrapError(err, "failed to copy file content")
+	}
+
+	if err := writer.Close(); err != nil {
+		return WrapError(err, "failed to close multipart writer")
+	}
+
+	req := &HTTPRequest{
+		URL:    webhookURL,
+		Method: "POST",
+		Headers: map[string]string{
+			"Content-Type": writer.FormDataContentType(),
+		},
+		Body:    &buf,
+		Context: ctx,
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return WrapError(err, "failed to send Discord notification with attachment")
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("Discord webhook returned status %d: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	c.logger.Debug().Int("status_code", resp.StatusCode).Str("file", filePath).Float64("file_size_mb", float64(fileInfo.Size())/(1024*1024)).Msg("Discord notification with attachment sent successfully")
+	return nil
 }

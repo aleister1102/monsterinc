@@ -20,9 +20,13 @@ import (
 //
 // 4. config.json in the current working directory
 //
-// 5. config.yaml in the executable's directory
+// 5. config.yaml in the configs directory
 //
-// 6. config.json in the executable's directory
+// 6. config.json in the configs directory
+//
+// 7. config.yaml in the executable's directory
+//
+// 8. config.json in the executable's directory
 func GetConfigPath(configFilePathFlag string) string {
 	logger := zerolog.Nop() // Use nop logger for backward compatibility
 	locator := NewConfigFileLocator(logger)
@@ -105,7 +109,6 @@ func (cfl *ConfigFileLocator) checkDefaultLocations() string {
 		}
 	}
 
-	cfl.logger.Debug().Msg("No config file found in default locations")
 	return ""
 }
 
@@ -116,6 +119,9 @@ func (cfl *ConfigFileLocator) getSearchLocations() []string {
 	// Add current working directory
 	if cwd := cfl.getCurrentWorkingDirectory(); cwd != "" {
 		locations = append(locations, cwd)
+		// Add configs subdirectory within current working directory
+		configsDir := filepath.Join(cwd, "configs")
+		locations = append(locations, configsDir)
 	}
 
 	// Add executable directory (if different from CWD)

@@ -62,6 +62,24 @@ func (lb *LoggerBuilder) WithFile(filePath string, maxSizeMB, maxBackups int) *L
 	return lb
 }
 
+// WithScanID sets the scan ID for organizing logs by scan session
+func (lb *LoggerBuilder) WithScanID(scanID string) *LoggerBuilder {
+	lb.config.ScanID = scanID
+	return lb
+}
+
+// WithCycleID sets the cycle ID for organizing logs by monitor cycle
+func (lb *LoggerBuilder) WithCycleID(cycleID string) *LoggerBuilder {
+	lb.config.CycleID = cycleID
+	return lb
+}
+
+// WithSubdirs enables/disables subdirectory organization
+func (lb *LoggerBuilder) WithSubdirs(enabled bool) *LoggerBuilder {
+	lb.config.UseSubdirs = enabled
+	return lb
+}
+
 // WithConsole enables/disables console logging
 func (lb *LoggerBuilder) WithConsole(enabled bool) *LoggerBuilder {
 	lb.config.EnableConsole = enabled
@@ -177,6 +195,48 @@ func (l *Logger) Reconfigure(cfg config.LogConfig) error {
 // New creates a new logger instance - maintains backward compatibility
 func New(cfg config.LogConfig) (zerolog.Logger, error) {
 	logger, err := NewLoggerBuilder().WithConfig(cfg).Build()
+	if err != nil {
+		return zerolog.Logger{}, err
+	}
+	return logger.GetZerolog(), nil
+}
+
+// NewWithScanID creates a new logger instance with scan ID for organizing logs
+func NewWithScanID(cfg config.LogConfig, scanID string) (zerolog.Logger, error) {
+	logger, err := NewLoggerBuilder().
+		WithConfig(cfg).
+		WithScanID(scanID).
+		Build()
+	if err != nil {
+		return zerolog.Logger{}, err
+	}
+	return logger.GetZerolog(), nil
+}
+
+// NewWithCycleID creates a new logger instance with cycle ID for organizing logs
+func NewWithCycleID(cfg config.LogConfig, cycleID string) (zerolog.Logger, error) {
+	logger, err := NewLoggerBuilder().
+		WithConfig(cfg).
+		WithCycleID(cycleID).
+		Build()
+	if err != nil {
+		return zerolog.Logger{}, err
+	}
+	return logger.GetZerolog(), nil
+}
+
+// NewWithContext creates a new logger instance with context-based ID
+func NewWithContext(cfg config.LogConfig, scanID, cycleID string) (zerolog.Logger, error) {
+	builder := NewLoggerBuilder().WithConfig(cfg)
+
+	if scanID != "" {
+		builder = builder.WithScanID(scanID)
+	}
+	if cycleID != "" {
+		builder = builder.WithCycleID(cycleID)
+	}
+
+	logger, err := builder.Build()
 	if err != nil {
 		return zerolog.Logger{}, err
 	}

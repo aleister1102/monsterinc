@@ -67,15 +67,80 @@ func (hae *HTMLAssetExtractor) Extract(htmlContent []byte) []models.Asset {
 		return []models.Asset{}
 	}
 
-	var assets []models.Asset
+	// Pre-allocate slice with estimated capacity for better performance
+	assets := make([]models.Asset, 0, 50)
 	baseDiscoveryURL := hae.getBaseDiscoveryURL()
 
-	for _, extractor := range hae.extractors {
-		extractedAssets := hae.extractAssetsFromElements(doc, extractor, baseDiscoveryURL)
-		assets = append(assets, extractedAssets...)
-	}
+	// Single pass extraction instead of multiple loops
+	hae.extractAllAssetsInSinglePass(doc, baseDiscoveryURL, &assets)
 
 	return assets
+}
+
+// extractAllAssetsInSinglePass extracts all assets in a single DOM traversal for better performance
+func (hae *HTMLAssetExtractor) extractAllAssetsInSinglePass(doc *goquery.Document, baseDiscoveryURL string, assets *[]models.Asset) {
+	// Extract all common asset elements in one pass
+	doc.Find("a[href], link[href], script[src], img[src], iframe[src], form[action], object[data], embed[src]").Each(func(i int, s *goquery.Selection) {
+		tagName := goquery.NodeName(s)
+		var attrName string
+
+		switch tagName {
+		case "a", "link":
+			attrName = "href"
+		case "script", "img", "iframe", "embed":
+			attrName = "src"
+		case "form":
+			attrName = "action"
+		case "object":
+			attrName = "data"
+		default:
+			return
+		}
+
+		if asset := hae.createAssetFromSelection(s, tagName, attrName, baseDiscoveryURL); asset != nil {
+			*assets = append(*assets, *asset)
+		}
+	})
+
+	// Handle special case for srcset attributes
+	doc.Find("img[srcset], source[srcset]").Each(func(i int, s *goquery.Selection) {
+		if srcset, exists := s.Attr("srcset"); exists && strings.TrimSpace(srcset) != "" {
+			urls := hae.parseSrcsetURLs(srcset)
+			for _, rawURL := range urls {
+				if asset := hae.createAssetFromURL(rawURL, s, "srcset", models.AssetTypeImage, baseDiscoveryURL); asset != nil {
+					*assets = append(*assets, *asset)
+				}
+			}
+		}
+	})
+}
+
+// createAssetFromSelection creates an asset from a goquery selection with optimized attribute access
+func (hae *HTMLAssetExtractor) createAssetFromSelection(selection *goquery.Selection, tagName, attrName, baseDiscoveryURL string) *models.Asset {
+	attrValue, exists := selection.Attr(attrName)
+	if !exists || strings.TrimSpace(attrValue) == "" {
+		return nil
+	}
+
+	assetType := hae.determineAssetTypeOptimized(tagName, selection)
+	return hae.createAssetFromURL(attrValue, selection, attrName, assetType, baseDiscoveryURL)
+}
+
+// determineAssetTypeOptimized optimized version of asset type determination
+func (hae *HTMLAssetExtractor) determineAssetTypeOptimized(tagName string, selection *goquery.Selection) models.AssetType {
+	switch tagName {
+	case "a":
+		return models.AssetType(tagName)
+	case "link":
+		if rel := selection.AttrOr("rel", ""); rel == "stylesheet" {
+			return models.AssetTypeStyle
+		}
+		return models.AssetType("link")
+	case "script", "img", "iframe", "form", "object", "embed":
+		return models.AssetType(tagName)
+	default:
+		return models.AssetType(tagName)
+	}
 }
 
 // parseHTML parses HTML content into a goquery document
@@ -97,64 +162,14 @@ func (hae *HTMLAssetExtractor) getBaseDiscoveryURL() string {
 	return ""
 }
 
-// extractAssetsFromElements extracts assets from HTML elements matching the extractor
-func (hae *HTMLAssetExtractor) extractAssetsFromElements(
-	doc *goquery.Document,
-	extractor AssetExtractor,
-	baseDiscoveryURL string,
-) []models.Asset {
-	var assets []models.Asset
-
-	doc.Find(extractor.Tag).Each(
-		func(i int, s *goquery.Selection) {
-			elementAssets := hae.extractAssetsFromElement(s, extractor, baseDiscoveryURL)
-			assets = append(assets, elementAssets...)
-		},
-	)
-
-	return assets
-}
-
-// extractAssetsFromElement extracts assets from a single HTML element
-func (hae *HTMLAssetExtractor) extractAssetsFromElement(
-	selection *goquery.Selection,
-	extractor AssetExtractor,
-	baseDiscoveryURL string,
-) []models.Asset {
-	attrValue, exists := selection.Attr(extractor.Attribute)
-	if !exists || strings.TrimSpace(attrValue) == "" {
-		return []models.Asset{}
-	}
-
-	urls := hae.parseAttributeURLs(attrValue, extractor.Attribute)
-	assetType := hae.determineAssetType(selection, extractor.Tag)
-
-	var assets []models.Asset
-	for _, rawURL := range urls {
-		if asset := hae.createAssetFromURL(rawURL, selection, extractor.Attribute, assetType, baseDiscoveryURL); asset != nil {
-			assets = append(assets, *asset)
-		}
-	}
-
-	return assets
-}
-
-// parseAttributeURLs parses URLs from an attribute value
-func (hae *HTMLAssetExtractor) parseAttributeURLs(attrValue, attributeName string) []string {
-	if attributeName == "srcset" {
-		return hae.parseSrcsetURLs(attrValue)
-	}
-	return []string{attrValue}
-}
-
 // parseSrcsetURLs parses URLs from srcset attribute
 func (hae *HTMLAssetExtractor) parseSrcsetURLs(srcset string) []string {
 	var urls []string
 	parts := strings.Split(srcset, ",")
 
 	for _, part := range parts {
-		if url := hae.extractURLFromSrcsetPart(strings.TrimSpace(part)); url != "" {
-			urls = append(urls, url)
+		if extractedURL := hae.extractURLFromSrcsetPart(strings.TrimSpace(part)); extractedURL != "" {
+			urls = append(urls, extractedURL)
 		}
 	}
 
@@ -173,31 +188,6 @@ func (hae *HTMLAssetExtractor) extractURLFromSrcsetPart(part string) string {
 	}
 
 	return ""
-}
-
-// determineAssetType determines the asset type based on HTML element
-func (hae *HTMLAssetExtractor) determineAssetType(selection *goquery.Selection, tagName string) models.AssetType {
-	switch tagName {
-	case "a":
-		return models.AssetType(tagName)
-	case "link":
-		return hae.determineLinkAssetType(selection)
-	case "script", "img", "iframe", "form", "object", "embed":
-		return models.AssetType(tagName)
-	default:
-		hae.crawlerInstance.logger.Warn().
-			Str("tag", tagName).
-			Msg("Unknown tag type for asset extraction, using tag name as type")
-		return models.AssetType(tagName)
-	}
-}
-
-// determineLinkAssetType determines specific asset type for link elements
-func (hae *HTMLAssetExtractor) determineLinkAssetType(selection *goquery.Selection) models.AssetType {
-	if rel := selection.AttrOr("rel", ""); rel == "stylesheet" {
-		return models.AssetTypeStyle
-	}
-	return models.AssetType("link")
 }
 
 // createAssetFromURL creates an asset model from a URL
@@ -219,7 +209,33 @@ func (hae *HTMLAssetExtractor) createAssetFromURL(
 		return nil
 	}
 
-	// Discover URL for crawling
+	// Check if URL is in scope before discovering for crawling
+	if hae.crawlerInstance != nil && hae.crawlerInstance.scope != nil {
+		isAllowed, err := hae.crawlerInstance.scope.IsURLAllowed(absoluteURL)
+		if err != nil {
+			hae.crawlerInstance.logger.Debug().
+				Str("url", absoluteURL).
+				Err(err).
+				Msg("Asset URL scope check failed")
+			// Still create asset for reporting but don't discover for crawling
+		} else if !isAllowed {
+			hae.crawlerInstance.logger.Debug().
+				Str("url", absoluteURL).
+				Str("source_page", baseDiscoveryURL).
+				Msg("Asset URL not in scope, skipping crawl discovery")
+			// Create asset for reporting but don't discover for crawling
+			return &models.Asset{
+				AbsoluteURL:    absoluteURL,
+				SourceTag:      hae.getTagName(selection),
+				SourceAttr:     attributeName,
+				Type:           assetType,
+				DiscoveredAt:   time.Now(),
+				DiscoveredFrom: baseDiscoveryURL,
+			}
+		}
+	}
+
+	// Discover URL for crawling only if in scope
 	hae.discoverURLForCrawling(absoluteURL)
 
 	return &models.Asset{
@@ -233,16 +249,69 @@ func (hae *HTMLAssetExtractor) createAssetFromURL(
 }
 
 // shouldSkipURL checks if URL should be skipped from extraction
-func (hae *HTMLAssetExtractor) shouldSkipURL(url string) bool {
-	if url == "" {
+func (hae *HTMLAssetExtractor) shouldSkipURL(urlStr string) bool {
+	if urlStr == "" {
 		return true
 	}
 
 	skipPrefixes := []string{"data:", "mailto:", "tel:", "javascript:"}
 	for _, prefix := range skipPrefixes {
-		if strings.HasPrefix(url, prefix) {
+		if strings.HasPrefix(urlStr, prefix) {
 			return true
 		}
+	}
+
+	// Check for infinite loop patterns (repeated path segments)
+	if hae.hasRepeatedPathSegments(urlStr) {
+		hae.crawlerInstance.logger.Warn().
+			Str("url", urlStr).
+			Msg("Skipping URL with repeated path segments (potential infinite loop)")
+		return true
+	}
+
+	return false
+}
+
+// hasRepeatedPathSegments detects URLs with repeated path segments that might indicate an infinite loop
+func (hae *HTMLAssetExtractor) hasRepeatedPathSegments(urlStr string) bool {
+	err := urlhandler.ValidateURLFormat(urlStr)
+	if err != nil {
+		return false
+	}
+
+	parsed, err := urlhandler.NormalizeURL(urlStr)
+	if err != nil {
+		return false
+	}
+
+	// Parse URL to extract path
+	u, err := url.Parse(parsed)
+	if err != nil {
+		return false
+	}
+
+	// Check for patterns like /vendor/vendor/vendor or /path/path/path
+	path := strings.Trim(u.Path, "/")
+	if path == "" {
+		return false
+	}
+
+	segments := strings.Split(path, "/")
+
+	// Only check for obvious infinite loops - 4+ consecutive identical segments
+	// and segments must be at least 3 characters to avoid false positives
+	for i := 0; i < len(segments)-3; i++ {
+		if len(segments[i]) >= 3 && segments[i] != "" &&
+			segments[i] == segments[i+1] &&
+			segments[i] == segments[i+2] &&
+			segments[i] == segments[i+3] {
+			return true
+		}
+	}
+
+	// Check if we have more than 15 segments (very suspicious)
+	if len(segments) > 15 {
+		return true
 	}
 
 	return false
@@ -273,6 +342,10 @@ func (hae *HTMLAssetExtractor) getTagName(selection *goquery.Selection) string {
 // discoverURLForCrawling adds URL to crawler's discovery queue
 func (hae *HTMLAssetExtractor) discoverURLForCrawling(absoluteURL string) {
 	if hae.crawlerInstance != nil {
+		// Track the parent URL for this discovered URL
+		if hae.basePageURL != nil {
+			hae.crawlerInstance.TrackURLParent(absoluteURL, hae.basePageURL.String())
+		}
 		hae.crawlerInstance.DiscoverURL(absoluteURL, hae.basePageURL)
 	}
 }

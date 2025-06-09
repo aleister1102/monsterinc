@@ -3,7 +3,11 @@
 /database
 /monsterinc
 /monsterinc.exe
-/config.yaml
-/*.log
+/configs/config.yaml
+/configs/config.bak.yaml
+/logs
 /targets
 /target
+/build/monsterinc.exe
+/configs/config.varonis.yaml
+/monsterinc.exe~

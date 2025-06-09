@@ -61,8 +61,8 @@ func (um *URLManager) PreloadURLs(initialURLs []string) {
 }
 
 // LoadAndMonitorFromSources loads targets from best available source and adds them to monitoring
-func (um *URLManager) LoadAndMonitorFromSources(inputFileOption string, inputConfigUrls []string, cfgInputFile string) error {
-	targets, source, err := um.targetManager.LoadAndSelectTargets(inputFileOption, inputConfigUrls, cfgInputFile)
+func (um *URLManager) LoadAndMonitorFromSources(inputFileOption string) error {
+	targets, source, err := um.targetManager.LoadAndSelectTargets(inputFileOption)
 	if err != nil {
 		return err
 	}
@@ -111,6 +111,11 @@ func (um *URLManager) RemoveURL(url string) bool {
 		return true
 	}
 	return false
+}
+
+// UpdateLogger updates the logger for this component
+func (um *URLManager) UpdateLogger(newLogger zerolog.Logger) {
+	um.logger = newLogger.With().Str("component", "URLManager").Logger()
 }
 
 // Private helper methods
@@ -171,5 +176,3 @@ func (um *URLManager) logPreloadedURLs(validCount, totalCount int) {
 		Int("total_count", totalCount).
 		Msg("Preloaded URLs for monitoring")
 }
-
-

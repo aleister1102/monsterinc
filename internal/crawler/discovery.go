@@ -1,32 +1,62 @@
 package crawler
 
 import (
-	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 )
 
-// DiscoverURL attempts to add a new URL to the crawl queue
+// DiscoverURL normalizes, validates and potentially adds a URL to the crawl queue.
+// This method is called from various places (HTML parsing, redirects, etc.)
 func (cr *Crawler) DiscoverURL(rawURL string, base *url.URL) {
-	if cr.isContextCancelled() {
-		cr.logger.Debug().Str("raw_url", rawURL).Msg("Context cancelled, skipping URL discovery")
+	if rawURL == "" {
 		return
 	}
 
-	normalizedURL, shouldSkip := cr.processRawURL(rawURL, base)
-	if shouldSkip {
+	// Apply URL normalization if available
+	var normalizedRawURL string
+	if cr.config.URLNormalization.StripFragments || cr.config.URLNormalization.StripTrackingParams {
+		normalizer := urlhandler.NewURLNormalizer(cr.config.URLNormalization)
+		if normalized, err := normalizer.NormalizeURL(rawURL); err == nil {
+			normalizedRawURL = normalized
+			if normalized != rawURL {
+				cr.logger.Debug().
+					Str("original_url", rawURL).
+					Str("normalized_url", normalized).
+					Msg("URL normalized during discovery")
+			}
+		} else {
+			normalizedRawURL = rawURL
+			cr.logger.Debug().
+				Str("url", rawURL).
+				Err(err).
+				Msg("Failed to normalize URL, using original")
+		}
+	} else {
+		normalizedRawURL = rawURL
+	}
+
+	normalizedURL, shouldProcess := cr.processRawURL(normalizedRawURL, base)
+	if !shouldProcess {
+		return
+	}
+
+	// Check if URL should be skipped due to pattern similarity
+	// Only apply auto-calibrate if it's enabled and URLs haven't been preprocessed at Scanner level
+	if cr.config.AutoCalibrate.Enabled && cr.patternDetector.ShouldSkipURL(normalizedURL) {
+		cr.logger.Debug().
+			Str("url", normalizedURL).
+			Msg("Skipping URL due to pattern similarity (auto-calibrate)")
+		return
+	}
+
+	// Check scope, duplicates, and content-length as before
+	if !cr.isURLInScope(normalizedURL) {
 		return
 	}
 
 	if cr.isURLAlreadyDiscovered(normalizedURL) {
-		return
-	}
-
-	if cr.shouldSkipURLByContentLength(normalizedURL) {
-		cr.addDiscoveredURL(normalizedURL)
 		return
 	}
 
@@ -44,19 +74,19 @@ func (cr *Crawler) processRawURL(rawURL string, base *url.URL) (string, bool) {
 			Msg("Could not resolve URL")
 
 		cr.addDiscoveredURL(rawURL)
-		return "", true
+		return "", false
 	}
 
 	normalizedURL := strings.TrimSpace(absURL)
 	if normalizedURL == "" {
-		return "", true
+		return "", false
 	}
 
 	if !cr.isURLInScope(normalizedURL) {
-		return "", true
+		return "", false
 	}
 
-	return normalizedURL, false
+	return normalizedURL, true
 }
 
 // isURLInScope checks if URL is within crawler scope
@@ -82,63 +112,33 @@ func (cr *Crawler) isURLAlreadyDiscovered(normalizedURL string) bool {
 	return exists
 }
 
-// shouldSkipURLByContentLength performs HEAD request to check content length
-func (cr *Crawler) shouldSkipURLByContentLength(normalizedURL string) bool {
-	// ? Why this is too slow
-	headReq, err := http.NewRequest("HEAD", normalizedURL, nil)
-	if err != nil {
-		return false
-	}
-
-	resp, err := cr.httpClient.Do(headReq)
-	if err != nil {
-		cr.logger.Warn().Str("url", normalizedURL).Err(err).Msg("HEAD request failed")
-		return false
-	}
-	defer resp.Body.Close()
-
-	return cr.checkContentLength(resp, normalizedURL)
-}
-
-// checkContentLength validates response content length
-func (cr *Crawler) checkContentLength(resp *http.Response, normalizedURL string) bool {
-	contentLength := resp.Header.Get("Content-Length")
-	if contentLength == "" {
-		return false
-	}
-
-	size, err := strconv.ParseInt(contentLength, 10, 64)
-	if err != nil {
-		return false
-	}
-
-	if size > cr.maxContentLength {
-		cr.logger.Info().
-			Str("url", normalizedURL).
-			Int64("size", size).
-			Int64("max_size", cr.maxContentLength).
-			Msg("Skip queue (Content-Length exceeded)")
-		return true
-	}
-
-	return false
-}
-
-// queueURLForVisit adds URL to colly queue for crawling
+// queueURLForVisit adds URL to batched queue for crawling
 func (cr *Crawler) queueURLForVisit(normalizedURL string) {
 	cr.mutex.Lock()
 
 	// Double-check after acquiring write lock
 	if cr.discoveredURLs[normalizedURL] {
 		cr.mutex.Unlock()
+		cr.logger.Debug().Str("url", normalizedURL).Msg("URL already discovered, skipping")
 		return
 	}
 
 	cr.discoveredURLs[normalizedURL] = true
 	cr.mutex.Unlock()
 
-	if err := cr.collector.Visit(normalizedURL); err != nil {
-		cr.handleVisitError(normalizedURL, err)
+	cr.logger.Debug().Str("url", normalizedURL).Msg("Queueing URL for visit")
+
+	// Try to send to batch queue, fallback to immediate processing if queue is full
+	select {
+	case cr.urlQueue <- normalizedURL:
+		// Successfully queued for batch processing
+		cr.logger.Debug().Str("url", normalizedURL).Msg("URL queued for batch processing")
+	default:
+		// Queue full, process immediately
+		cr.logger.Debug().Str("url", normalizedURL).Msg("Queue full, processing URL immediately")
+		if err := cr.collector.Visit(normalizedURL); err != nil {
+			cr.handleVisitError(normalizedURL, err)
+		}
 	}
 }
 

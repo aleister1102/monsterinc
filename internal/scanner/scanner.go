@@ -8,50 +8,142 @@ import (
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
+	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/extractor"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/aleister1102/monsterinc/internal/reporter"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/notifier"
 
 	"github.com/rs/zerolog"
 )
 
-// Scanner orchestrates the complete scan workflow including crawling,
-// probing, diffing, and storing results. It follows the single responsibility
-// principle by coordinating different scan components.
+// Scanner handles the core logic of scanning operations
+// Focuses on coordinating crawler, httpx probing, and diff/storage operations
 type Scanner struct {
-	config        *config.GlobalConfig
-	logger        zerolog.Logger
-	parquetReader *datastore.ParquetReader
-	parquetWriter *datastore.ParquetWriter
-	pathExtractor *extractor.PathExtractor
+	config             *config.GlobalConfig
+	logger             zerolog.Logger
+	parquetReader      *datastore.ParquetReader
+	parquetWriter      *datastore.ParquetWriter
+	pathExtractor      *extractor.PathExtractor
+	configBuilder      *ConfigBuilder
+	crawlerExecutor    *CrawlerExecutor
+	httpxExecutor      *HTTPXExecutor
+	diffProcessor      *DiffStorageProcessor
+	progressDisplay    *common.ProgressDisplayManager
+	urlPreprocessor    *URLPreprocessor
+	resourceLimiter    *common.ResourceLimiter
+	notificationHelper interface {
+		SendScanStartNotification(ctx context.Context, summary models.ScanSummaryData)
+		SendScanCompletionNotification(ctx context.Context, summary models.ScanSummaryData, serviceType notifier.NotificationServiceType, reportFilePaths []string)
+		SendScanInterruptNotification(ctx context.Context, summary models.ScanSummaryData)
+	}
 }
 
-// NewScanner creates a new Scanner instance with all required dependencies.
-// Returns nil if critical components fail to initialize.
+// NewScanner creates a new Scanner instance with required dependencies
 func NewScanner(
 	globalConfig *config.GlobalConfig,
 	logger zerolog.Logger,
-	parquetReader *datastore.ParquetReader,
-	parquetWriter *datastore.ParquetWriter,
+	pReader *datastore.ParquetReader,
+	pWriter *datastore.ParquetWriter,
 ) *Scanner {
-	pathExtractor, err := extractor.NewPathExtractor(globalConfig.ExtractorConfig, logger)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("Failed to initialize PathExtractor")
-		return nil
-	}
-
-	return &Scanner{
+	scanner := &Scanner{
 		config:        globalConfig,
 		logger:        logger.With().Str("module", "Scanner").Logger(),
-		parquetReader: parquetReader,
-		parquetWriter: parquetWriter,
-		pathExtractor: pathExtractor,
+		parquetReader: pReader,
+		parquetWriter: pWriter,
+		configBuilder: NewConfigBuilder(globalConfig, logger),
+	}
+
+	// Initialize executors
+	scanner.crawlerExecutor = NewCrawlerExecutor(logger)
+	scanner.httpxExecutor = NewHTTPXExecutor(logger)
+
+	// Initialize path extractor with error handling
+	if pathExtractor, err := extractor.NewPathExtractor(globalConfig.ExtractorConfig, logger); err != nil {
+		logger.Warn().Err(err).Msg("Failed to initialize path extractor")
+	} else {
+		scanner.pathExtractor = pathExtractor
+	}
+
+	// Initialize diff processor with URL differ
+	if urlDiffer, err := differ.NewUrlDiffer(pReader, logger); err != nil {
+		logger.Warn().Err(err).Msg("Failed to initialize URL differ")
+	} else {
+		scanner.diffProcessor = NewDiffStorageProcessor(logger, pWriter, urlDiffer)
+	}
+
+	// Initialize URL preprocessor
+	preprocessorConfig := URLPreprocessorConfig{
+		URLNormalization: globalConfig.CrawlerConfig.URLNormalization,
+		AutoCalibrate:    globalConfig.CrawlerConfig.AutoCalibrate,
+		EnableBatching:   true,
+		BatchSize:        1000,
+		MaxWorkers:       globalConfig.CrawlerConfig.MaxConcurrentRequests, // Same as crawler threads
+		EnableParallel:   true,
+	}
+	scanner.urlPreprocessor = NewURLPreprocessor(preprocessorConfig, logger)
+
+	// Initialize resource limiter
+	resourceLimiterConfig := common.ResourceLimiterConfig{
+		MaxMemoryMB:        globalConfig.ResourceLimiterConfig.MaxMemoryMB,
+		MaxGoroutines:      globalConfig.ResourceLimiterConfig.MaxGoroutines,
+		CheckInterval:      time.Duration(globalConfig.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
+		MemoryThreshold:    globalConfig.ResourceLimiterConfig.MemoryThreshold,
+		GoroutineWarning:   globalConfig.ResourceLimiterConfig.GoroutineWarning,
+		SystemMemThreshold: globalConfig.ResourceLimiterConfig.SystemMemThreshold,
+		CPUThreshold:       globalConfig.ResourceLimiterConfig.CPUThreshold,
+		EnableAutoShutdown: false, // Disable auto-shutdown for scanner, main handles this
+	}
+	scanner.resourceLimiter = common.NewResourceLimiter(resourceLimiterConfig, logger)
+	scanner.resourceLimiter.Start()
+
+	logger.Info().
+		Int("crawler_threads", globalConfig.CrawlerConfig.MaxConcurrentRequests).
+		Int("preprocessor_workers", preprocessorConfig.MaxWorkers).
+		Bool("parallel_enabled", preprocessorConfig.EnableParallel).
+		Msg("URL preprocessor configured with parallel processing based on crawler threads")
+
+	return scanner
+}
+
+// SetNotificationHelper sets the notification helper for the scanner
+func (s *Scanner) SetNotificationHelper(notificationHelper interface {
+	SendScanStartNotification(ctx context.Context, summary models.ScanSummaryData)
+	SendScanCompletionNotification(ctx context.Context, summary models.ScanSummaryData, serviceType notifier.NotificationServiceType, reportFilePaths []string)
+	SendScanInterruptNotification(ctx context.Context, summary models.ScanSummaryData)
+}) {
+	s.notificationHelper = notificationHelper
+}
+
+// SetProgressDisplay đặt progress display manager
+func (s *Scanner) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
+	s.progressDisplay = progressDisplay
+
+	// Pass progress display to executors
+	if s.httpxExecutor != nil {
+		s.httpxExecutor.SetProgressDisplay(progressDisplay)
+	}
+	if s.crawlerExecutor != nil {
+		s.crawlerExecutor.SetProgressDisplay(progressDisplay)
 	}
 }
 
-// ExecuteSingleScanWorkflowWithReporting runs a complete scan workflow and generates reports.
-// This is the main entry point for executing a full scan cycle.
+// UpdateLogger updates the logger for this scanner and its components
+func (s *Scanner) UpdateLogger(newLogger zerolog.Logger) {
+	s.logger = newLogger.With().Str("module", "Scanner").Logger()
+
+	// Update logger for sub-components
+	if s.configBuilder != nil {
+		s.configBuilder.logger = newLogger.With().Str("module", "ConfigBuilder").Logger()
+	}
+	if s.urlPreprocessor != nil {
+		s.urlPreprocessor.logger = newLogger.With().Str("component", "URLPreprocessor").Logger()
+	}
+
+	// Note: CrawlerExecutor, HTTPXExecutor, and DiffStorageProcessor don't have UpdateLogger methods
+	// They use the logger passed to them during execution
+}
+
+// ExecuteSingleScanWorkflowWithReporting performs complete scan workflow with reporting
 func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 	ctx context.Context,
 	gCfg *config.GlobalConfig,
@@ -61,247 +153,360 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 	targetSource string,
 	scanMode string,
 ) (models.ScanSummaryData, []models.ProbeResult, []string, error) {
-
-	summaryData := s.initializeScanSummary(scanSessionID, targetSource, scanMode, seedURLs)
-
-	if err := s.validateSeedURLs(seedURLs, scanSessionID, targetSource, scanMode); err != nil {
-		summaryData.Status = string(models.ScanStatusFailed)
-		summaryData.ErrorMessages = []string{err.Error()}
-		return summaryData, nil, nil, err
-	}
-
-	workflowResult, err := s.executeScanWorkflow(ctx, seedURLs, scanSessionID, targetSource)
+	startTime := time.Now()
+	probeResults, urlDiffResults, err := s.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
 	if err != nil {
-		return s.handleWorkflowError(summaryData, workflowResult, appLogger, scanSessionID, err)
+		return models.ScanSummaryData{}, nil, nil, err
 	}
 
-	if ctx.Err() != nil {
-		return s.handleWorkflowCancellation(summaryData, workflowResult, appLogger, scanSessionID)
+	// Generate HTML reports if we have results
+	var reportFilePaths []string
+	if len(probeResults) > 0 {
+		reportGenerator := NewReportGenerator(&gCfg.ReporterConfig, s.logger)
+		reportInput := NewReportGenerationInputWithDiff(probeResults, urlDiffResults, scanSessionID)
+		reportPaths, reportErr := reportGenerator.GenerateReports(reportInput)
+		if reportErr != nil {
+			s.logger.Warn().Err(reportErr).Msg("Failed to generate reports")
+		} else {
+			reportFilePaths = reportPaths
+		}
 	}
 
-	reportPaths, err := s.generateReports(ctx, gCfg, workflowResult.ProbeResults, scanSessionID, scanMode, targetSource, appLogger)
-	if err != nil {
-		return s.handleReportError(summaryData, workflowResult, appLogger, err)
+	// Note: We use original seedURLs in summary for reporting purposes,
+	// but the actual processing used the preprocessed URLs
+	summaryBuilder := NewSummaryBuilder(s.logger)
+	summaryInput := &SummaryInput{
+		ScanSessionID:   scanSessionID,
+		TargetSource:    targetSource,
+		ScanMode:        scanMode,
+		Targets:         seedURLs,
+		StartTime:       startTime,
+		ProbeResults:    probeResults,
+		URLDiffResults:  urlDiffResults,
+		ReportFilePaths: reportFilePaths,
 	}
+	summary := summaryBuilder.BuildSummary(summaryInput)
 
-	s.updateSummaryWithResults(summaryData, workflowResult)
-	s.finalizeScanStatus(summaryData)
-
-	return summaryData, workflowResult.ProbeResults, reportPaths, nil
+	return summary, probeResults, reportFilePaths, nil
 }
 
-// ExecuteCompleteScanWorkflow executes the complete scan workflow and builds summary data.
+// ExecuteCompleteScanWorkflow performs the complete scan workflow including diffing
 func (s *Scanner) ExecuteCompleteScanWorkflow(
 	ctx context.Context,
 	seedURLs []string,
 	scanSessionID string,
 	targetSource string,
 ) (models.ScanSummaryData, []models.ProbeResult, map[string]models.URLDiffResult, error) {
+	probeResults, urlDiffResults, err := s.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
+	if err != nil {
+		return models.ScanSummaryData{}, nil, nil, err
+	}
 
-	startTime := time.Now()
-
-	probeResults, urlDiffResults, workflowError := s.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
-
-	summaryData := s.buildScanSummary(ScanWorkflowInput{
-		ScanSessionID: scanSessionID,
-		TargetSource:  targetSource,
-		Targets:       seedURLs,
-		StartTime:     startTime,
-	}, ScanWorkflowResult{
+	// Build summary using new SummaryBuilder
+	summaryBuilder := NewSummaryBuilder(s.logger)
+	summaryInput := &SummaryInput{
+		ScanSessionID:  scanSessionID,
+		TargetSource:   targetSource,
+		Targets:        seedURLs,
 		ProbeResults:   probeResults,
 		URLDiffResults: urlDiffResults,
-		WorkflowError:  workflowError,
-	})
+	}
+	summary := summaryBuilder.BuildSummary(summaryInput)
 
-	return summaryData, probeResults, urlDiffResults, workflowError
+	return summary, probeResults, urlDiffResults, nil
 }
 
-// ExecuteScanWorkflow runs the core scan workflow: crawl -> probe -> diff -> store.
+// ExecuteScanWorkflow performs the core scan workflow: crawling, probing, and diffing
 func (s *Scanner) ExecuteScanWorkflow(
 	ctx context.Context,
 	seedURLs []string,
 	scanSessionID string,
 ) ([]models.ProbeResult, map[string]models.URLDiffResult, error) {
+	startTime := time.Now()
 
-	crawlerConfig, primaryRootTargetURL, err := s.prepareScanConfiguration(seedURLs, scanSessionID)
-	if err != nil {
-		return nil, nil, common.WrapError(err, "failed to prepare scan configuration")
+	// Log resource usage before scan workflow
+	if s.resourceLimiter != nil {
+		resourceUsageBefore := s.resourceLimiter.GetResourceUsage()
+		s.logger.Info().
+			Int64("memory_mb", resourceUsageBefore.AllocMB).
+			Int("goroutines", resourceUsageBefore.Goroutines).
+			Float64("system_mem_percent", resourceUsageBefore.SystemMemUsedPercent).
+			Float64("cpu_percent", resourceUsageBefore.CPUUsagePercent).
+			Str("session_id", scanSessionID).
+			Msg("Resource usage before scan workflow")
 	}
 
-	discoveredURLs, err := s.executeCrawler(ctx, crawlerConfig, scanSessionID, primaryRootTargetURL)
-	if err != nil {
-		return nil, nil, common.WrapError(err, "crawler execution failed")
+	// Note: Scan start notification is sent from the main entry point (main.go or scheduler)
+	// to avoid duplicate notifications when this workflow is called from different contexts
+
+	// Update progress: Starting URL preprocessing
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(0, 5, "Preprocessing", "Normalizing and filtering URLs")
 	}
 
-	httpxConfig := s.buildHTTPXConfig(discoveredURLs)
-	httpxInput := HTTPXProbingInput{
-		DiscoveredURLs:       discoveredURLs,
-		SeedURLs:             seedURLs,
+	// Step 0: Preprocess URLs (normalize and auto-calibrate)
+	preprocessResult := s.urlPreprocessor.PreprocessURLs(seedURLs)
+	processedSeedURLs := preprocessResult.ProcessedURLs
+
+	s.logger.Info().
+		Int("original_urls", len(seedURLs)).
+		Int("processed_urls", len(processedSeedURLs)).
+		Int("normalized", preprocessResult.Stats.Normalized).
+		Int("skipped_by_pattern", preprocessResult.Stats.SkippedByPattern).
+		Int("skipped_duplicate", preprocessResult.Stats.SkippedDuplicate).
+		Msg("URL preprocessing completed")
+
+	// Use processed URLs for the rest of the workflow
+	if len(processedSeedURLs) == 0 {
+		if s.progressDisplay != nil {
+			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "No URLs remaining after preprocessing")
+		}
+
+		// Send error notification
+		if s.notificationHelper != nil {
+			errorSummary := models.ScanSummaryData{
+				ScanSessionID: scanSessionID,
+				ScanMode:      "scan",
+				TargetSource:  "scanner_workflow",
+				Targets:       seedURLs,
+				TotalTargets:  len(seedURLs),
+				Status:        string(models.ScanStatusFailed),
+				ScanDuration:  time.Since(startTime),
+				ErrorMessages: []string{"No URLs remaining after preprocessing"},
+			}
+			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, notifier.ScanServiceNotification, nil)
+		}
+
+		return nil, nil, fmt.Errorf("no URLs remaining after preprocessing")
+	}
+
+	// Update progress: Starting crawler configuration
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(1, 5, "Crawler", "Configuring crawler")
+	}
+
+	// Step 1: Configure and execute crawler
+	crawlerConfig, primaryRootTargetURL, err := s.configBuilder.BuildCrawlerConfig(processedSeedURLs, scanSessionID)
+	if err != nil {
+		if s.progressDisplay != nil {
+			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "Failed to build crawler config")
+		}
+
+		// Send error notification
+		if s.notificationHelper != nil {
+			errorSummary := models.ScanSummaryData{
+				ScanSessionID: scanSessionID,
+				ScanMode:      "scan",
+				TargetSource:  "scanner_workflow",
+				Targets:       seedURLs,
+				TotalTargets:  len(seedURLs),
+				Status:        string(models.ScanStatusFailed),
+				ScanDuration:  time.Since(startTime),
+				ErrorMessages: []string{fmt.Sprintf("Failed to build crawler config: %v", err)},
+			}
+			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, notifier.ScanServiceNotification, nil)
+		}
+
+		return nil, nil, fmt.Errorf("failed to build crawler config: %w", err)
+	}
+
+	crawlerInput := CrawlerExecutionInput{
+		Context:              ctx,
+		CrawlerConfig:        crawlerConfig,
+		ScanSessionID:        scanSessionID,
+		PrimaryRootTargetURL: primaryRootTargetURL,
+	}
+
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(1, 5, "Crawler", "Executing crawler")
+	}
+
+	// Check for context cancellation before crawler execution
+	if ctx.Err() != nil {
+		if s.notificationHelper != nil {
+			interruptSummary := models.ScanSummaryData{
+				ScanSessionID: scanSessionID,
+				ScanMode:      "scan",
+				TargetSource:  "scanner_workflow",
+				Targets:       seedURLs,
+				TotalTargets:  len(seedURLs),
+				Status:        string(models.ScanStatusInterrupted),
+				ScanDuration:  time.Since(startTime),
+				Component:     "crawler",
+			}
+			s.notificationHelper.SendScanInterruptNotification(ctx, interruptSummary)
+		}
+		return nil, nil, ctx.Err()
+	}
+
+	crawlerResult := s.crawlerExecutor.Execute(crawlerInput)
+	if crawlerResult.Error != nil {
+		if s.progressDisplay != nil {
+			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "Crawler execution failed")
+		}
+
+		// Send error notification
+		if s.notificationHelper != nil {
+			errorSummary := models.ScanSummaryData{
+				ScanSessionID: scanSessionID,
+				ScanMode:      "scan",
+				TargetSource:  "scanner_workflow",
+				Targets:       seedURLs,
+				TotalTargets:  len(seedURLs),
+				Status:        string(models.ScanStatusFailed),
+				ScanDuration:  time.Since(startTime),
+				ErrorMessages: []string{fmt.Sprintf("Crawler execution failed: %v", crawlerResult.Error)},
+			}
+			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, notifier.ScanServiceNotification, nil)
+		}
+
+		return nil, nil, fmt.Errorf("crawler execution failed: %w", crawlerResult.Error)
+	}
+
+	// Set crawler instance for HTTPX executor to use for root target tracking
+	s.httpxExecutor.SetCrawlerInstance(crawlerResult.CrawlerInstance)
+
+	// Step 2: Execute HTTPX probing
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(2, 5, "Probing", "Configuring HTTPX probing")
+	}
+
+	httpxConfig := s.configBuilder.BuildHTTPXConfig(crawlerResult.DiscoveredURLs)
+	httpxInput := HTTPXExecutionInput{
+		Context:              ctx,
+		DiscoveredURLs:       crawlerResult.DiscoveredURLs,
+		SeedURLs:             processedSeedURLs,
 		PrimaryRootTargetURL: primaryRootTargetURL,
 		ScanSessionID:        scanSessionID,
 		HttpxRunnerConfig:    httpxConfig,
 	}
 
-	probeResults, err := s.executeHTTPXProbing(ctx, httpxInput)
-	if err != nil {
-		return nil, nil, common.WrapError(err, "HTTPX probing failed")
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(2, 5, "Probing", fmt.Sprintf("Probing %d URLs", len(crawlerResult.DiscoveredURLs)))
 	}
 
-	diffStoreInput := ProcessDiffingAndStorageInput{
-		Ctx:                     ctx,
-		CurrentScanProbeResults: probeResults,
-		SeedURLs:                seedURLs,
-		PrimaryRootTargetURL:    primaryRootTargetURL,
-		ScanSessionID:           scanSessionID,
+	// Check for context cancellation before HTTPX execution
+	if ctx.Err() != nil {
+		if s.notificationHelper != nil {
+			interruptSummary := models.ScanSummaryData{
+				ScanSessionID: scanSessionID,
+				ScanMode:      "scan",
+				TargetSource:  "scanner_workflow",
+				Targets:       seedURLs,
+				TotalTargets:  len(seedURLs),
+				Status:        string(models.ScanStatusInterrupted),
+				ScanDuration:  time.Since(startTime),
+				Component:     "httpx",
+			}
+			s.notificationHelper.SendScanInterruptNotification(ctx, interruptSummary)
+		}
+		return nil, nil, ctx.Err()
 	}
 
-	diffStoreOutput, err := s.processDiffingAndStorage(diffStoreInput)
-	if err != nil {
-		return diffStoreOutput.UpdatedScanProbeResults, diffStoreOutput.URLDiffResults,
-			common.WrapError(err, "diffing and storage failed")
+	httpxResult := s.httpxExecutor.Execute(httpxInput)
+	if httpxResult.Error != nil {
+		if s.progressDisplay != nil {
+			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "HTTPX execution failed")
+		}
+
+		// Send error notification
+		if s.notificationHelper != nil {
+			errorSummary := models.ScanSummaryData{
+				ScanSessionID: scanSessionID,
+				ScanMode:      "scan",
+				TargetSource:  "scanner_workflow",
+				Targets:       seedURLs,
+				TotalTargets:  len(seedURLs),
+				Status:        string(models.ScanStatusFailed),
+				ScanDuration:  time.Since(startTime),
+				ErrorMessages: []string{fmt.Sprintf("HTTPX execution failed: %v", httpxResult.Error)},
+			}
+			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, notifier.ScanServiceNotification, nil)
+		}
+
+		return nil, nil, fmt.Errorf("HTTPX execution failed: %w", httpxResult.Error)
 	}
 
-	s.logger.Info().Str("session_id", scanSessionID).Msg("Scan workflow completed successfully")
-	return diffStoreOutput.UpdatedScanProbeResults, diffStoreOutput.URLDiffResults, nil
+	// Step 3: Process diffing and storage
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(3, 5, "Diffing", "Processing diffs and storage")
+	}
+
+	var urlDiffResults map[string]models.URLDiffResult
+	if s.diffProcessor != nil {
+		diffInput := ProcessDiffingAndStorageInput{
+			Ctx:                     ctx,
+			CurrentScanProbeResults: httpxResult.ProbeResults,
+			SeedURLs:                processedSeedURLs,
+			PrimaryRootTargetURL:    primaryRootTargetURL,
+			ScanSessionID:           scanSessionID,
+		}
+
+		diffOutput, err := s.diffProcessor.ProcessDiffingAndStorage(diffInput)
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Diffing and storage failed, continuing with results")
+		} else {
+			urlDiffResults = diffOutput.URLDiffResults
+			httpxResult.ProbeResults = diffOutput.UpdatedScanProbeResults
+		}
+	}
+
+	// Step 4: Workflow completed
+	if s.progressDisplay != nil {
+		s.progressDisplay.UpdateScanProgress(4, 5, "Complete", "Scan workflow completed")
+		s.progressDisplay.SetScanStatus(common.ProgressStatusComplete, fmt.Sprintf("Found %d probe results\n", len(httpxResult.ProbeResults)))
+	}
+
+	// Log resource usage after scan workflow
+	if s.resourceLimiter != nil {
+		resourceUsageAfter := s.resourceLimiter.GetResourceUsage()
+		s.logger.Info().
+			Int64("memory_mb", resourceUsageAfter.AllocMB).
+			Int("goroutines", resourceUsageAfter.Goroutines).
+			Float64("system_mem_percent", resourceUsageAfter.SystemMemUsedPercent).
+			Float64("cpu_percent", resourceUsageAfter.CPUUsagePercent).
+			Dur("scan_duration", time.Since(startTime)).
+			Int("probe_results", len(httpxResult.ProbeResults)).
+			Int("url_diffs", len(urlDiffResults)).
+			Str("session_id", scanSessionID).
+			Msg("Resource usage after scan workflow")
+	}
+
+	// NOTE: Notification is sent from the caller level (main.go or scheduler)
+	// to avoid duplicate notifications and to include report file paths
+
+	return httpxResult.ProbeResults, urlDiffResults, nil
 }
 
-// initializeScanSummary creates and initializes a scan summary with basic information.
-func (s *Scanner) initializeScanSummary(scanSessionID, targetSource, scanMode string, seedURLs []string) models.ScanSummaryData {
-	summaryData := models.GetDefaultScanSummaryData()
-	summaryData.ScanSessionID = scanSessionID
-	summaryData.TargetSource = targetSource
-	summaryData.ScanMode = scanMode
-	summaryData.Targets = seedURLs
-	summaryData.TotalTargets = len(seedURLs)
-	return summaryData
-}
+// Shutdown gracefully shuts down the scanner and its components
+func (s *Scanner) Shutdown() {
+	s.logger.Info().Msg("Shutting down scanner")
 
-// validateSeedURLs ensures that seed URLs are provided for the scan.
-func (s *Scanner) validateSeedURLs(seedURLs []string, scanSessionID, targetSource, scanMode string) error {
-	if len(seedURLs) == 0 {
-		msg := "No seed URLs provided for scan workflow"
-		s.logger.Error().Msg(msg)
-		return common.NewError(msg)
-	}
-	return nil
-}
-
-// executeScanWorkflow runs the scan workflow and returns consolidated results.
-func (s *Scanner) executeScanWorkflow(ctx context.Context, seedURLs []string, scanSessionID, targetSource string) (WorkflowResult, error) {
-	summaryDataFromWorkflow, currentProbeResults, urlDiffResults, workflowErr := s.ExecuteCompleteScanWorkflow(ctx, seedURLs, scanSessionID, targetSource)
-
-	return WorkflowResult{
-		SummaryData:    summaryDataFromWorkflow,
-		ProbeResults:   currentProbeResults,
-		URLDiffResults: urlDiffResults,
-	}, workflowErr
-}
-
-// handleWorkflowError processes errors that occur during workflow execution.
-func (s *Scanner) handleWorkflowError(summaryData models.ScanSummaryData, result WorkflowResult, logger zerolog.Logger, scanSessionID string, err error) (models.ScanSummaryData, []models.ProbeResult, []string, error) {
-	logger.Error().Err(err).Str("scanSessionID", scanSessionID).Msg("Single scan workflow execution failed")
-
-	s.updateSummaryWithResults(summaryData, result)
-	summaryData.Status = string(models.ScanStatusFailed)
-
-	if !common.ContainsCancellationError(summaryData.ErrorMessages) {
-		summaryData.ErrorMessages = append(summaryData.ErrorMessages, fmt.Sprintf("Scan workflow failed: %v", err))
+	// Log final resource usage before shutdown
+	if s.resourceLimiter != nil {
+		finalUsage := s.resourceLimiter.GetResourceUsage()
+		s.logger.Info().
+			Int64("final_memory_mb", finalUsage.AllocMB).
+			Int("final_goroutines", finalUsage.Goroutines).
+			Float64("final_system_mem_percent", finalUsage.SystemMemUsedPercent).
+			Float64("final_cpu_percent", finalUsage.CPUUsagePercent).
+			Msg("Final resource usage at scanner shutdown")
 	}
 
-	return summaryData, result.ProbeResults, nil, err
-}
-
-// handleWorkflowCancellation processes workflow cancellation scenarios.
-func (s *Scanner) handleWorkflowCancellation(summaryData models.ScanSummaryData, result WorkflowResult, logger zerolog.Logger, scanSessionID string) (models.ScanSummaryData, []models.ProbeResult, []string, error) {
-	logger.Info().Str("scanSessionID", scanSessionID).Msg("Single scan workflow interrupted by context cancellation")
-
-	s.updateSummaryWithResults(summaryData, result)
-	summaryData.Status = string(models.ScanStatusInterrupted)
-
-	if !common.ContainsCancellationError(summaryData.ErrorMessages) {
-		summaryData.ErrorMessages = append(summaryData.ErrorMessages, "Scan workflow interrupted by context cancellation")
+	// Shutdown crawler executor (which will shutdown the managed crawler)
+	if s.crawlerExecutor != nil {
+		s.crawlerExecutor.Shutdown()
 	}
 
-	return summaryData, result.ProbeResults, nil, context.Canceled
-}
-
-// generateReports creates HTML reports from probe results.
-func (s *Scanner) generateReports(ctx context.Context, gCfg *config.GlobalConfig, probeResults []models.ProbeResult, scanSessionID, scanMode, targetSource string, logger zerolog.Logger) ([]string, error) {
-	if len(probeResults) == 0 && !gCfg.ReporterConfig.GenerateEmptyReport {
-		logger.Info().Str("scanSessionID", scanSessionID).Msg("No probe results and GenerateEmptyReport is false. Skipping report generation")
-		return nil, nil
+	// Shutdown HTTPX executor (which will shutdown the managed httpx runner)
+	if s.httpxExecutor != nil {
+		s.httpxExecutor.Shutdown()
 	}
 
-	htmlReporter, err := reporter.NewHtmlReporter(&gCfg.ReporterConfig, logger)
-	if err != nil {
-		return nil, common.WrapError(err, "failed to initialize HTML reporter")
+	// Stop resource limiter
+	if s.resourceLimiter != nil {
+		s.resourceLimiter.Stop()
 	}
 
-	baseReportFilename := s.buildReportFilename(scanSessionID, scanMode, targetSource)
-
-	probeResultsPtr := s.convertToPointerSlice(probeResults)
-
-	generatedPaths, err := htmlReporter.GenerateReport(probeResultsPtr, baseReportFilename)
-	if err != nil {
-		return nil, common.WrapError(err, "failed to generate HTML report(s)")
-	}
-
-	s.logReportGeneration(logger, scanSessionID, generatedPaths)
-	return generatedPaths, nil
-}
-
-// handleReportError processes errors that occur during report generation.
-func (s *Scanner) handleReportError(summaryData models.ScanSummaryData, result WorkflowResult, logger zerolog.Logger, err error) (models.ScanSummaryData, []models.ProbeResult, []string, error) {
-	summaryData.Status = string(models.ScanStatusFailed)
-	msg := fmt.Sprintf("Failed to generate HTML report(s): %v", err)
-	summaryData.ErrorMessages = append(summaryData.ErrorMessages, msg)
-	logger.Error().Err(err).Msg(msg)
-
-	s.updateSummaryWithResults(summaryData, result)
-	return summaryData, result.ProbeResults, nil, err
-}
-
-// updateSummaryWithResults updates the summary data with workflow results.
-func (s *Scanner) updateSummaryWithResults(summaryData models.ScanSummaryData, result WorkflowResult) {
-	summaryData.ProbeStats = result.SummaryData.ProbeStats
-	summaryData.DiffStats = result.SummaryData.DiffStats
-
-	if result.SummaryData.ScanDuration > 0 {
-		summaryData.ScanDuration = result.SummaryData.ScanDuration
-	}
-
-	summaryData.ErrorMessages = append(summaryData.ErrorMessages, result.SummaryData.ErrorMessages...)
-}
-
-// finalizeScanStatus sets the final status of the scan based on current state.
-func (s *Scanner) finalizeScanStatus(summaryData models.ScanSummaryData) {
-	if len(summaryData.ErrorMessages) == 0 {
-		summaryData.Status = string(models.ScanStatusCompleted)
-	} else {
-		summaryData.Status = string(models.ScanStatusPartialComplete)
-	}
-}
-
-// buildReportFilename creates a standardized filename for the report (without extension).
-func (s *Scanner) buildReportFilename(scanSessionID, scanMode, targetSource string) string {
-	sanitizedTargetSource := urlhandler.SanitizeFilename(targetSource)
-	return fmt.Sprintf("%s_%s_%s_report", scanSessionID, scanMode, sanitizedTargetSource)
-}
-
-// convertToPointerSlice converts a slice of ProbeResult to a slice of pointers.
-func (s *Scanner) convertToPointerSlice(probeResults []models.ProbeResult) []*models.ProbeResult {
-	probeResultsPtr := make([]*models.ProbeResult, len(probeResults))
-	for i := range probeResults {
-		probeResultsPtr[i] = &probeResults[i]
-	}
-	return probeResultsPtr
-}
-
-// logReportGeneration logs the result of report generation.
-func (s *Scanner) logReportGeneration(logger zerolog.Logger, scanSessionID string, generatedPaths []string) {
-	if len(generatedPaths) == 0 {
-		logger.Info().Str("scanSessionID", scanSessionID).Msg("HTML report generation resulted in no files")
-	} else {
-		logger.Info().Str("scanSessionID", scanSessionID).Strs("paths", generatedPaths).Msg("HTML report(s) generated successfully")
-	}
+	s.logger.Info().Msg("Scanner shutdown complete")
 }

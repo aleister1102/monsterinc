@@ -383,15 +383,35 @@ type FileChangeInfo struct {
 	DiffReportPath *string         // Path to the generated HTML diff report for this specific change
 	ExtractedPaths []ExtractedPath // Paths extracted from the content (for JS files)
 	CycleID        string          // Unique identifier for the monitoring cycle
+	BatchInfo      *BatchInfo      `json:"batch_info,omitempty"` // Information about the batch this change belongs to
 }
 
 // MonitorFetchErrorInfo holds information about an error encountered during file fetching or processing.
 type MonitorFetchErrorInfo struct {
-	URL        string    `json:"url"`
-	Error      string    `json:"error"`  // Error message
-	Source     string    `json:"source"` // e.g., "fetch", "process", "store_history"
-	OccurredAt time.Time `json:"occurred_at"`
-	CycleID    string    `json:"cycle_id"` // Unique identifier for the monitoring cycle
+	URL        string     `json:"url"`
+	Error      string     `json:"error"`  // Error message
+	Source     string     `json:"source"` // e.g., "fetch", "process", "store_history"
+	OccurredAt time.Time  `json:"occurred_at"`
+	CycleID    string     `json:"cycle_id"`             // Unique identifier for the monitoring cycle
+	BatchInfo  *BatchInfo `json:"batch_info,omitempty"` // Information about the batch this error occurred in
+}
+
+// BatchInfo holds information about a monitoring batch
+type BatchInfo struct {
+	BatchNumber      int `json:"batch_number"`       // Current batch number (1-based)
+	TotalBatches     int `json:"total_batches"`      // Total number of batches in the cycle
+	BatchSize        int `json:"batch_size"`         // Number of URLs in this batch
+	ProcessedInBatch int `json:"processed_in_batch"` // Number of URLs processed in this batch so far
+}
+
+// NewBatchInfo creates a new BatchInfo instance
+func NewBatchInfo(batchNumber, totalBatches, batchSize, processedInBatch int) *BatchInfo {
+	return &BatchInfo{
+		BatchNumber:      batchNumber,
+		TotalBatches:     totalBatches,
+		BatchSize:        batchSize,
+		ProcessedInBatch: processedInBatch,
+	}
 }
 
 // ScanStatus defines the possible states of a scan.
@@ -465,8 +485,90 @@ type MonitorCycleCompleteData struct {
 	CycleID        string           // Unique identifier for the monitoring cycle
 	ChangedURLs    []string         // List of URLs that had changes detected during this cycle.
 	FileChanges    []FileChangeInfo // Detailed information about file changes
-	ReportPath     string           // Path to the aggregated HTML diff report for all monitored URLs.
+	ReportPaths    []string         // Paths to the aggregated HTML diff reports for all monitored URLs.
 	TotalMonitored int              // Total number of URLs being monitored in this cycle.
 	Timestamp      time.Time        // Timestamp when the cycle completed.
+	BatchStats     *BatchStats      `json:"batch_stats,omitempty"` // Statistics about batch processing for this cycle
 	// Add any other summary fields you might want, e.g., total errors in cycle.
+}
+
+// BatchStats holds statistics about batch processing for a monitoring cycle
+type BatchStats struct {
+	UsedBatching       bool `json:"used_batching"`        // Whether batching was used for this cycle
+	TotalBatches       int  `json:"total_batches"`        // Total number of batches processed
+	CompletedBatches   int  `json:"completed_batches"`    // Number of batches that completed successfully
+	AvgBatchSize       int  `json:"avg_batch_size"`       // Average number of URLs per batch
+	MaxBatchSize       int  `json:"max_batch_size"`       // Maximum batch size configured
+	TotalURLsProcessed int  `json:"total_urls_processed"` // Total number of URLs processed across all batches
+}
+
+// NewBatchStats creates a new BatchStats instance
+func NewBatchStats(usedBatching bool, totalBatches, completedBatches, avgBatchSize, maxBatchSize, totalURLsProcessed int) *BatchStats {
+	return &BatchStats{
+		UsedBatching:       usedBatching,
+		TotalBatches:       totalBatches,
+		CompletedBatches:   completedBatches,
+		AvgBatchSize:       avgBatchSize,
+		MaxBatchSize:       maxBatchSize,
+		TotalURLsProcessed: totalURLsProcessed,
+	}
+}
+
+// MonitorStartData holds data for the monitor service's start notification.
+type MonitorStartData struct {
+	CycleID       string    // Unique identifier for the monitoring cycle
+	TotalTargets  int       // Total number of URLs to be monitored
+	TargetSource  string    // Source of the targets (e.g., file path)
+	Timestamp     time.Time // Timestamp when monitoring started
+	Mode          string    // Mode of the monitoring (e.g., "automated")
+	CycleInterval int       // Interval between cycles in minutes
+}
+
+// MonitorInterruptData holds data for the monitor service's interrupt notification.
+type MonitorInterruptData struct {
+	CycleID          string    // Unique identifier for the monitoring cycle
+	TotalTargets     int       // Total number of URLs being monitored
+	ProcessedTargets int       // Number of URLs processed before interruption
+	Timestamp        time.Time // Timestamp when monitoring was interrupted
+	Reason           string    // Reason for interruption (e.g., "user_signal", "context_canceled")
+	LastActivity     string    // Description of last activity before interruption
+}
+
+// MonitorErrorData holds data for the monitor service's error notification.
+type MonitorErrorData struct {
+	CycleID      string    // Unique identifier for the monitoring cycle
+	TotalTargets int       // Total number of URLs being monitored
+	Timestamp    time.Time // Timestamp when error occurred
+	ErrorType    string    // Type of error (e.g., "batch_processing", "initialization", "runtime")
+	ErrorMessage string    // Detailed error message
+	Component    string    // Component where error occurred
+	Recoverable  bool      // Whether the error is recoverable
+}
+
+// MonitorStatus defines the possible states of a monitor service.
+type MonitorStatus string
+
+const (
+	MonitorStatusStarted     MonitorStatus = "STARTED"
+	MonitorStatusRunning     MonitorStatus = "RUNNING"
+	MonitorStatusCompleted   MonitorStatus = "COMPLETED"
+	MonitorStatusInterrupted MonitorStatus = "INTERRUPTED"
+	MonitorStatusError       MonitorStatus = "ERROR"
+	MonitorStatusStopped     MonitorStatus = "STOPPED"
+)
+
+// GetColor returns appropriate Discord color for the monitor status
+func (ms MonitorStatus) GetColor() int {
+	switch ms {
+	case MonitorStatusStarted, MonitorStatusRunning:
+		return DiscordColorInfo
+	case MonitorStatusCompleted:
+		return DiscordColorSuccess
+	case MonitorStatusInterrupted, MonitorStatusStopped:
+		return DiscordColorWarning
+	case MonitorStatusError:
+		return DiscordColorError
+	default:
+		return DiscordColorDefault
+	}
 }

@@ -135,7 +135,7 @@ func (pr *ParquetReader) buildParquetFilePath(rootTargetURL string) (string, err
 func (pr *ParquetReader) validateFileExists(filePath string) (os.FileInfo, error) {
 	fileInfo, err := os.Stat(filePath)
 	if os.IsNotExist(err) {
-		pr.logger.Info().Str("file", filePath).Msg("Parquet file not found for target")
+		// pr.logger.Info().Str("file", filePath).Msg("Parquet file not found for target")
 		return nil, nil // Not an error - file simply doesn't exist yet
 	}
 	if err != nil {
@@ -152,13 +152,23 @@ func (pr *ParquetReader) readProbeResultsFromFile(filePath, contextualRootTarget
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			pr.logger.Error().Err(err).Str("file", filePath).Msg("Failed to close Parquet file")
+		}
+	}()
 
 	reader, err := pr.createParquetReader(file)
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() {
+		err := reader.Close()
+		if err != nil {
+			pr.logger.Error().Err(err).Str("file", filePath).Msg("Failed to close Parquet reader")
+		}
+	}()
 
 	results, err := pr.readAllRecords(reader, contextualRootTargetURL)
 	if err != nil {
@@ -184,6 +194,8 @@ func (pr *ParquetReader) openParquetFile(filePath string) (*os.File, error) {
 }
 
 // createParquetReader creates a configured Parquet reader
+//
+//nolint:staticcheck // TODO: Replace deprecated parquet.Reader with newer API
 func (pr *ParquetReader) createParquetReader(file *os.File) (*parquet.Reader, error) {
 	readerOptions := pr.buildReaderOptions()
 	reader := parquet.NewReader(file, readerOptions...)
@@ -194,15 +206,12 @@ func (pr *ParquetReader) createParquetReader(file *os.File) (*parquet.Reader, er
 func (pr *ParquetReader) buildReaderOptions() []parquet.ReaderOption {
 	var options []parquet.ReaderOption
 
-	if pr.config.BufferSize > 0 {
-		// Note: parquet-go may not have ReadBufferSize option
-		// This is a placeholder for potential future buffer size configuration
-	}
-
 	return options
 }
 
 // readAllRecords reads all records from the Parquet reader
+//
+//nolint:staticcheck // TODO: Replace deprecated parquet.Reader with newer API
 func (pr *ParquetReader) readAllRecords(reader *parquet.Reader, contextualRootTargetURL string) ([]models.ProbeResult, error) {
 	var results []models.ProbeResult
 	row := models.ParquetProbeResult{} // Reusable buffer

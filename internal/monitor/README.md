@@ -1,79 +1,103 @@
 # Monitor Package
 
-The monitor package provides a comprehensive file monitoring system for tracking changes in HTML and JavaScript files. It offers a modular architecture with separate components for different monitoring responsibilities.
+The monitor package provides continuous monitoring capabilities for MonsterInc security scanner. It automatically tracks changes to web resources, detects content modifications, and generates comprehensive reports when changes occur.
 
 ## Overview
 
-The monitoring service continuously watches specified URLs for content changes, generates diffs when changes are detected, extracts paths from JavaScript files, and sends notifications about file modifications.
+The monitor package enables:
+- **Continuous Monitoring**: Automated checking of URLs at configurable intervals
+- **Change Detection**: Content comparison using cryptographic hashing
+- **Event Aggregation**: Batched notification delivery for efficiency
+- **Content Diffing**: Detailed analysis of what changed between versions
+- **Path Extraction**: URL and endpoint discovery from JavaScript files
+- **Report Generation**: Visual HTML diff reports for change analysis
+- **Immediate Interrupt Response**: Context-aware cancellation across all monitoring operations
+
+**Interrupt Handling Features:**
+- **Context propagation** - cancellation signals immediately stop all URL checking
+- **Safe operation termination** - in-progress HTTP requests are cancelled within timeout
+- **Event aggregator shutdown** - graceful termination of notification batching
+- **Resource cleanup** - proper cleanup of active connections and temporary data
 
 ## Architecture
 
-The package follows a modular design with the following components:
-
-### Core Components
-
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│  MonitoringService  │ ──► │   URLManager     │ ──► │  CycleTracker   │
-│  (Orchestrator)     │    │  (URL Management)│    │ (Cycle Tracking)│
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-         │                        │                        │
-         ▼                        ▼                        ▼
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│  EventAggregator│    │   URLChecker     │    │ URLMutexManager │
-│  (Events/Notif) │    │ (Content Check)  │    │ (Concurrency)   │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-         │                        │
-         ▼                        ▼
-┌─────────────────┐    ┌──────────────────┐
-│ContentProcessor │    │  External Deps   │
-│ (Hash/Process)  │    │ (Fetcher/Differ) │
-└─────────────────┘    └──────────────────┘
+┌─────────────────────┐    ┌──────────────────────┐
+│ MonitoringService   │ ──► │    URLManager        │
+│  (Main Service)     │    │ (URL Collection)     │
+└─────────────────────┘    └──────────────────────┘
+         │                          │
+         ▼                          ▼
+┌─────────────────────┐    ┌──────────────────────┐
+│    URLChecker       │    │   CycleTracker       │
+│ (Change Detection)  │    │ (Cycle Management)   │
+└─────────────────────┘    └──────────────────────┘
+         │                          │
+         ▼                          ▼
+┌─────────────────────┐    ┌──────────────────────┐
+│ ContentProcessor    │    │  EventAggregator     │
+│ (Content Analysis)  │    │ (Event Batching)     │
+└─────────────────────┘    └──────────────────────┘
 ```
 
 ## File Structure
 
-### `service.go`
-**Main monitoring service orchestrator**
-- Coordinates all monitoring operations
-- Manages service lifecycle
-- Integrates all components
-- Provides main API interface
+### Core Components
 
-### `url_manager.go`
-**URL and cycle management**
+- **`service.go`** - Main monitoring service and orchestration
+- **`url_checker.go`** - Individual URL change detection logic
+- **`content_processor.go`** - Content processing and hashing
+- **`event_aggregator.go`** - Event batching and notification management
+- **`cycle_tracker.go`** - Monitoring cycle state management
 
-#### Components:
-- **`URLManager`**: Manages the list of monitored URLs
-- **`CycleTracker`**: Tracks changes within monitoring cycles
-- **`URLMutexManager`**: Prevents concurrent processing of same URL
+### Supporting Components
 
-### `url_checker.go`
-**Individual URL checking logic**
-- Fetches content from URLs
-- Detects changes by comparing hashes
-- Generates content diffs
-- Extracts paths from JavaScript files
-- Stores history records
+- **`url_manager.go`** - URL collection and validation
+- **`url_mutex_manager.go`** - Thread-safe URL access coordination
 
-### `content_processor.go`
-**Content processing utilities**
-- Calculates SHA256 hashes
-- Processes fetched content
-- Creates monitored file update records
+## Features
 
-### `event_aggregator.go`
-**Event aggregation and notifications**
-- Aggregates file change events
-- Aggregates fetch error events
-- Sends periodic notifications
-- Handles immediate notifications for critical events
+### 1. Continuous URL Monitoring
 
-## Usage
+**Capabilities:**
+- Configurable check intervals (seconds to hours)
+- Concurrent URL checking with limits
+- HTTP timeout and retry handling
+- Content size limits for efficiency
+- TLS verification options
 
-### Basic Setup
+### 2. Change Detection
+
+**Detection Methods:**
+- SHA-256 content hashing for accuracy
+- ETag and Last-Modified header support
+- Content-type specific processing
+- Path extraction from JavaScript files
+- Historical comparison with previous versions
+
+### 3. Event Aggregation
+
+**Features:**
+- Time-based event batching
+- Maximum event count limits
+- Automatic notification delivery
+- Error event collection
+- Graceful shutdown handling
+
+## Usage Examples
+
+### Basic Monitoring Setup
 
 ```go
+import (
+    "github.com/aleister1102/monsterinc/internal/monitor"
+    "github.com/aleister1102/monsterinc/internal/config"
+    "context"
+    "os"
+    "os/signal"
+    "syscall"
+)
+
 // Initialize monitoring service
 monitoringService, err := monitor.NewMonitoringService(
     globalConfig,
@@ -81,252 +105,342 @@ monitoringService, err := monitor.NewMonitoringService(
     notificationHelper,
 )
 if err != nil {
-    log.Fatal("Failed to initialize monitoring service:", err)
+    return fmt.Errorf("monitoring initialization failed: %w", err)
 }
 
-// Preload URLs to monitor
-monitoringService.Preload([]string{
-    "https://example.com/app.js",
-    "https://example.com/style.css",
-})
+// Setup context with cancellation for interrupt handling
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
 
-// Add individual URLs
-monitoringService.AddMonitorUrl("https://example.com/new-file.js")
+// Handle interrupt signals
+sigChan := make(chan os.Signal, 1)
+signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+go func() {
+    <-sigChan
+    logger.Info().Msg("Interrupt signal received, stopping monitoring service...")
+    cancel() // This immediately stops all monitoring operations
+    monitoringService.Stop() // Additional cleanup
+}()
+
+// Set parent context for cancellation propagation
+monitoringService.SetParentContext(ctx)
+
+// Add URLs to monitor
+monitoringService.AddMonitorUrl("https://example.com/app.js")
+monitoringService.AddMonitorUrl("https://example.com/config.json")
+
+// Monitor will respect context cancellation and stop immediately when interrupted
 ```
 
-### Checking URLs
+### Loading URLs from File
 
 ```go
-// Check a single URL for changes
-monitoringService.CheckURL("https://example.com/app.js")
+// Load URLs from file source
+err := monitoringService.LoadAndMonitorFromSources("monitor-targets.txt")
+if err != nil {
+    logger.Error().Err(err).Msg("Failed to load monitor URLs")
+}
 
-// Trigger end-of-cycle report
-monitoringService.TriggerCycleEndReport()
+// Preload initial URL set
+initialURLs := []string{
+    "https://api.example.com/endpoints.json",
+    "https://example.com/static/main.js",
+}
+monitoringService.Preload(initialURLs)
 ```
 
-### Service Lifecycle
+### Manual URL Checking
 
 ```go
-// Set parent context
-monitoringService.SetParentContext(parentCtx)
+// Check specific URL immediately
+monitoringService.CheckURL("https://example.com/critical-config.js")
 
-// Generate new cycle ID
+// Get monitoring statistics
+stats := monitoringService.GetMonitoringStats()
+fmt.Printf("Total monitored: %v\n", stats["total_monitored"])
+fmt.Printf("Changes detected: %v\n", stats["changes_detected"])
+
+// Get currently monitored URLs
+urls := monitoringService.GetCurrentlyMonitorUrls()
+```
+
+### Cycle Management
+
+```go
+// Generate new monitoring cycle
 cycleID := monitoringService.GenerateNewCycleID()
+monitoringService.SetCurrentCycleID(cycleID)
 
-// Stop the service
-monitoringService.Stop()
+// Trigger cycle completion report
+monitoringService.TriggerCycleEndReport()
 ```
 
 ## Configuration
 
-The monitoring service is configured through the global configuration:
+### Monitor Configuration
 
 ```yaml
 monitor_config:
-  enabled: true
-  check_interval_seconds: 300
-  aggregation_interval_seconds: 600
-  max_aggregated_events: 50
-  max_concurrent_checks: 10
-  http_timeout_seconds: 30
-  max_content_size: 10485760  # 10MB
-  store_full_content_on_change: true
-  monitor_insecure_skip_verify: false
+  enabled: true                          # Enable monitoring service
+  check_interval_seconds: 300            # URL check frequency (5 minutes)
+  aggregation_interval_seconds: 1800     # Notification batching interval (30 minutes)
+  max_concurrent_checks: 10              # Maximum parallel URL checks
+  http_timeout_seconds: 30               # HTTP request timeout
+  max_content_size: 10485760             # Maximum content size (10MB)
+  monitor_insecure_skip_verify: false    # Skip TLS verification
+  store_full_content_on_change: true     # Store complete content on changes
+  max_aggregated_events: 100             # Maximum events before forced send
+  initial_monitor_urls: []               # URLs to monitor at startup
+  html_file_extensions:                  # HTML file extensions
+    - ".html"
+    - ".htm"
+    - ".xhtml"
+  js_file_extensions:                    # JavaScript file extensions
+    - ".js"
+    - ".mjs"
+    - ".jsx"
 ```
 
-### Key Configuration Options
+### Configuration Options
 
-- **`enabled`**: Enable/disable monitoring
-- **`check_interval_seconds`**: How often to check URLs
-- **`aggregation_interval_seconds`**: How often to send aggregated notifications
-- **`max_aggregated_events`**: Maximum events before forcing immediate notification
-- **`max_concurrent_checks`**: Maximum concurrent URL checks
-- **`store_full_content_on_change`**: Whether to store full content when changes detected
+- **`check_interval_seconds`**: How frequently to check URLs for changes
+- **`aggregation_interval_seconds`**: Notification batching interval
+- **`max_concurrent_checks`**: Concurrent URL checking limit
+- **`max_content_size`**: Maximum file size to monitor (bytes)
+- **`store_full_content_on_change`**: Whether to store complete content in history
 
-## Features
+## Change Detection Process
 
-### 1. Change Detection
-- **Hash-based comparison**: Uses SHA256 hashes to detect content changes
-- **New file detection**: Identifies when URLs are monitored for the first time
-- **Content diffing**: Generates detailed diffs when changes are detected
+### 1. Content Fetching
 
-### 2. Path Extraction
-- **JavaScript analysis**: Extracts paths and URLs from JavaScript files
-- **Content type detection**: Automatically identifies JavaScript content
-- **Regex and JSluice support**: Multiple extraction methods
-
-### 3. Reporting
-- **Single diff reports**: Individual HTML reports for each change
-- **Aggregated reports**: Combined reports for multiple changes in a cycle
-- **Asset embedding**: Self-contained HTML reports
-
-### 4. Notifications
-- **Event aggregation**: Batches events to reduce notification spam
-- **Discord integration**: Sends notifications to Discord webhooks
-- **Error reporting**: Separate notifications for fetch/processing errors
-
-### 5. Concurrency Control
-- **Per-URL mutexes**: Prevents concurrent processing of same URL
-- **Configurable limits**: Control maximum concurrent operations
-- **Resource cleanup**: Automatic cleanup of unused resources
-
-## Data Flow
-
+```go
+// Fetch URL content with proper context handling
+fetchResult, err := urlChecker.fetchURLContentWithContext(ctx, url)
+if err != nil {
+    return urlChecker.createErrorResult(url, cycleID, "fetch", err)
+}
 ```
-1. URL Added to Monitor List
-   │
-   ▼
-2. URL Queued for Checking
-   │
-   ▼
-3. Content Fetched from URL
-   │
-   ▼
-4. Content Processed (Hashed)
-   │
-   ▼
-5. Changes Detected (Compare with History)
-   │
-   ▼
-6. Diff Generated (if changed)
-   │
-   ▼
-7. Paths Extracted (if JavaScript)
-   │
-   ▼
-8. Record Stored in History
-   │
-   ▼
-9. Events Aggregated
-   │
-   ▼
-10. Notifications Sent
+
+### 2. Content Processing
+
+```go
+// Process and hash content
+processedUpdate, err := urlChecker.processURLContent(url, fetchResult)
+if err != nil {
+    return urlChecker.createErrorResult(url, cycleID, "process", err)
+}
+```
+
+### 3. Historical Comparison
+
+```go
+// Compare with last known state
+lastRecord, err := urlChecker.getLastKnownRecord(url)
+if urlChecker.hasContentChanged(lastRecord, processedUpdate) {
+    // Generate detailed diff
+    changeInfo, diffResult, err := urlChecker.detectURLChanges(
+        url, processedUpdate, fetchResult)
+}
+```
+
+### 4. Report Generation
+
+```go
+// Create individual diff report
+reportPath := urlChecker.generateSingleDiffReport(
+    url, diffResult, lastRecord, processedUpdate, fetchResult)
+
+// Extract paths from JavaScript content
+extractedPaths := urlChecker.extractPathsIfJavaScript(url, fetchResult)
+```
+
+## Event Types
+
+### File Change Events
+
+```go
+type FileChangeInfo struct {
+    URL            string
+    OldHash        string
+    NewHash        string
+    ContentType    string
+    ChangeTime     time.Time
+    DiffReportPath *string
+    ExtractedPaths []ExtractedPath
+    CycleID        string
+}
+```
+
+### Error Events
+
+```go
+type MonitorFetchErrorInfo struct {
+    URL        string
+    Error      string
+    Source     string    // "fetch", "process", "store"
+    OccurredAt time.Time
+    CycleID    string
+}
+```
+
+## Integration Examples
+
+### With Scanner Service
+
+```go
+// Monitor URLs discovered during scans
+scanner.OnScanComplete(func(results []models.ProbeResult) {
+    for _, result := range results {
+        if shouldMonitor(result) {
+            monitoringService.AddMonitorUrl(result.InputURL)
+        }
+    }
+})
+```
+
+### With Notification System
+
+```go
+// Automatic change notifications
+monitor.OnChangesDetected(func(changes []models.FileChangeInfo) {
+    // Generate aggregated report
+    reportPath := diffReporter.GenerateAggregatedDiffReport(changes)
+    
+    // Send notification with attachments
+    notifier.SendFileChangesNotification(ctx, changes, reportPath)
+})
+```
+
+### With Scheduler
+
+```go
+// Scheduled monitoring cycles
+scheduler.ScheduleMonitorTask(scheduler.MonitorTaskDefinition{
+    Name:     "continuous-monitoring",
+    Interval: 4 * time.Hour,
+    Config: scheduler.MonitorTaskConfig{
+        CheckInterval: 300,
+        MaxChecks:     200,
+    },
+})
+```
+
+## Performance Optimization
+
+### Concurrency Control
+
+```go
+// Configurable concurrency limits
+func (s *MonitoringService) CheckURL(url string) {
+    if !s.acquireURLMutex() {
+        return // Skip if at capacity
+    }
+    defer s.releaseURLMutex(url)
+    
+    result := s.performURLCheck(url)
+    s.handleCheckResult(url, result)
+}
+```
+
+### Memory Management
+
+```go
+// Efficient content processing
+func (cp *ContentProcessor) ProcessContent(url string, content []byte, contentType string) {
+    // Stream processing for large content
+    if len(content) > maxSizeForMemory {
+        return cp.processLargeContent(url, content, contentType)
+    }
+    return cp.processSmallContent(url, content, contentType)
+}
+```
+
+### Network Optimization
+
+```go
+// HTTP optimization with conditional requests
+type FetchFileContentInput struct {
+    URL                  string
+    PreviousETag         string    // For conditional requests
+    PreviousLastModified string    // For If-Modified-Since
+    Context              context.Context
+}
 ```
 
 ## Error Handling
 
-The monitoring service handles various error scenarios:
+### Retry Logic
 
-- **Network errors**: Timeout, connection refused, DNS failures
-- **Content errors**: Invalid content, size limits exceeded
-- **Processing errors**: Hash calculation, diff generation failures
-- **Storage errors**: History store failures
-
-All errors are:
-1. Logged with appropriate detail
-2. Converted to `MonitorFetchErrorInfo` objects
-3. Aggregated and reported via notifications
-4. Do not stop the monitoring of other URLs
-
-## Extension Points
-
-### Custom Content Processors
 ```go
-// Implement custom processing logic
-type CustomProcessor struct {
-    logger zerolog.Logger
-}
-
-func (cp *CustomProcessor) ProcessContent(url string, content []byte, contentType string) (*models.MonitoredFileUpdate, error) {
-    // Custom processing logic
-    return &models.MonitoredFileUpdate{...}, nil
+// Automatic retry for transient errors
+func (uc *URLChecker) fetchWithRetry(ctx context.Context, url string) (*common.FetchFileContentResult, error) {
+    var lastErr error
+    for attempt := 0; attempt < maxRetries; attempt++ {
+        result, err := uc.fetcher.FetchFileContent(fetchInput)
+        if err == nil {
+            return result, nil
+        }
+        
+        if !isRetryableError(err) {
+            return nil, err
+        }
+        
+        lastErr = err
+        time.Sleep(retryDelay * time.Duration(attempt+1))
+    }
+    return nil, lastErr
 }
 ```
 
-### Custom Path Extractors
+### Error Aggregation
+
 ```go
-// Add custom path extraction logic
-pathExtractor, err := extractor.NewPathExtractor(config.ExtractorConfig{
-    CustomRegexes: []string{
-        `custom-pattern-here`,
-    },
-}, logger)
+// Batch error notifications
+func (ea *EventAggregator) AddFetchErrorEvent(errorInfo models.MonitorFetchErrorInfo) {
+    if !ea.shouldAcceptEvent() {
+        return
+    }
+    
+    ea.fetchErrorsMutex.Lock()
+    ea.fetchErrors = append(ea.fetchErrors, errorInfo)
+    ea.fetchErrorsMutex.Unlock()
+}
 ```
+
+## Thread Safety
+
+- All public methods are thread-safe
+- URL-level mutexes prevent concurrent checks of the same resource
+- Event aggregation uses proper synchronization
+- Context-based cancellation for graceful shutdown
+- Atomic operations for counters and state
 
 ## Dependencies
 
-### Internal Dependencies
-- `internal/common`: HTTP client and utilities
-- `internal/config`: Configuration management
-- `internal/datastore`: History storage (Parquet files)
-- `internal/differ`: Content diffing
-- `internal/extractor`: Path extraction
-- `internal/models`: Data models
-- `internal/notifier`: Notification system
-- `internal/reporter`: Report generation
-
-### External Dependencies
-- `github.com/rs/zerolog`: Structured logging
-- Content diffing libraries
-- HTTP client libraries
-
-## Performance Considerations
-
-### Memory Usage
-- Content is processed in memory
-- Full content storage is optional
-- Diff results can be large for big files
-
-### Disk Usage
-- History stored in compressed Parquet files
-- Report files generated on disk
-- Configurable cleanup policies
-
-### Network Usage
-- Periodic fetching of monitored URLs
-- Configurable intervals and timeouts
-- Respect for HTTP caching headers (ETag, Last-Modified)
+- **github.com/aleister1102/monsterinc/internal/common** - HTTP client and utilities
+- **github.com/aleister1102/monsterinc/internal/datastore** - File history persistence
+- **github.com/aleister1102/monsterinc/internal/differ** - Content diffing capabilities
+- **github.com/aleister1102/monsterinc/internal/extractor** - Path extraction from content
+- **github.com/aleister1102/monsterinc/internal/reporter** - HTML diff report generation
+- **github.com/aleister1102/monsterinc/internal/notifier** - Discord notifications
+- **github.com/aleister1102/monsterinc/internal/urlhandler** - URL management
 
 ## Best Practices
 
-1. **URL Selection**: Monitor only essential files to reduce resource usage
-2. **Interval Configuration**: Balance between responsiveness and resource usage
-3. **Content Size Limits**: Set appropriate limits to prevent memory issues
-4. **Error Monitoring**: Monitor aggregated error notifications for issues
-5. **Regular Cleanup**: Implement periodic cleanup of old reports and history
+### Monitoring Strategy
+- Monitor critical configuration files and API endpoints
+- Include JavaScript files for security analysis
+- Set appropriate check intervals based on change frequency
+- Use content size limits to avoid performance issues
 
-## Troubleshooting
+### Error Management
+- Monitor error rates and adjust timeouts accordingly
+- Review aggregated error reports for patterns
+- Implement proper alerting for persistent failures
+- Handle network connectivity issues gracefully
 
-### Common Issues
-
-1. **High Memory Usage**
-   - Reduce `max_content_size`
-   - Disable `store_full_content_on_change`
-   - Reduce `max_concurrent_checks`
-
-2. **Network Timeouts**
-   - Increase `http_timeout_seconds`
-   - Check network connectivity
-   - Verify URLs are accessible
-
-3. **Missing Notifications**
-   - Check Discord webhook configuration
-   - Verify `aggregation_interval_seconds` setting
-   - Check notification helper setup
-
-4. **Storage Issues**
-   - Verify write permissions for storage path
-   - Check available disk space
-   - Review Parquet file configuration
-
-### Debug Mode
-
-Enable debug logging to see detailed monitoring operations:
-
-```go
-logger := logger.New(config.LogConfig{
-    LogLevel: "debug",
-})
-```
-
-## Migration from Legacy Code
-
-If migrating from the old monolithic service:
-
-1. Replace `NewProcessor` with `NewContentProcessor`
-2. Use new modular service constructor
-3. Update configuration references
-4. Review error handling patterns
-5. Test notification integrations
-
-The new architecture maintains API compatibility while providing better modularity and testability. 
+### Performance Tuning
+- Adjust concurrent check limits based on system resources
+- Use appropriate aggregation intervals to balance responsiveness and efficiency
+- Monitor memory usage during large file processing
+- Implement proper cleanup for old monitoring data 
