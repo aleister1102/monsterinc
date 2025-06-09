@@ -14,19 +14,20 @@ import (
 )
 
 // GenerateDiffReport creates HTML report for multiple URLs with automatic file size-based splitting
-func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string, cycleID string) ([]string, error) {
+func (r *HtmlDiffReporter) GenerateDiffReport(changedURLs []string, cycleID string) ([]string, error) {
 	r.logger.Info().
-		Strs("monitored_urls", monitoredURLs).
-		Int("monitored_count", len(monitoredURLs)).
+		Strs("changed_urls", changedURLs).
+		Int("changed_count", len(changedURLs)).
 		Str("cycle_id", cycleID).
-		Msg("Generating aggregated HTML diff report for monitored URLs")
+		Msg("Generating aggregated HTML diff report for changed URLs only")
 
 	if r.historyStore == nil {
 		r.logger.Error().Msg("HistoryStore is not available in HtmlDiffReporter")
 		return nil, errors.New("historyStore is not configured for HtmlDiffReporter")
 	}
 
-	diffResults, err := r.fetchLatestDiffResults(monitoredURLs)
+	// Fetch only changed URLs instead of all monitored URLs
+	diffResults, err := r.fetchLatestDiffResults(changedURLs)
 	if err != nil {
 		return nil, err
 	}
@@ -64,8 +65,8 @@ func (r *HtmlDiffReporter) GenerateSingleDiffReport(urlStr string, diffResult *m
 }
 
 // fetchLatestDiffResults retrieves latest diff results from history store
-func (r *HtmlDiffReporter) fetchLatestDiffResults(monitoredURLs []string) (map[string]*models.ContentDiffResult, error) {
-	latestDiffsMap, err := r.historyStore.GetAllLatestDiffResultsForURLs(monitoredURLs)
+func (r *HtmlDiffReporter) fetchLatestDiffResults(changedURLs []string) (map[string]*models.ContentDiffResult, error) {
+	latestDiffsMap, err := r.historyStore.GetAllLatestDiffResultsForURLs(changedURLs)
 	if err != nil {
 		r.logger.Error().Err(err).Msg("Failed to get latest diff results from history store")
 		return nil, fmt.Errorf("failed to get latest diff results: %w", err)
@@ -73,8 +74,8 @@ func (r *HtmlDiffReporter) fetchLatestDiffResults(monitoredURLs []string) (map[s
 
 	r.logger.Info().
 		Int("diff_results_retrieved", len(latestDiffsMap)).
-		Int("monitored_urls_requested", len(monitoredURLs)).
-		Msg("Retrieved latest diff results from history store")
+		Int("changed_urls_requested", len(changedURLs)).
+		Msg("Retrieved latest diff results from history store for changed URLs only")
 
 	return latestDiffsMap, nil
 }
