@@ -44,7 +44,13 @@ func (cr *Crawler) handleRequest(r *colly.Request) {
 			Str("path", r.URL.Path).
 			Msg("Abort request (file extension not allowed)")
 		r.Abort()
+		return
 	}
+
+	// Add cache control headers to disable caching
+	r.Headers.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	r.Headers.Set("Pragma", "no-cache")
+	r.Headers.Set("Expires", "0")
 }
 
 // handleResponse processes colly response callbacks
