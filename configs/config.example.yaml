@@ -121,7 +121,6 @@ httpx_runner_config:
   # Default: true
   extract_headers: true
 
-
 # Crawler configuration: Settings for web crawling.
 crawler_config:
   # Whether to add seed URL hostnames to allowed scope automatically
@@ -425,8 +424,6 @@ log_config:
   # Default: true
   use_subdirs: true
 
-
-
 # DiffConfig: Configuration for comparing current scan results with previous ones.
 diff_config:
   # Number of days to look back for previous scan data to compare against.
@@ -439,7 +436,6 @@ diff_reporter_config:
   # Files larger than this will still be reported as changed, but without a detailed diff.
   # Default: 5
   max_diff_file_size_mb: 5
-
 
 # MonitorConfig: Configuration for monitoring JS/HTML files for changes.
 monitor_config:
@@ -459,6 +455,10 @@ monitor_config:
   # Timeout in seconds for HTTP requests made by the monitor.
   # Default: 30
   http_timeout_seconds: 30
+  # Whether to bypass cache and always fetch fresh content (ignoring ETag, Last-Modified headers).
+  # When true, adds cache-busting headers to ensure fresh content is always fetched.
+  # Default: true (recommended for monitoring to detect all changes)
+  bypass_cache: true
   # Initial list of specific URLs to monitor. Full URLs are expected.
   # Default: []
   initial_monitor_urls:
@@ -477,8 +477,6 @@ monitor_config:
   html_file_extensions:
     - ".html"
     - ".htm"
-
-
 
 # Scheduler configuration: Settings for automated periodic scans (when mode is "automated").
 scheduler_config:
@@ -539,8 +537,8 @@ extractor_config:
   # Example using block style (recommended for readability if manually editing):
   custom_regexes:
     - "/(?:[a-zA-Z0-9_\\-]+/)*[a-zA-Z0-9_\\-]+\\.js(?:\\?[^\\s\"]*)?" # Example: Finds /path/to/file.js?query
-    - "'(?:[a-zA-Z0-9_\\-]+/)*[a-zA-Z0-9_\\-]+\\.html(?:\\?[^\\s\']*)?'" # Example: Finds '/path/to/file.html'
-    - "https?:\\/\\/[^\\s\\\"\\'\\`]+" # Example: Finds http(s)://anything_not_whitespace_or_quote
+    - "'(?:[a-zA-Z0-9_\\-]+/)*[a-zA-Z0-9_\\-]+\\.html(?:\\?[^\\s']*)?'" # Example: Finds '/path/to/file.html'
+    - "https?:\\/\\/[^\\s\\\"'\\`]+" # Example: Finds http(s)://anything_not_whitespace_or_quote
     # - "another_custom_regex_pattern"
   # If you prefer flow style (ensure correct escaping and quoting if regexes contain special characters):
   # custom_regexes: ["regex1", "regex2"]
