@@ -166,6 +166,7 @@ type DiffReportPageData struct {
 	ReportType       string              `json:"report_type,omitempty"`      // Added ReportType for template logic
 	FaviconBase64    string              `json:"favicon_base64,omitempty"`   // Base64 encoded favicon
 	ReportPartInfo   string              `json:"report_part_info,omitempty"` // Report Part Information (for multi-part reports)
+	DiffResultsJSON  template.JS         `json:"-"`                          // JSON string of DiffResults for client-side rendering
 	// You can add more fields here, for example, a summary of changes, etc.
 }
 
