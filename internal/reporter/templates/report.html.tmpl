@@ -487,11 +487,11 @@
                     </div>
                     <div class="col-md-2">
                             <label for="rootURLFilter" class="form-label mb-1">
-                                <i class="fas fa-link me-1"></i>Root URL
+                                <i class="fas fa-link me-1"></i>Hostname
                             </label>
                             <select id="rootURLFilter" class="form-select filter-select">
-                            <option value="">Filter by Root URL...</option>
-                            {{range .UniqueRootTargets}}
+                            <option value="">Filter by Hostname...</option>
+                            {{range .UniqueHostnames}}
                             <option value="{{.}}">{{.}}</option>
                             {{end}}
                         </select>

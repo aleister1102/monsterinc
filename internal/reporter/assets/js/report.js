@@ -4,7 +4,7 @@ $(document).ready(function () {
     const $resultsTable = $('#resultsTable');
     const $tableBody = $resultsTable.find('tbody');
     let allRowsData = [];
-    
+
     // Load data from Go template injection
     if (typeof window.reportSettings !== 'undefined' && window.reportSettings.initialProbeResults) {
         allRowsData = window.reportSettings.initialProbeResults;
@@ -91,6 +91,16 @@ $(document).ready(function () {
         });
     }
 
+    // --- Helper: Extract hostname from URL ---
+    function extractHostname(url) {
+        try {
+            const urlObj = new URL(url);
+            return urlObj.hostname;
+        } catch (e) {
+            return '';
+        }
+    }
+
     // --- Filtering Logic ---
     function filterData(data) {
         const globalSearchTerm = currentFilters.globalSearch.toLowerCase(); // Global search enabled
@@ -101,8 +111,11 @@ $(document).ready(function () {
         const urlStatusTerm = currentFilters.urlStatus.toLowerCase();
 
         return data.filter(pr => {
-            if (rootURL && (!pr.RootTargetURL || pr.RootTargetURL !== rootURL)) {
-                return false;
+            if (rootURL) {
+                const inputHostname = extractHostname(pr.InputURL);
+                if (!inputHostname || inputHostname !== rootURL) {
+                    return false;
+                }
             }
 
             // Global search enabled
@@ -351,7 +364,7 @@ $(document).ready(function () {
             detailsText += "\n";
 
             detailsText += `IPs: ${(resultData.IPs || []).join(', ')}\n`;
-            
+
             // ASN Information
             if (resultData.ASN && resultData.ASN !== 0) {
                 detailsText += `ASN: ${resultData.ASN}\n`;
