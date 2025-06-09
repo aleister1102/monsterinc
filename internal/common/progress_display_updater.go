@@ -29,12 +29,15 @@ func (pdm *ProgressDisplayManager) UpdateScanProgress(current, total int64, stag
 	pdm.scanProgress.LastUpdateTime = now
 	pdm.scanProgress.UpdateETA()
 
-	// Immediate display on progress update if significant change
-	if current > 0 && current%1 == 0 { // Show every step
-		go func() {
-			time.Sleep(50 * time.Millisecond)
-			pdm.displayProgress()
-		}()
+	// Only trigger immediate display for significant updates to avoid spam
+	if current == 0 || current == total || current%1 == 0 {
+		// Use the existing display loop frequency to avoid spam
+		select {
+		case <-pdm.stopChan:
+			return
+		default:
+			// Trigger display without creating new goroutine
+		}
 	}
 }
 
