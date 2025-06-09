@@ -10,6 +10,58 @@ The reporter package generates two main types of reports:
 - **Asset Management**: CSS/JS/Image embedding and external asset handling
 - **Template Engine**: Go template-based report generation with custom functions
 
+## Key Features
+
+### Client-Side Rendering Optimization
+
+The reporter now intelligently chooses between server-side and client-side rendering templates to optimize file sizes:
+
+#### Server-Side Template (`diff_report.html.tmpl`)
+- Full HTML rendering on server
+- Suitable for small to medium reports
+- Better for offline viewing
+- Used when:
+  - ≤15 diff results
+  - Total diff content <80KB
+  - Individual diff <40KB
+  - Single-part reports
+
+#### Client-Side Template (`diff_report_client_side.html.tmpl`)
+- Minimal HTML skeleton with JavaScript rendering
+- JSON data embedded for client processing
+- 30-50% smaller file sizes
+- Used when:
+  - >15 diff results
+  - Total diff content ≥80KB
+  - Individual diff ≥40KB
+  - Multi-part reports
+
+### File Size Management
+
+Automatic splitting mechanism ensures reports stay under Discord's 10MB limit:
+
+- **Server-side template**: 50% safety margin (5MB target)
+- **Client-side template**: 70% safety margin (7MB target) 
+- Iterative size checking with aggressive re-splitting if needed
+- Dynamic chunk size adjustment based on actual file sizes
+
+### Template Selection Logic
+
+```go
+func selectOptimalTemplate(pageData models.DiffReportPageData) string {
+    // Factors considered:
+    // 1. Number of diff results
+    // 2. Total content size
+    // 3. Individual diff sizes
+    // 4. Multi-part report status
+    
+    if useClientSide {
+        return "diff_report_client_side.html.tmpl"
+    }
+    return "diff_report.html.tmpl"
+}
+```
+
 ## File Structure
 
 ### Core Components
@@ -25,6 +77,7 @@ The reporter package generates two main types of reports:
 
 - **`templates/report.html.tmpl`** - Main scan report template
 - **`templates/diff_report.html.tmpl`** - Content diff report template
+- **`templates/diff_report_client_side.html.tmpl`** - Client-side template
 
 ### Assets
 
@@ -476,4 +529,15 @@ if err := tmpl.Execute(writer, pageData); err != nil {
 - Choose appropriate embedding strategy
 - Optimize assets for file size
 - Use CDN links for common libraries
-- Implement fallbacks for external dependencies 
+- Implement fallbacks for external dependencies
+
+## Monitoring
+
+Log messages indicate template selection reasoning:
+- `"Using client-side template due to number of diffs"`
+- `"Using client-side template due to large diff content size"`
+- `"Using client-side template for multi-part report"`
+
+## Backward Compatibility
+
+Existing workflows remain unchanged. All optimizations are transparent to end users. 

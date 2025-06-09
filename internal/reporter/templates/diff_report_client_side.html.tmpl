@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.ReportTitle}}</title>
+    
+    {{if .FaviconBase64}}
+    <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,{{.FaviconBase64}}">
+    {{end}}
+    
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #17a2b8;
+            --light-color: #f8f9fa;
+            --dark-color: #343a40;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--light-color);
+            color: #333;
+        }
+
+        .report-container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .report-header {
+            background: linear-gradient(135deg, var(--primary-color), #0056b3);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .report-header h1 {
+            margin: 0;
+            font-weight: 600;
+            font-size: 1.8rem;
+        }
+
+        .report-meta {
+            font-size: 0.9rem;
+            margin-top: 10px;
+            opacity: 0.9;
+        }
+
+        .loading-container {
+            text-align: center;
+            padding: 40px;
+            color: var(--secondary-color);
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .controls-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            display: none;
+        }
+
+        .diff-item {
+            background: white;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s ease;
+            border: 1px solid #e9ecef;
+        }
+
+        .diff-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+        }
+
+        .diff-header {
+            background: linear-gradient(135deg, var(--secondary-color), #495057);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .diff-header:hover {
+            background: linear-gradient(135deg, #495057, #343a40);
+        }
+
+        .diff-url {
+            font-weight: 600;
+            font-size: 1rem;
+            flex: 1;
+            word-break: break-all;
+        }
+
+        .diff-meta {
+            font-size: 0.85rem;
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+
+        .diff-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .diff-content {
+            padding: 20px;
+            display: none;
+        }
+
+        .diff-content.show {
+            display: block;
+        }
+
+        .diff-lines {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 15px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .diff-add {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        .diff-remove {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        .diff-content-wrapper {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow-x: auto;
+        }
+
+        .diff-line {
+            margin: 2px 0;
+            padding: 1px 0;
+        }
+
+        .diff-line-insert {
+            background-color: #e6ffe6;
+            border-left: 3px solid #28a745;
+            padding-left: 8px;
+        }
+
+        .diff-line-delete {
+            background-color: #f8d7da;
+            border-left: 3px solid #dc3545;
+            padding-left: 8px;
+        }
+
+        .diff-line-insert ins,
+        .diff-line-delete del {
+            text-decoration: none;
+            display: block;
+            padding: 2px 4px;
+            margin: 0;
+        }
+
+        .extracted-paths {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+
+        .extracted-paths h6 {
+            color: #495057;
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+        }
+
+        .extracted-path-item {
+            background-color: #ffffff;
+            border: 1px solid #e9ecef;
+            border-radius: 0.25rem;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .extracted-path-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .extracted-path-item .badge {
+            font-size: 0.75rem;
+        }
+
+        .extracted-path-item code {
+            font-size: 0.875rem;
+            word-break: break-all;
+        }
+
+        .extracted-path-item a {
+            color: #007bff;
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+
+        .extracted-path-item a:hover {
+            text-decoration: underline;
+        }
+
+        .pagination-container {
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .items-per-page {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .collapse-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .collapse-icon.rotated {
+            transform: rotate(180deg);
+        }
+
+        .error-message {
+            color: var(--danger-color);
+            font-weight: bold;
+            background-color: #f8d7da;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #f5c6cb;
+        }
+
+        .no-diff-notice {
+            text-align: center;
+            color: var(--secondary-color);
+            font-style: italic;
+            padding: 20px;
+            background-color: var(--light-color);
+            border-radius: 6px;
+        }
+
+        #toTopBtn {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 20px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            transition: all 0.3s ease;
+        }
+
+        #toTopBtn:hover {
+            background-color: #0056b3;
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .report-container { padding: 20px; }
+            .diff-header { padding: 12px 15px; }
+            .diff-content { padding: 15px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="report-container">
+        <div class="report-header">
+            <h1 id="report-title">{{.ReportTitle}}</h1>
+            <div class="report-meta">
+                Generated at: <span id="generated-at">{{.GeneratedAt}}</span> | 
+                Total Changes: <span id="total-diffs">{{.TotalDiffs}}</span>
+                {{if .ReportPartInfo}}
+                | {{.ReportPartInfo}}
+                {{end}}
+            </div>
+        </div>
+
+        <div class="controls-container" id="controls">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="items-per-page">
+                        <label for="itemsPerPage">Items per page:</label>
+                        <select class="form-control form-control-sm" id="itemsPerPage" style="width: auto;">
+                            <option value="5">5</option>
+                            <option value="10" selected>10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-6 text-right">
+                    <button class="btn btn-sm btn-outline-primary" id="expandAll">
+                        <i class="fas fa-expand-arrows-alt"></i> Expand All
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" id="collapseAll">
+                        <i class="fas fa-compress-arrows-alt"></i> Collapse All
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading-container" id="loading">
+            <div class="loading-spinner"></div>
+            <div>Loading diff results...</div>
+        </div>
+
+        <div class="pagination-container" id="pagination-top" style="display: none;"></div>
+        
+        <div id="diff-container"></div>
+        
+        <div class="pagination-container" id="pagination-bottom" style="display: none;"></div>
+    </div>
+
+    <button id="toTopBtn" title="Go to top">
+        <i class="fas fa-chevron-up"></i>
+    </button>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Embedded diff data
+        const diffData = {{.DiffResultsJSON}};
+        
+        class DiffRenderer {
+            constructor() {
+                this.currentPage = 1;
+                this.itemsPerPage = 10;
+                this.totalItems = diffData.length;
+                this.totalPages = Math.ceil(this.totalItems / this.itemsPerPage);
+                this.init();
+            }
+
+            init() {
+                this.hideLoading();
+                this.showControls();
+                this.bindEvents();
+                this.render();
+                this.setupScrollToTop();
+            }
+
+            hideLoading() {
+                document.getElementById('loading').style.display = 'none';
+            }
+
+            showControls() {
+                document.getElementById('controls').style.display = 'block';
+            }
+
+            bindEvents() {
+                // Pagination controls
+                document.getElementById('itemsPerPage').addEventListener('change', (e) => {
+                    this.itemsPerPage = parseInt(e.target.value);
+                    this.totalPages = Math.ceil(this.totalItems / this.itemsPerPage);
+                    this.currentPage = 1;
+                    this.render();
+                });
+
+                // Expand/Collapse all
+                document.getElementById('expandAll').addEventListener('click', () => {
+                    document.querySelectorAll('.diff-content').forEach(content => {
+                        content.classList.add('show');
+                    });
+                    document.querySelectorAll('.collapse-icon').forEach(icon => {
+                        icon.classList.add('rotated');
+                    });
+                });
+
+                document.getElementById('collapseAll').addEventListener('click', () => {
+                    document.querySelectorAll('.diff-content').forEach(content => {
+                        content.classList.remove('show');
+                    });
+                    document.querySelectorAll('.collapse-icon').forEach(icon => {
+                        icon.classList.remove('rotated');
+                    });
+                });
+            }
+
+            render() {
+                this.renderDiffs();
+                this.renderPagination();
+            }
+
+            renderDiffs() {
+                const container = document.getElementById('diff-container');
+                const startIndex = (this.currentPage - 1) * this.itemsPerPage;
+                const endIndex = Math.min(startIndex + this.itemsPerPage, this.totalItems);
+                const pageData = diffData.slice(startIndex, endIndex);
+
+                if (pageData.length === 0) {
+                    container.innerHTML = '<div class="no-diff-notice">No diff results to display.</div>';
+                    return;
+                }
+
+                container.innerHTML = pageData.map((diff, index) => this.createDiffHTML(diff, startIndex + index)).join('');
+                
+                // Bind click events for expand/collapse
+                container.querySelectorAll('.diff-header').forEach((header, index) => {
+                    header.addEventListener('click', () => {
+                        const content = header.nextElementSibling;
+                        const icon = header.querySelector('.collapse-icon');
+                        
+                        content.classList.toggle('show');
+                        icon.classList.toggle('rotated');
+                    });
+                });
+
+                // Bind copy URL events
+                container.querySelectorAll('.copy-url-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const url = btn.dataset.url;
+                        navigator.clipboard.writeText(url).then(() => {
+                            const originalHTML = btn.innerHTML;
+                            btn.innerHTML = '<i class="fas fa-check"></i>';
+                            setTimeout(() => {
+                                btn.innerHTML = originalHTML;
+                            }, 2000);
+                        }).catch(err => {
+                            console.error('Failed to copy URL:', err);
+                        });
+                    });
+                });
+            }
+
+            createDiffHTML(diff, index) {
+                const timestamp = new Date(diff.timestamp).toLocaleString();
+                const diffHTML = this.generateDiffHTML(diff.diffs);
+
+                return `
+                    <div class="diff-item" data-index="${index}">
+                        <div class="diff-header">
+                            <div>
+                                <div class="diff-url">${this.escapeHtml(diff.url)}</div>
+                                <div class="diff-meta">
+                                    ${timestamp} | ${diff.content_type || 'unknown'} | 
+                                    Changes: ${diff.summary || 'No summary available'}
+                                    ${diff.extracted_paths && diff.extracted_paths.length > 0 ? 
+                                        `<span class="ml-2 badge badge-pill badge-info"><i class="fas fa-sitemap mr-1"></i> ${diff.extracted_paths.length} ${diff.extracted_paths.length === 1 ? 'path' : 'paths'}</span>` : 
+                                        ''
+                                    }
+                                </div>
+                            </div>
+                            <div class="diff-controls">
+                                <button class="btn btn-sm btn-outline-light copy-url-btn" data-url="${this.escapeHtml(diff.url)}" title="Copy URL">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                                <i class="fas fa-chevron-down collapse-icon"></i>
+                            </div>
+                        </div>
+                        <div class="diff-content">
+                            ${diff.error_message ? 
+                                `<div class="error-message">${this.escapeHtml(diff.error_message)}</div>` : 
+                                (diffHTML || '<div class="no-diff-notice">No diff content available</div>')
+                            }
+                            ${this.createExtractedPathsHTML(diff.extracted_paths)}
+                        </div>
+                    </div>
+                `;
+            }
+
+            generateDiffHTML(diffs) {
+                if (!diffs || diffs.length === 0) return '';
+                
+                let htmlBuilder = '';
+                
+                // Check if this is a large single diff (like minified JS)
+                const totalLength = diffs.reduce((sum, d) => sum + (d.text ? d.text.length : 0), 0);
+                const isLargeContent = totalLength > 10000 && diffs.length <= 3;
+                
+                for (let i = 0; i < diffs.length; i++) {
+                    const d = diffs[i];
+                    if (!d.text) continue;
+                    
+                    // Escape HTML characters to prevent XSS
+                    let escapedText = this.escapeHtml(d.text);
+                    
+                    // For large content, add line breaks for better readability
+                    if (isLargeContent && escapedText.length > 120) {
+                        escapedText = this.formatLargeContent(escapedText);
+                    }
+                    
+                    switch (d.operation) {
+                        case 1: // DiffInsert
+                            if (isLargeContent) {
+                                htmlBuilder += `<div class="diff-line diff-line-insert"><span class="diff-add" style="background:#e6ffe6; text-decoration: none; display: block; padding: 2px 4px; margin: 1px 0;">${escapedText}</span></div>`;
+                            } else {
+                                htmlBuilder += `<span class="diff-add" style="background:#e6ffe6; text-decoration: none;">${escapedText}</span>`;
+                            }
+                            break;
+                        case -1: // DiffDelete
+                            if (isLargeContent) {
+                                htmlBuilder += `<div class="diff-line diff-line-delete"><span class="diff-remove" style="background:#f8d7da; text-decoration: none; display: block; padding: 2px 4px; margin: 1px 0;">${escapedText}</span></div>`;
+                            } else {
+                                htmlBuilder += `<span class="diff-remove" style="background:#f8d7da; text-decoration: none;">${escapedText}</span>`;
+                            }
+                            break;
+                        case 0: // DiffEqual
+                            // For large equal content, truncate in middle to show context
+                            if (isLargeContent && escapedText.length > 200) {
+                                const start = escapedText.substring(0, 100);
+                                const end = escapedText.substring(escapedText.length - 100);
+                                const truncated = `${start}<span style="color: #666; font-style: italic;">... [${escapedText.length - 200} characters truncated] ...</span>${end}`;
+                                htmlBuilder += truncated;
+                            } else {
+                                htmlBuilder += escapedText;
+                            }
+                            break;
+                    }
+                    
+                    // Add spacing between diffs for readability
+                    if (isLargeContent && i < diffs.length - 1) {
+                        htmlBuilder += '\n';
+                    }
+                }
+                
+                // Wrap in a container for better formatting
+                return `<div class="diff-content-wrapper">${htmlBuilder}</div>`;
+            }
+            
+            formatLargeContent(content) {
+                // Don't format if content already has line breaks
+                if (content.includes('\n')) {
+                    return content;
+                }
+                
+                // For very long single lines (like minified JS), add breaks at logical points
+                let result = '';
+                const chunkSize = 120;
+                
+                for (let i = 0; i < content.length; i += chunkSize) {
+                    const end = Math.min(i + chunkSize, content.length);
+                    const chunk = content.substring(i, end);
+                    result += chunk;
+                    
+                    // Add line break if not at the end
+                    if (end < content.length) {
+                        result += '\n';
+                    }
+                }
+                
+                return result;
+            }
+
+            renderPagination() {
+                const topPagination = document.getElementById('pagination-top');
+                const bottomPagination = document.getElementById('pagination-bottom');
+                
+                if (this.totalPages <= 1) {
+                    topPagination.style.display = 'none';
+                    bottomPagination.style.display = 'none';
+                    return;
+                }
+
+                const paginationHTML = this.createPaginationHTML();
+                topPagination.innerHTML = paginationHTML;
+                bottomPagination.innerHTML = paginationHTML;
+                topPagination.style.display = 'flex';
+                bottomPagination.style.display = 'flex';
+
+                // Bind pagination events
+                [topPagination, bottomPagination].forEach(container => {
+                    container.querySelectorAll('.page-link').forEach(link => {
+                        link.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            const page = parseInt(link.dataset.page);
+                            if (page && page !== this.currentPage) {
+                                this.currentPage = page;
+                                this.render();
+                                this.scrollToTop();
+                            }
+                        });
+                    });
+                });
+            }
+
+            createPaginationHTML() {
+                let html = '<nav><ul class="pagination">';
+                
+                // Previous button
+                html += `<li class="page-item ${this.currentPage === 1 ? 'disabled' : ''}">
+                    <a class="page-link" href="#" data-page="${this.currentPage - 1}">&laquo;</a>
+                </li>`;
+
+                // Page numbers
+                const startPage = Math.max(1, this.currentPage - 2);
+                const endPage = Math.min(this.totalPages, this.currentPage + 2);
+
+                if (startPage > 1) {
+                    html += `<li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>`;
+                    if (startPage > 2) {
+                        html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+                    }
+                }
+
+                for (let i = startPage; i <= endPage; i++) {
+                    html += `<li class="page-item ${i === this.currentPage ? 'active' : ''}">
+                        <a class="page-link" href="#" data-page="${i}">${i}</a>
+                    </li>`;
+                }
+
+                if (endPage < this.totalPages) {
+                    if (endPage < this.totalPages - 1) {
+                        html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+                    }
+                    html += `<li class="page-item"><a class="page-link" href="#" data-page="${this.totalPages}">${this.totalPages}</a></li>`;
+                }
+
+                // Next button
+                html += `<li class="page-item ${this.currentPage === this.totalPages ? 'disabled' : ''}">
+                    <a class="page-link" href="#" data-page="${this.currentPage + 1}">&raquo;</a>
+                </li>`;
+
+                html += '</ul></nav>';
+                return html;
+            }
+
+            setupScrollToTop() {
+                const toTopBtn = document.getElementById('toTopBtn');
+                
+                window.addEventListener('scroll', () => {
+                    if (document.body.scrollTop > 200 || document.documentElement.scrollTop > 200) {
+                        toTopBtn.style.display = 'block';
+                    } else {
+                        toTopBtn.style.display = 'none';
+                    }
+                });
+
+                toTopBtn.addEventListener('click', () => {
+                    this.scrollToTop();
+                });
+            }
+
+            scrollToTop() {
+                window.scrollTo({
+                    top: 0,
+                    behavior: 'smooth'
+                });
+            }
+
+            createExtractedPathsHTML(extractedPaths) {
+                if (!extractedPaths || extractedPaths.length === 0) {
+                    return '';
+                }
+
+                let html = `
+                    <div class="extracted-paths mt-3">
+                        <h6><i class="fas fa-sitemap mr-2"></i><strong>Extracted Paths (${extractedPaths.length})</strong></h6>
+                        <div class="extracted-paths-list">`;
+
+                extractedPaths.forEach(path => {
+                    html += `
+                        <div class="extracted-path-item mb-2 p-2 border rounded">
+                            <div class="path-type">
+                                <span class="badge badge-secondary">${this.escapeHtml(path.type || 'unknown')}</span>
+                            </div>
+                            <div class="path-raw mt-1">
+                                <code class="bg-light px-2 py-1 rounded d-block">${this.escapeHtml(path.extracted_raw_path || '')}</code>
+                            </div>
+                            <div class="path-absolute mt-1">
+                                <a href="${this.escapeHtml(path.extracted_absolute_url || '')}" target="_blank" class="text-break">
+                                    ${this.escapeHtml(path.extracted_absolute_url || '')}
+                                </a>
+                            </div>
+                        </div>`;
+                });
+
+                html += `
+                        </div>
+                    </div>`;
+
+                return html;
+            }
+
+            escapeHtml(text) {
+                if (!text) return '';
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        }
+
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            new DiffRenderer();
+        });
+    </script>
+</body>
+</html>

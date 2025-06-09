@@ -21,20 +21,89 @@ func NewDiffUtils() *DiffUtils {
 // GenerateDiffHTML creates HTML representation of diffs
 func (du *DiffUtils) GenerateDiffHTML(diffs []models.ContentDiff) template.HTML {
 	var htmlBuilder strings.Builder
+
+	// Check if this is a large single diff (like minified JS)
+	isLargeContent := false
+	totalLength := 0
 	for _, d := range diffs {
+		totalLength += len(d.Text)
+	}
+
+	// If content is very large and mostly in one operation, format it better
+	if totalLength > 10000 && len(diffs) <= 3 {
+		isLargeContent = true
+	}
+
+	for i, d := range diffs {
 		// Escape HTML characters to prevent XSS and rendering issues
 		escapedText := template.HTMLEscapeString(d.Text)
 
+		// For large content, add line breaks for better readability
+		if isLargeContent && len(escapedText) > 120 {
+			escapedText = du.formatLargeContent(escapedText)
+		}
+
 		switch d.Operation {
 		case models.DiffInsert:
-			htmlBuilder.WriteString(fmt.Sprintf(`<ins style="background:#e6ffe6; text-decoration: none;">%s</ins>`, escapedText))
+			if isLargeContent {
+				htmlBuilder.WriteString(fmt.Sprintf(`<div class="diff-line-insert"><ins style="background:#e6ffe6; text-decoration: none; display: block; padding: 2px 4px; margin: 1px 0;">%s</ins></div>`, escapedText))
+			} else {
+				htmlBuilder.WriteString(fmt.Sprintf(`<ins style="background:#e6ffe6; text-decoration: none;">%s</ins>`, escapedText))
+			}
 		case models.DiffDelete:
-			htmlBuilder.WriteString(fmt.Sprintf(`<del style="background:#f8d7da; text-decoration: none;">%s</del>`, escapedText))
+			if isLargeContent {
+				htmlBuilder.WriteString(fmt.Sprintf(`<div class="diff-line-delete"><del style="background:#f8d7da; text-decoration: none; display: block; padding: 2px 4px; margin: 1px 0;">%s</del></div>`, escapedText))
+			} else {
+				htmlBuilder.WriteString(fmt.Sprintf(`<del style="background:#f8d7da; text-decoration: none;">%s</del>`, escapedText))
+			}
 		case models.DiffEqual:
-			htmlBuilder.WriteString(escapedText)
+			// For large equal content, truncate in middle to show context
+			if isLargeContent && len(escapedText) > 200 {
+				start := escapedText[:100]
+				end := escapedText[len(escapedText)-100:]
+				truncated := fmt.Sprintf(`%s<span style="color: #666; font-style: italic;">... [%d characters truncated] ...</span>%s`,
+					start, len(escapedText)-200, end)
+				htmlBuilder.WriteString(truncated)
+			} else {
+				htmlBuilder.WriteString(escapedText)
+			}
+		}
+
+		// Add spacing between diffs for readability
+		if isLargeContent && i < len(diffs)-1 {
+			htmlBuilder.WriteString("\n")
 		}
 	}
 	return template.HTML(htmlBuilder.String())
+}
+
+// formatLargeContent formats large content by adding line breaks for readability
+func (du *DiffUtils) formatLargeContent(content string) string {
+	// Don't format if content already has line breaks
+	if strings.Contains(content, "\n") {
+		return content
+	}
+
+	// For very long single lines (like minified JS), add breaks at logical points
+	var result strings.Builder
+	chunkSize := 120
+
+	for i := 0; i < len(content); i += chunkSize {
+		end := i + chunkSize
+		if end > len(content) {
+			end = len(content)
+		}
+
+		chunk := content[i:end]
+		result.WriteString(chunk)
+
+		// Add line break if not at the end
+		if end < len(content) {
+			result.WriteString("\n")
+		}
+	}
+
+	return result.String()
 }
 
 // CreateDiffSummary creates text summary of diff
@@ -86,11 +155,21 @@ func (r *HtmlDiffReporter) checkFileSizeAndSplit(filePath string, displayResults
 		r.logger.Warn().Err(err).Str("file_path", filePath).Msg("Failed to remove oversized file")
 	}
 
-	// Calculate split parameters with very conservative 25% safety margin
+	// Calculate split parameters with safety margin
 	avgSizePerResult := fileInfo.Size() / int64(len(displayResults))
 
-	// Use very conservative 25% of Discord limit to account for HTML overhead and variance
-	safeDiscordLimit := int64(float64(maxDiscordFileSize) * 0.25)
+	// For client-side templates, use different safety margin since JSON is more compact
+	templateName := r.selectOptimalTemplate(models.DiffReportPageData{DiffResults: displayResults})
+	var safetyMargin float64
+	if strings.Contains(templateName, "client_side") {
+		safetyMargin = 0.7 // 70% for client-side (JSON is more compact)
+		r.logger.Info().Msg("Using client-side template for splitting - more aggressive limits")
+	} else {
+		safetyMargin = 0.5 // 50% for server-side (full HTML)
+		r.logger.Info().Msg("Using server-side template for splitting - conservative limits")
+	}
+
+	safeDiscordLimit := int64(float64(maxDiscordFileSize) * safetyMargin)
 	maxResultsPerFile := int(safeDiscordLimit / avgSizePerResult)
 
 	// Ensure minimum viable split (at least 1 result per file, max 10 results for very large files)
@@ -105,7 +184,9 @@ func (r *HtmlDiffReporter) checkFileSizeAndSplit(filePath string, displayResults
 		Int64("safe_limit_bytes", safeDiscordLimit).
 		Int("max_results_per_file", maxResultsPerFile).
 		Int("total_results", len(displayResults)).
-		Msg("Calculated file splitting parameters with 25% safety margin")
+		Float64("safety_margin", safetyMargin).
+		Str("template_type", templateName).
+		Msg("Calculated file splitting parameters with optimized safety margin")
 
 	// Generate chunked reports with iterative size checking and aggressive splitting
 	return r.generateChunkedReportsWithSizeCheck(displayResults, cycleID, maxResultsPerFile)
