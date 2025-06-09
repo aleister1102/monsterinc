@@ -162,11 +162,14 @@ func (uc *URLChecker) CheckURL(ctx context.Context, url string) CheckResult {
 
 // fetchContentWithOptimization fetches content using memory-optimized approach
 func (uc *URLChecker) fetchContentWithOptimization(ctx context.Context, url string) (*common.FetchFileContentResult, error) {
-	// Get previous ETag and LastModified to avoid unnecessary downloads
 	var previousETag, previousLastModified string
-	if lastRecord, err := uc.historyStore.GetLastKnownRecord(url); err == nil && lastRecord != nil {
-		previousETag = lastRecord.ETag
-		previousLastModified = lastRecord.LastModified
+
+	// Only get previous cache headers if not bypassing cache
+	if !uc.gCfg.MonitorConfig.BypassCache {
+		if lastRecord, err := uc.historyStore.GetLastKnownRecord(url); err == nil && lastRecord != nil {
+			previousETag = lastRecord.ETag
+			previousLastModified = lastRecord.LastModified
+		}
 	}
 
 	fetchInput := common.FetchFileContentInput{
@@ -174,6 +177,7 @@ func (uc *URLChecker) fetchContentWithOptimization(ctx context.Context, url stri
 		PreviousETag:         previousETag,
 		PreviousLastModified: previousLastModified,
 		Context:              ctx,
+		BypassCache:          uc.gCfg.MonitorConfig.BypassCache,
 	}
 
 	return uc.fetcher.FetchFileContent(fetchInput)
