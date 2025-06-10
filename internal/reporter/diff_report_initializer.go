@@ -82,7 +82,6 @@ func (r *HtmlDiffReporter) initializeDirectories() error {
 // initializeTemplate initializes template with functions
 func (r *HtmlDiffReporter) initializeTemplate() error {
 	tmpl, err := template.New("").Funcs(GetDiffTemplateFunctions()).ParseFS(templateFS,
-		"templates/diff_report.html.tmpl",
 		"templates/diff_report_client_side.html.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to parse HTML diff templates: %w", err)

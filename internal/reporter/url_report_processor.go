@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -79,13 +80,14 @@ func (r *HtmlReporter) processProbeResults(probeResults []*models.ProbeResult, p
 	contentTypes := make(map[string]struct{})
 	techs := make(map[string]struct{})
 	hostnamesEncountered := make(map[string]struct{})
+	urlStatuses := make(map[string]struct{})
 
 	for _, pr := range probeResults {
 		displayPr := models.ToProbeResultDisplay(*pr)
 		r.ensureRootTargetURL(pr, &displayPr)
 
 		displayResults = append(displayResults, displayPr)
-		r.updateCountsAndCollections(*pr, pageData, statusCodes, contentTypes, techs)
+		r.updateCountsAndCollections(*pr, pageData, statusCodes, contentTypes, techs, urlStatuses)
 
 		// Only add hostname to filter if the probe result has meaningful data
 		// (successful response or at least some useful information)
@@ -97,7 +99,7 @@ func (r *HtmlReporter) processProbeResults(probeResults []*models.ProbeResult, p
 		}
 	}
 
-	r.finalizePageData(pageData, displayResults, statusCodes, contentTypes, techs, hostnamesEncountered)
+	r.finalizePageData(pageData, displayResults, statusCodes, contentTypes, techs, hostnamesEncountered, urlStatuses)
 }
 
 // shouldIncludeHostnameInFilter determines if a hostname should be included in the filter dropdown
@@ -153,7 +155,7 @@ func (r *HtmlReporter) ensureRootTargetURL(pr *models.ProbeResult, displayPr *mo
 }
 
 // updateCountsAndCollections updates various statistics and collections
-func (r *HtmlReporter) updateCountsAndCollections(pr models.ProbeResult, pageData *models.ReportPageData, statusCodes map[int]struct{}, contentTypes map[string]struct{}, techs map[string]struct{}) {
+func (r *HtmlReporter) updateCountsAndCollections(pr models.ProbeResult, pageData *models.ReportPageData, statusCodes map[int]struct{}, contentTypes map[string]struct{}, techs map[string]struct{}, urlStatuses map[string]struct{}) {
 	pageData.TotalResults++
 	if pr.StatusCode >= 200 && pr.StatusCode < 300 {
 		pageData.SuccessResults++
@@ -172,10 +174,13 @@ func (r *HtmlReporter) updateCountsAndCollections(pr models.ProbeResult, pageDat
 			techs[tech.Name] = struct{}{}
 		}
 	}
+	if pr.URLStatus != "" {
+		urlStatuses[pr.URLStatus] = struct{}{}
+	}
 }
 
 // finalizePageData sets final collections and data on page data
-func (r *HtmlReporter) finalizePageData(pageData *models.ReportPageData, displayResults []models.ProbeResultDisplay, statusCodes map[int]struct{}, contentTypes map[string]struct{}, techs map[string]struct{}, hostnamesEncountered map[string]struct{}) {
+func (r *HtmlReporter) finalizePageData(pageData *models.ReportPageData, displayResults []models.ProbeResultDisplay, statusCodes map[int]struct{}, contentTypes map[string]struct{}, techs map[string]struct{}, hostnamesEncountered map[string]struct{}, urlStatuses map[string]struct{}) {
 	pageData.ProbeResults = displayResults
 
 	// Convert maps to slices
@@ -191,6 +196,16 @@ func (r *HtmlReporter) finalizePageData(pageData *models.ReportPageData, display
 	for hn := range hostnamesEncountered {
 		pageData.UniqueHostnames = append(pageData.UniqueHostnames, hn)
 	}
+	for us := range urlStatuses {
+		pageData.UniqueURLStatuses = append(pageData.UniqueURLStatuses, us)
+	}
+
+	// Sort slices for consistent display
+	sort.Ints(pageData.UniqueStatusCodes)
+	sort.Strings(pageData.UniqueContentTypes)
+	sort.Strings(pageData.UniqueTechnologies)
+	sort.Strings(pageData.UniqueHostnames)
+	sort.Strings(pageData.UniqueURLStatuses)
 
 	// Convert ProbeResults to JSON for JavaScript
 	if jsonData, err := json.Marshal(displayResults); err != nil {

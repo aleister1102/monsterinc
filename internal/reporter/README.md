@@ -16,7 +16,7 @@ The reporter package generates two main types of reports:
 
 The reporter now intelligently chooses between server-side and client-side rendering templates to optimize file sizes:
 
-#### Server-Side Template (`diff_report.html.tmpl`)
+#### Client-Side Template (`diff_report_client_side.html.tmpl`) - Default
 - Full HTML rendering on server
 - Suitable for small to medium reports
 - Better for offline viewing
@@ -58,7 +58,7 @@ func selectOptimalTemplate(pageData models.DiffReportPageData) string {
     if useClientSide {
         return "diff_report_client_side.html.tmpl"
     }
-    return "diff_report.html.tmpl"
+    return "diff_report_client_side.html.tmpl"
 }
 ```
 
@@ -76,7 +76,8 @@ func selectOptimalTemplate(pageData models.DiffReportPageData) string {
 ### Templates
 
 - **`templates/report.html.tmpl`** - Main scan report template
-- **`templates/diff_report.html.tmpl`** - Content diff report template
+- **`templates/diff_report_client_side.html.tmpl`** - Content diff report template (default)
+
 - **`templates/diff_report_client_side.html.tmpl`** - Client-side template
 
 ### Assets
@@ -540,4 +541,4 @@ Log messages indicate template selection reasoning:
 
 ## Backward Compatibility
 
-Existing workflows remain unchanged. All optimizations are transparent to end users. 
+Existing workflows remain unchanged. All optimizations are transparent to end users.

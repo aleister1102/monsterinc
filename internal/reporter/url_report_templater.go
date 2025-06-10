@@ -39,7 +39,7 @@ func (r *HtmlReporter) loadCustomTemplate() error {
 
 // loadEmbeddedTemplate loads the default embedded template
 func (r *HtmlReporter) loadEmbeddedTemplate(tmpl *template.Template) error {
-	templateContent, err := defaultTemplate.ReadFile("templates/report.html.tmpl")
+	templateContent, err := defaultTemplate.ReadFile("templates/report_client_side.html.tmpl")
 	if err != nil {
 		r.logger.Error().Err(err).Msg("Failed to read embedded default report template.")
 		return fmt.Errorf("failed to load embedded default report template: %w", err)

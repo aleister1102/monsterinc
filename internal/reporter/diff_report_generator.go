@@ -313,6 +313,11 @@ func (r *HtmlDiffReporter) populateDiffResultsJSON(pageData *models.DiffReportPa
 	}
 }
 
+// getTemplateName chooses between client-side and server-side templates based on data size
+func (r *HtmlDiffReporter) getTemplateName(useClientSide bool) string {
+	return "diff_report_client_side.html.tmpl"
+}
+
 // selectOptimalTemplate chooses between client-side and server-side templates based on data size
 func (r *HtmlDiffReporter) selectOptimalTemplate(pageData models.DiffReportPageData) string {
 	// Estimate the size impact of diff content
@@ -360,9 +365,5 @@ func (r *HtmlDiffReporter) selectOptimalTemplate(pageData models.DiffReportPageD
 		}
 	}
 
-	if useClientSide {
-		return "diff_report_client_side.html.tmpl"
-		
-	}
-	return "diff_report.html.tmpl"
+	return r.getTemplateName(useClientSide)
 }

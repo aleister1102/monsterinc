@@ -31,6 +31,7 @@ func GetCommonTemplateFunctions() template.FuncMap {
 			return template.JS(data)
 		},
 		"ToLower": strings.ToLower,
+		"title": strings.Title,
 		"joinStrings": func(s []string, sep string) string {
 			return strings.Join(s, sep)
 		},
