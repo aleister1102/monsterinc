@@ -72,7 +72,7 @@ $(document).ready(function () {
             // 2. Final URL  
             $row.append($('<td></td>').addClass('truncate-url').attr('title', pr.FinalURL).html(pr.FinalURL ? `<a href="${pr.FinalURL}" target="_blank">${truncateText(pr.FinalURL, 50)}</a>` : '-'));
             // 3. Diff Status
-            $row.append($('<td></td>').addClass('hide-on-mobile').html(pr.URLStatus ? `<span class="diff-status-${pr.URLStatus.toLowerCase()}">${pr.URLStatus}</span>` : '-'));
+            $row.append($('<td></td>').addClass('hide-on-mobile').html(pr.diff_status ? `<span class="diff-status-${pr.diff_status.toLowerCase()}">${pr.diff_status}</span>` : '-'));
             // 4. Status Code
             $row.append($('<td></td>').html(pr.StatusCode ? `<span class="${pr.StatusCode ? `status-${pr.StatusCode}` : ''}">${pr.StatusCode}</span>` : (pr.Error ? 'ERR' : '-')));
             // 5. Title
@@ -138,7 +138,7 @@ $(document).ready(function () {
 
             if (statusCode && (!pr.StatusCode || pr.StatusCode.toString() !== statusCode)) return false;
             if (contentType && (!pr.ContentType || !pr.ContentType.toLowerCase().startsWith(contentType))) return false;
-            if (urlStatusTerm && (!pr.URLStatus || pr.URLStatus.toLowerCase() !== urlStatusTerm)) return false;
+            if (urlStatusTerm && (!pr.diff_status || pr.diff_status.toLowerCase() !== urlStatusTerm)) return false;
 
             if (techTerm) {
                 const techString = Array.isArray(pr.Technologies) ? pr.Technologies.join(', ').toLowerCase() : "";
@@ -311,7 +311,7 @@ $(document).ready(function () {
         if (!sortKey) return;
 
         // Removed 'duration' from sortable keys
-        const validSortKeys = ['InputURL', 'FinalURL', 'DiffStatus', 'StatusCode', 'Title', 'ContentType', 'ContentLength'];
+        const validSortKeys = ['InputURL', 'FinalURL', 'diff_status', 'StatusCode', 'Title', 'ContentType', 'ContentLength'];
         if (!validSortKeys.includes(sortKey)) return;
 
         if (currentSortColumn === sortKey) {
@@ -350,52 +350,201 @@ $(document).ready(function () {
         const resultData = allRowsData[originalDataIndex];
 
         if (resultData) {
-            let detailsText = "";
-            detailsText += `Input URL: ${resultData.InputURL || '-'}\n`;
-            detailsText += `Final URL: ${resultData.FinalURL || '-'}\n`;
-            detailsText += `Diff Status: ${resultData.URLStatus || '-'}\n`;
-            detailsText += `Method: ${resultData.Method || '-'}\n`;
-            detailsText += `Status Code: ${resultData.StatusCode || '-'}\n`;
-            detailsText += `Title: ${resultData.Title || '-'}\n`;
-
-            detailsText += `Content Type: ${resultData.ContentType || '-'}\n`;
-            detailsText += `Content Length: ${resultData.ContentLength !== undefined ? resultData.ContentLength : '-'}\n`;
-            detailsText += `Timestamp: ${resultData.Timestamp || '-'}\n`;
-            detailsText += "\n";
-
-            detailsText += `IPs: ${(resultData.IPs || []).join(', ')}\n`;
-
-            // ASN Information
-            if (resultData.ASN && resultData.ASN !== 0) {
-                detailsText += `ASN: ${resultData.ASN}\n`;
-                if (resultData.ASNOrg) {
-                    detailsText += `ASN Organization: ${resultData.ASNOrg}\n`;
-                }
-            } else {
-                detailsText += `ASN: -\n`;
-            }
-            detailsText += "\n";
-
-            detailsText += `Technologies: ${(Array.isArray(resultData.Technologies) ? resultData.Technologies.join(', ') : '') || '-'}\n\n`;
-
-            detailsText += "--- Headers ---\n";
-            if (resultData.Headers && Object.keys(resultData.Headers).length > 0) {
-                for (const key in resultData.Headers) {
-                    detailsText += `${key}: ${resultData.Headers[key]}\n`;
-                }
-            } else {
-                detailsText += "(No headers captured)\n";
-            }
-            detailsText += "\n--- Body Snippet (if available) ---\n";
-            detailsText += truncateText(resultData.Body, 500) || "(No body captured or body is empty)";
-
+            // Populate the new structured details view
+            populateProbeDetails(resultData);
             $modalTitle.text(`Details for: ${resultData.InputURL}`);
-            $modalDetailsContent.text(detailsText);
         } else {
             $modalTitle.text('Details not found');
             $modalDetailsContent.text('Could not retrieve details for this result.');
         }
     });
+
+    // Helper function to parse headers from text
+    function parseHeaders(headersText) {
+        if (!headersText || headersText === 'N/A') return {};
+        
+        try {
+            // Try to parse as JSON first
+            if (headersText.startsWith('{')) {
+                return JSON.parse(headersText);
+            }
+            
+            // If not JSON, try to parse as key-value pairs
+            const headers = {};
+            const lines = headersText.split('\n');
+            lines.forEach(line => {
+                const colonIndex = line.indexOf(':');
+                if (colonIndex > 0) {
+                    const key = line.substring(0, colonIndex).trim();
+                    const value = line.substring(colonIndex + 1).trim();
+                    headers[key] = value;
+                }
+            });
+            return headers;
+        } catch (e) {
+            return { 'Raw Headers': headersText };
+        }
+    }
+
+    // Function to populate probe details in the new structured format
+     function populateProbeDetails(resultData) {
+         // URL Information
+         $('#details-input-url').text(resultData.InputURL || 'N/A');
+         $('#details-final-url').text(resultData.FinalURL || 'N/A');
+         $('#details-root-target').text(resultData.RootTargetURL || 'N/A');
+         
+         // Add status badge styling
+         const statusBadge = getStatusBadge(resultData.diff_status);
+         $('#details-diff-status').html(statusBadge);
+         
+         $('#details-timestamp').text(resultData.Timestamp || 'N/A');
+
+         // Response Information
+         $('#details-method').html(`<span class="badge bg-info">${resultData.Method || 'N/A'}</span>`);
+         
+         // Add status code badge styling
+         const statusCodeBadge = getStatusCodeBadge(resultData.StatusCode);
+         $('#details-status-code').html(statusCodeBadge);
+         
+         $('#details-content-type').text(resultData.ContentType || 'N/A');
+         $('#details-content-length').text(formatBytes(resultData.ContentLength) || 'N/A');
+         $('#details-web-server').text(resultData.WebServer || 'N/A');
+
+         // Network Information
+         $('#details-ips').html(formatIPs((resultData.IPs || []).join(', ')));
+         $('#details-cnames').html(formatCNAMEs(resultData.CNAMEs));
+         $('#details-asn').text(resultData.ASN && resultData.ASN !== 0 ? resultData.ASN : 'N/A');
+         $('#details-asn-org').text(resultData.ASNOrg || 'N/A');
+
+         // Technologies
+         $('#details-technologies').html(formatTechnologies((Array.isArray(resultData.Technologies) ? resultData.Technologies.join(', ') : '')));
+
+         // Headers
+         populateHeaders(resultData.Headers);
+
+         // Body
+         $('#details-body').text(truncateText(resultData.Body, 500) || 'No body content available');
+     }
+
+    // Helper function to get status badge
+    function getStatusBadge(status) {
+        const statusLower = (status || '').toLowerCase();
+        let badgeClass = 'bg-secondary';
+        
+        if (statusLower === 'new') {
+            badgeClass = 'bg-success';
+        } else if (statusLower === 'old') {
+            badgeClass = 'bg-warning';
+        } else if (statusLower === 'modified') {
+            badgeClass = 'bg-info';
+        }
+        
+        return `<span class="badge ${badgeClass}">${status || 'N/A'}</span>`;
+    }
+
+    // Helper function to get status code badge
+    function getStatusCodeBadge(statusCode) {
+        const code = parseInt(statusCode);
+        let badgeClass = 'bg-secondary';
+        
+        if (code >= 200 && code < 300) {
+            badgeClass = 'bg-success';
+        } else if (code >= 300 && code < 400) {
+            badgeClass = 'bg-info';
+        } else if (code >= 400 && code < 500) {
+            badgeClass = 'bg-warning';
+        } else if (code >= 500) {
+            badgeClass = 'bg-danger';
+        }
+        
+        return `<span class="badge ${badgeClass}">${statusCode || 'N/A'}</span>`;
+    }
+
+    // Helper function to format bytes
+    function formatBytes(bytes) {
+        if (!bytes || bytes === '0') return '0 Bytes';
+        
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    // Helper function to format IPs
+     function formatIPs(ips) {
+         if (!ips || ips === 'N/A') return '<span class="text-muted">N/A</span>';
+         
+         // If it's a comma-separated list, split and create badges
+         const ipList = ips.split(',').map(ip => ip.trim()).filter(ip => ip);
+         if (ipList.length > 1) {
+             return ipList.map(ip => `<span class="badge bg-light text-dark me-1">${ip}</span>`).join('');
+         }
+         
+         return `<span class="badge bg-light text-dark">${ips}</span>`;
+     }
+
+     // Helper function to format CNAMEs
+     function formatCNAMEs(cnames) {
+         if (!cnames || cnames.length === 0) {
+             return '<span class="text-muted">N/A</span>';
+         }
+         
+         if (Array.isArray(cnames)) {
+             return cnames.map(cname => `<span class="badge bg-info text-white me-1">${cname}</span>`).join('');
+         }
+         
+         return `<span class="badge bg-info text-white">${cnames}</span>`;
+     }
+
+    // Helper function to format technologies
+    function formatTechnologies(technologies) {
+        if (!technologies || technologies === 'N/A') {
+            return '<span class="text-muted">No technologies detected</span>';
+        }
+        
+        // If it's a comma-separated list, split and create badges
+        const techList = technologies.split(',').map(tech => tech.trim()).filter(tech => tech);
+        if (techList.length > 1) {
+            return techList.map(tech => `<span class="badge bg-primary me-1 mb-1">${tech}</span>`).join('');
+        }
+        
+        return `<span class="badge bg-primary">${technologies}</span>`;
+    }
+
+    // Helper function to populate headers table
+    function populateHeaders(headers) {
+        const headersContainer = $('#details-headers');
+        headersContainer.empty();
+        
+        if (!headers || Object.keys(headers).length === 0) {
+            headersContainer.append('<tr><td colspan="2" class="text-muted text-center">No headers available</td></tr>');
+            return;
+        }
+        
+        // Populate headers table
+        Object.entries(headers).forEach(([key, value]) => {
+            const row = `
+                <tr>
+                    <td><strong>${escapeHtml(key)}</strong></td>
+                    <td class="text-break">${escapeHtml(value)}</td>
+                </tr>
+            `;
+            headersContainer.append(row);
+        });
+    }
+
+    // Helper function to escape HTML
+    function escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+    }
 
     // --- Initial Load ---
     // Initial data (allRowsData) is already populated from window.reportSettings
