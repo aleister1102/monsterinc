@@ -36,6 +36,7 @@ type FetchFileContentInput struct {
 	PreviousETag         string
 	PreviousLastModified string
 	Context              context.Context
+	BypassCache          bool // When true, skips conditional headers to force fresh content
 }
 
 // FetchFileContentResult holds results from FetchFileContent.
@@ -57,12 +58,21 @@ func (f *Fetcher) FetchFileContent(input FetchFileContentInput) (*FetchFileConte
 	// Prepare request
 	headers := make(map[string]string)
 
-	// Add conditional headers if previous values are available
-	if input.PreviousETag != "" {
-		headers["If-None-Match"] = input.PreviousETag
+	// Add conditional headers if previous values are available and not bypassing cache
+	if !input.BypassCache {
+		if input.PreviousETag != "" {
+			headers["If-None-Match"] = input.PreviousETag
+		}
+		if input.PreviousLastModified != "" {
+			headers["If-Modified-Since"] = input.PreviousLastModified
+		}
 	}
-	if input.PreviousLastModified != "" {
-		headers["If-Modified-Since"] = input.PreviousLastModified
+
+	// Force fresh content when bypassing cache
+	if input.BypassCache {
+		headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+		headers["Pragma"] = "no-cache"
+		headers["Expires"] = "0"
 	}
 
 	req := &HTTPRequest{

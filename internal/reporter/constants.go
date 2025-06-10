@@ -4,7 +4,7 @@ const (
 	// Directory constants
 	DefaultDiffReportDir       = "reports/diff"
 	DefaultDiffReportAssetsDir = "reports/diff/assets"
-	DefaultReportTemplateName  = "report.html.tmpl"
+	DefaultReportTemplateName  = "report_client_side.html.tmpl"
 
 	// Embedded asset paths
 	EmbeddedCSSPath = "assets/css/styles.css"

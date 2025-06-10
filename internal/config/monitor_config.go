@@ -13,6 +13,7 @@ type MonitorConfig struct {
 	MaxContentSize            int  `json:"max_content_size,omitempty" yaml:"max_content_size,omitempty" validate:"omitempty,min=1"` // Max content size in bytes
 	MonitorInsecureSkipVerify bool `json:"monitor_insecure_skip_verify" yaml:"monitor_insecure_skip_verify"`
 	StoreFullContentOnChange  bool `json:"store_full_content_on_change" yaml:"store_full_content_on_change"`
+	BypassCache               bool `json:"bypass_cache" yaml:"bypass_cache"` // When true, always fetch fresh content ignoring cache headers
 }
 
 // NewDefaultMonitorConfig creates default monitor configuration
@@ -29,5 +30,6 @@ func NewDefaultMonitorConfig() MonitorConfig {
 		MaxContentSize:            1048576, // Default 1MB
 		MonitorInsecureSkipVerify: true,    // Default to true to match previous hardcoded behavior
 		StoreFullContentOnChange:  true,
+		BypassCache:               true,
 	}
 }

@@ -2,31 +2,34 @@ package reporter
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/models"
 )
 
 // GenerateDiffReport creates HTML report for multiple URLs with automatic file size-based splitting
-func (r *HtmlDiffReporter) GenerateDiffReport(monitoredURLs []string, cycleID string) ([]string, error) {
+func (r *HtmlDiffReporter) GenerateDiffReport(changedURLs []string, cycleID string) ([]string, error) {
 	r.logger.Info().
-		Strs("monitored_urls", monitoredURLs).
-		Int("monitored_count", len(monitoredURLs)).
+		Strs("changed_urls", changedURLs).
+		Int("changed_count", len(changedURLs)).
 		Str("cycle_id", cycleID).
-		Msg("Generating aggregated HTML diff report for monitored URLs")
+		Msg("Generating aggregated HTML diff report for changed URLs only")
 
 	if r.historyStore == nil {
 		r.logger.Error().Msg("HistoryStore is not available in HtmlDiffReporter")
 		return nil, errors.New("historyStore is not configured for HtmlDiffReporter")
 	}
 
-	diffResults, err := r.fetchLatestDiffResults(monitoredURLs)
+	// Fetch only changed URLs instead of all monitored URLs
+	diffResults, err := r.fetchLatestDiffResults(changedURLs)
 	if err != nil {
 		return nil, err
 	}
@@ -64,8 +67,8 @@ func (r *HtmlDiffReporter) GenerateSingleDiffReport(urlStr string, diffResult *m
 }
 
 // fetchLatestDiffResults retrieves latest diff results from history store
-func (r *HtmlDiffReporter) fetchLatestDiffResults(monitoredURLs []string) (map[string]*models.ContentDiffResult, error) {
-	latestDiffsMap, err := r.historyStore.GetAllLatestDiffResultsForURLs(monitoredURLs)
+func (r *HtmlDiffReporter) fetchLatestDiffResults(changedURLs []string) (map[string]*models.ContentDiffResult, error) {
+	latestDiffsMap, err := r.historyStore.GetAllLatestDiffResultsForURLs(changedURLs)
 	if err != nil {
 		r.logger.Error().Err(err).Msg("Failed to get latest diff results from history store")
 		return nil, fmt.Errorf("failed to get latest diff results: %w", err)
@@ -73,8 +76,8 @@ func (r *HtmlDiffReporter) fetchLatestDiffResults(monitoredURLs []string) (map[s
 
 	r.logger.Info().
 		Int("diff_results_retrieved", len(latestDiffsMap)).
-		Int("monitored_urls_requested", len(monitoredURLs)).
-		Msg("Retrieved latest diff results from history store")
+		Int("changed_urls_requested", len(changedURLs)).
+		Msg("Retrieved latest diff results from history store for changed URLs only")
 
 	return latestDiffsMap, nil
 }
@@ -85,31 +88,54 @@ func (r *HtmlDiffReporter) processDiffResults(latestDiffsMap map[string]*models.
 	skippedIdentical := 0
 
 	for url, diffResult := range latestDiffsMap {
+		if diffResult == nil { // Added nil check for diffResult itself
+			r.logger.Warn().Str("url", url).Msg("Skipping nil diffResult in processDiffResults")
+			continue
+		}
 		// Skip URLs that have no changes (identical content)
-		if diffResult == nil || diffResult.IsIdentical {
+		if diffResult.IsIdentical {
 			skippedIdentical++
 			continue
 		}
 
 		var summary string
 		var diffHTML template.HTML
+		var displayTimestamp time.Time
+
+		if diffResult.Timestamp > 0 {
+			displayTimestamp = time.UnixMilli(diffResult.Timestamp)
+		} else {
+			displayTimestamp = time.Now() // Default to current time if timestamp is invalid
+			r.logger.Warn().Str("url", url).Int64("timestamp", diffResult.Timestamp).Msg("Invalid or zero timestamp for diffResult, using current time")
+		}
+
 		if len(diffResult.Diffs) > 0 {
-			// Regular diff case (including new files with content diffs)
 			summary = r.diffUtils.CreateDiffSummary(diffResult.Diffs)
 			diffHTML = r.diffUtils.GenerateDiffHTML(diffResult.Diffs)
+			if summary == "No textual changes detected." { // Be more explicit if diffs are present but summary is generic
+				summary = "Content changed (see details)"
+			}
 		} else if diffResult.OldHash == "" {
-			// New file case (first time monitoring this URL)
 			summary = "New file detected"
-			diffHTML = template.HTML("<div class='new-file-notice'>✨ This is a newly discovered file.</div>")
+			diffHTML = template.HTML("<div class='new-file-notice'>✨ This is a newly discovered file. Full content should be available.</div>")
 		} else {
-			// Other cases where no diffs available but changes detected
-			summary = "Changes detected but no diff available"
-			diffHTML = template.HTML("<div class='no-diff-notice'>⚠️ Changes were detected but diff information is not available.</div>")
+			summary = "Changes detected but no detailed diff available"
+			if diffResult.ErrorMessage != "" {
+				summary = fmt.Sprintf("Error during diff: %s", diffResult.ErrorMessage)
+				diffHTML = template.HTML(fmt.Sprintf("<div class='error-notice'>⚠️ Error generating diff: %s</div>", template.HTMLEscapeString(diffResult.ErrorMessage)))
+			} else {
+				diffHTML = template.HTML("<div class='no-diff-notice'>⚠️ Changes were detected but detailed diff information is not available. This could be due to file type or size.</div>")
+			}
+		}
+
+		// Ensure summary is never empty if changes are present
+		if summary == "" {
+			summary = "Summary not available"
 		}
 
 		display := models.DiffResultDisplay{
 			URL:            url,
-			Timestamp:      time.UnixMilli(diffResult.Timestamp),
+			Timestamp:      displayTimestamp,
 			ContentType:    diffResult.ContentType,
 			OldHash:        diffResult.OldHash,
 			NewHash:        diffResult.NewHash,
@@ -158,6 +184,9 @@ func (r *HtmlDiffReporter) createAggregatedPageData(displayResults []models.Diff
 		pageData.FaviconBase64 = base64.StdEncoding.EncodeToString(faviconICODiff)
 	}
 
+	// Create JSON data for client-side rendering
+	r.populateDiffResultsJSON(&pageData)
+
 	return pageData
 }
 
@@ -194,6 +223,9 @@ func (r *HtmlDiffReporter) createSingleDiffPageData(displayDiff models.DiffResul
 		pageData.FaviconBase64 = base64.StdEncoding.EncodeToString(faviconICODiff)
 	}
 
+	// Create JSON data for client-side rendering
+	r.populateDiffResultsJSON(&pageData)
+
 	return pageData
 }
 
@@ -210,12 +242,19 @@ func (r *HtmlDiffReporter) writeReportToFile(pageData models.DiffReportPageData,
 		}
 	}()
 
-	if err := r.template.ExecuteTemplate(file, "diff_report.html.tmpl", pageData); err != nil {
-		r.logger.Error().Err(err).Msg("Failed to execute template for diff report")
+	// Choose template based on expected file size - use client-side template for large reports
+	templateName := r.selectOptimalTemplate(pageData)
+
+	if err := r.template.ExecuteTemplate(file, templateName, pageData); err != nil {
+		r.logger.Error().Err(err).Str("template", templateName).Msg("Failed to execute template for diff report")
 		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
 
-	r.logger.Info().Str("path", outputFilePath).Int("diff_count", len(pageData.DiffResults)).Msg("Successfully generated HTML diff report")
+	r.logger.Info().
+		Str("path", outputFilePath).
+		Str("template", templateName).
+		Int("diff_count", len(pageData.DiffResults)).
+		Msg("Successfully generated HTML diff report")
 	return outputFilePath, nil
 }
 
@@ -229,4 +268,102 @@ func (r *HtmlDiffReporter) generateSingleReport(displayResults []models.DiffResu
 	}
 
 	return r.writeReportToFile(pageData, outputFilePath)
+}
+
+// populateDiffResultsJSON creates JSON representation of diff results for client-side rendering
+func (r *HtmlDiffReporter) populateDiffResultsJSON(pageData *models.DiffReportPageData) {
+	// Create a simplified version of diff results for JSON serialization
+	type SimplifiedDiffResult struct {
+		URL            string                     `json:"url"`
+		ContentType    string                     `json:"content_type"`
+		Timestamp      time.Time                  `json:"timestamp"`
+		IsIdentical    bool                       `json:"is_identical"`
+		ErrorMessage   string                     `json:"error_message"`
+		Diffs          []models.ContentDiff       `json:"diffs"`
+		OldHash        string                     `json:"old_hash"`
+		NewHash        string                     `json:"new_hash"`
+		Summary        string                     `json:"summary"`
+		ExtractedPaths []models.ExtractedPath     `json:"extracted_paths"`
+	}
+
+	// Convert DiffResultDisplay to simplified version
+	var simplifiedResults []SimplifiedDiffResult
+	for _, result := range pageData.DiffResults {
+		simplified := SimplifiedDiffResult{
+			URL:            result.URL,
+			ContentType:    result.ContentType,
+			Timestamp:      result.Timestamp,
+			IsIdentical:    result.IsIdentical,
+			ErrorMessage:   result.ErrorMessage,
+			Diffs:          result.Diffs, // Use raw diffs instead of pre-rendered HTML
+			OldHash:        result.OldHash,
+			NewHash:        result.NewHash,
+			Summary:        result.Summary,
+			ExtractedPaths: result.ExtractedPaths,
+		}
+		simplifiedResults = append(simplifiedResults, simplified)
+	}
+
+	// Serialize to JSON
+	if jsonData, err := json.Marshal(simplifiedResults); err != nil {
+		r.logger.Error().Err(err).Msg("Failed to marshal diff results to JSON")
+		pageData.DiffResultsJSON = template.JS("[]") // Fallback to empty array
+	} else {
+		pageData.DiffResultsJSON = template.JS(jsonData)
+	}
+}
+
+// getTemplateName chooses between client-side and server-side templates based on data size
+func (r *HtmlDiffReporter) getTemplateName(useClientSide bool) string {
+	return "diff_report_client_side.html.tmpl"
+}
+
+// selectOptimalTemplate chooses between client-side and server-side templates based on data size
+func (r *HtmlDiffReporter) selectOptimalTemplate(pageData models.DiffReportPageData) string {
+	// Estimate the size impact of diff content
+	totalDiffSize := 0
+	for _, result := range pageData.DiffResults {
+		totalDiffSize += len(string(result.DiffHTML))
+		totalDiffSize += len(result.Summary)
+		totalDiffSize += len(result.ErrorMessage)
+	}
+
+	// Use client-side template if:
+	// 1. More than 15 diff results OR (reduced from 20 for better file size optimization)
+	// 2. Total diff content size > 80KB OR (reduced from 100KB)
+	// 3. Individual result has very large diff content OR
+	// 4. This is a multi-part report (splitting scenario)
+	useClientSide := false
+
+	if len(pageData.DiffResults) > 15 {
+		useClientSide = true
+		r.logger.Info().
+			Int("diff_count", len(pageData.DiffResults)).
+			Msg("Using client-side template due to number of diffs")
+	} else if totalDiffSize > 80*1024 { // 80KB
+		useClientSide = true
+		r.logger.Info().
+			Int("total_diff_size_bytes", totalDiffSize).
+			Msg("Using client-side template due to large diff content size")
+	} else if strings.Contains(pageData.ReportPartInfo, "Part") {
+		// Multi-part reports benefit from client-side rendering
+		useClientSide = true
+		r.logger.Info().
+			Str("part_info", pageData.ReportPartInfo).
+			Msg("Using client-side template for multi-part report")
+	} else {
+		// Check for any individual very large diff
+		for _, result := range pageData.DiffResults {
+			if len(string(result.DiffHTML)) > 40*1024 { // 40KB for single diff (reduced from 50KB)
+				useClientSide = true
+				r.logger.Info().
+					Str("url", result.URL).
+					Int("diff_size_bytes", len(string(result.DiffHTML))).
+					Msg("Using client-side template due to large individual diff")
+				break
+			}
+		}
+	}
+
+	return r.getTemplateName(useClientSide)
 }

@@ -55,7 +55,9 @@ type ReportPageData struct {
 	UniqueStatusCodes  []int
 	UniqueContentTypes []string
 	UniqueTechnologies []string
-	UniqueRootTargets  []string                 // Added for multi-target navigation
+	UniqueRootTargets  []string                 // Deprecated: keeping for backward compatibility
+	UniqueHostnames    []string                 // New: for hostname-based grouping
+	UniqueURLStatuses  []string                 // For diff status filtering
 	CustomCSS          template.CSS             // For embedded styles.css
 	ReportJs           template.JS              // Embedded custom report.js
 	URLDiffs           map[string]URLDiffResult `json:"url_diffs,omitempty"` // Added to hold raw diff results
@@ -152,7 +154,7 @@ type DiffSummaryEntry struct {
 	ChangedCount  int `json:"changed_count"` // Keep for future use
 }
 
-// DiffReportPageData holds all the data needed to render the diff_report.html.tmpl template.
+// DiffReportPageData holds all the data needed to render the diff_report_client_side.html.tmpl template.
 // It will now hold a list of diff results for multiple URLs.
 // Consider adding more metadata if needed, like report generation time, overall summary, etc.
 type DiffReportPageData struct {
@@ -165,6 +167,7 @@ type DiffReportPageData struct {
 	ReportType       string              `json:"report_type,omitempty"`      // Added ReportType for template logic
 	FaviconBase64    string              `json:"favicon_base64,omitempty"`   // Base64 encoded favicon
 	ReportPartInfo   string              `json:"report_part_info,omitempty"` // Report Part Information (for multi-part reports)
+	DiffResultsJSON  template.JS         `json:"-"`                          // JSON string of DiffResults for client-side rendering
 	// You can add more fields here, for example, a summary of changes, etc.
 }
 

@@ -202,14 +202,30 @@ td a:hover {
 .pagination .page-link {
     border-radius: .25rem;
     margin: 0 2px;
-    color: #007bff;
+    color: #007bff !important;
+    background-color: transparent !important;
 }
 
 .pagination .page-item.active .page-link {
     z-index: 3;
-    color: #fff;
-    background-color: #007bff;
-    border-color: #007bff;
+    color: #fff !important;
+    background-color: #007bff !important;
+    border-color: #007bff !important;
+}
+
+/* Removed hover effect to prevent text color conflicts */
+.pagination .page-link:hover {
+    /* No hover styling to avoid color conflicts */
+}
+
+/* Force pagination colors with highest specificity */
+.pagination .page-item .page-link {
+    color: #007bff !important;
+}
+
+.pagination .page-item.active .page-link {
+    color: #fff !important;
+    background-color: #007bff !important;
 }
 
 /* Styling for rounded corners, subtle box shadows, gradients (where appropriate) */

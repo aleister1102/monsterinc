@@ -61,12 +61,15 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		batchNumber := batchIndex + 1 // Make it 1-based for display
 
 		// Calculate processed URLs from previous batches
-		processedURLsSoFar := 0
-		for i := 0; i < batchIndex; i++ {
-			// Each previous batch processed URLs, calculate cumulative
-			if i < batchCount-1 {
-				// All batches except the last have same size (from batch processor logic)
-				processedURLsSoFar += len(targetURLs) / batchCount
+		batchSize := len(targetURLs) / batchCount
+		processedURLsSoFar := batchIndex * batchSize
+
+		// Handle uneven distribution for the last few batches
+		if batchIndex > 0 {
+			remainder := len(targetURLs) % batchCount
+			if remainder > 0 && batchIndex >= batchCount-remainder {
+				// Add one extra URL for batches that handle the remainder
+				processedURLsSoFar += batchIndex - (batchCount - remainder)
 			}
 		}
 
@@ -88,7 +91,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 				"Batch Processing",
 				fmt.Sprintf("Starting batch %d/%d (%d targets)", batchNumber, batchCount, len(batch)),
 			)
-			// Update URL tracking info
+			// Update URL tracking info with correct processed count
 			bwo.scanner.progressDisplay.UpdateBatchProgressWithURLs(common.ProgressTypeScan, batchNumber, batchCount, len(batch), len(targetURLs), processedURLsSoFar)
 		}
 
@@ -124,8 +127,8 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			// Update progress display - batch failed
 			if bwo.scanner.progressDisplay != nil {
 				bwo.scanner.progressDisplay.UpdateScanProgress(
-					5, // Complete workflow for failed batch
-					5,
+					int64(batchNumber), // Keep current batch number even on failure
+					int64(batchCount),  // Total batches
 					"Batch Failed",
 					fmt.Sprintf("Batch %d/%d failed: %v", batchNumber, batchCount, err),
 				)
@@ -168,14 +171,15 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 
 		// Update progress display - batch completed
 		if bwo.scanner.progressDisplay != nil {
-			completedTargets := processedBatches * len(batch) // Approximate
-			if processedBatches == batchCount {
-				completedTargets = len(targetURLs) // Exact for last batch
+			// Calculate actual completed targets
+			completedTargets := processedURLsSoFar + len(batch)
+			if completedTargets > len(targetURLs) {
+				completedTargets = len(targetURLs) // Cap at total
 			}
 
 			bwo.scanner.progressDisplay.UpdateScanProgress(
-				5, // Complete workflow for successful batch
-				5,
+				int64(batchNumber), // Use batch number for progress (completed batches)
+				int64(batchCount),  // Total batches
 				"Batch Completed",
 				fmt.Sprintf("Completed batch %d/%d (%d targets processed)", batchNumber, batchCount, completedTargets),
 			)
@@ -212,8 +216,8 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		// Update progress display - interrupted
 		if bwo.scanner.progressDisplay != nil {
 			bwo.scanner.progressDisplay.UpdateScanProgress(
-				0, // Reset on interruption
-				5,
+				int64(processedBatches), // Number of batches actually processed
+				int64(batchCount),       // Total batches
 				"Interrupted",
 				fmt.Sprintf("Batch processing interrupted at %d/%d", processedBatches, batchCount),
 			)
@@ -222,8 +226,8 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		// Update progress display - all batches completed
 		if bwo.scanner.progressDisplay != nil {
 			bwo.scanner.progressDisplay.UpdateScanProgress(
-				5, // Complete workflow
-				5,
+				int64(batchCount), // All batches completed
+				int64(batchCount), // Total batches
 				"Batch Complete",
 				fmt.Sprintf("All %d batches completed successfully (%d targets)\n", batchCount, len(targetURLs)),
 			)

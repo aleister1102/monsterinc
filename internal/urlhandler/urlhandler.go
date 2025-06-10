@@ -83,27 +83,20 @@ func ResolveURL(href string, base *url.URL) (string, error) {
 func GetRootTargetForURL(discoveredURL string, seedURLs []string) string {
 	normalizedDiscovered, err := NormalizeURL(discoveredURL)
 	if err != nil {
-		// If the discovered URL is invalid, fallback.
-		if len(seedURLs) > 0 {
-			return seedURLs[0] // Return the first seed as a default.
-		}
-		return discoveredURL // Or the original invalid URL if no seeds.
+		// If the discovered URL is invalid, return the original URL itself as root target
+		return discoveredURL
 	}
 
 	var discoveredHost string
 	if parsedDiscovered, pErr := url.Parse(normalizedDiscovered); pErr == nil {
 		discoveredHost = parsedDiscovered.Hostname()
-	} else { // Should not happen if NormalizeURL succeeded without error
-		if len(seedURLs) > 0 {
-			return seedURLs[0]
-		}
+	} else {
+		// If parsing fails, return the discovered URL itself as root target
 		return discoveredURL
 	}
 
-	if discoveredHost == "" { // If hostname is empty (e.g. file:// URLs without host)
-		if len(seedURLs) > 0 {
-			return seedURLs[0]
-		}
+	if discoveredHost == "" {
+		// If hostname is empty (e.g. file:// URLs without host), return the discovered URL itself
 		return discoveredURL
 	}
 
@@ -119,11 +112,61 @@ func GetRootTargetForURL(discoveredURL string, seedURLs []string) string {
 		}
 	}
 
-	// Fallback if no matching seed host is found.
-	if len(seedURLs) > 0 {
-		return seedURLs[0]
+	// Instead of fallback to seedURLs[0], construct a proper root URL from the discovered URL
+	// This ensures each domain gets its own root target
+	if parsedDiscovered, err := url.Parse(normalizedDiscovered); err == nil {
+		// Construct root URL as scheme://hostname
+		rootURL := parsedDiscovered.Scheme + "://" + parsedDiscovered.Host
+		return rootURL
 	}
-	return discoveredURL // Absolute fallback.
+
+	// Absolute fallback - return the discovered URL itself
+	return discoveredURL
+}
+
+// GetBaseDomain extracts the base domain (e.g., "example.com" from "sub.example.com", or "example.co.uk" from "www.example.co.uk").
+// It tries to handle common TLDs; for more complex scenarios, a proper library might be needed.
+func GetBaseDomain(hostname string) (string, error) {
+	hostname = strings.ToLower(strings.TrimSpace(hostname))
+	if hostname == "" {
+		return "", errors.New("hostname is empty")
+	}
+
+	// Remove port if present
+	if strings.Contains(hostname, ":") {
+		host, _, err := net.SplitHostPort(hostname)
+		if err == nil {
+			hostname = host
+		}
+	}
+
+	parts := strings.Split(hostname, ".")
+	if len(parts) < 2 {
+		// Cannot be a base domain like example.com, could be localhost or single label
+		return hostname, nil // Or return error if single label isn't desired
+	}
+
+	// Common two-part TLDs (add more as needed or use a library)
+	// This is a simplified approach. For comprehensive TLD handling, consider a library like "golang.org/x/net/publicsuffix".
+	twoPartTLDs := map[string]bool{
+		"co.uk": true, "com.au": true, "com.sg": true, "com.cn": true, "org.uk": true, // etc.
+		"gov.uk": true, "ac.uk": true, "net.au": true, "com.br": true, "com.mx": true,
+	}
+
+	if len(parts) > 2 {
+		// Check for common two-part TLDs like "co.uk"
+		potentialTwoPartTLD := parts[len(parts)-2] + "." + parts[len(parts)-1]
+		if twoPartTLDs[potentialTwoPartTLD] {
+			if len(parts) > 2 { // Need at least three parts for domain.co.uk
+				return parts[len(parts)-3] + "." + potentialTwoPartTLD, nil
+			}
+			// Edge case: something like "co.uk" itself - treat as is if it was the input
+			return potentialTwoPartTLD, nil
+		}
+	}
+
+	// Standard case: example.com -> take last two parts
+	return parts[len(parts)-2] + "." + parts[len(parts)-1], nil
 }
 
 // GetBaseDomain extracts the base domain (e.g., "example.com" from "sub.example.com", or "example.co.uk" from "www.example.co.uk").

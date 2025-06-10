@@ -205,6 +205,13 @@ func (upd *URLPatternDetector) isBuiltinLocaleCode(segment string) bool {
 		return upd.isISO639Language(segment) || upd.isISO3166Country(segment)
 	}
 
+	// Special locale codes with dash (e.g., jo-ar, jo-en, sa-en) - check first
+	if len(segment) > 3 && strings.Contains(segment, "-") {
+		if upd.isSpecialLocaleCode(segment) {
+			return true
+		}
+	}
+
 	// Language-Country codes (e.g., en-us, zh-cn, pt-br)
 	if len(segment) == 5 && segment[2] == '-' {
 		langCode := segment[:2]
@@ -212,14 +219,9 @@ func (upd *URLPatternDetector) isBuiltinLocaleCode(segment string) bool {
 		return upd.isISO639Language(langCode) && upd.isISO3166Country(countryCode)
 	}
 
-	// Compound locale codes (e.g., chde, chfr, kzkk, jo-ar, jo-en, benl, befr)
+	// Compound locale codes (e.g., chde, chfr, kzkk, benl, befr)
 	if len(segment) == 4 {
 		return upd.isCompoundLocaleCode(segment)
-	}
-
-	// Special locale codes with dash (e.g., jo-ar, jo-en)
-	if len(segment) > 3 && strings.Contains(segment, "-") {
-		return upd.isSpecialLocaleCode(segment)
 	}
 
 	return false
@@ -248,7 +250,7 @@ func (upd *URLPatternDetector) isISO639Language(code string) bool {
 		"zu": true, "af": true, "nso": true, "yo": true, "ig": true, "ha": true,
 		"ff": true, "wo": true, "bm": true, "ee": true, "tw": true, "ak": true,
 		"lg": true, "ln": true, "kg": true, "sg": true, "za": true, "nd": true,
-		"nr": true,
+		"nr": true, "lb": true, "sa": true, // Added missing language codes
 	}
 	return languages[code]
 }
@@ -286,6 +288,7 @@ func (upd *URLPatternDetector) isISO3166Country(code string) bool {
 		"dm": true, "lc": true, "vc": true, "gd": true, "bb": true, "tt": true,
 		"aw": true, "cw": true, "sx": true, "bq": true, "ms": true, "ai": true,
 		"kn": true, "bs": true, "tc": true, "vg": true, "ky": true, "bm": true,
+		"lu": true, // Added Luxembourg
 	}
 	return countries[code]
 }

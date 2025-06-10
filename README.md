@@ -331,6 +331,11 @@ MonsterInc provides immediate response to interrupt signals:
 - **Resource cleanup**: Automatic cleanup of temporary files and connections
 - **Partial results**: Available for interrupted scans
 
+### Tips
+
+- Filter input file with `httpx` before scanning
+- Filter library JS files before monitoring
+
 ## Configuration
 
 ### Configuration File Priority
@@ -470,3 +475,4 @@ Distributed under the MIT License. See `LICENSE` for more information.
 - [jsluice](https://github.com/BishopFox/jsluice) by BishopFox
 - [parquet-go](https://github.com/parquet-go/parquet-go) for data storage
 - [colly](https://github.com/gocolly/colly) for web crawling
+

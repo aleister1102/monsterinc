@@ -678,6 +678,9 @@ func runOnetimeScan(
 	}
 
 	baseLogger.Info().Msg("MonsterInc Crawler finished (onetime mode).")
+
+	// Force exit for onetime mode to prevent hanging
+	os.Exit(0)
 }
 
 func runAutomatedScan(

@@ -9,14 +9,14 @@ import (
 	"github.com/rs/zerolog"
 )
 
-//go:embed templates/report.html.tmpl
+//go:embed templates/report_client_side.html.tmpl
 var defaultTemplate embed.FS
 
 //go:embed assets/img/favicon.ico
 var faviconICO []byte
 
 const (
-	defaultHtmlReportTemplateName = "report.html.tmpl"
+	defaultHtmlReportTemplateName = "report_client_side.html.tmpl"
 	embeddedCSSPath               = "assets/css/styles.css"
 	embeddedJSPath                = "assets/js/report.js"
 )

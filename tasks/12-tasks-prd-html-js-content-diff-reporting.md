@@ -4,7 +4,8 @@
 - `internal/differ/beautifier.go` - (Optional) Logic to beautify/normalize HTML and JS content before diffing to reduce noise.
 - `internal/datastore/file_history_store.go` - Used to retrieve the previous version of the file content for comparison.
 - `internal/reporter/html_diff_reporter.go` - (New or part of `html_reporter.go`) Generates an HTML report showing the content diff.
-- `internal/reporter/templates/diff_report.html.tmpl` - (New) Go HTML template for the side-by-side or unified diff view.
+- `internal/reporter/templates/diff_report_client_side.html.tmpl` - (Default) Go HTML template with client-side rendering for the side-by-side or unified diff view.
+
 - `internal/models/content_diff.go` - (New) Structs to represent diff results (e.g., `ContentDiffResult`, lines added/removed/changed).
 - `internal/config/config.go` - May contain `DiffReporterConfig` if specific settings are needed for diff reports.
 - `internal/monitor/service.go` - Will trigger the diff generation and reporting when a change is detected.
@@ -36,12 +37,12 @@
   - [x] 3.1 Define `HtmlDiffReporter` struct (dependencies: `config.ReporterConfig` (if any diff-specific settings), `logger.Logger`).
   - [x] 3.2 Implement `NewHtmlDiffReporter(...)` constructor.
   - [x] 3.3 Implement `GenerateDiffReport(url string, previousContent []byte, currentContent []byte, diffResult *models.ContentDiffResult, outputPath string) error` (FR3.1).
-  - [x] 3.4 Create `diff_report.html.tmpl` in `internal/reporter/templates/`.
+  - [x] 3.4 Create `diff_report_client_side.html.tmpl` in `internal/reporter/templates/`.
         *   Design a side-by-side or unified diff view (FR3.1, FR3.3). Side-by-side is often clearer.
         *   Use different background colors for added, removed, and changed lines/sections.
         *   Display metadata: URL, timestamps of versions (if available).
   - [x] 3.5 Populate `DiffReportPageData` struct (similar to `ReportPageData`) with necessary data for the template.
-  - [x] 3.6 Parse and execute `diff_report.html.tmpl`.
+  - [x] 3.6 Parse and execute `diff_report_client_side.html.tmpl` (default template).
   - [ ] 3.7 (Optional) Add basic interactivity (e.g., navigating to next/prev change) using minimal JS in the template itself or a small `diff_report.js`. (SKIPPED)
   - [ ] 3.8 Ensure the report is self-contained or uses assets from the main HTML report if co-located. (SKIPPED for now, assumes self-contained from basic template)
 
@@ -74,4 +75,4 @@
   - [ ] 7.2 Test (optional) beautifier functions if implemented.
   - [ ] 7.3 Test `HtmlDiffReporter.GenerateDiffReport` for correct HTML structure and data population (may involve checking parts of the generated HTML string).
   - [ ] 7.4 Test handling of large files (e.g., skipping diff if oversized).
-  - [ ] 7.5 Test integration points where `MonitoringService` calls the differ and reporter. 
+  - [ ] 7.5 Test integration points where `MonitoringService` calls the differ and reporter.

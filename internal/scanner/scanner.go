@@ -241,7 +241,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Update progress: Starting URL preprocessing
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(0, 5, "Preprocessing", "Normalizing and filtering URLs")
+		s.progressDisplay.UpdateWorkflowProgress(0, 5, "Preprocessing", "Normalizing and filtering URLs")
 	}
 
 	// Step 0: Preprocess URLs (normalize and auto-calibrate)
@@ -282,7 +282,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Update progress: Starting crawler configuration
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(1, 5, "Crawler", "Configuring crawler")
+		s.progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", "Configuring crawler")
 	}
 
 	// Step 1: Configure and execute crawler
@@ -318,7 +318,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 	}
 
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(1, 5, "Crawler", "Executing crawler")
+		s.progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", "Executing crawler")
 	}
 
 	// Check for context cancellation before crawler execution
@@ -368,7 +368,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Step 2: Execute HTTPX probing
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(2, 5, "Probing", "Configuring HTTPX probing")
+		s.progressDisplay.UpdateWorkflowProgress(2, 5, "Probing", "Configuring HTTPX probing")
 	}
 
 	httpxConfig := s.configBuilder.BuildHTTPXConfig(crawlerResult.DiscoveredURLs)
@@ -382,7 +382,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 	}
 
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(2, 5, "Probing", fmt.Sprintf("Probing %d URLs", len(crawlerResult.DiscoveredURLs)))
+		s.progressDisplay.UpdateWorkflowProgress(2, 5, "Probing", fmt.Sprintf("Starting HTTPX probing of %d URLs", len(crawlerResult.DiscoveredURLs)))
 	}
 
 	// Check for context cancellation before HTTPX execution
@@ -429,7 +429,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Step 3: Process diffing and storage
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(3, 5, "Diffing", "Processing diffs and storage")
+		s.progressDisplay.UpdateWorkflowProgress(3, 5, "Diffing", "Processing diffs and storage")
 	}
 
 	var urlDiffResults map[string]models.URLDiffResult
@@ -453,8 +453,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Step 4: Workflow completed
 	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateScanProgress(4, 5, "Complete", "Scan workflow completed")
-		s.progressDisplay.SetScanStatus(common.ProgressStatusComplete, fmt.Sprintf("Found %d probe results\n", len(httpxResult.ProbeResults)))
+		s.progressDisplay.UpdateWorkflowProgress(4, 5, "Complete", fmt.Sprintf("Found %d probe results", len(httpxResult.ProbeResults)))
 	}
 
 	// Log resource usage after scan workflow

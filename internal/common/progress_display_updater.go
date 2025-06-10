@@ -29,12 +29,15 @@ func (pdm *ProgressDisplayManager) UpdateScanProgress(current, total int64, stag
 	pdm.scanProgress.LastUpdateTime = now
 	pdm.scanProgress.UpdateETA()
 
-	// Immediate display on progress update if significant change
-	if current > 0 && current%1 == 0 { // Show every step
-		go func() {
-			time.Sleep(50 * time.Millisecond)
-			pdm.displayProgress()
-		}()
+	// Only trigger immediate display for significant updates to avoid spam
+	if current == 0 || current == total || current%1 == 0 {
+		// Use the existing display loop frequency to avoid spam
+		select {
+		case <-pdm.stopChan:
+			return
+		default:
+			// Trigger display without creating new goroutine
+		}
 	}
 }
 
@@ -143,11 +146,12 @@ func (pdm *ProgressDisplayManager) ResetBatchProgress(progressType ProgressType,
 	now := time.Now()
 
 	if progressType == ProgressTypeScan {
-		pdm.scanProgress.Current = 0
-		pdm.scanProgress.Total = 5 // Standard workflow steps
+		// Don't reset Current - keep it as batch progression instead of workflow steps
+		pdm.scanProgress.Current = int64(currentBatch - 1) // 0-based for calculation
+		pdm.scanProgress.Total = int64(totalBatches)       // Total batches, not workflow steps
 		pdm.scanProgress.Stage = stage
 		pdm.scanProgress.Message = message
-		pdm.scanProgress.StartTime = now // Reset timer for accurate ETA
+		pdm.scanProgress.StartTime = now // Reset timer for accurate ETA per batch
 		pdm.scanProgress.LastUpdateTime = now
 		pdm.scanProgress.EstimatedETA = 0
 		pdm.scanProgress.Status = ProgressStatusRunning
@@ -158,7 +162,8 @@ func (pdm *ProgressDisplayManager) ResetBatchProgress(progressType ProgressType,
 			TotalBatches: totalBatches,
 		}
 	} else {
-		pdm.monitorProgress.Current = 0
+		pdm.monitorProgress.Current = int64(currentBatch - 1)
+		pdm.monitorProgress.Total = int64(totalBatches)
 		pdm.monitorProgress.StartTime = now
 		pdm.monitorProgress.LastUpdateTime = now
 		pdm.monitorProgress.EstimatedETA = 0
@@ -169,5 +174,35 @@ func (pdm *ProgressDisplayManager) ResetBatchProgress(progressType ProgressType,
 		}
 		pdm.monitorProgress.BatchInfo.CurrentBatch = currentBatch
 		pdm.monitorProgress.BatchInfo.TotalBatches = totalBatches
+	}
+}
+
+// UpdateWorkflowProgress cập nhật tiến trình workflow bên trong batch (không ảnh hưởng đến batch progress)
+func (pdm *ProgressDisplayManager) UpdateWorkflowProgress(current, total int64, stage, message string) {
+	pdm.mutex.Lock()
+	defer pdm.mutex.Unlock()
+
+	now := time.Now()
+
+	// Only update stage and message, keep batch-level current/total
+	if pdm.scanProgress.BatchInfo != nil {
+		// We're in batch mode, don't update Current/Total as they represent batch progress
+		pdm.scanProgress.Stage = stage
+		pdm.scanProgress.Message = message
+		pdm.scanProgress.LastUpdateTime = now
+		// Don't update ETA for workflow steps as it's calculated at batch level
+	} else {
+		// Regular single workflow execution
+		if pdm.scanProgress.Status == ProgressStatusIdle || current == 0 {
+			pdm.scanProgress.StartTime = now
+			pdm.scanProgress.Status = ProgressStatusRunning
+		}
+
+		pdm.scanProgress.Current = current
+		pdm.scanProgress.Total = total
+		pdm.scanProgress.Stage = stage
+		pdm.scanProgress.Message = message
+		pdm.scanProgress.LastUpdateTime = now
+		pdm.scanProgress.UpdateETA()
 	}
 }
