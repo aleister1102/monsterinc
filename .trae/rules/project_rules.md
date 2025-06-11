@@ -1,11 +1,19 @@
-Giao tiếp với tôi bằng tiếng việt nhưng code bằng tiếng anh. Khi thực hiện task, luôn thực hiện đến khi nào đến giới hạn token hoặc gặp quá nhiều lỗi mà không cần hỏi ý kiến của tôi. Ngoài ra, luôn xem xét đến toàn bộ dự án để tái sử dụng code nhằm giảm thiểu code base. 
+# Ngôn ngữ & Giao tiếp
+- Giao tiếp bằng tiếng Việt, code bằng tiếng Anh.
+- Hạn chế giải thích dài dòng.
 
-Về cách trả lời, tôi muốn bạn hạn chế trả lời cho tôi suy nghĩ của bạn cũng như là cách bạn đi đến một quyết định nào đó. Việc giải thích quá dài dòng cũng nên bỏ qua. Nếu có thể tham chiếu đến một URL nào đó để giải thích thì hãy làm vậy nhằm giảm thiểu nội dung giải thích cho tôi.
+# Thực thi & Workflow
 
-Không sử dụng xitongsys/parquet-go mà sử dụng https://github.com/parquet-go/parquet-go
+- Tự động thực hiện tác vụ cho đến khi hoàn thành, gặp lỗi hoặc hết token mà không cần hỏi.
+- Luôn xem xét toàn bộ dự án để tái sử dụng code, giảm thiểu code base.
+- Sau mỗi tác vụ lớn, kiểm tra linter toàn bộ dự án và xóa hết các log debug.
+- Không tự động commit.
 
-Ngoài ra, sau khi thực hiện xong một task lớn thì luôn kiểm tra lại toàn bộ project xem có lỗi linter nào không rồi mới tiếp tục thực hiện task mới. Bên cạnh đó, xóa tất cả các log bạn thêm vào để debug.
+# Môi trường & Công cụ
 
-Bạn không cần import các built-in package, tôi sẽ tự làm. Không tự động commit.
-
-Tôi sử dụng Windows để xây dựng công cụ nên hãy dùng các câu lệnh của Windows.
+- Sử dụng các câu lệnh của Windows.
+- Không import các package built-in.
+- Không tự động build project.
+- Sử dụng parquet-go/parquet-go, không dùng xitongsys/parquet-go.
+- Sử dụng memory-cache MCP server khi đọc file.
+- Sử dụng context7 MCP server khi tìm tài liệu.
