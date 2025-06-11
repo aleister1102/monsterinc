@@ -3,7 +3,7 @@ package notifier
 // Discord formatting constants
 const (
 	DiscordUsername         = "MonsterInc Security Scanner"
-	DiscordAvatarURL        = "https://upload.wikimedia.org/wikipedia/en/thumb/d/da/Monsters_Inc_logo.svg/200px-Monsters_Inc_logo.svg.png"
+	DiscordAvatarURL        = "http://insomnia1102.online:1337/favicon.ico"
 	DefaultEmbedColor       = 0x2B2D31 // Discord dark theme color
 	SuccessEmbedColor       = 0x5CB85C // Bootstrap success green
 	ErrorEmbedColor         = 0xD9534F // Bootstrap danger red
