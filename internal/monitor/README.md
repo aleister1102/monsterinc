@@ -1,6 +1,14 @@
 # Monitor Package
 
-The monitor package provides continuous monitoring capabilities for MonsterInc security scanner. It automatically tracks changes to web resources, detects content modifications, and generates comprehensive reports when changes occur.
+The monitor package provides continuous monitoring capabilities for MonsterInc's security analysis pipeline. It automatically tracks changes to web resources, detects content modifications, and triggers security analysis workflows when changes occur, enabling real-time threat detection and change tracking.
+
+## Package Role in MonsterInc
+As the continuous monitoring engine, this package:
+- **Real-time Security**: Provides continuous monitoring for security threats
+- **Change Detection**: Identifies modifications in web content and structure
+- **Alert Generation**: Triggers notifications for security-relevant changes
+- **Integration Hub**: Works with Differ, Reporter, and Notifier for complete workflows
+- **Threat Intelligence**: Builds historical data for security trend analysis
 
 ## Overview
 
@@ -443,4 +451,4 @@ func (ea *EventAggregator) AddFetchErrorEvent(errorInfo models.MonitorFetchError
 - Adjust concurrent check limits based on system resources
 - Use appropriate aggregation intervals to balance responsiveness and efficiency
 - Monitor memory usage during large file processing
-- Implement proper cleanup for old monitoring data 
+- Implement proper cleanup for old monitoring data

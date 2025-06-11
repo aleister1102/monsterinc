@@ -1,7 +1,14 @@
 # Common Package
 
 ## Purpose
-The `common` package provides shared utilities used throughout the entire MonsterInc application, including HTTP client, file operations, error handling, memory management, and other utilities.
+The `common` package provides foundational utilities and shared components used throughout MonsterInc - a comprehensive security tool for website crawling, HTTP/HTTPS probing, and content monitoring. This package includes HTTP client infrastructure, file operations, error handling, memory management, progress tracking, and resource management utilities.
+
+## Package Role in MonsterInc
+As the foundation layer, this package supports all other components:
+- **Scanner & Monitor**: HTTP client and progress tracking
+- **Crawler & HTTPx Runner**: Resource limiting and retry mechanisms  
+- **Datastore & Reporter**: File operations and memory management
+- **All Components**: Error handling and time utilities
 
 ## Main Components
 
@@ -362,4 +369,4 @@ type Processor struct {
 ## Dependencies
 - `golang.org/x/net/http2`: HTTP/2 client implementation
 - `github.com/rs/zerolog`: Logging framework
-- Standard library packages: `context`, `sync`, `time`, `io`, `os` 
+- Standard library packages: `context`, `sync`, `time`, `io`, `os`

@@ -1,7 +1,15 @@
 # Differ Package
 
 ## Purpose
-The `differ` package provides comprehensive content comparison and URL diffing capabilities for the MonsterInc application. It supports both content-level differences and URL status analysis, enabling detailed change tracking and reporting.
+The `differ` package provides comprehensive content comparison and URL diffing capabilities for MonsterInc's monitoring and analysis pipeline. It detects and analyzes changes in web content, URL status, and provides detailed diff reports for security monitoring and change tracking.
+
+## Package Role in MonsterInc
+As the change detection engine, this package:
+- **Monitor Integration**: Analyzes content changes detected by the monitoring service
+- **Historical Comparison**: Compares current scan results with historical data
+- **Report Generation**: Provides diff data for HTML report generation
+- **Security Analysis**: Identifies potentially malicious content changes
+- **Trend Analysis**: Enables understanding of website evolution over time
 
 ## Main Components
 
@@ -341,4 +349,4 @@ The package includes comprehensive test coverage for:
 - Error handling for edge cases
 - Performance with large content
 - Statistical calculation accuracy
-- Builder pattern functionality 
+- Builder pattern functionality

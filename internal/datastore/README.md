@@ -1,7 +1,15 @@
 # Datastore Package
 
 ## Purpose
-The `datastore` package provides a high-performance persistence layer using Apache Parquet format for storing probe results and file history. It supports compression, streaming operations, and efficient querying.
+The `datastore` package provides MonsterInc's high-performance persistence layer using Apache Parquet format. It stores scan results, file history, and monitoring data with compression, streaming operations, and efficient querying capabilities for the security scanning and monitoring pipeline.
+
+## Package Role in MonsterInc
+As the data persistence backbone, this package:
+- **Scanner Integration**: Stores probe results and scan data from HTTPx Runner
+- **Monitor Support**: Persists file history and change tracking data
+- **Historical Analysis**: Enables trend analysis and diff generation
+- **Performance Optimization**: Uses Parquet format for fast querying and compression
+- **Data Integrity**: Provides structured schemas and validation for all stored data
 
 ## Main Components
 
@@ -414,4 +422,4 @@ func (jf *JSONFormat) Marshal(data interface{}) ([]byte, error) {
 
 ## Dependencies
 - `github.com/parquet-go/parquet-go`: Parquet implementation
-- `github.com/rs/zerolog`: Logging framework 
+- `github.com/rs/zerolog`: Logging framework

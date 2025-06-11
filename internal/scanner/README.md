@@ -1,6 +1,14 @@
 # Scanner Package
 
-The scanner package is the main orchestration service for MonsterInc security scanner. It coordinates web crawling, HTTP probing, content diffing, and report generation into a unified scanning workflow for comprehensive web security analysis.
+The scanner package is the main orchestration service for MonsterInc's security analysis pipeline. It coordinates web crawling, HTTP probing, endpoint discovery, content diffing, and report generation into a unified workflow for comprehensive web security assessment and vulnerability discovery.
+
+## Package Role in MonsterInc
+As the central orchestrator, this package:
+- **Workflow Coordination**: Manages the complete security scanning pipeline
+- **Component Integration**: Seamlessly coordinates Crawler, HTTPx Runner, Extractor, and Differ
+- **Security Analysis**: Provides comprehensive web application security assessment
+- **Report Generation**: Produces detailed security reports via Reporter integration
+- **Data Management**: Coordinates data flow between components and Datastore
 
 ## Overview
 
@@ -702,4 +710,4 @@ crawler_config:
 
 ## Integration
 
-URL Preprocessor được tích hợp hoàn toàn vào Scanner workflow và sử dụng configuration từ CrawlerConfig. Không cần thay đổi gì ở caller code, chỉ cần cập nhật config nếu muốn customize behavior. 
+URL Preprocessor được tích hợp hoàn toàn vào Scanner workflow và sử dụng configuration từ CrawlerConfig. Không cần thay đổi gì ở caller code, chỉ cần cập nhật config nếu muốn customize behavior.

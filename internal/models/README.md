@@ -1,6 +1,14 @@
 # Models Package
 
-The models package contains all data structures, interfaces, and validation patterns used throughout MonsterInc. It provides strongly-typed models for web security scanning, content monitoring, notifications, and data persistence.
+The models package defines the core data structures and interfaces for MonsterInc's security scanning and monitoring system. It provides strongly-typed models that ensure data consistency across web crawling, HTTP probing, content monitoring, and reporting components.
+
+## Package Role in MonsterInc
+As the data contract foundation, this package:
+- **Type Safety**: Ensures consistent data structures across all components
+- **API Contracts**: Defines interfaces for component communication
+- **Data Validation**: Provides validation patterns for security data
+- **Serialization**: Supports JSON/Parquet serialization for persistence
+- **Integration Bridge**: Enables seamless data flow between packages
 
 ## Overview
 
@@ -452,4 +460,4 @@ probeResult := parquetResult.ToProbeResult()
 - Implement meaningful error messages
 - Use typed errors where appropriate
 - Validate inputs at boundaries
-- Provide context in error messages 
+- Provide context in error messages

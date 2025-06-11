@@ -1,7 +1,15 @@
 # Extractor Package
 
 ## Purpose
-The `extractor` package provides comprehensive path and URL extraction capabilities from web content, particularly JavaScript and HTML files. It supports multiple extraction methods and provides intelligent filtering and validation of discovered paths.
+The `extractor` package provides comprehensive path and URL extraction capabilities for MonsterInc's security analysis pipeline. It discovers hidden endpoints, API paths, and URLs from JavaScript and HTML content using multiple extraction methods with intelligent filtering and validation.
+
+## Package Role in MonsterInc
+As the endpoint discovery engine, this package:
+- **Security Analysis**: Discovers hidden API endpoints and sensitive paths
+- **Scanner Enhancement**: Provides additional URLs for the scanning pipeline
+- **JavaScript Analysis**: Extracts paths from complex JavaScript applications
+- **Attack Surface Mapping**: Identifies potential entry points for security testing
+- **Integration Support**: Works seamlessly with Crawler and Scanner components
 
 ## Main Components
 
@@ -408,4 +416,4 @@ The package includes comprehensive test coverage for:
 - Content type detection
 - Error handling for edge cases
 - Performance with large content files
-- Integration with different content types 
+- Integration with different content types

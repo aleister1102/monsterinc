@@ -1,7 +1,15 @@
 # Crawler Package
 
 ## Purpose
-The `crawler` package provides comprehensive web crawling functionality using the Colly framework. It supports intelligent asset discovery, scope management, headless browser integration, and high-performance URL processing with concurrent request handling.
+The `crawler` package provides comprehensive web crawling functionality for MonsterInc's security scanning pipeline. Built on the Colly framework, it discovers URLs, assets, and endpoints from target websites with intelligent scope management and headless browser support.
+
+## Package Role in MonsterInc
+As the discovery engine, this package:
+- **Feeds the Scanner**: Provides discovered URLs to the scanning pipeline
+- **Supports Monitoring**: Discovers new endpoints for continuous monitoring
+- **Asset Discovery**: Finds JavaScript files for path extraction
+- **Scope Management**: Ensures crawling stays within defined boundaries
+- **Integration Ready**: Seamlessly works with HTTPx Runner and Extractor
 
 **Key Capabilities:**
 - **Context-aware crawling** with immediate interrupt response
@@ -578,4 +586,4 @@ func (c *Crawler) crawlWithRetry(url string, config RetryConfig) error {
 - `github.com/gocolly/colly/v2`: Core crawling framework
 - `github.com/go-rod/rod`: Headless browser automation
 - `github.com/PuerkitoBio/goquery`: HTML parsing and manipulation
-- `github.com/rs/zerolog`: Logging framework 
+- `github.com/rs/zerolog`: Logging framework

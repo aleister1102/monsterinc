@@ -1,7 +1,15 @@
 # Config Package
 
 ## Purpose
-The `config` package provides comprehensive configuration management for the MonsterInc application, including loading, validation, and centralized management of all subsystem configurations.
+The `config` package provides comprehensive configuration management for MonsterInc - a security tool for website crawling, HTTP/HTTPS probing, and content monitoring. It handles loading, validation, and centralized management of all subsystem configurations with support for YAML/JSON formats and environment-based resolution.
+
+## Package Role in MonsterInc
+As the configuration backbone, this package enables:
+- **Centralized Configuration**: Single source of truth for all component settings
+- **Type-Safe Configuration**: Structured configuration with validation
+- **Environment Flexibility**: Development, staging, and production configurations
+- **Hot-Reload Support**: Dynamic configuration updates without restart
+- **Component Integration**: Seamless configuration distribution to all packages
 
 ## Main Components
 
@@ -454,4 +462,4 @@ storage_config:
 - `github.com/go-playground/validator/v10`: Configuration validation
 - `gopkg.in/yaml.v3`: YAML parsing
 - `encoding/json`: JSON parsing
-- `github.com/rs/zerolog`: Logging framework 
+- `github.com/rs/zerolog`: Logging framework

@@ -1,6 +1,14 @@
 # Reporter Package
 
-The reporter package provides comprehensive HTML report generation for MonsterInc security scanner. It creates beautiful, interactive reports with embedded assets, data tables, and responsive design for scan results and content diff analysis.
+The reporter package provides comprehensive HTML report generation for MonsterInc's security analysis pipeline. It creates interactive, professional reports with embedded assets, data visualization, and responsive design for security scan results, content diff analysis, and monitoring findings.
+
+## Package Role in MonsterInc
+As the reporting engine, this package:
+- **Security Documentation**: Creates detailed reports for security findings
+- **Visual Analysis**: Provides interactive data visualization for scan results
+- **Diff Reporting**: Generates side-by-side content comparison reports
+- **Professional Output**: Delivers client-ready security assessment reports
+- **Integration Ready**: Seamlessly works with Scanner, Monitor, and Notifier
 
 ## Overview
 

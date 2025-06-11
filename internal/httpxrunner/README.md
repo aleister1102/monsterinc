@@ -1,8 +1,16 @@
 # HTTPx Runner Package
 
-## Description
+## Purpose
 
-The `httpxrunner` package is a wrapper for ProjectDiscovery's httpx library, designed to integrate seamlessly into MonsterInc with features like configuration management, result mapping, and collection.
+The `httpxrunner` package provides HTTP/HTTPS probing capabilities for MonsterInc's security scanning pipeline. It wraps ProjectDiscovery's httpx library with enhanced integration features, configuration management, and result processing tailored for security analysis.
+
+## Package Role in MonsterInc
+As the probing engine, this package:
+- **Scanner Core**: Performs HTTP probing of discovered URLs from Crawler
+- **Technology Detection**: Identifies web technologies and frameworks
+- **Security Analysis**: Gathers headers, TLS info, and response metadata
+- **Data Pipeline**: Feeds probe results to Datastore for persistence
+- **Monitor Support**: Provides probing capabilities for continuous monitoring
 
 **Enhanced Features:**
 - **Context-aware execution** with immediate cancellation support
@@ -312,4 +320,4 @@ The package includes comprehensive test coverage for:
 - Concurrent result collection
 - Builder pattern functionality
 - Error handling scenarios
-- Integration with httpx runner 
+- Integration with httpx runner

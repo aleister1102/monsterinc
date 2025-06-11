@@ -1,6 +1,14 @@
 # Notifier Package
 
-The notifier package provides comprehensive Discord notification capabilities for MonsterInc security scanner. It delivers structured notifications for scan results, monitoring events, and system alerts with rich formatting and file attachments.
+The notifier package provides comprehensive Discord notification capabilities for MonsterInc's security operations. It delivers real-time alerts for scan results, monitoring events, security findings, and system status with rich formatting, file attachments, and intelligent message routing.
+
+## Package Role in MonsterInc
+As the communication hub, this package:
+- **Security Alerts**: Delivers immediate notifications for security findings
+- **Scan Reporting**: Provides formatted reports for completed scans
+- **Monitor Integration**: Sends alerts for detected content changes
+- **File Delivery**: Uploads HTML reports and attachments to Discord
+- **Team Coordination**: Enables team collaboration on security findings
 
 ## Overview
 
@@ -514,4 +522,4 @@ func (dn *DiscordNotifier) sendWithFallback(ctx context.Context,
 - Batch notifications when appropriate to reduce API calls
 - Use efficient HTTP client with connection pooling
 - Implement reasonable timeouts for webhook requests
-- Monitor notification delivery success rates 
+- Monitor notification delivery success rates

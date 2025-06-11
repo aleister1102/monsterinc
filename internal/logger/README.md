@@ -1,6 +1,14 @@
 # Logger Package
 
-The logger package provides a sophisticated logging framework for MonsterInc built on top of zerolog. It offers a configuration-driven approach with builders, factories, and multiple output strategies for flexible logging across the application.
+The logger package provides a sophisticated logging framework for MonsterInc's security scanning and monitoring operations. Built on zerolog, it offers structured logging with configuration-driven setup, multiple output formats, and performance optimization for high-throughput security operations.
+
+## Package Role in MonsterInc
+As the observability foundation, this package:
+- **System Monitoring**: Provides detailed logging for all security operations
+- **Debug Support**: Enables troubleshooting of scanning and monitoring workflows
+- **Performance Tracking**: Logs timing and resource usage across components
+- **Security Auditing**: Records security-relevant events and operations
+- **Integration Logging**: Supports logging from all MonsterInc packages
 
 ## Overview
 
@@ -452,4 +460,4 @@ func (s *MonitoringService) GenerateNewCycleID() string {
 1. **Tránh conflict**: Mỗi scan/cycle có file log riêng
 2. **Dễ debug**: Log được tổ chức theo session/cycle
 3. **Không bị ghi đè**: Không có vấn đề với log rotation khi nhiều process chạy song song
-4. **Dễ quản lý**: Có thể dễ dàng xóa log của session/cycle cụ thể 
+4. **Dễ quản lý**: Có thể dễ dàng xóa log của session/cycle cụ thể
