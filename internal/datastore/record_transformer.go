@@ -21,7 +21,7 @@ func NewRecordTransformer(logger zerolog.Logger) *RecordTransformer {
 }
 
 // TransformToParquetResult converts a models.ProbeResult to a models.ParquetProbeResult
-func (rt *RecordTransformer) TransformToParquetResult(pr models.ProbeResult, scanTime time.Time) models.ParquetProbeResult {
+func (rt *RecordTransformer) TransformToParquetResult(pr models.ProbeResult, scanTime time.Time, scanSessionID string) models.ParquetProbeResult {
 	headersJSON := rt.marshalHeaders(pr.Headers, pr.InputURL)
 	techNames := rt.extractTechnologyNames(pr.Technologies)
 	firstSeen := rt.determineFirstSeenTimestamp(pr.OldestScanTimestamp, scanTime)
@@ -42,6 +42,7 @@ func (rt *RecordTransformer) TransformToParquetResult(pr models.ProbeResult, sca
 		HeadersJSON:   headersJSON,
 
 		DiffStatus:         StringPtrOrNil(pr.URLStatus),
+		ScanSessionID:      StringPtrOrNil(scanSessionID),
 		ScanTimestamp:      scanTime.UnixMilli(),
 		FirstSeenTimestamp: models.TimePtrToUnixMilliOptional(firstSeen),
 		LastSeenTimestamp:  models.TimePtrToUnixMilliOptional(scanTime),

@@ -167,7 +167,7 @@ func (pw *ParquetWriter) transformRecords(ctx context.Context, request WriteRequ
 			return nil, err
 		}
 
-		parquetResult := transformer.TransformToParquetResult(pr, request.ScanTime)
+		parquetResult := transformer.TransformToParquetResult(pr, request.ScanTime, request.ScanSessionID)
 		parquetResults = append(parquetResults, parquetResult)
 	}
 

@@ -32,6 +32,7 @@ type ParquetProbeResult struct {
 
 	// New fields for diffing and timestamping
 	DiffStatus         *string `parquet:"diff_status,optional"`          // "new", "old", "existing"
+	ScanSessionID      *string `parquet:"scan_session_id,optional"`      // Unique identifier for the scan session
 	ScanTimestamp      int64   `parquet:"scan_timestamp"`                // Timestamp of the current scan session for this record
 	FirstSeenTimestamp *int64  `parquet:"first_seen_timestamp,optional"` // Timestamp when this URL was first ever seen
 	LastSeenTimestamp  *int64  `parquet:"last_seen_timestamp,optional"`  // Timestamp when this URL was last seen (could be same as ScanTimestamp for new/existing)
