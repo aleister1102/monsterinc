@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 	"golang.org/x/net/http2"
@@ -223,6 +225,130 @@ func (c *HTTPClient) sendDiscordJSON(ctx context.Context, webhookURL string, pay
 }
 
 // sendDiscordMultipart sends multipart form-data to Discord webhook with file attachment
+// splitAndSendFile splits a large file into chunks and sends them separately
+func (c *HTTPClient) splitAndSendFile(ctx context.Context, webhookURL string, payload interface{}, filePath string, fileSize int64) error {
+	const chunkSize = 8 * 1024 * 1024 // 8MB chunks to have buffer
+	totalChunks := int((fileSize + chunkSize - 1) / chunkSize)
+	
+	c.logger.Info().Int("total_chunks", totalChunks).Int64("file_size", fileSize).Msg("Splitting file for Discord upload")
+	
+	var errors []error
+	successCount := 0
+	
+	for i := 0; i < totalChunks; i++ {
+		chunkPath, err := c.createFileChunk(filePath, i, chunkSize)
+		if err != nil {
+			c.logger.Error().Err(err).Int("chunk", i+1).Msg("Failed to create file chunk")
+			errors = append(errors, fmt.Errorf("chunk %d: %w", i+1, err))
+			continue
+		}
+		
+		// Send chunk with modified payload indicating part number
+		chunkPayload := c.modifyPayloadForChunk(payload, i+1, totalChunks)
+		err = c.sendSingleFileChunk(ctx, webhookURL, chunkPayload, chunkPath)
+		
+		// Clean up chunk file
+		os.Remove(chunkPath)
+		
+		if err != nil {
+			c.logger.Error().Err(err).Int("chunk", i+1).Msg("Failed to send file chunk")
+			errors = append(errors, fmt.Errorf("chunk %d: %w", i+1, err))
+		} else {
+			successCount++
+			c.logger.Info().Int("chunk", i+1).Int("total_chunks", totalChunks).Msg("File chunk sent successfully")
+		}
+		
+		// Small delay between chunks
+		if i < totalChunks-1 {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	
+	if successCount == 0 {
+		return fmt.Errorf("failed to send any file chunks: %v", errors)
+	}
+	
+	if len(errors) > 0 {
+		c.logger.Warn().Int("success_count", successCount).Int("total_chunks", totalChunks).Msg("Some file chunks failed to send")
+		return fmt.Errorf("partial success: %d/%d chunks sent, errors: %v", successCount, totalChunks, errors)
+	}
+	
+	c.logger.Info().Int("total_chunks", totalChunks).Msg("All file chunks sent successfully")
+	return nil
+}
+
+// createFileChunk creates a temporary file containing a chunk of the original file
+func (c *HTTPClient) createFileChunk(filePath string, chunkIndex int, chunkSize int64) (string, error) {
+	sourceFile, err := os.Open(filePath)
+	if err != nil {
+		return "", WrapError(err, "failed to open source file")
+	}
+	defer sourceFile.Close()
+	
+	// Create temporary file for chunk
+	dir := filepath.Dir(filePath)
+	baseName := filepath.Base(filePath)
+	ext := filepath.Ext(baseName)
+	nameWithoutExt := strings.TrimSuffix(baseName, ext)
+	
+	chunkFileName := fmt.Sprintf("%s_part%d%s", nameWithoutExt, chunkIndex+1, ext)
+	chunkPath := filepath.Join(dir, chunkFileName)
+	
+	chunkFile, err := os.Create(chunkPath)
+	if err != nil {
+		return "", WrapError(err, "failed to create chunk file")
+	}
+	defer chunkFile.Close()
+	
+	// Seek to chunk start position
+	startPos := int64(chunkIndex) * chunkSize
+	if _, err := sourceFile.Seek(startPos, 0); err != nil {
+		return "", WrapError(err, "failed to seek to chunk position")
+	}
+	
+	// Copy chunk data
+	limitedReader := io.LimitReader(sourceFile, chunkSize)
+	if _, err := io.Copy(chunkFile, limitedReader); err != nil {
+		return "", WrapError(err, "failed to copy chunk data")
+	}
+	
+	return chunkPath, nil
+}
+
+// modifyPayloadForChunk modifies the Discord payload to indicate chunk information
+func (c *HTTPClient) modifyPayloadForChunk(payload interface{}, chunkNum, totalChunks int) interface{} {
+	// Try to modify the payload to add chunk information
+	if discordPayload, ok := payload.(map[string]interface{}); ok {
+		if embeds, exists := discordPayload["embeds"]; exists {
+			if embedsSlice, ok := embeds.([]interface{}); ok && len(embedsSlice) > 0 {
+				if embed, ok := embedsSlice[0].(map[string]interface{}); ok {
+					if title, exists := embed["title"]; exists {
+						embed["title"] = fmt.Sprintf("%s (Part %d/%d)", title, chunkNum, totalChunks)
+					}
+				}
+			}
+		}
+	}
+	return payload
+}
+
+// sendSingleFileChunk sends a single file chunk using the standard multipart method
+func (c *HTTPClient) sendSingleFileChunk(ctx context.Context, webhookURL string, payload interface{}, chunkPath string) error {
+	// Check chunk file size to ensure it's within limits
+	fileInfo, err := os.Stat(chunkPath)
+	if err != nil {
+		return WrapError(err, "failed to get chunk file info")
+	}
+	
+	const maxDiscordFileSize = 10 * 1024 * 1024 // 10MB in bytes
+	if fileInfo.Size() > maxDiscordFileSize {
+		return fmt.Errorf("chunk file size %d bytes still exceeds Discord limit", fileInfo.Size())
+	}
+	
+	// Use the existing multipart sending logic
+	return c.sendDiscordMultipartInternal(ctx, webhookURL, payload, chunkPath)
+}
+
 func (c *HTTPClient) sendDiscordMultipart(ctx context.Context, webhookURL string, payload interface{}, filePath string) error {
 	// Check file size before attempting to send
 	fileInfo, err := os.Stat(filePath)
@@ -232,10 +358,15 @@ func (c *HTTPClient) sendDiscordMultipart(ctx context.Context, webhookURL string
 
 	const maxDiscordFileSize = 10 * 1024 * 1024 // 10MB in bytes
 	if fileInfo.Size() > maxDiscordFileSize {
-		return fmt.Errorf("file size %d bytes exceeds Discord limit of %d bytes (%.2f MB > 10 MB)",
-			fileInfo.Size(), maxDiscordFileSize, float64(fileInfo.Size())/(1024*1024))
+		c.logger.Warn().Int64("file_size", fileInfo.Size()).Msg("File exceeds Discord limit, attempting to split and send")
+		return c.splitAndSendFile(ctx, webhookURL, payload, filePath, fileInfo.Size())
 	}
 
+	return c.sendDiscordMultipartInternal(ctx, webhookURL, payload, filePath)
+}
+
+// sendDiscordMultipartInternal handles the actual multipart sending logic
+func (c *HTTPClient) sendDiscordMultipartInternal(ctx context.Context, webhookURL string, payload interface{}, filePath string) error {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
@@ -288,6 +419,7 @@ func (c *HTTPClient) sendDiscordMultipart(ctx context.Context, webhookURL string
 		return fmt.Errorf("Discord webhook returned status %d: %s", resp.StatusCode, string(resp.Body))
 	}
 
+	fileInfo, _ := os.Stat(filePath)
 	c.logger.Debug().Int("status_code", resp.StatusCode).Str("file", filePath).Float64("file_size_mb", float64(fileInfo.Size())/(1024*1024)).Msg("Discord notification with attachment sent successfully")
 	return nil
 }
