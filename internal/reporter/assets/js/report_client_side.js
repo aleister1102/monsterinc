@@ -26,6 +26,21 @@ class ReportRenderer {
         this.setupScrollToTop();
     }
 
+    // Hàm rút gọn URL hiển thị phần đầu và phần cuối
+    truncateURL(url, maxLength = 50) {
+        if (!url || url.length <= maxLength) {
+            return url || '';
+        }
+        
+        const prefixLength = Math.floor(maxLength * 0.4); // 40% cho phần đầu
+        const suffixLength = Math.floor(maxLength * 0.4); // 40% cho phần cuối
+        
+        const prefix = url.substring(0, prefixLength);
+        const suffix = url.substring(url.length - suffixLength);
+        
+        return `${prefix}...${suffix}`;
+    }
+
     hideLoading() {
         document.getElementById('loading').style.display = 'none';
     }
@@ -230,7 +245,7 @@ class ReportRenderer {
         if (!tbody) return;
 
         if (this.filteredData.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No results found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No results found</td></tr>';
             document.getElementById('paginationContainer').style.display = 'none';
             return;
         }
@@ -255,19 +270,18 @@ class ReportRenderer {
         const statusClass = `status-${item.StatusCode}`;
         const diffStatusClass = `diff-status-${(item.URLStatus || item.diff_status || '').toLowerCase()}`;
         
+        // Hợp nhất URL: ưu tiên FinalURL, nếu không có thì dùng InputURL
+        const displayURL = item.FinalURL || item.InputURL;
+        const truncatedURL = this.truncateURL(displayURL, 60);
+        
         return `
             <tr data-index="${index}">
                 <td>
-                    <div class="text-truncate" style="max-width: 200px;" title="${this.escapeHtml(item.InputURL || '')}">
-                        ${item.InputURL ? `<a href="${this.escapeHtml(item.InputURL)}" target="_blank" class="text-decoration-none">${this.escapeHtml(item.InputURL)}</a>` : '-'}
+                    <div class="text-truncate" style="max-width: 300px;" title="${this.escapeHtml(displayURL || '')}">
+                        ${displayURL ? `<a href="${this.escapeHtml(displayURL)}" target="_blank" class="text-decoration-none">${this.escapeHtml(truncatedURL)}</a>` : '-'}
                     </div>
                 </td>
-                <td>
-                    <div class="text-truncate" style="max-width: 200px;" title="${this.escapeHtml(item.FinalURL || '')}">
-                        ${item.FinalURL ? `<a href="${this.escapeHtml(item.FinalURL)}" target="_blank" class="text-decoration-none">${this.escapeHtml(item.FinalURL)}</a>` : '-'}
-                    </div>
-                </td>
-                <td>
+                <td class="text-center">
                     <span class="${diffStatusClass}">${this.escapeHtml(item.URLStatus || item.diff_status || '')}</span>
                 </td>
                 <td>
@@ -279,7 +293,7 @@ class ReportRenderer {
                     </div>
                 </td>
                 <td class="hide-on-mobile">
-                    <div class="text-truncate" style="max-width: 120px;" title="${this.escapeHtml(item.ContentType || '')}">
+                    <div class="text-truncate" style="max-width: 180px;" title="${this.escapeHtml(item.ContentType || '')}">
                         ${this.escapeHtml(item.ContentType || '-')}
                     </div>
                 </td>
@@ -300,10 +314,10 @@ class ReportRenderer {
             return '<span class="text-muted">-</span>';
         }
 
-        return technologies.slice(0, 3).map(tech => {
+        return technologies.map(tech => {
             const techName = typeof tech === 'object' ? tech.Name : tech;
             return `<span class="tech-tag me-1 mb-1">${this.escapeHtml(techName)}</span>`;
-        }).join('') + (technologies.length > 3 ? '<span class="text-muted">...</span>' : '');
+        }).join('');
     }
 
     showDetails(item) {
