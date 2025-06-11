@@ -18,7 +18,7 @@ var faviconICO []byte
 const (
 	defaultHtmlReportTemplateName = "report_client_side.html.tmpl"
 	embeddedCSSPath               = "assets/css/styles.css"
-	embeddedJSPath                = "assets/js/report.js"
+	embeddedJSPath                = "assets/js/report_client_side.js"
 )
 
 // HtmlReporter uses composition of utility modules for better maintainability

@@ -6,9 +6,13 @@ const (
 	DefaultDiffReportAssetsDir = "reports/diff/assets"
 	DefaultReportTemplateName  = "report_client_side.html.tmpl"
 
-	// Embedded asset paths
-	EmbeddedCSSPath = "assets/css/styles.css"
-	EmbeddedJSPath  = "assets/js/report.js"
+	// Embedded asset paths for scan reports
+	EmbeddedCSSPath = "assets/css/report_client_side.css"
+	EmbeddedJSPath  = "assets/js/report_client_side.js"
+
+	// Embedded asset paths for diff reports
+	EmbeddedDiffCSSPath = "assets/css/diff_report_client_side.css"
+	EmbeddedDiffJSPath  = "assets/js/diff_report_client_side.js"
 
 	// Report generation defaults
 	DefaultItemsPerPage    = 25

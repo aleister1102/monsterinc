@@ -231,6 +231,11 @@ func (r *HtmlDiffReporter) createSingleDiffPageData(displayDiff models.DiffResul
 
 // writeReportToFile writes page data to file
 func (r *HtmlDiffReporter) writeReportToFile(pageData models.DiffReportPageData, outputFilePath string) (string, error) {
+	// Embed assets into page data if configured
+	if r.assetManager != nil {
+		r.assetManager.EmbedAssetsIntoPageDataWithPaths(&pageData, assetsFS, assetsFS, EmbeddedDiffCSSPath, EmbeddedDiffJSPath, true)
+	}
+
 	file, err := os.Create(outputFilePath)
 	if err != nil {
 		r.logger.Error().Err(err).Str("path", outputFilePath).Msg("Failed to create diff report file")

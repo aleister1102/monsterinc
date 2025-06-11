@@ -85,6 +85,33 @@ func (am *AssetManager) EmbedAssetContent(cssFS, jsFS embed.FS, isCSS bool) (str
 	return string(assetData), nil
 }
 
+// EmbedAssetContentWithPaths reads and returns asset content with custom paths
+func (am *AssetManager) EmbedAssetContentWithPaths(cssFS, jsFS embed.FS, cssPath, jsPath string, isCSS bool) (string, error) {
+	var assetData []byte
+	var err error
+	var assetPath string
+	var embeddedFS embed.FS
+	assetTypeStr := "JS"
+
+	if isCSS {
+		assetTypeStr = "CSS"
+		assetPath = cssPath
+		embeddedFS = cssFS
+	} else {
+		assetPath = jsPath
+		embeddedFS = jsFS
+	}
+
+	am.logger.Debug().Str("asset", assetPath).Msgf("Using embedded %s asset.", assetTypeStr)
+	assetData, err = embeddedFS.ReadFile(assetPath)
+	if err != nil {
+		am.logger.Error().Err(err).Str("asset", assetPath).Msgf("FATAL: Failed to read embedded %s asset. This should not happen.", assetTypeStr)
+		return "", fmt.Errorf("failed to read embedded %s asset '%s': %w", assetTypeStr, assetPath, err)
+	}
+
+	return string(assetData), nil
+}
+
 // EmbedAssetsIntoPageData embeds CSS and JS into page data
 func (am *AssetManager) EmbedAssetsIntoPageData(pageData PageDataInterface, cssFS, jsFS embed.FS, embedAssets bool) {
 	if !embedAssets {
@@ -100,6 +127,27 @@ func (am *AssetManager) EmbedAssetsIntoPageData(pageData PageDataInterface, cssF
 
 	// Embed JS
 	jsContent, jsErr := am.EmbedAssetContent(cssFS, jsFS, false)
+	if jsErr != nil {
+		am.logger.Warn().Err(jsErr).Msg("Failed to embed JS, report functionality might be affected.")
+	}
+	pageData.SetReportJs(template.JS(jsContent))
+}
+
+// EmbedAssetsIntoPageDataWithPaths embeds CSS and JS into page data with custom paths
+func (am *AssetManager) EmbedAssetsIntoPageDataWithPaths(pageData PageDataInterface, cssFS, jsFS embed.FS, cssPath, jsPath string, embedAssets bool) {
+	if !embedAssets {
+		return
+	}
+
+	// Embed CSS
+	cssContent, cssErr := am.EmbedAssetContentWithPaths(cssFS, jsFS, cssPath, jsPath, true)
+	if cssErr != nil {
+		am.logger.Warn().Err(cssErr).Msg("Failed to embed CSS, report styling might be affected.")
+	}
+	pageData.SetCustomCSS(template.CSS(cssContent))
+
+	// Embed JS
+	jsContent, jsErr := am.EmbedAssetContentWithPaths(cssFS, jsFS, cssPath, jsPath, false)
 	if jsErr != nil {
 		am.logger.Warn().Err(jsErr).Msg("Failed to embed JS, report functionality might be affected.")
 	}

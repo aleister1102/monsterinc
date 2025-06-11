@@ -167,6 +167,8 @@ type DiffReportPageData struct {
 	ReportType       string              `json:"report_type,omitempty"`      // Added ReportType for template logic
 	FaviconBase64    string              `json:"favicon_base64,omitempty"`   // Base64 encoded favicon
 	ReportPartInfo   string              `json:"report_part_info,omitempty"` // Report Part Information (for multi-part reports)
+	CustomCSS        template.CSS        `json:"custom_css,omitempty"`       // Custom CSS for inline styling
+	ReportJs         template.JS         `json:"-"`                          // Embedded custom report.js
 	DiffResultsJSON  template.JS         `json:"-"`                          // JSON string of DiffResults for client-side rendering
 	// You can add more fields here, for example, a summary of changes, etc.
 }
@@ -196,4 +198,14 @@ func (rpd *ReportPageData) SetCustomCSS(css template.CSS) {
 // SetReportJs sets the report JavaScript for the report page
 func (rpd *ReportPageData) SetReportJs(js template.JS) {
 	rpd.ReportJs = js
+}
+
+// SetReportJs sets the report JavaScript for the diff report page
+func (drpd *DiffReportPageData) SetReportJs(js template.JS) {
+	drpd.ReportJs = js
+}
+
+// SetCustomCSS sets the custom CSS for the diff report page
+func (drpd *DiffReportPageData) SetCustomCSS(css template.CSS) {
+	drpd.CustomCSS = css
 }
