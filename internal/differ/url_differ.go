@@ -86,7 +86,7 @@ func (ud *UrlDiffer) validateInputs(currentScanProbes []*models.ProbeResult, roo
 }
 
 // Compare performs the diffing logic
-func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget string) (*models.URLDiffResult, error) {
+func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget string, scanSessionID string) (*models.URLDiffResult, error) {
 	// Validate inputs
 	if err := ud.validateInputs(currentScanProbes, rootTarget); err != nil {
 		return nil, common.WrapError(err, "failed to validate URL differ inputs")
@@ -94,8 +94,8 @@ func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget
 
 	resultBuilder := NewURLDiffResultBuilder(rootTarget)
 
-	// Load historical data
-	historicalProbes, err := ud.dataLoader.LoadHistoricalProbes(rootTarget)
+	// Load historical data, excluding current scan session
+	historicalProbes, err := ud.dataLoader.LoadHistoricalProbes(rootTarget, scanSessionID)
 	if err != nil {
 		resultBuilder.WithError(err)
 		return resultBuilder.Build(), err

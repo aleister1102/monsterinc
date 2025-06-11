@@ -74,7 +74,7 @@ func (dsp *DiffStorageProcessor) ProcessTarget(input DiffTargetInput) *DiffTarge
 		convertedProbes[i] = &input.ProbeResultsForTarget[i]
 	}
 
-	urlDiffResult, err := input.URLDiffer.Compare(convertedProbes, input.RootTarget)
+	urlDiffResult, err := input.URLDiffer.Compare(convertedProbes, input.RootTarget, input.ScanSessionID)
 	if err != nil {
 		dsp.logger.Warn().Err(err).Str("root_target", input.RootTarget).Msg("URL diffing failed")
 		result.Error = err
@@ -109,7 +109,7 @@ func (dsp *DiffStorageProcessor) ProcessHostname(input DiffHostnameInput) *DiffH
 		convertedProbes[i] = &input.ProbeResultsForHostname[i]
 	}
 
-	urlDiffResult, err := input.URLDiffer.Compare(convertedProbes, input.Hostname)
+	urlDiffResult, err := input.URLDiffer.Compare(convertedProbes, input.Hostname, input.ScanSessionID)
 	if err != nil {
 		dsp.logger.Warn().Err(err).Str("hostname", input.Hostname).Msg("URL diffing failed")
 		result.Error = err
