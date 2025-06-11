@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.ReportTitle}}{{.ReportPartInfo}}</title>
+    <title>{{.ReportTitle}}{{if .ReportPartInfo}} {{.ReportPartInfo}}{{end}}</title>
     {{if .FaviconBase64}}
         <link rel="icon" type="image/png" href="data:image/png;base64,{{.FaviconBase64}}">
     {{end}}
@@ -14,329 +14,13 @@
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <style>
-        :root {
-            --primary-color: #007bff;
-            --secondary-color: #6c757d;
-            --success-color: #28a745;
-            --danger-color: #dc3545;
-            --warning-color: #ffc107;
-            --info-color: #17a2b8;
-            --light-color: #f8f9fa;
-            --dark-color: #343a40;
-        }
+    <!-- Custom CSS -->
+    {{if .CustomCSS}}
+        <style>{{.CustomCSS}}</style>
+    {{else}}
+        <link rel="stylesheet" href="/assets/css/report_client_side.css">
+    {{end}}
 
-        /* Custom CSS for better styling */
-        body {
-            background-color: var(--light-color);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-        }
-
-        .navbar {
-            box-shadow: 0 2px 4px rgba(0,0,0,.1);
-        }
-
-        .card {
-            border: none;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,.1);
-            transition: transform 0.2s ease-in-out;
-        }
-
-        .card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 16px rgba(0,0,0,.15);
-        }
-
-        /* Status Code Styling */
-        .status-200, .status-201, .status-202, .status-204 {
-            background-color: #d4edda !important;
-            color: #155724 !important;
-            font-weight: bold;
-            padding: 4px 8px;
-            border-radius: 6px;
-        }
-
-        .status-300, .status-301, .status-302, .status-304, .status-307, .status-308 {
-            background-color: #fff3cd !important;
-            color: #856404 !important;
-            font-weight: bold;
-            padding: 4px 8px;
-            border-radius: 6px;
-        }
-
-        .status-400, .status-401, .status-403, .status-404, .status-405 {
-            background-color: #f8d7da !important;
-            color: #721c24 !important;
-            font-weight: bold;
-            padding: 4px 8px;
-            border-radius: 6px;
-        }
-
-        .status-500, .status-502, .status-503, .status-504 {
-            background-color: #f5c6cb !important;
-            color: #491217 !important;
-            font-weight: bold;
-            padding: 4px 8px;
-            border-radius: 6px;
-        }
-
-        /* Diff Status Styling */
-        .diff-status-new {
-            background: linear-gradient(135deg, #28a745, #20c997);
-            color: white !important;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-weight: 500;
-            font-size: 0.7em;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-            box-shadow: 0 1px 3px rgba(40, 167, 69, 0.3);
-            display: inline-block;
-            line-height: 1.2;
-            height: auto;
-            vertical-align: middle;
-        }
-
-        .diff-status-old {
-            background: linear-gradient(135deg, #dc3545, #e74c3c);
-            color: white !important;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-weight: 500;
-            font-size: 0.7em;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-            box-shadow: 0 1px 3px rgba(220, 53, 69, 0.3);
-            display: inline-block;
-            line-height: 1.2;
-            height: auto;
-            vertical-align: middle;
-        }
-
-        .diff-status-existing {
-            background: linear-gradient(135deg, #6c757d, #5a6268);
-            color: white !important;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-weight: 500;
-            font-size: 0.7em;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-            box-shadow: 0 1px 3px rgba(108, 117, 125, 0.3);
-            display: inline-block;
-            line-height: 1.2;
-            height: auto;
-            vertical-align: middle;
-        }
-
-        /* Technology Tags */
-        .tech-tag {
-            background: linear-gradient(135deg, #17a2b8, #138496);
-            color: white;
-            padding: 2px 6px;
-            border-radius: 8px;
-            font-size: 0.65em;
-            font-weight: 500;
-            margin: 1px;
-            display: inline-block;
-            text-transform: uppercase;
-            letter-spacing: 0.2px;
-            box-shadow: 0 1px 2px rgba(23, 162, 184, 0.3);
-        }
-
-        /* Search and Filter Styling */
-        .search-container {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,.1);
-        }
-
-        .search-input, .filter-select {
-            border: 2px solid #e9ecef;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-        }
-
-        .search-input:focus, .filter-select:focus {
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-        }
-
-        /* Table Styling */
-        .table-container {
-            background: white;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,.1);
-        }
-
-        .table th {
-            background: var(--primary-color);
-            color: white;
-            font-weight: 600;
-            border: none;
-            padding: 15px 12px;
-            cursor: pointer;
-            user-select: none;
-            position: relative;
-        }
-
-        .table th:hover {
-            background: #0056b3;
-        }
-
-        .table th.sortable::after {
-            content: '\f0dc';
-            font-family: 'Font Awesome 6 Free';
-            font-weight: 900;
-            position: absolute;
-            right: 8px;
-            opacity: 0.5;
-        }
-
-        .table th.sort-asc::after {
-            content: '\f0de';
-            opacity: 1;
-        }
-
-        .table th.sort-desc::after {
-            content: '\f0dd';
-            opacity: 1;
-        }
-
-        .table td {
-            padding: 12px;
-            vertical-align: middle;
-            border-bottom: 1px solid #e9ecef;
-        }
-
-        .table tbody tr:hover {
-            background-color: #f8f9fa;
-        }
-
-        /* Loading State */
-        .loading-container {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--secondary-color);
-        }
-
-        .loading-spinner {
-            display: inline-block;
-            width: 40px;
-            height: 40px;
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid var(--primary-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 20px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        /* Pagination */
-        .pagination-container {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            margin-top: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,.1);
-        }
-
-        .pagination .page-link {
-            border: 2px solid #e9ecef;
-            color: #007bff !important;
-            margin: 0 2px;
-            border-radius: 8px;
-        }
-
-        .pagination .page-link:hover {
-            background-color: #007bff !important;
-            border-color: #007bff !important;
-            color: white !important;
-        }
-
-        .pagination .page-item.active .page-link {
-            background-color: #007bff !important;
-            border-color: #007bff !important;
-            color: white !important;
-        }
-
-        /* Force pagination text colors */
-        .pagination .page-link,
-        .pagination .page-item .page-link,
-        .pagination .page-item.active .page-link,
-        .pagination .page-item:not(.active) .page-link {
-            color: #007bff !important;
-        }
-
-        .pagination .page-item.active .page-link {
-            color: white !important;
-            background-color: #007bff !important;
-        }
-
-        /* Removed hover effect to prevent text color conflicts */
-        .pagination .page-link:hover {
-            /* No hover styling */
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .hide-on-mobile {
-                display: none !important;
-            }
-            
-            .search-container .row > div {
-                margin-bottom: 15px;
-            }
-        }
-
-        /* Scroll to top button */
-        #toTopBtn {
-            display: none;
-            position: fixed;
-            bottom: 20px;
-            right: 30px;
-            z-index: 99;
-            border: none;
-            outline: none;
-            background-color: var(--primary-color);
-            color: white;
-            cursor: pointer;
-            padding: 15px;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            text-align: center;
-            line-height: 20px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-        }
-
-        #toTopBtn:hover {
-            background-color: #0056b3;
-        }
-
-        /* No results message */
-        .no-results {
-            text-align: center;
-            padding: 40px;
-            color: var(--secondary-color);
-        }
-
-        .no-results i {
-            font-size: 3rem;
-            margin-bottom: 20px;
-            opacity: 0.5;
-        }
-    </style>
 </head>
 <body class="{{.Theme}}-theme">
     <button id="toTopBtn" title="Go to top"><i class="fas fa-arrow-up"></i></button>
@@ -344,7 +28,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
         <div class="container-fluid">
             <a class="navbar-brand fw-bold" href="#">
-                <i class="fas fa-shield-alt me-2"></i>{{.ReportTitle}}{{.ReportPartInfo}}
+                <i class="fas fa-shield-alt me-2"></i>{{.ReportTitle}}{{if .ReportPartInfo}} {{.ReportPartInfo}}{{end}}
             </a>
             <div class="collapse navbar-collapse">
                 <span class="navbar-text ms-auto">
@@ -368,7 +52,7 @@
                 <!-- Search and Filter Section -->
                 <div id="controls" class="search-container" style="display: none;">
                     <div class="row align-items-end">
-                        <div class="col-md-3">
+                        <div class="col-md-2">
                             <label for="globalSearchInput" class="form-label mb-1">
                                 <i class="fas fa-search me-1"></i>Global Search
                             </label>
@@ -423,16 +107,47 @@
                                 {{end}}
                             </select>
                         </div>
-                        <div class="col-md-1">
+                        <div class="col-md-2">
                             <label for="diffStatusFilter" class="form-label mb-1">
                                 <i class="fas fa-exchange-alt me-1"></i>Diff Status
                             </label>
                             <select id="diffStatusFilter" class="form-select filter-select">
-                                <option value="">All</option>
+                                <option value="">All Diff Status</option>
                                 {{range .UniqueURLStatuses}}
                                 <option value="{{.}}">{{. | title}}</option>
                                 {{end}}
                             </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pagination Top -->
+                <div id="paginationContainer" class="pagination-container" style="display: none;">
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <div class="d-flex align-items-center">
+                                <span class="me-3">Showing <span id="showingStart">0</span> to <span id="showingEnd">0</span> of <span id="totalItems">0</span> results</span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-flex align-items-center justify-content-end">
+                                <label for="itemsPerPageSelect" class="form-label me-2 mb-0">Items per page:</label>
+                                <select class="form-select" id="itemsPerPageSelect" style="width: auto;">
+                                    <option value="10">10</option>
+                                    <option value="25" selected>25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <nav aria-label="Results pagination">
+                                <ul class="pagination justify-content-center mb-4" id="paginationList">
+                                    <!-- Pagination will be populated by JavaScript -->
+                                </ul>
+                            </nav>
                         </div>
                     </div>
                 </div>
@@ -443,26 +158,26 @@
                         <table class="table table-hover mb-0" id="resultsTable">
                             <thead>
                                 <tr>
-                                    <th class="sortable" data-col-name="InputURL">
+                                    <th class="sortable text-center" data-col-name="InputURL">
                                         <i class="fas fa-link me-1"></i>Input URL
                                     </th>
-                                    <th class="sortable" data-col-name="FinalURL">
+                                    <th class="sortable text-center" data-col-name="FinalURL">
                                         <i class="fas fa-external-link-alt me-1"></i>Final URL
                                     </th>
-                                    <th class="sortable" data-col-name="diff_status">
+                                    <th class="sortable text-center" data-col-name="diff_status">
                                         <i class="fas fa-exchange-alt me-1"></i>Diff Status
                                     </th>
-                                    <th class="sortable" data-col-name="StatusCode">
+                                    <th class="sortable text-center" data-col-name="StatusCode">
                                         <i class="fas fa-code me-1"></i>Status Code
                                     </th>
-                                    <th class="sortable hide-on-mobile" data-col-name="Title">
+                                    <th class="sortable text-center hide-on-mobile" data-col-name="Title">
                                         <i class="fas fa-heading me-1"></i>Title
                                     </th>
-                                    <th class="sortable hide-on-mobile" data-col-name="Technologies">
-                                        <i class="fas fa-cogs me-1"></i>Technologies
-                                    </th>
-                                    <th class="sortable hide-on-mobile" data-col-name="ContentType">
+                                    <th class="sortable text-center hide-on-mobile" data-col-name="ContentType">
                                         <i class="fas fa-file-alt me-1"></i>Content Type
+                                    </th>
+                                    <th class="sortable text-center hide-on-mobile" data-col-name="Technologies">
+                                        <i class="fas fa-cogs me-1"></i>Technologies
                                     </th>
                                     <th>
                                         <i class="fas fa-eye me-1"></i>Details
@@ -483,29 +198,33 @@
                     <p>Try adjusting your search criteria or filters.</p>
                 </div>
 
-                <!-- Pagination -->
-                <div id="paginationContainer" class="pagination-container" style="display: none;">
+                <!-- Pagination Bottom (duplicate for convenience) -->
+                <div id="paginationContainerBottom" class="pagination-container" style="display: none;">
                     <div class="row align-items-center">
                         <div class="col-md-6">
                             <div class="d-flex align-items-center">
-                                <span class="me-3">Showing <span id="showingStart">0</span> to <span id="showingEnd">0</span> of <span id="totalItems">0</span> results</span>
+                                <span class="me-3">Showing <span id="showingStartBottom">0</span> to <span id="showingEndBottom">0</span> of <span id="totalItemsBottom">0</span> results</span>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="d-flex align-items-center justify-content-end">
-                                <label for="itemsPerPageSelect" class="form-label me-2 mb-0">Items per page:</label>
-                                <select id="itemsPerPageSelect" class="form-select filter-select me-3" style="width: auto;">
+                                <label for="itemsPerPageSelectBottom" class="form-label me-2 mb-0">Items per page:</label>
+                                <select class="form-select" id="itemsPerPageSelectBottom" style="width: auto;">
                                     <option value="10">10</option>
                                     <option value="25" selected>25</option>
                                     <option value="50">50</option>
                                     <option value="100">100</option>
                                 </select>
-                                <nav>
-                                    <ul class="pagination mb-0" id="paginationNav">
-                                        <!-- Pagination will be populated by JavaScript -->
-                                    </ul>
-                                </nav>
                             </div>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <nav aria-label="Results pagination bottom">
+                                <ul class="pagination justify-content-center mb-0" id="paginationListBottom">
+                                    <!-- Pagination will be populated by JavaScript -->
+                                </ul>
+                            </nav>
                         </div>
                     </div>
                 </div>
@@ -696,425 +415,15 @@
     <!-- Bootstrap JS CDN -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
 
+    <!-- Custom JavaScript -->
     <script type="text/javascript">
         // Embed report data
-        const reportData = {{ .ProbeResultsJSON }};
-        
-        class ReportRenderer {
-            constructor() {
-                this.data = reportData || [];
-                this.filteredData = [...this.data];
-                this.currentPage = 1;
-                this.itemsPerPage = 25;
-                this.totalItems = this.data.length;
-                this.totalPages = Math.ceil(this.totalItems / this.itemsPerPage);
-                this.currentSort = { column: null, direction: 'asc' };
-                this.filters = {
-                    global: '',
-                    hostname: '',
-                    statusCode: '',
-                    contentType: '',
-                    technology: '',
-                    diffStatus: ''
-                };
-                this.init();
-            }
-
-            init() {
-                this.hideLoading();
-                this.showControls();
-                this.bindEvents();
-                this.render();
-                this.setupScrollToTop();
-            }
-
-            hideLoading() {
-                document.getElementById('loading').style.display = 'none';
-            }
-
-            showControls() {
-                document.getElementById('controls').style.display = 'block';
-                document.getElementById('resultsContainer').style.display = 'block';
-                document.getElementById('paginationContainer').style.display = 'block';
-            }
-
-            bindEvents() {
-                // Search input with debounce
-                let searchTimeout;
-                document.getElementById('globalSearchInput').addEventListener('input', (e) => {
-                    clearTimeout(searchTimeout);
-                    searchTimeout = setTimeout(() => {
-                        this.filters.global = e.target.value.toLowerCase();
-                        this.applyFilters();
-                    }, 300);
-                });
-
-                // Filter dropdowns
-                document.getElementById('rootURLFilter').addEventListener('change', (e) => {
-                    this.filters.hostname = e.target.value;
-                    this.applyFilters();
-                });
-
-                document.getElementById('statusCodeFilter').addEventListener('change', (e) => {
-                    this.filters.statusCode = e.target.value;
-                    this.applyFilters();
-                });
-
-                document.getElementById('contentTypeFilter').addEventListener('change', (e) => {
-                    this.filters.contentType = e.target.value;
-                    this.applyFilters();
-                });
-
-                document.getElementById('technologyFilter').addEventListener('change', (e) => {
-                    this.filters.technology = e.target.value;
-                    this.applyFilters();
-                });
-
-                document.getElementById('diffStatusFilter').addEventListener('change', (e) => {
-                    this.filters.diffStatus = e.target.value;
-                    this.applyFilters();
-                });
-
-                // Items per page
-                document.getElementById('itemsPerPageSelect').addEventListener('change', (e) => {
-                    this.itemsPerPage = parseInt(e.target.value);
-                    this.currentPage = 1;
-                    this.render();
-                });
-
-                // Table sorting
-                document.querySelectorAll('.sortable').forEach(th => {
-                    th.addEventListener('click', () => {
-                        const column = th.dataset.colName;
-                        this.sortData(column);
-                    });
-                });
-            }
-
-            applyFilters() {
-                this.filteredData = this.data.filter(item => {
-                    // Global search
-                    if (this.filters.global) {
-                        const searchText = this.filters.global;
-                        const searchableText = [
-                            item.InputURL,
-                            item.FinalURL,
-                            item.Title,
-                            item.ContentType,
-                            item.diff_status,
-                            item.StatusCode?.toString(),
-                            ...(item.Technologies || [])
-                        ].join(' ').toLowerCase();
-                        
-                        if (!searchableText.includes(searchText)) {
-                            return false;
-                        }
-                    }
-
-                    // Hostname filter
-                    if (this.filters.hostname) {
-                        const hostname = this.extractHostname(item.InputURL);
-                        if (hostname !== this.filters.hostname) {
-                            return false;
-                        }
-                    }
-
-                    // Status code filter
-                    if (this.filters.statusCode) {
-                        if (item.StatusCode?.toString() !== this.filters.statusCode) {
-                            return false;
-                        }
-                    }
-
-                    // Content type filter
-                    if (this.filters.contentType) {
-                        if (item.ContentType !== this.filters.contentType) {
-                            return false;
-                        }
-                    }
-
-                    // Technology filter
-                    if (this.filters.technology) {
-                        if (!item.Technologies || !item.Technologies.includes(this.filters.technology)) {
-                            return false;
-                        }
-                    }
-
-                    // Diff status filter
-                    if (this.filters.diffStatus) {
-                        if (item.diff_status !== this.filters.diffStatus) {
-                            return false;
-                        }
-                    }
-
-                    return true;
-                });
-
-                this.totalItems = this.filteredData.length;
-                this.totalPages = Math.ceil(this.totalItems / this.itemsPerPage);
-                this.currentPage = 1;
-                this.render();
-            }
-
-            sortData(column) {
-                if (this.currentSort.column === column) {
-                    this.currentSort.direction = this.currentSort.direction === 'asc' ? 'desc' : 'asc';
-                } else {
-                    this.currentSort.column = column;
-                    this.currentSort.direction = 'asc';
-                }
-
-                this.filteredData.sort((a, b) => {
-                    let aVal = a[column];
-                    let bVal = b[column];
-
-                    // Handle arrays (like Technologies)
-                    if (Array.isArray(aVal)) aVal = aVal.join(', ');
-                    if (Array.isArray(bVal)) bVal = bVal.join(', ');
-
-                    // Handle numbers
-                    if (column === 'StatusCode' || column === 'ContentLength') {
-                        aVal = parseInt(aVal) || 0;
-                        bVal = parseInt(bVal) || 0;
-                    } else {
-                        // Handle strings
-                        aVal = (aVal || '').toString().toLowerCase();
-                        bVal = (bVal || '').toString().toLowerCase();
-                    }
-
-                    if (aVal < bVal) return this.currentSort.direction === 'asc' ? -1 : 1;
-                    if (aVal > bVal) return this.currentSort.direction === 'asc' ? 1 : -1;
-                    return 0;
-                });
-
-                this.updateSortIndicators();
-                this.render();
-            }
-
-            updateSortIndicators() {
-                // Remove all sort classes
-                document.querySelectorAll('.sortable').forEach(th => {
-                    th.classList.remove('sort-asc', 'sort-desc');
-                });
-
-                // Add sort class to current column
-                if (this.currentSort.column) {
-                    const th = document.querySelector(`[data-col-name="${this.currentSort.column}"]`);
-                    if (th) {
-                        th.classList.add(`sort-${this.currentSort.direction}`);
-                    }
-                }
-            }
-
-            render() {
-                this.renderTable();
-                this.renderPagination();
-                this.updateSortIndicators();
-            }
-
-            renderTable() {
-                const tbody = document.getElementById('resultsTableBody');
-                const startIndex = (this.currentPage - 1) * this.itemsPerPage;
-                const endIndex = Math.min(startIndex + this.itemsPerPage, this.totalItems);
-                const pageData = this.filteredData.slice(startIndex, endIndex);
-
-                if (pageData.length === 0) {
-                    tbody.innerHTML = '';
-                    document.getElementById('resultsContainer').style.display = 'none';
-                    document.getElementById('noResults').style.display = 'block';
-                    document.getElementById('paginationContainer').style.display = 'none';
-                    return;
-                }
-
-                document.getElementById('resultsContainer').style.display = 'block';
-                document.getElementById('noResults').style.display = 'none';
-                document.getElementById('paginationContainer').style.display = 'block';
-
-                tbody.innerHTML = pageData.map((item, index) => this.createTableRow(item, startIndex + index)).join('');
-                
-                // Bind view details events
-                tbody.querySelectorAll('.view-details-btn').forEach((btn, index) => {
-                    btn.addEventListener('click', () => {
-                        this.showDetails(pageData[index]);
-                    });
-                });
-            }
-
-            createTableRow(item, index) {
-                const statusClass = `status-${item.StatusCode}`;
-                const diffStatusClass = `diff-status-${(item.diff_status || '').toLowerCase()}`;
-                
-                return `
-                    <tr data-index="${index}">
-                        <td>
-                            <div class="text-truncate" style="max-width: 200px;" title="${this.escapeHtml(item.InputURL || '')}">
-                                ${this.escapeHtml(item.InputURL || '')}
-                            </div>
-                        </td>
-                        <td>
-                            <div class="text-truncate" style="max-width: 200px;" title="${this.escapeHtml(item.FinalURL || '')}">
-                                ${item.FinalURL ? `<a href="${this.escapeHtml(item.FinalURL)}" target="_blank" class="text-decoration-none">${this.escapeHtml(item.FinalURL)}</a>` : '-'}
-                            </div>
-                        </td>
-                        <td>
-                            <span class="${diffStatusClass}">${this.escapeHtml(item.diff_status || '')}</span>
-                        </td>
-                        <td>
-                            <span class="${statusClass}">${item.StatusCode || '-'}</span>
-                        </td>
-                        <td class="hide-on-mobile">
-                            <div class="text-truncate" style="max-width: 150px;" title="${this.escapeHtml(item.Title || '')}">
-                                ${this.escapeHtml(item.Title || '-')}
-                            </div>
-                        </td>
-                        <td class="hide-on-mobile">
-                            ${(item.Technologies || []).map(tech => `<span class="tech-tag">${this.escapeHtml(tech)}</span>`).join(' ')}
-                        </td>
-                        <td class="hide-on-mobile">
-                            ${this.escapeHtml(item.ContentType || '-')}
-                        </td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-primary view-details-btn" title="View Details">
-                                <i class="fas fa-eye me-1"></i>View
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            }
-
-            renderPagination() {
-                const nav = document.getElementById('paginationNav');
-                const showingStart = document.getElementById('showingStart');
-                const showingEnd = document.getElementById('showingEnd');
-                const totalItemsSpan = document.getElementById('totalItems');
-
-                // Update showing info
-                const startIndex = (this.currentPage - 1) * this.itemsPerPage + 1;
-                const endIndex = Math.min(this.currentPage * this.itemsPerPage, this.totalItems);
-                
-                showingStart.textContent = this.totalItems > 0 ? startIndex : 0;
-                showingEnd.textContent = endIndex;
-                totalItemsSpan.textContent = this.totalItems;
-
-                if (this.totalPages <= 1) {
-                    nav.innerHTML = '';
-                    return;
-                }
-
-                let paginationHTML = '';
-
-                // Previous button
-                paginationHTML += `
-                    <li class="page-item ${this.currentPage === 1 ? 'disabled' : ''}">
-                        <a class="page-link" href="#" data-page="${this.currentPage - 1}">
-                            <i class="fas fa-chevron-left"></i>
-                        </a>
-                    </li>
-                `;
-
-                // Page numbers
-                const startPage = Math.max(1, this.currentPage - 2);
-                const endPage = Math.min(this.totalPages, this.currentPage + 2);
-
-                if (startPage > 1) {
-                    paginationHTML += `<li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>`;
-                    if (startPage > 2) {
-                        paginationHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
-                    }
-                }
-
-                for (let i = startPage; i <= endPage; i++) {
-                    paginationHTML += `
-                        <li class="page-item ${i === this.currentPage ? 'active' : ''}">
-                            <a class="page-link" href="#" data-page="${i}">${i}</a>
-                        </li>
-                    `;
-                }
-
-                if (endPage < this.totalPages) {
-                    if (endPage < this.totalPages - 1) {
-                        paginationHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
-                    }
-                    paginationHTML += `<li class="page-item"><a class="page-link" href="#" data-page="${this.totalPages}">${this.totalPages}</a></li>`;
-                }
-
-                // Next button
-                paginationHTML += `
-                    <li class="page-item ${this.currentPage === this.totalPages ? 'disabled' : ''}">
-                        <a class="page-link" href="#" data-page="${this.currentPage + 1}">
-                            <i class="fas fa-chevron-right"></i>
-                        </a>
-                    </li>
-                `;
-
-                nav.innerHTML = paginationHTML;
-
-                // Bind pagination events
-                nav.querySelectorAll('.page-link').forEach(link => {
-                    link.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        const target = e.target.closest('.page-link');
-                        const page = parseInt(target.dataset.page || target.textContent);
-                        if (page && page !== this.currentPage && page >= 1 && page <= this.totalPages) {
-                            this.currentPage = page;
-                            this.render();
-                            this.scrollToTop();
-                        }
-                    });
-                });
-            }
-
-            showDetails(item) {
-                const modal = new bootstrap.Modal(document.getElementById('detailsModal'));
-                const content = document.getElementById('modalDetailsContent');
-                content.textContent = JSON.stringify(item, null, 2);
-                modal.show();
-            }
-
-            extractHostname(url) {
-                if (!url) return '';
-                try {
-                    return new URL(url).hostname;
-                } catch {
-                    return url.split('/')[0] || '';
-                }
-            }
-
-            setupScrollToTop() {
-                const toTopBtn = document.getElementById('toTopBtn');
-                
-                window.addEventListener('scroll', () => {
-                    if (document.body.scrollTop > 20 || document.documentElement.scrollTop > 20) {
-                        toTopBtn.style.display = 'block';
-                    } else {
-                        toTopBtn.style.display = 'none';
-                    }
-                });
-                
-                toTopBtn.addEventListener('click', () => {
-                    this.scrollToTop();
-                });
-            }
-
-            scrollToTop() {
-                window.scrollTo({
-                    top: 0,
-                    behavior: 'smooth'
-                });
-            }
-
-            escapeHtml(text) {
-                if (!text) return '';
-                const div = document.createElement('div');
-                div.textContent = text;
-                return div.innerHTML;
-            }
-        }
-
-        // Initialize when DOM is ready
-        document.addEventListener('DOMContentLoaded', () => {
-            new ReportRenderer();
-        });
+        window.reportData = {{ .ProbeResultsJSON }};
     </script>
+    {{if .ReportJs}}
+        <script type="text/javascript">{{.ReportJs}}</script>
+    {{else}}
+        <script src="/assets/js/report_client_side.js"></script>
+    {{end}}
 </body>
 </html>
