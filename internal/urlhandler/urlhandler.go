@@ -169,6 +169,51 @@ func GetBaseDomain(hostname string) (string, error) {
 	return parts[len(parts)-2] + "." + parts[len(parts)-1], nil
 }
 
+// GetBaseDomain extracts the base domain (e.g., "example.com" from "sub.example.com", or "example.co.uk" from "www.example.co.uk").
+// It tries to handle common TLDs; for more complex scenarios, a proper library might be needed.
+func GetBaseDomain(hostname string) (string, error) {
+	hostname = strings.ToLower(strings.TrimSpace(hostname))
+	if hostname == "" {
+		return "", errors.New("hostname is empty")
+	}
+
+	// Remove port if present
+	if strings.Contains(hostname, ":") {
+		host, _, err := net.SplitHostPort(hostname)
+		if err == nil {
+			hostname = host
+		}
+	}
+
+	parts := strings.Split(hostname, ".")
+	if len(parts) < 2 {
+		// Cannot be a base domain like example.com, could be localhost or single label
+		return hostname, nil // Or return error if single label isn't desired
+	}
+
+	// Common two-part TLDs (add more as needed or use a library)
+	// This is a simplified approach. For comprehensive TLD handling, consider a library like "golang.org/x/net/publicsuffix".
+	twoPartTLDs := map[string]bool{
+		"co.uk": true, "com.au": true, "com.sg": true, "com.cn": true, "org.uk": true, // etc.
+		"gov.uk": true, "ac.uk": true, "net.au": true, "com.br": true, "com.mx": true,
+	}
+
+	if len(parts) > 2 {
+		// Check for common two-part TLDs like "co.uk"
+		potentialTwoPartTLD := parts[len(parts)-2] + "." + parts[len(parts)-1]
+		if twoPartTLDs[potentialTwoPartTLD] {
+			if len(parts) > 2 { // Need at least three parts for domain.co.uk
+				return parts[len(parts)-3] + "." + potentialTwoPartTLD, nil
+			}
+			// Edge case: something like "co.uk" itself - treat as is if it was the input
+			return potentialTwoPartTLD, nil
+		}
+	}
+
+	// Standard case: example.com -> take last two parts
+	return parts[len(parts)-2] + "." + parts[len(parts)-1], nil
+}
+
 // SanitizeFilename creates a safe filename string from a URL or any input string.
 // It removes the protocol, replaces unsafe characters with underscores, and cleans up underscores.
 func SanitizeFilename(input string) string {
