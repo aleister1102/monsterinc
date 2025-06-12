@@ -1,7 +1,12 @@
 ---
+description: Process task list
+globs: 
+alwaysApply: false
+---
+---
 description: 
 globs: 
-alwaysApply: true
+alwaysApply: false
 ---
 # Task List Management
 

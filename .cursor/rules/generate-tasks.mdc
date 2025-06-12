@@ -1,4 +1,9 @@
 ---
+description: Generate task list for PRD
+globs: 
+alwaysApply: false
+---
+---
 description: 
 globs: 
 alwaysApply: false
