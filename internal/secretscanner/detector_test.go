@@ -110,20 +110,22 @@ func TestDetector_ScanAndProcess(t *testing.T) {
 		detector, err := secretscanner.NewDetector(&cfg, store, mockNotifier, logger)
 		require.NoError(t, err)
 
-		content := `{"StripeApiKey": "sk_live_abcdefghijklmnopqrstuvwxyz"}`
+		// This secret key matches the "Generic API Key" rule
+		secret := "sk-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5" // 43 chars
+		content := `{"ApiKey": "` + secret + `"}`
 		detector.ScanAndProcess("config.json", []byte(content))
 
 		// Check notifications
 		notifications := mockNotifier.GetSentNotifications()
-		require.NotEmpty(t, notifications)
-		assert.Equal(t, "stripe-api-key", notifications[0].RuleID)
-		assert.Equal(t, "sk_live_abcdefghijklmnopqrstuvwxyz", notifications[0].SecretText)
+		require.NotEmpty(t, notifications, "Should have sent notifications for a found secret")
+		assert.Equal(t, "Generic API Key", notifications[0].RuleID)
+		assert.Equal(t, secret, notifications[0].SecretText)
 
 		// Check stored findings
 		storedFindings, err := store.LoadFindings(context.Background())
 		require.NoError(t, err)
-		require.NotEmpty(t, storedFindings)
-		assert.Equal(t, "stripe-api-key", storedFindings[0].RuleID)
+		require.NotEmpty(t, storedFindings, "Should have stored the found secret")
+		assert.Equal(t, "Generic API Key", storedFindings[0].RuleID)
 	})
 
 	t.Run("secrets found but notifications disabled", func(t *testing.T) {
@@ -136,7 +138,9 @@ func TestDetector_ScanAndProcess(t *testing.T) {
 		detector, err := secretscanner.NewDetector(&cfg, store, mockNotifier, logger)
 		require.NoError(t, err)
 
-		content := `const token = "ghp_abcdefghijklmnopqrstuvwxyz123456"` // Github token
+		// This token matches the "GitHub Personal Access Token" rule
+		secret := "ghp_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6" // 36 chars
+		content := `const token = "` + secret + `"`
 		detector.ScanAndProcess("main.js", []byte(content))
 
 		// Check no notifications were sent
@@ -145,7 +149,8 @@ func TestDetector_ScanAndProcess(t *testing.T) {
 		// Check findings were still stored
 		storedFindings, err := store.LoadFindings(context.Background())
 		require.NoError(t, err)
-		require.NotEmpty(t, storedFindings)
-		assert.Equal(t, "github-pat", storedFindings[0].RuleID)
+		require.NotEmpty(t, storedFindings, "Should have stored the found secret")
+		assert.Equal(t, "GitHub Personal Access Token", storedFindings[0].RuleID)
+		assert.Equal(t, secret, storedFindings[0].SecretText)
 	})
 }

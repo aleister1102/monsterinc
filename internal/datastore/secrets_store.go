@@ -29,6 +29,7 @@ func NewSecretsStore(cfg *config.StorageConfig, logger zerolog.Logger) (*Secrets
 }
 
 // StoreFindings writes a slice of SecretFinding to a Parquet file.
+// If the file already exists, it appends the new findings to the existing ones.
 func (ss *SecretsStore) StoreFindings(ctx context.Context, findings []models.SecretFinding) error {
 	if len(findings) == 0 {
 		return nil
@@ -43,12 +44,31 @@ func (ss *SecretsStore) StoreFindings(ctx context.Context, findings []models.Sec
 		return err
 	}
 
-	err = ss.writeToParquetFile(filePath, findings)
+	var allFindings []models.SecretFinding
+	if _, err := os.Stat(filePath); err == nil {
+		// File exists, load existing data
+		existingFindings, err := ss.loadFindingsFromFile(ctx, filePath)
+		if err != nil {
+			// If the file is corrupt, we log a warning and overwrite it.
+			ss.logger.Warn().Err(err).Str("file_path", filePath).Msg("Failed to load existing secret findings, overwriting the file.")
+			allFindings = findings
+		} else {
+			allFindings = append(existingFindings, findings...)
+		}
+	} else if os.IsNotExist(err) {
+		// File doesn't exist, use only the new findings
+		allFindings = findings
+	} else {
+		// Another error from os.Stat
+		return common.WrapError(err, "failed to check secrets parquet file status")
+	}
+
+	err = ss.writeToParquetFile(filePath, allFindings)
 	if err != nil {
 		return err
 	}
 
-	ss.logger.Info().Str("file_path", filePath).Int("records_written", len(findings)).Msg("Successfully wrote secret findings to Parquet file")
+	ss.logger.Info().Str("file_path", filePath).Int("records_written", len(findings)).Msg("Successfully stored secret findings")
 	return nil
 }
 
@@ -62,19 +82,21 @@ func (ss *SecretsStore) prepareOutputFile() (string, error) {
 }
 
 func (ss *SecretsStore) writeToParquetFile(filePath string, findings []models.SecretFinding) error {
-	// We open the file in append mode or create it if it doesn't exist.
-	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	// Open the file with truncation to overwrite existing content.
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
-		return common.WrapError(err, "failed to open/create secret findings parquet file: "+filePath)
+		return common.WrapError(err, "failed to open/create secret findings parquet file for writing: "+filePath)
 	}
 	defer file.Close()
 
 	writer := parquet.NewGenericWriter[models.SecretFinding](file, parquet.Compression(&parquet.Zstd))
 
-	_, err = writer.Write(findings)
-	if err != nil {
-		_ = writer.Close()
-		return common.WrapError(err, "failed to write secret findings to parquet file")
+	if len(findings) > 0 {
+		_, err = writer.Write(findings)
+		if err != nil {
+			_ = writer.Close()
+			return common.WrapError(err, "failed to write secret findings to parquet file")
+		}
 	}
 
 	return writer.Close()
@@ -96,6 +118,10 @@ func (ss *SecretsStore) LoadFindings(ctx context.Context) ([]models.SecretFindin
 		return []models.SecretFinding{}, nil
 	}
 
+	return ss.loadFindingsFromFile(ctx, filePath)
+}
+
+func (ss *SecretsStore) loadFindingsFromFile(ctx context.Context, filePath string) ([]models.SecretFinding, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, common.WrapError(err, "failed to open secret findings parquet file for reading: "+filePath)
@@ -110,7 +136,7 @@ func (ss *SecretsStore) LoadFindings(ctx context.Context) ([]models.SecretFindin
 		if err := ss.checkCancellation(ctx, "load secret findings"); err != nil {
 			return nil, err
 		}
-		
+
 		batch := make([]models.SecretFinding, 100) // Read in batches of 100
 		n, err := reader.Read(batch)
 		if n > 0 {
