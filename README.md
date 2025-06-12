@@ -2,47 +2,6 @@
 
 MonsterInc is a comprehensive security tool written in Go, specialized for website crawling, HTTP/HTTPS probing, real-time content change monitoring and detailed report generation. This tool is designed to support security professionals in reconnaissance and monitoring of web applications.
 
-## Architecture Overview
-
-MonsterInc is designed with a modular architecture featuring independent packages, each responsible for a specific part of the workflow:
-
-### Core Data Flow
-
-```mermaid
-graph TD
-    A[CLI Entry Point] --> B[Config Manager]
-    B --> C[Scanner Orchestrator]
-    C --> D[URL Handler]
-    D --> E[Crawler]
-    E --> F[HTTPX Runner]
-    F --> G[Data Store]
-    G --> H[Differ]
-    H --> I[Reporter]
-    I --> J[Notifier]
-    
-    C --> K[Monitor Service]
-    K --> L[Event Aggregator]
-    L --> J
-    
-    C --> M[Scheduler]
-    M --> N[Workers]
-    N --> C
-    
-    subgraph "Storage Layer"
-        G
-        O[Parquet Files]
-        P[SQLite DB]
-    end
-    
-    subgraph "Analysis Layer" 
-        Q[Path Extractor]
-        R[Content Differ]
-    end
-    
-    F --> Q
-    K --> R
-```
-
 ## Key Features
 
 ### 🕷️ Web Crawling
@@ -111,37 +70,138 @@ graph TD
 - **Resource usage logging** with detailed system and application memory statistics
 - **Graceful shutdown callbacks** for custom cleanup logic during memory-triggered shutdowns
 
-## Package Documentation
+## Quick Start
 
-### Core Packages
+### Installation
 
-- **[Scanner](internal/scanner/README.md)** - Main orchestration service, workflow coordination
-- **[Monitor](internal/monitor/README.md)** - Continuous monitoring and change detection
-- **[Scheduler](internal/scheduler/README.md)** - Automated task scheduling with SQLite persistence
+```bash
+# Clone repository
+git clone https://github.com/aleister1102/monsterinc.git
+cd monsterinc
 
-### Data Processing
+# Build application
+go mod tidy
+go build -o monsterinc cmd/monsterinc/*.go
+```
 
-- **[Crawler](internal/crawler/README.md)** - Web crawling with asset extraction
-- **[HTTPXRunner](internal/httpxrunner/README.md)** - HTTP probing and metadata extraction
-- **[Differ](internal/differ/README.md)** - Content comparison and URL diff analysis
-- **[Extractor](internal/extractor/README.md)** - Path extraction from JS/HTML content
+Install with `go install`:
 
-### Data Management
+```shell
+go install github.com/aleister1102/monsterinc/cmd/monsterinc@latest
+```
 
-- **[DataStore](internal/datastore/README.md)** - Parquet-based data storage and querying
-- **[Models](internal/models/README.md)** - Data structures and schemas
-- **[URLHandler](internal/urlhandler/README.md)** - URL processing and normalization
+### Basic Usage
 
-### Infrastructure
+```bash
+# One-time scan
+./monsterinc -scan-targets targets.txt -globalconfig config.yaml -mode onetime
 
-- **[Config](internal/config/README.md)** - Configuration management and validation
-- **[Logger](internal/logger/README.md)** - Structured logging framework
-- **[Common](internal/common/README.md)** - Shared utilities and patterns
+# Automated monitoring 
+./monsterinc -scan-targets targets.txt -monitor-targets monitor.txt -globalconfig config.yaml -mode automated
 
-### Output & Notification
+# With aliases
+./monsterinc -st targets.txt -mt monitor.txt -gc config.yaml -m automated
+```
 
-- **[Reporter](internal/reporter/README.md)** - HTML report generation
-- **[Notifier](internal/notifier/README.md)** - Discord notifications with file attachments
+### Interrupt Handling
+
+MonsterInc provides immediate response to interrupt signals:
+
+```bash
+# During any operation, press Ctrl+C to interrupt
+./monsterinc -scan-targets large-targets.txt -config config.yaml -mode onetime
+# Press Ctrl+C - operation stops within 2 seconds
+
+# Force quit with double interrupt
+# Press Ctrl+C twice for immediate termination
+```
+
+**Signal Behavior:**
+- **First SIGINT/SIGTERM**: Graceful shutdown with 2-second timeout
+- **Second SIGINT/SIGTERM**: Force quit immediately
+- **Context cancellation**: Propagates to all active components
+- **Resource cleanup**: Automatic cleanup of temporary files and connections
+- **Partial results**: Available for interrupted scans
+
+### Tips
+
+- Filter input file with `httpx` before scanning
+- Filter library JS files before monitoring
+
+## Configuration
+
+### Configuration File Priority
+
+1. `--globalconfig` parameter
+2. `MONSTERINC_CONFIG` environment variable
+3. `config.yaml` in working directory
+4. `config.json` in working directory
+
+### Configuration Structure
+
+```yaml
+# Core service configurations
+scanner_config: {...}      # Main scanning workflow
+monitor_config: {...}      # Continuous monitoring
+scheduler_config: {...}    # Automated scheduling
+
+# Data processing
+crawler_config: {...}      # Web crawling settings
+httpx_runner_config: {...} # HTTP probing settings
+differ_config: {...}       # Content comparison
+extractor_config: {...}    # Path extraction
+
+# Storage & output
+storage_config: {...}      # Parquet storage
+reporter_config: {...}     # HTML reports
+notification_config: {...} # Discord notifications
+
+# Infrastructure
+log_config: {...}          # Logging configuration
+```
+
+See [config.example.yaml](configs/config.example.yaml) for a complete configuration template.
+
+## Architecture Overview
+
+MonsterInc is designed with a modular architecture featuring independent packages, each responsible for a specific part of the workflow:
+
+### Core Data Flow
+
+```mermaid
+graph TD
+    A[CLI Entry Point] --> B[Config Manager]
+    B --> C[Scanner Orchestrator]
+    C --> D[URL Handler]
+    D --> E[Crawler]
+    E --> F[HTTPX Runner]
+    F --> G[Data Store]
+    G --> H[Differ]
+    H --> I[Reporter]
+    I --> J[Notifier]
+    
+    C --> K[Monitor Service]
+    K --> L[Event Aggregator]
+    L --> J
+    
+    C --> M[Scheduler]
+    M --> N[Workers]
+    N --> C
+    
+    subgraph "Storage Layer"
+        G
+        O[Parquet Files]
+        P[SQLite DB]
+    end
+    
+    subgraph "Analysis Layer" 
+        Q[Path Extractor]
+        R[Content Differ]
+    end
+    
+    F --> Q
+    K --> R
+```
 
 ## Data Flow Diagrams
 
@@ -287,88 +347,37 @@ flowchart LR
     R --> B
 ```
 
-## Quick Start
+## Package Documentation
 
-### Installation
+### Core Packages
 
-```bash
-# Clone repository
-git clone https://github.com/aleister1102/monsterinc.git
-cd monsterinc
+- **[Scanner](internal/scanner/README.md)** - Main orchestration service, workflow coordination
+- **[Monitor](internal/monitor/README.md)** - Continuous monitoring and change detection
+- **[Scheduler](internal/scheduler/README.md)** - Automated task scheduling with SQLite persistence
 
-# Build application
-go mod tidy
-go build -o monsterinc cmd/monsterinc/*.go
-```
+### Data Processing
 
-### Basic Usage
+- **[Crawler](internal/crawler/README.md)** - Web crawling with asset extraction
+- **[HTTPXRunner](internal/httpxrunner/README.md)** - HTTP probing and metadata extraction
+- **[Differ](internal/differ/README.md)** - Content comparison and URL diff analysis
+- **[Extractor](internal/extractor/README.md)** - Path extraction from JS/HTML content
 
-```bash
-# One-time scan
-./monsterinc -scan-targets targets.txt -config config.yaml -mode onetime
+### Data Management
 
-# Automated monitoring 
-./monsterinc -scan-targets targets.txt -monitor-targets monitor.txt -config config.yaml -mode automated
-```
+- **[DataStore](internal/datastore/README.md)** - Parquet-based data storage and querying
+- **[Models](internal/models/README.md)** - Data structures and schemas
+- **[URLHandler](internal/urlhandler/README.md)** - URL processing and normalization
 
-### Interrupt Handling
+### Infrastructure
 
-MonsterInc provides immediate response to interrupt signals:
+- **[Config](internal/config/README.md)** - Configuration management and validation
+- **[Logger](internal/logger/README.md)** - Structured logging framework
+- **[Common](internal/common/README.md)** - Shared utilities and patterns
 
-```bash
-# During any operation, press Ctrl+C to interrupt
-./monsterinc -scan-targets large-targets.txt -config config.yaml -mode onetime
-# Press Ctrl+C - operation stops within 2 seconds
+### Output & Notification
 
-# Force quit with double interrupt
-# Press Ctrl+C twice for immediate termination
-```
-
-**Signal Behavior:**
-- **First SIGINT/SIGTERM**: Graceful shutdown with 2-second timeout
-- **Second SIGINT/SIGTERM**: Force quit immediately
-- **Context cancellation**: Propagates to all active components
-- **Resource cleanup**: Automatic cleanup of temporary files and connections
-- **Partial results**: Available for interrupted scans
-
-### Tips
-
-- Filter input file with `httpx` before scanning
-- Filter library JS files before monitoring
-
-## Configuration
-
-### Configuration File Priority
-
-1. `--globalconfig` parameter
-2. `MONSTERINC_CONFIG` environment variable
-3. `config.yaml` in working directory
-4. `config.json` in working directory
-
-### Configuration Structure
-
-```yaml
-# Core service configurations
-scanner_config: {...}      # Main scanning workflow
-monitor_config: {...}      # Continuous monitoring
-scheduler_config: {...}    # Automated scheduling
-
-# Data processing
-crawler_config: {...}      # Web crawling settings
-httpx_runner_config: {...} # HTTP probing settings
-differ_config: {...}       # Content comparison
-extractor_config: {...}    # Path extraction
-
-# Storage & output
-storage_config: {...}      # Parquet storage
-reporter_config: {...}     # HTML reports
-notification_config: {...} # Discord notifications
-
-# Infrastructure
-log_config: {...}          # Logging configuration
-```
-
-See [config.example.yaml](configs/config.example.yaml) for a complete configuration template.
+- **[Reporter](internal/reporter/README.md)** - HTML report generation
+- **[Notifier](internal/notifier/README.md)** - Discord notifications with file attachments
 
 ## Project Structure
 
@@ -397,6 +406,7 @@ monsterinc/
 ├── tasks/                   # Development tasks & PRDs
 └── target/                  # Target URL files
 ```
+
 
 ## Development
 

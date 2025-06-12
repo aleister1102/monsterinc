@@ -17,15 +17,15 @@
 
 ## Tasks
 
-- [ ] 1.0 Setup Core Secret Detection Components
-  - [ ] 1.1 In `internal/models/secret_finding.go`, define the `SecretFinding` struct to hold all required info (SourceURL, RuleID, SecretText, LineNumber, Context, etc.).
-  - [ ] 1.2 In `internal/secretscanner/patterns.go`, define a struct for regex rules and create a default list of patterns inspired by `mantra`.
-  - [ ] 1.3 In `internal/secretscanner/scanner.go`, implement a `RegexScanner` with a `Scan()` method that applies the regex patterns to input content and returns findings.
-- [ ] 2.0 Develop Detector Service and Data Storage
-  - [ ] 2.1 In `internal/secretscanner/detector.go`, define the `Detector` service struct with its dependencies (config, datastore, notifier, logger).
-  - [ ] 2.2 Implement `NewDetector(...)` constructor.
-  - [ ] 2.3 Implement the main `ScanAndProcess(sourceURL string, content []byte)` method to orchestrate scanning, storage, and notification.
-  - [ ] 2.4 In `internal/datastore/secrets_store.go`, create a `SecretsStore` to write findings to a Parquet file. Define the schema and implement a `StoreFindings` method.
+- [x] 1.0 Setup Core Secret Detection Components
+  - [x] 1.1 In `internal/models/secret_finding.go`, define the `SecretFinding` struct to hold all required info (SourceURL, RuleID, SecretText, LineNumber, Context, etc.).
+  - [x] 1.2 In `internal/secretscanner/patterns.go`, define a struct for regex rules and create a default list of patterns inspired by `mantra`.
+  - [x] 1.3 In `internal/secretscanner/scanner.go`, implement a `RegexScanner` with a `Scan()` method that applies the regex patterns to input content and returns findings.
+- [x] 2.0 Develop Detector Service and Data Storage
+  - [x] 2.1 In `internal/secretscanner/detector.go`, define the `Detector` service struct with its dependencies (config, datastore, notifier, logger).
+  - [x] 2.2 Implement `NewDetector(...)` constructor.
+  - [x] 2.3 Implement the main `ScanAndProcess(sourceURL string, content []byte)` method to orchestrate scanning, storage, and notification.
+  - [x] 2.4 In `internal/datastore/secrets_store.go`, create a `SecretsStore` to write findings to a Parquet file. Define the schema and implement a `StoreFindings` method.
 - [ ] 3.0 Integrate with Crawler for Real-time Scanning
   - [ ] 3.1 Modify `internal/crawler/crawler.go` to accept the `Detector` service as a dependency.
   - [ ] 3.2 In the crawler's `OnResponse` handler, check the response's `Content-Type`.
