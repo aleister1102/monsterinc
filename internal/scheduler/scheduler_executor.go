@@ -244,13 +244,17 @@ func (s *Scheduler) shouldStopMonitoring(ctx context.Context) bool {
 
 // waitForNextMonitorCycle waits for the next monitor cycle
 func (s *Scheduler) waitForNextMonitorCycle(ctx context.Context) bool {
-	cycleMinutes := s.globalConfig.SchedulerConfig.CycleMinutes
-	if cycleMinutes <= 0 {
-		cycleMinutes = 5 // Default 5 minutes if not configured
+	checkIntervalSeconds := s.globalConfig.MonitorConfig.CheckIntervalSeconds
+	if checkIntervalSeconds <= 0 {
+		checkIntervalSeconds = 1440 // Default 60*24 minutes (1 day) if not configured
 	}
 
-	cycleDuration := time.Duration(cycleMinutes) * time.Minute
-	s.logger.Info().Dur("wait_duration", cycleDuration).Msg("⏳ Waiting for next monitor cycle...")
+	cycleDuration := time.Duration(checkIntervalSeconds) * time.Second
+	nextMonitorTime := time.Now().Add(cycleDuration)
+
+	s.logger.Info().
+		Time("next_monitor", nextMonitorTime).
+		Msg("⏳ Waiting for next monitor cycle...")
 
 	select {
 	case <-time.After(cycleDuration):
