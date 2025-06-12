@@ -23,47 +23,41 @@ func (r *HtmlReporter) buildOutputPath(baseOutputPath string, partNum, totalPart
 	} else {
 		filename = fmt.Sprintf("%s-part%d.html", baseOutputPath, partNum)
 	}
-	// Check if baseOutputPath is already an absolute path or includes directory
-	// If it contains path separators, treat it as a full path
 	if filepath.IsAbs(baseOutputPath) || strings.Contains(baseOutputPath, string(filepath.Separator)) {
-		// baseOutputPath already contains the full path, just add extension if needed
 		if totalParts == 1 {
 			if !strings.HasSuffix(baseOutputPath, ".html") {
 				return baseOutputPath + ".html"
 			}
 			return baseOutputPath
 		} else {
-			// Remove .html extension if present, then add part number
 			basePath := strings.TrimSuffix(baseOutputPath, ".html")
 			return fmt.Sprintf("%s-part%d.html", basePath, partNum)
 		}
 	}
-
-	// baseOutputPath is just a filename, join with OutputDir
 	return filepath.Join(r.cfg.OutputDir, filename)
 }
 
 // prepareReportData sets up page data structure
-func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, partInfo string) (models.ReportPageData, error) {
-	var pageData models.ReportPageData
+func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, secretFindings []models.SecretFinding, partInfo string) (*models.ReportPageData, error) {
+	pageData := &models.ReportPageData{}
 
-	r.setBasicReportInfo(&pageData, partInfo)
-	r.processProbeResults(probeResults, &pageData)
-	r.assetManager.EmbedAssetsIntoPageData(&pageData, assetsFS, assetsFS, r.cfg.EmbedAssets)
+	r.setBasicReportInfo(pageData, partInfo)
+	pageData.SecretFindings = secretFindings
+	r.processProbeResults(probeResults, pageData)
 
-	pageData.FaviconBase64 = r.favicon
+	if jsonData, err := r.serializeTableData(pageData.ProbeResults); err == nil {
+		pageData.ProbeResultsJSON = template.JS(jsonData)
+	} else {
+		r.logger.Error().Err(err).Msg("Failed to serialize probe results to JSON for template")
+		pageData.ProbeResultsJSON = template.JS("[]")
+	}
 
 	return pageData, nil
 }
 
 // setBasicReportInfo sets basic information for the report
 func (r *HtmlReporter) setBasicReportInfo(pageData *models.ReportPageData, partInfo string) {
-	if r.cfg.ReportTitle != "" {
-		pageData.ReportTitle = r.cfg.ReportTitle
-	} else {
-		pageData.ReportTitle = DefaultReportTitle
-	}
-
+	pageData.ReportTitle = r.buildPageTitle(partInfo)
 	pageData.GeneratedAt = time.Now().Format("2006-01-02 15:04:05")
 	pageData.Config = &models.ReporterConfigForTemplate{
 		ItemsPerPage: r.getItemsPerPage(),
@@ -71,149 +65,65 @@ func (r *HtmlReporter) setBasicReportInfo(pageData *models.ReportPageData, partI
 	pageData.ItemsPerPage = r.getItemsPerPage()
 	pageData.EnableDataTables = r.cfg.EnableDataTables
 	pageData.ReportPartInfo = partInfo
+	pageData.FaviconBase64 = r.favicon
 }
 
 // processProbeResults processes probe results and populates collections
 func (r *HtmlReporter) processProbeResults(probeResults []*models.ProbeResult, pageData *models.ReportPageData) {
-	var displayResults []models.ProbeResultDisplay
-	statusCodes := make(map[int]struct{})
-	contentTypes := make(map[string]struct{})
-	techs := make(map[string]struct{})
-	hostnamesEncountered := make(map[string]struct{})
-	urlStatuses := make(map[string]struct{})
+	hostnames := make(map[string]bool)
+	statusCodes := make(map[int]bool)
+	contentTypes := make(map[string]bool)
+	technologies := make(map[string]bool)
+	urlStatuses := make(map[string]bool)
 
-	for _, pr := range probeResults {
-		displayPr := models.ToProbeResultDisplay(*pr)
-		r.ensureRootTargetURL(pr, &displayPr)
-
-		displayResults = append(displayResults, displayPr)
-		r.updateCountsAndCollections(*pr, pageData, statusCodes, contentTypes, techs, urlStatuses)
-
-		// Only add hostname to filter if the probe result has meaningful data
-		// (successful response or at least some useful information)
-		if r.shouldIncludeHostnameInFilter(pr) {
-			hostname := r.extractHostnameFromURL(displayPr.InputURL)
-			if hostname != "" {
-				hostnamesEncountered[hostname] = struct{}{}
-			}
-		}
+	secretsMap := make(map[string][]models.SecretFinding)
+	for _, sf := range pageData.SecretFindings {
+		secretsMap[sf.SourceURL] = append(secretsMap[sf.SourceURL], sf)
 	}
 
-	r.finalizePageData(pageData, displayResults, statusCodes, contentTypes, techs, hostnamesEncountered, urlStatuses)
+	displayResults := make([]models.ProbeResultDisplay, len(probeResults))
+	for i, pr := range probeResults {
+		if pr == nil {
+			continue
+		}
+		displayResult := models.ToProbeResultDisplay(*pr)
+		if secrets, ok := secretsMap[pr.InputURL]; ok {
+			displayResult.SecretFindings = secrets
+		}
+		displayResults[i] = displayResult
+		r.collectFilterData(*pr, hostnames, statusCodes, contentTypes, technologies, urlStatuses)
+	}
+	pageData.ProbeResults = displayResults
+	r.sortAndAssignFilterData(pageData, hostnames, statusCodes, contentTypes, technologies, urlStatuses)
 }
 
-// shouldIncludeHostnameInFilter determines if a hostname should be included in the filter dropdown
-// Only include hostnames that have meaningful data (successful responses, interesting status codes, etc.)
-func (r *HtmlReporter) shouldIncludeHostnameInFilter(pr *models.ProbeResult) bool {
-	// Include if:
-	// 1. Successful response (2xx, 3xx)
-	// 2. Client error that might be interesting (4xx)
-	// 3. Has title, technologies, or other useful metadata
-	// 4. No major errors in probing
+// TestProcessProbeResults is a test-only exported function to allow testing
+// the unexported processProbeResults function.
+func (r *HtmlReporter) TestProcessProbeResults(probeResults []*models.ProbeResult, pageData *models.ReportPageData) {
+	r.processProbeResults(probeResults, pageData)
+}
 
+func (r *HtmlReporter) shouldIncludeHostnameInFilter(pr *models.ProbeResult) bool {
 	if pr.Error != "" && pr.StatusCode == 0 {
-		// Pure error with no response - skip
 		return false
 	}
-
 	if pr.StatusCode >= 200 && pr.StatusCode < 500 {
-		// Any response from 200-499 is potentially interesting
 		return true
 	}
-
 	if pr.Title != "" || len(pr.Technologies) > 0 || pr.ContentType != "" {
-		// Has useful metadata even if status code is not ideal
 		return true
 	}
-
 	if pr.StatusCode == 500 || pr.StatusCode == 502 || pr.StatusCode == 503 {
-		// Server errors might be interesting for security analysis
 		return true
 	}
-
-	// Skip other cases (timeouts, DNS errors, etc.)
 	return false
 }
 
-// extractHostnameFromURL extracts hostname from URL for grouping
 func (r *HtmlReporter) extractHostnameFromURL(urlStr string) string {
 	if hostname, err := urlhandler.ExtractHostname(urlStr); err == nil {
 		return hostname
 	}
 	return ""
-}
-
-// ensureRootTargetURL ensures RootTargetURL is properly set
-func (r *HtmlReporter) ensureRootTargetURL(pr *models.ProbeResult, displayPr *models.ProbeResultDisplay) {
-	if displayPr.RootTargetURL == "" {
-		if pr.RootTargetURL != "" {
-			displayPr.RootTargetURL = pr.RootTargetURL
-		} else {
-			displayPr.RootTargetURL = displayPr.InputURL
-		}
-	}
-}
-
-// updateCountsAndCollections updates various statistics and collections
-func (r *HtmlReporter) updateCountsAndCollections(pr models.ProbeResult, pageData *models.ReportPageData, statusCodes map[int]struct{}, contentTypes map[string]struct{}, techs map[string]struct{}, urlStatuses map[string]struct{}) {
-	pageData.TotalResults++
-	if pr.StatusCode >= 200 && pr.StatusCode < 300 {
-		pageData.SuccessResults++
-	} else {
-		pageData.FailedResults++
-	}
-
-	if pr.StatusCode > 0 {
-		statusCodes[pr.StatusCode] = struct{}{}
-	}
-	if pr.ContentType != "" {
-		contentTypes[pr.ContentType] = struct{}{}
-	}
-	for _, tech := range pr.Technologies {
-		if tech.Name != "" {
-			techs[tech.Name] = struct{}{}
-		}
-	}
-	if pr.URLStatus != "" {
-		urlStatuses[pr.URLStatus] = struct{}{}
-	}
-}
-
-// finalizePageData sets final collections and data on page data
-func (r *HtmlReporter) finalizePageData(pageData *models.ReportPageData, displayResults []models.ProbeResultDisplay, statusCodes map[int]struct{}, contentTypes map[string]struct{}, techs map[string]struct{}, hostnamesEncountered map[string]struct{}, urlStatuses map[string]struct{}) {
-	pageData.ProbeResults = displayResults
-
-	// Convert maps to slices
-	for sc := range statusCodes {
-		pageData.UniqueStatusCodes = append(pageData.UniqueStatusCodes, sc)
-	}
-	for ct := range contentTypes {
-		pageData.UniqueContentTypes = append(pageData.UniqueContentTypes, ct)
-	}
-	for t := range techs {
-		pageData.UniqueTechnologies = append(pageData.UniqueTechnologies, t)
-	}
-	for hn := range hostnamesEncountered {
-		pageData.UniqueHostnames = append(pageData.UniqueHostnames, hn)
-	}
-	for us := range urlStatuses {
-		pageData.UniqueURLStatuses = append(pageData.UniqueURLStatuses, us)
-	}
-
-	// Sort slices for consistent display
-	sort.Ints(pageData.UniqueStatusCodes)
-	sort.Strings(pageData.UniqueContentTypes)
-	sort.Strings(pageData.UniqueTechnologies)
-	sort.Strings(pageData.UniqueHostnames)
-	sort.Strings(pageData.UniqueURLStatuses)
-
-	// Convert ProbeResults to JSON for JavaScript
-	if jsonData, err := json.Marshal(displayResults); err != nil {
-		r.logger.Error().Err(err).Msg("Failed to marshal probe results to JSON")
-		pageData.ProbeResultsJSON = template.JS("[]")
-	} else {
-		pageData.ProbeResultsJSON = template.JS(jsonData)
-	}
 }
 
 // executeAndWriteReport executes template and writes to file
@@ -230,4 +140,80 @@ func (r *HtmlReporter) executeAndWriteReport(pageData models.ReportPageData, out
 	}
 
 	return nil
+}
+
+func (r *HtmlReporter) buildPageTitle(partInfo string) string {
+	if r.cfg.ReportTitle != "" {
+		return r.cfg.ReportTitle
+	}
+	return DefaultReportTitle
+}
+
+func (r *HtmlReporter) serializeTableData(probeResults []models.ProbeResultDisplay) (string, error) {
+	bytes, err := json.Marshal(probeResults)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+}
+
+func (r *HtmlReporter) collectFilterData(pr models.ProbeResult, hostnames map[string]bool, statusCodes map[int]bool, contentTypes map[string]bool, technologies map[string]bool, urlStatuses map[string]bool) {
+	if r.shouldIncludeHostnameInFilter(&pr) {
+		hostname := r.extractHostnameFromURL(pr.InputURL)
+		if hostname != "" {
+			hostnames[hostname] = true
+		}
+	}
+
+	if pr.StatusCode > 0 {
+		statusCodes[pr.StatusCode] = true
+	}
+	if pr.ContentType != "" {
+		contentTypes[pr.ContentType] = true
+	}
+	for _, tech := range pr.Technologies {
+		if tech.Name != "" {
+			technologies[tech.Name] = true
+		}
+	}
+	if pr.URLStatus != "" {
+		urlStatuses[pr.URLStatus] = true
+	}
+}
+
+func (r *HtmlReporter) sortAndAssignFilterData(pageData *models.ReportPageData, hostnames map[string]bool, statusCodes map[int]bool, contentTypes map[string]bool, technologies map[string]bool, urlStatuses map[string]bool) {
+	hostnamesSlice := make([]string, 0, len(hostnames))
+	for hostname := range hostnames {
+		hostnamesSlice = append(hostnamesSlice, hostname)
+	}
+	sort.Strings(hostnamesSlice)
+	pageData.UniqueHostnames = hostnamesSlice
+
+	statusCodesSlice := make([]int, 0, len(statusCodes))
+	for sc := range statusCodes {
+		statusCodesSlice = append(statusCodesSlice, sc)
+	}
+	sort.Ints(statusCodesSlice)
+	pageData.UniqueStatusCodes = statusCodesSlice
+
+	contentTypesSlice := make([]string, 0, len(contentTypes))
+	for ct := range contentTypes {
+		contentTypesSlice = append(contentTypesSlice, ct)
+	}
+	sort.Strings(contentTypesSlice)
+	pageData.UniqueContentTypes = contentTypesSlice
+
+	technologiesSlice := make([]string, 0, len(technologies))
+	for tech := range technologies {
+		technologiesSlice = append(technologiesSlice, tech)
+	}
+	sort.Strings(technologiesSlice)
+	pageData.UniqueTechnologies = technologiesSlice
+
+	urlStatusesSlice := make([]string, 0, len(urlStatuses))
+	for us := range urlStatuses {
+		urlStatusesSlice = append(urlStatusesSlice, us)
+	}
+	sort.Strings(urlStatusesSlice)
+	pageData.UniqueURLStatuses = urlStatusesSlice
 }

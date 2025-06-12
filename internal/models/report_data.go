@@ -31,15 +31,16 @@ type ProbeResultDisplay struct {
 	Headers         map[string]string
 	Body            string // Or a snippet, or path to stored body
 	Error           string
-	Timestamp       string // Formatted string for display
-	IsSuccess       bool   // Helper for template logic
-	HasTechnologies bool   // Helper
-	HasTLS          bool   // Helper
-	HasASN          bool   // Helper for template to check if ASN info is present
-	HasCNAMEs       bool   // Helper
-	HasIPs          bool   // Helper
-	RootTargetURL   string // Added for multi-target navigation
-	URLStatus       string `json:"diff_status,omitempty"` // Changed from URLStatus
+	Timestamp       string          // Formatted string for display
+	IsSuccess       bool            // Helper for template logic
+	HasTechnologies bool            // Helper
+	HasTLS          bool            // Helper
+	HasASN          bool            // Helper for template to check if ASN info is present
+	HasCNAMEs       bool            // Helper
+	HasIPs          bool            // Helper
+	RootTargetURL   string          // Added for multi-target navigation
+	URLStatus       string          `json:"diff_status,omitempty"` // Changed from URLStatus
+	SecretFindings  []SecretFinding `json:"secrets,omitempty"`
 }
 
 // ReportPageData holds all the data needed to render the HTML report page.
@@ -47,6 +48,7 @@ type ReportPageData struct {
 	ReportTitle    string
 	GeneratedAt    string // Formatted timestamp
 	ProbeResults   []ProbeResultDisplay
+	SecretFindings []SecretFinding
 	TotalResults   int
 	SuccessResults int
 	FailedResults  int
