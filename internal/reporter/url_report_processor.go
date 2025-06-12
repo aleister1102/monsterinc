@@ -128,6 +128,11 @@ func (r *HtmlReporter) extractHostnameFromURL(urlStr string) string {
 
 // executeAndWriteReport executes template and writes to file
 func (r *HtmlReporter) executeAndWriteReport(pageData models.ReportPageData, outputPath string) error {
+	// Embed assets into page data if configured
+	if r.assetManager != nil && r.cfg.EmbedAssets {
+		r.assetManager.EmbedAssetsIntoPageDataWithPaths(&pageData, assetsFS, assetsFS, embeddedCSSPath, embeddedJSPath, r.cfg.EmbedAssets)
+	}
+
 	var htmlBuffer bytes.Buffer
 	if err := r.template.Execute(&htmlBuffer, pageData); err != nil {
 		r.logger.Error().Err(err).Str("output", outputPath).Msg("Failed to execute template")

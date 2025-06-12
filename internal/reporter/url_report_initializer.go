@@ -18,7 +18,7 @@ var faviconICO []byte
 
 const (
 	defaultHtmlReportTemplateName = "report_client_side.html.tmpl"
-	embeddedCSSPath               = "assets/css/styles.css"
+	embeddedCSSPath               = "assets/css/report_client_side.css"
 	embeddedJSPath                = "assets/js/report_client_side.js"
 )
 
@@ -55,6 +55,13 @@ func NewHtmlReporter(cfg *config.ReporterConfig, appLogger zerolog.Logger) (*Htm
 	}
 
 	reporter.initializeFavicon()
+
+	// Copy assets to output directory if not embedding
+	if !cfg.EmbedAssets {
+		if err := reporter.copyAssets(); err != nil {
+			reporter.logger.Warn().Err(err).Msg("Failed to copy assets for HTML reporter")
+		}
+	}
 
 	return reporter, nil
 }
@@ -96,4 +103,10 @@ func (r *HtmlReporter) getItemsPerPage() int {
 		return r.cfg.ItemsPerPage
 	}
 	return DefaultItemsPerPage
+}
+
+// copyAssets copies embedded assets to output directory
+func (r *HtmlReporter) copyAssets() error {
+	assetsDir := r.cfg.OutputDir + "/assets"
+	return r.assetManager.CopyEmbedDir(assetsFS, "assets", assetsDir)
 }

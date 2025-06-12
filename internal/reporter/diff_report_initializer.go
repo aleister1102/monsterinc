@@ -1,7 +1,6 @@
 package reporter
 
 import (
-	"embed"
 	"fmt"
 	"html/template"
 
@@ -9,15 +8,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
-
-//go:embed templates/*
-var templateFS embed.FS
-
-//go:embed assets/*
-var assetsFS embed.FS
-
-//go:embed assets/img/favicon.ico
-var faviconICODiff []byte
 
 // FileHistoryStore defines an interface for accessing file history records.
 // This avoids a direct dependency on the concrete ParquetFileHistoryStore and facilitates testing.
@@ -81,7 +71,7 @@ func (r *HtmlDiffReporter) initializeDirectories() error {
 
 // initializeTemplate initializes template with functions
 func (r *HtmlDiffReporter) initializeTemplate() error {
-	tmpl, err := template.New("").Funcs(GetDiffTemplateFunctions()).ParseFS(templateFS,
+	tmpl, err := template.New("").Funcs(GetDiffTemplateFunctions()).ParseFS(templatesFS,
 		"templates/diff_report_client_side.html.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to parse HTML diff templates: %w", err)

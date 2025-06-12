@@ -195,13 +195,13 @@ class ReportRenderer {
             <div class="row mt-4"><div class="col-md-12"><p><strong>Error:</strong> ${this.escapeHtml(item.Error || 'None')}</p><p><strong>Timestamp:</strong> ${item.Timestamp || 'N/A'}</p></div></div>`;
 
         const secretsSection = document.getElementById('modalSecretsSection');
-        if (item.secrets && item.secrets.length > 0) {
+        if (item.SecretFindings && item.SecretFindings.length > 0) {
             secretsSection.innerHTML = `
                 <h5 class="mt-4"><i class="fas fa-user-secret me-2"></i>Secret Findings</h5>
                 <div class="table-responsive">
                     <table class="table table-sm table-bordered">
                         <thead class="table-secondary"><tr><th>Rule ID</th><th>Secret Snippet</th></tr></thead>
-                        <tbody>${item.secrets.map(s => `<tr><td><span class="badge bg-danger">${this.escapeHtml(s.RuleID)}</span></td><td><pre><code>${this.escapeHtml(s.SecretText)}</code></pre></td></tr>`).join('')}</tbody>
+                        <tbody>${item.SecretFindings.map(s => `<tr><td><span class="badge bg-danger">${this.escapeHtml(s.RuleID)}</span></td><td><pre><code>${this.escapeHtml(s.SecretText)}</code></pre></td></tr>`).join('')}</tbody>
                     </table>
                 </div>`;
         } else {
@@ -294,9 +294,12 @@ class ReportRenderer {
 // Initialize the report renderer when the DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     try {
-        const rawData = JSON.parse(document.getElementById('probeResultsData').textContent);
-        window.reportData = rawData;
-        new ReportRenderer();
+        // Use window.reportData that's embedded in the template
+        if (window.reportData) {
+            new ReportRenderer();
+        } else {
+            throw new Error('Report data not found');
+        }
     } catch (e) {
         console.error('Failed to parse report data:', e);
         document.getElementById('loading').innerHTML = '<h4>Error: Failed to load report data.</h4>';
