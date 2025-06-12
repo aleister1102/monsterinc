@@ -101,6 +101,8 @@ type CrawlerConfig struct {
 	URLNormalization urlhandler.URLNormalizationConfig `json:"url_normalization,omitempty" yaml:"url_normalization,omitempty"`
 	// Retry configuration for handling rate limits (429 errors)
 	RetryConfig RetryConfig `json:"retry_config,omitempty" yaml:"retry_config,omitempty"`
+	// Secrets detection configuration
+	Secrets SecretsConfig `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 }
 
 // NewDefaultCrawlerConfig creates default crawler configuration
@@ -121,5 +123,6 @@ func NewDefaultCrawlerConfig() CrawlerConfig {
 		AutoCalibrate:         NewDefaultAutoCalibrateConfig(),
 		URLNormalization:      urlhandler.DefaultURLNormalizationConfig(),
 		RetryConfig:           NewDefaultRetryConfig(),
+		Secrets:               NewDefaultSecretsConfig(),
 	}
 }

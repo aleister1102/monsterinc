@@ -529,6 +529,27 @@ monitor_batch_config:
   # Default: 200
   threshold_size: 200
 
+# Secrets configuration: Settings for secret detection and scanning.
+secrets_config:
+  # Whether secret detection is enabled during crawling.
+  # When enabled, the crawler will scan all response content for potential secrets like API keys, tokens, etc.
+  # Default: true
+  enabled: true
+  # Whether to send notifications when secrets are found.
+  # This works in conjunction with the notification_config settings.
+  # Default: true
+  notify_on_found: true
+  # Storage configuration for secret findings.
+  secrets_store:
+    # Compression codec for storing secret findings in Parquet format.
+    # Valid codecs: "snappy", "gzip", "lz4", "zstd", "brotli"
+    # Default: "zstd"
+    compression_codec: "zstd"
+    # Base path where secret findings Parquet files will be stored.
+    # Files will be created in a "secrets/" subdirectory under this path.
+    # Default: "parquet_data"
+    parquet_base_path: "parquet_data"
+
 # Extractor configuration: Settings for custom path extraction.
 extractor_config:
   # List of custom regex patterns to extract paths/URLs from content.

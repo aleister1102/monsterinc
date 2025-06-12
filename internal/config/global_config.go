@@ -23,6 +23,7 @@ type GlobalConfig struct {
 	ReporterConfig        ReporterConfig        `json:"reporter_config,omitempty" yaml:"reporter_config,omitempty"`
 	ResourceLimiterConfig ResourceLimiterConfig `json:"resource_limiter_config,omitempty" yaml:"resource_limiter_config,omitempty"`
 	SchedulerConfig       SchedulerConfig       `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
+	SecretsConfig         SecretsConfig         `json:"secrets_config,omitempty" yaml:"secrets_config,omitempty"`
 	StorageConfig         StorageConfig         `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
 	ScanBatchConfig       ScanBatchConfig       `json:"scan_batch_config,omitempty" yaml:"scan_batch_config,omitempty"`
 	MonitorBatchConfig    MonitorBatchConfig    `json:"monitor_batch_config,omitempty" yaml:"monitor_batch_config,omitempty"`
@@ -44,6 +45,7 @@ func NewDefaultGlobalConfig() *GlobalConfig {
 		ReporterConfig:        NewDefaultReporterConfig(),
 		ResourceLimiterConfig: NewDefaultResourceLimiterConfig(),
 		SchedulerConfig:       NewDefaultSchedulerConfig(),
+		SecretsConfig:         NewDefaultSecretsConfig(),
 		StorageConfig:         NewDefaultStorageConfig(),
 		ScanBatchConfig:       NewDefaultScanBatchConfig(),
 		MonitorBatchConfig:    NewDefaultMonitorBatchConfig(),
