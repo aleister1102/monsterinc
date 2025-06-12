@@ -71,10 +71,10 @@ func (d *Detector) ScanAndProcess(sourceURL string, content []byte) {
 
 	// Notify if configured
 	if d.config.NotifyOnFound && d.notifier != nil {
-		// This is a placeholder for the actual notification logic.
-		// We'd need to format the findings into a DiscordMessagePayload.
-		// For now, just log that we would notify.
-		d.logger.Info().Msg("Notification for secrets would be sent here.")
-		// d.notifier.Notify(message)
+		for _, finding := range findings {
+			if err := d.notifier.SendSecretNotification(finding); err != nil {
+				d.logger.Error().Err(err).Str("rule_id", finding.RuleID).Msg("Failed to send secret notification")
+			}
+		}
 	}
 }
