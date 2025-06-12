@@ -63,6 +63,11 @@ func (cr *Crawler) handleResponse(r *colly.Response) {
 
 	cr.incrementVisitedCount()
 
+	// Perform secret scanning on the response body
+	if cr.detector != nil {
+		cr.detector.ScanAndProcess(r.Request.URL.String(), r.Body)
+	}
+
 	if cr.isHTMLContent(r) {
 		// Try headless browser if enabled and page might have dynamic content
 		if cr.shouldUseHeadlessBrowser(r) {

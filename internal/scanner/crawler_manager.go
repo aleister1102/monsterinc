@@ -38,7 +38,7 @@ func (cm *CrawlerManager) GetOrCreateCrawler(cfg *config.CrawlerConfig) (*crawle
 	// If crawler doesn't exist, create new one
 	if cm.crawlerInstance == nil {
 		cm.logger.Info().Msg("Creating new singleton crawler instance")
-		newCrawler, err := crawler.NewCrawler(cfg, cm.logger)
+		newCrawler, err := crawler.NewCrawler(cfg, nil, cm.logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create crawler: %w", err)
 		}
