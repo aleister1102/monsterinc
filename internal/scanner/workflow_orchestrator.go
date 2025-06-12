@@ -6,6 +6,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
@@ -17,16 +18,23 @@ type WorkflowOrchestrator struct {
 	reportGenerator *ReportGenerator
 	summaryBuilder  *SummaryBuilder
 	logger          zerolog.Logger
+	secretsStore    *datastore.SecretsStore
 }
 
 // NewWorkflowOrchestrator creates a new workflow orchestrator
-func NewWorkflowOrchestrator(scanner *Scanner, config *config.GlobalConfig, logger zerolog.Logger) *WorkflowOrchestrator {
+func NewWorkflowOrchestrator(scanner *Scanner, config *config.GlobalConfig, logger zerolog.Logger) (*WorkflowOrchestrator, error) {
+	secretsStore, err := datastore.NewSecretsStore(&config.StorageConfig, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create secrets store for orchestrator: %w", err)
+	}
+
 	return &WorkflowOrchestrator{
 		scanner:         scanner,
-		reportGenerator: NewReportGenerator(&config.ReporterConfig, logger),
+		reportGenerator: NewReportGenerator(&config.ReporterConfig, logger, secretsStore),
 		summaryBuilder:  NewSummaryBuilder(logger),
 		logger:          logger.With().Str("module", "WorkflowOrchestrator").Logger(),
-	}
+		secretsStore:    secretsStore,
+	}, nil
 }
 
 // ExecuteCompleteWorkflow executes the full scan workflow with reporting
@@ -44,7 +52,7 @@ func (wo *WorkflowOrchestrator) ExecuteCompleteWorkflow(input *ScanWorkflowInput
 	)
 
 	// Generate reports if needed
-	reportPaths, reportError := wo.generateReports(probeResults, urlDiffResults, input.ScanSessionID)
+	reportPaths, reportError := wo.generateReports(input.Ctx, probeResults, urlDiffResults, input.ScanSessionID)
 	if reportError != nil && workflowError == nil {
 		workflowError = reportError
 	}
@@ -86,10 +94,10 @@ func (wo *WorkflowOrchestrator) validateInput(input *ScanWorkflowInput) error {
 }
 
 // generateReports handles report generation with error handling
-func (wo *WorkflowOrchestrator) generateReports(probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, scanSessionID string) ([]string, error) {
+func (wo *WorkflowOrchestrator) generateReports(ctx context.Context, probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, scanSessionID string) ([]string, error) {
 	reportInput := NewReportGenerationInputWithDiff(probeResults, urlDiffResults, scanSessionID)
 
-	reportPaths, err := wo.reportGenerator.GenerateReports(reportInput)
+	reportPaths, err := wo.reportGenerator.GenerateReports(ctx, reportInput)
 	if err != nil {
 		wo.logger.Error().Err(err).
 			Str("session_id", scanSessionID).

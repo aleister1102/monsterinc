@@ -1,10 +1,12 @@
 package scanner
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
 	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/reporter"
 	"github.com/rs/zerolog"
@@ -13,15 +15,17 @@ import (
 // ReportGenerator is responsible for creating HTML reports from probe results
 // Separates report generation logic from main workflow according to single responsibility principle
 type ReportGenerator struct {
-	config *config.ReporterConfig
-	logger zerolog.Logger
+	config       *config.ReporterConfig
+	logger       zerolog.Logger
+	secretsStore *datastore.SecretsStore
 }
 
 // NewReportGenerator creates a new ReportGenerator instance
-func NewReportGenerator(config *config.ReporterConfig, logger zerolog.Logger) *ReportGenerator {
+func NewReportGenerator(config *config.ReporterConfig, logger zerolog.Logger, secretsStore *datastore.SecretsStore) *ReportGenerator {
 	return &ReportGenerator{
-		config: config,
-		logger: logger.With().Str("module", "ReportGenerator").Logger(),
+		config:       config,
+		logger:       logger.With().Str("module", "ReportGenerator").Logger(),
+		secretsStore: secretsStore,
 	}
 }
 
@@ -54,7 +58,7 @@ func NewReportGenerationInputWithDiff(probeResults []models.ProbeResult, urlDiff
 
 // GenerateReports creates HTML reports from probe results
 // Returns list of generated file paths or error if any
-func (rg *ReportGenerator) GenerateReports(input *ReportGenerationInput) ([]string, error) {
+func (rg *ReportGenerator) GenerateReports(ctx context.Context, input *ReportGenerationInput) ([]string, error) {
 	if !rg.shouldGenerateReport(input) {
 		rg.logger.Info().
 			Str("session_id", input.ScanSessionID).
@@ -67,6 +71,14 @@ func (rg *ReportGenerator) GenerateReports(input *ReportGenerationInput) ([]stri
 		return nil, fmt.Errorf("failed to initialize HTML reporter: %w", err)
 	}
 
+	// Load secret findings
+	secretFindings, err := rg.secretsStore.LoadFindings(ctx)
+	if err != nil {
+		// Log the error but continue report generation without secret data
+		rg.logger.Error().Err(err).Msg("Failed to load secret findings for report")
+		secretFindings = []models.SecretFinding{} // Ensure it's not nil
+	}
+
 	baseReportPath := rg.buildBaseReportPath(input.ScanSessionID)
 
 	// Combine current scan results with old URLs from diff results
@@ -75,7 +87,7 @@ func (rg *ReportGenerator) GenerateReports(input *ReportGenerationInput) ([]stri
 	// OPTIMIZATION: Direct pointer conversion to avoid intermediate allocation
 	probeResultsPtr := rg.convertToPointersOptimized(allProbeResults)
 
-	reportPaths, err := htmlReporter.GenerateReport(probeResultsPtr, baseReportPath)
+	reportPaths, err := htmlReporter.GenerateReport(probeResultsPtr, secretFindings, baseReportPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate HTML report(s): %w", err)
 	}

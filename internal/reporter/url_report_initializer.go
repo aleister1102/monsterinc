@@ -6,6 +6,7 @@ import (
 	"html/template"
 
 	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
 
@@ -23,13 +24,14 @@ const (
 
 // HtmlReporter uses composition of utility modules for better maintainability
 type HtmlReporter struct {
-	cfg          *config.ReporterConfig
-	logger       zerolog.Logger
-	template     *template.Template
-	templatePath string
-	favicon      string
-	assetManager *AssetManager
-	directoryMgr *DirectoryManager
+	cfg            *config.ReporterConfig
+	logger         zerolog.Logger
+	template       *template.Template
+	templatePath   string
+	favicon        string
+	assetManager   *AssetManager
+	directoryMgr   *DirectoryManager
+	SecretFindings []models.SecretFinding
 }
 
 // NewHtmlReporter creates a new HtmlReporter using utility modules

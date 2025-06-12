@@ -80,6 +80,54 @@ func (ss *SecretsStore) writeToParquetFile(filePath string, findings []models.Se
 	return writer.Close()
 }
 
+// LoadFindings reads all secret findings from the Parquet file.
+func (ss *SecretsStore) LoadFindings(ctx context.Context) ([]models.SecretFinding, error) {
+	if ss.config.ParquetBasePath == "" {
+		return nil, common.NewValidationError("parquet_base_path", ss.config.ParquetBasePath, "ParquetBasePath is not configured for secrets")
+	}
+
+	filePath, err := ss.prepareOutputFile()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		ss.logger.Warn().Str("file_path", filePath).Msg("Secrets parquet file does not exist, returning empty list.")
+		return []models.SecretFinding{}, nil
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, common.WrapError(err, "failed to open secret findings parquet file for reading: "+filePath)
+	}
+	defer file.Close()
+
+	reader := parquet.NewGenericReader[models.SecretFinding](file)
+	defer reader.Close()
+
+	findings := make([]models.SecretFinding, 0)
+	for {
+		if err := ss.checkCancellation(ctx, "load secret findings"); err != nil {
+			return nil, err
+		}
+		
+		batch := make([]models.SecretFinding, 100) // Read in batches of 100
+		n, err := reader.Read(batch)
+		if n > 0 {
+			findings = append(findings, batch[:n]...)
+		}
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			return nil, common.WrapError(err, "failed to read secret findings from parquet file")
+		}
+	}
+
+	ss.logger.Info().Int("records_read", len(findings)).Str("file_path", filePath).Msg("Successfully loaded secret findings")
+	return findings, nil
+}
+
 func (ss *SecretsStore) checkCancellation(ctx context.Context, operation string) error {
 	if result := common.CheckCancellationWithLog(ctx, ss.logger, operation); result.Cancelled {
 		return result.Error
