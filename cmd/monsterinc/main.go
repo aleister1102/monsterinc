@@ -517,6 +517,10 @@ func runOnetimeScan(
 	scannerInstance *scanner.Scanner,
 	progressDisplay *common.ProgressDisplayManager,
 ) {
+	// Create a new context for this scan that we can cancel.
+	scanCtx, scanCancel := context.WithCancel(ctx)
+	defer scanCancel() // Ensure it's cancelled on return
+
 	// Load seed URLs using TargetManager
 	targetManager := urlhandler.NewTargetManager(baseLogger)
 	scanTargets, targetSource, err := targetManager.LoadAndSelectTargets(scanTargetsFile)
@@ -589,7 +593,7 @@ func runOnetimeScan(
 
 	// Execute batch scan
 	batchResult, workflowErr := batchOrchestrator.ExecuteBatchScan(
-		ctx,
+		scanCtx,
 		gCfg,
 		scanTargetsFile,
 		scanSessionID,
@@ -689,7 +693,8 @@ func runOnetimeScan(
 
 	baseLogger.Info().Msg("MonsterInc Crawler finished (onetime mode).")
 
-	// Force exit for onetime mode to prevent hanging
+	// Force exit for onetime mode to prevent hanging - this might not be needed after the fix.
+	// We'll leave it for now to be safe.
 	os.Exit(0)
 }
 
