@@ -563,21 +563,3 @@ extractor_config:
     # - "another_custom_regex_pattern"
   # If you prefer flow style (ensure correct escaping and quoting if regexes contain special characters):
   # custom_regexes: ["regex1", "regex2"]
-
-# Secrets Scanner configuration: Settings for detecting secrets in crawled content.
-secrets_config:
-  # Whether the secret scanning feature is enabled. If false, no secret detection will occur.
-  # Default: true
-  enabled: true
-  # Whether to send a notification (e.g., to Discord) immediately when a secret is found.
-  # Default: true
-  notify_on_found: true
-  # Storage configuration for where to save the secret findings.
-  secrets_store:
-    # Base path for storing Parquet files. This is the root directory where data will be saved.
-    # Default: "" (will use a temporary directory)
-    parquet_base_path: "datastore"
-
-# Differ configuration: Settings for comparing scan results.
-differ_config:
-  # Configuration for the old scan results data source.
