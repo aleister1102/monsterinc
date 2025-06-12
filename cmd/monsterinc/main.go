@@ -146,7 +146,7 @@ func main() {
 	if err != nil {
 		zLogger.Fatal().Err(err).Msg("Failed to create Discord HTTP client.")
 	}
-	discordNotifier, err := notifier.NewDiscordNotifier(zLogger, discordHttpClient)
+	discordNotifier, err := notifier.NewDiscordNotifier(&gCfg.NotificationConfig, zLogger, discordHttpClient)
 	if err != nil {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize DiscordNotifier infra.")
 	}
@@ -183,7 +183,10 @@ func main() {
 		cancel() // Cancel the main context to trigger shutdown
 	})
 
-	scanner := initializeScanner(gCfg, zLogger)
+	scanner, err := initializeScanner(gCfg, zLogger)
+	if err != nil {
+		zLogger.Fatal().Err(err).Msg("Failed to initialize scanner.")
+	}
 
 	ms, err := initializeMonitoringService(gCfg, flags.MonitorTargetsFile, zLogger, notificationHelper)
 	if err != nil {
@@ -251,16 +254,23 @@ func initializeLogger(gCfg *config.GlobalConfig) (zerolog.Logger, error) {
 
 // initializeScanner initializes the scanner with the provided global configuration and logger.
 // Refactored ✅
-func initializeScanner(gCfg *config.GlobalConfig, appLogger zerolog.Logger) *scanner.Scanner {
-	parquetReader := datastore.NewParquetReader(&gCfg.StorageConfig, appLogger)
-	parquetWriter, parquetErr := datastore.NewParquetWriter(&gCfg.StorageConfig, appLogger)
-	if parquetErr != nil {
-		appLogger.Error().Err(parquetErr).Msg("Failed to initialize ParquetWriter for orchestrator. Parquet writing will be disabled.")
-		parquetWriter = nil
+func initializeScanner(gCfg *config.GlobalConfig, appLogger zerolog.Logger) (*scanner.Scanner, error) {
+	pReader := datastore.NewParquetReader(&gCfg.StorageConfig, appLogger)
+
+	pWriter, err := datastore.NewParquetWriter(&gCfg.StorageConfig, appLogger)
+	if err != nil {
+		return nil, fmt.Errorf("could not initialize ParquetWriter: %w", err)
 	}
 
-	scanner := scanner.NewScanner(gCfg, appLogger, parquetReader, parquetWriter)
-	return scanner
+	secretsStore, err := datastore.NewSecretsStore(&gCfg.StorageConfig, appLogger)
+	if err != nil {
+		return nil, fmt.Errorf("could not initialize SecretsStore: %w", err)
+	}
+
+	appLogger.Info().Msg("Initializing scanner...")
+	scannerInstance := scanner.NewScanner(gCfg, appLogger, pReader, pWriter, secretsStore)
+	appLogger.Info().Msg("Scanner initialized successfully.")
+	return scannerInstance, nil
 }
 
 // initializeMonitoringService initializes the file monitoring service if enabled and a monitor targets file is provided.

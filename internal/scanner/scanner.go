@@ -31,6 +31,7 @@ type Scanner struct {
 	progressDisplay    *common.ProgressDisplayManager
 	urlPreprocessor    *URLPreprocessor
 	resourceLimiter    *common.ResourceLimiter
+	secretsStore       *datastore.SecretsStore
 	notificationHelper interface {
 		SendScanStartNotification(ctx context.Context, summary models.ScanSummaryData)
 		SendScanCompletionNotification(ctx context.Context, summary models.ScanSummaryData, serviceType notifier.NotificationServiceType, reportFilePaths []string)
@@ -44,12 +45,14 @@ func NewScanner(
 	logger zerolog.Logger,
 	pReader *datastore.ParquetReader,
 	pWriter *datastore.ParquetWriter,
+	secretsStore *datastore.SecretsStore,
 ) *Scanner {
 	scanner := &Scanner{
 		config:        globalConfig,
 		logger:        logger.With().Str("module", "Scanner").Logger(),
 		parquetReader: pReader,
 		parquetWriter: pWriter,
+		secretsStore:  secretsStore,
 		configBuilder: NewConfigBuilder(globalConfig, logger),
 	}
 
@@ -162,9 +165,9 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 	// Generate HTML reports if we have results
 	var reportFilePaths []string
 	if len(probeResults) > 0 {
-		reportGenerator := NewReportGenerator(&gCfg.ReporterConfig, s.logger)
+		reportGenerator := NewReportGenerator(&gCfg.ReporterConfig, s.logger, s.secretsStore)
 		reportInput := NewReportGenerationInputWithDiff(probeResults, urlDiffResults, scanSessionID)
-		reportPaths, reportErr := reportGenerator.GenerateReports(reportInput)
+		reportPaths, reportErr := reportGenerator.GenerateReports(ctx, reportInput)
 		if reportErr != nil {
 			s.logger.Warn().Err(reportErr).Msg("Failed to generate reports")
 		} else {
