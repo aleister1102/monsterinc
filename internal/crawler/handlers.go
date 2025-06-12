@@ -63,9 +63,9 @@ func (cr *Crawler) handleResponse(r *colly.Response) {
 
 	cr.incrementVisitedCount()
 
-	// Perform secret scanning on the response body
-	if cr.detector != nil {
-		cr.detector.ScanAndProcess(r.Request.URL.String(), r.Body)
+	// Perform secret scanning on the response body for relevant content types
+	if cr.detector != nil && cr.isScannableContent(r) {
+		go cr.detector.ScanAndProcess(r.Request.URL.String(), r.Body)
 	}
 
 	if cr.isHTMLContent(r) {
@@ -109,6 +109,26 @@ func (cr *Crawler) shouldAbortRequest(r *colly.Request) bool {
 		return isDisallowed
 	}
 
+	return false
+}
+
+// isScannableContent checks if the response content type is suitable for secret scanning.
+func (cr *Crawler) isScannableContent(r *colly.Response) bool {
+	contentType := strings.ToLower(r.Headers.Get("Content-Type"))
+	scannableTypes := []string{
+		"text/html",
+		"application/javascript",
+		"text/javascript",
+		"application/x-javascript",
+		"application/json",
+		"text/plain",
+	}
+
+	for _, t := range scannableTypes {
+		if strings.Contains(contentType, t) {
+			return true
+		}
+	}
 	return false
 }
 
