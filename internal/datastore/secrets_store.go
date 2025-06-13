@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
@@ -17,6 +18,7 @@ type SecretsStore struct {
 	config      *config.StorageConfig
 	logger      zerolog.Logger
 	fileManager *common.FileManager
+	mutex       sync.RWMutex // Protects concurrent access to parquet file
 }
 
 // NewSecretsStore creates a new SecretsStore.
@@ -30,6 +32,7 @@ func NewSecretsStore(cfg *config.StorageConfig, logger zerolog.Logger) (*Secrets
 
 // StoreFindings writes a slice of SecretFinding to a Parquet file.
 // If the file already exists, it appends the new findings to the existing ones.
+// Duplicates are filtered out based on SourceURL and SecretText.
 func (ss *SecretsStore) StoreFindings(ctx context.Context, findings []models.SecretFinding) error {
 	if len(findings) == 0 {
 		return nil
@@ -39,37 +42,79 @@ func (ss *SecretsStore) StoreFindings(ctx context.Context, findings []models.Sec
 		return common.NewValidationError("parquet_base_path", ss.config.ParquetBasePath, "ParquetBasePath is not configured for secrets")
 	}
 
+	// Lock to prevent concurrent access to parquet file
+	ss.mutex.Lock()
+	defer ss.mutex.Unlock()
+
 	filePath, err := ss.prepareOutputFile()
 	if err != nil {
 		return err
 	}
 
-	var allFindings []models.SecretFinding
+	var existingFindings []models.SecretFinding
 	if _, err := os.Stat(filePath); err == nil {
 		// File exists, load existing data
-		existingFindings, err := ss.loadFindingsFromFile(ctx, filePath)
+		existingFindings, err = ss.loadFindingsFromFile(ctx, filePath)
 		if err != nil {
 			// If the file is corrupt, we log a warning and overwrite it.
 			ss.logger.Warn().Err(err).Str("file_path", filePath).Msg("Failed to load existing secret findings, overwriting the file.")
-			allFindings = findings
-		} else {
-			allFindings = append(existingFindings, findings...)
+			existingFindings = []models.SecretFinding{}
 		}
-	} else if os.IsNotExist(err) {
-		// File doesn't exist, use only the new findings
-		allFindings = findings
-	} else {
+	} else if !os.IsNotExist(err) {
 		// Another error from os.Stat
 		return common.WrapError(err, "failed to check secrets parquet file status")
 	}
+
+	// Filter out duplicates from new findings
+	uniqueFindings := ss.filterDuplicates(existingFindings, findings)
+
+	if len(uniqueFindings) == 0 {
+		ss.logger.Info().Int("total_duplicates", len(findings)).Msg("All secret findings are duplicates, skipping storage")
+		return nil
+	}
+
+	// Combine existing and unique new findings
+	allFindings := append(existingFindings, uniqueFindings...)
 
 	err = ss.writeToParquetFile(filePath, allFindings)
 	if err != nil {
 		return err
 	}
 
-	ss.logger.Info().Str("file_path", filePath).Int("records_written", len(findings)).Msg("Successfully stored secret findings")
+	ss.logger.Info().
+		Str("file_path", filePath).
+		Int("new_records", len(uniqueFindings)).
+		Int("duplicates_filtered", len(findings)-len(uniqueFindings)).
+		Int("total_records", len(allFindings)).
+		Msg("Successfully stored secret findings")
 	return nil
+}
+
+// filterDuplicates removes findings that already exist based on SourceURL and SecretText
+func (ss *SecretsStore) filterDuplicates(existing []models.SecretFinding, newFindings []models.SecretFinding) []models.SecretFinding {
+	// Create a map of existing findings for fast lookup
+	existingMap := make(map[string]bool)
+	for _, finding := range existing {
+		key := ss.createFindingKey(finding)
+		existingMap[key] = true
+	}
+
+	// Filter out duplicates from new findings
+	var uniqueFindings []models.SecretFinding
+	for _, finding := range newFindings {
+		key := ss.createFindingKey(finding)
+		if !existingMap[key] {
+			uniqueFindings = append(uniqueFindings, finding)
+			existingMap[key] = true // Add to map to prevent duplicates within the same batch
+		}
+	}
+
+	return uniqueFindings
+}
+
+// createFindingKey creates a unique key for a SecretFinding based on SourceURL and SecretText
+func (ss *SecretsStore) createFindingKey(finding models.SecretFinding) string {
+	return finding.SourceURL + "|" + finding.SecretText
 }
 
 func (ss *SecretsStore) prepareOutputFile() (string, error) {
@@ -108,6 +153,10 @@ func (ss *SecretsStore) LoadFindings(ctx context.Context) ([]models.SecretFindin
 		return nil, common.NewValidationError("parquet_base_path", ss.config.ParquetBasePath, "ParquetBasePath is not configured for secrets")
 	}
 
+	// Use read lock to allow concurrent reads but prevent writes
+	ss.mutex.RLock()
+	defer ss.mutex.RUnlock()
+
 	filePath, err := ss.prepareOutputFile()
 	if err != nil {
 		return nil, err
@@ -128,7 +177,31 @@ func (ss *SecretsStore) loadFindingsFromFile(ctx context.Context, filePath strin
 	}
 	defer file.Close()
 
-	reader := parquet.NewGenericReader[models.SecretFinding](file)
+	// Check if file is empty or corrupted
+	stat, err := file.Stat()
+	if err != nil {
+		return nil, common.WrapError(err, "failed to get file stats")
+	}
+	if stat.Size() == 0 {
+		ss.logger.Warn().Str("file_path", filePath).Msg("Parquet file is empty, returning empty list")
+		return []models.SecretFinding{}, nil
+	}
+
+	reader, err := func() (*parquet.GenericReader[models.SecretFinding], error) {
+		defer func() {
+			if r := recover(); r != nil {
+				ss.logger.Error().Interface("panic", r).Str("file_path", filePath).Msg("Panic while creating parquet reader")
+			}
+		}()
+		return parquet.NewGenericReader[models.SecretFinding](file), nil
+	}()
+
+	if err != nil {
+		return nil, common.WrapError(err, "failed to create parquet reader")
+	}
+	if reader == nil {
+		return nil, common.NewValidationError("parquet_reader", "nil", "failed to create parquet reader")
+	}
 	defer reader.Close()
 
 	findings := make([]models.SecretFinding, 0)
