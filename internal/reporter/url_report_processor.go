@@ -87,12 +87,20 @@ func (r *HtmlReporter) processProbeResults(probeResults []*models.ProbeResult, p
 			continue
 		}
 		displayResult := models.ToProbeResultDisplay(*pr)
-		if secrets, ok := secretsMap[pr.InputURL]; ok {
-			displayResult.SecretFindings = secrets
+
+		// Try to match secrets by multiple URL variations
+		var secrets []models.SecretFinding
+		if foundSecrets, ok := secretsMap[pr.InputURL]; ok {
+			secrets = foundSecrets
+		} else if foundSecrets, ok := secretsMap[pr.FinalURL]; ok {
+			secrets = foundSecrets
 		}
+		displayResult.SecretFindings = secrets
+
 		displayResults[i] = displayResult
 		r.collectFilterData(*pr, hostnames, statusCodes, contentTypes, technologies, urlStatuses)
 	}
+
 	pageData.ProbeResults = displayResults
 	r.sortAndAssignFilterData(pageData, hostnames, statusCodes, contentTypes, technologies, urlStatuses)
 }
