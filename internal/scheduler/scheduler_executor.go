@@ -282,10 +282,11 @@ func (s *Scheduler) sendMonitorStartNotification(ctx context.Context, cycleID st
 		return
 	}
 
-	cycleInterval := s.globalConfig.SchedulerConfig.CycleMinutes
-	if cycleInterval <= 0 {
-		cycleInterval = 5 // Default fallback
+	checkIntervalSeconds := s.globalConfig.MonitorConfig.CheckIntervalSeconds
+	if checkIntervalSeconds <= 0 {
+		checkIntervalSeconds = 900 // Default to 15 minutes
 	}
+	cycleIntervalMinutes := checkIntervalSeconds / 60
 
 	startData := models.MonitorStartData{
 		CycleID:       cycleID,
@@ -293,7 +294,7 @@ func (s *Scheduler) sendMonitorStartNotification(ctx context.Context, cycleID st
 		TargetSource:  s.monitorTargetsFile,
 		Timestamp:     time.Now(),
 		Mode:          s.globalConfig.Mode,
-		CycleInterval: cycleInterval,
+		CycleInterval: cycleIntervalMinutes,
 	}
 
 	s.notificationHelper.SendMonitorStartNotification(ctx, startData)

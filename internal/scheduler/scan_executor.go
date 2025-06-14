@@ -99,6 +99,9 @@ func (s *Scheduler) attemptScanCycle(ctx context.Context, config scanAttemptConf
 	summary, reportFilePaths, err := s.executeScanCycle(ctx, config.scanSessionID, config.initialTargetSource)
 	updatedSummary := s.updateSummaryWithAttemptResult(summary, attempt, err)
 
+	// Add cycle minutes for completion notification
+	updatedSummary.CycleMinutes = s.globalConfig.SchedulerConfig.CycleMinutes
+
 	if err == nil {
 		s.logger.Info().Str("scan_session_id", config.scanSessionID).Msg("Scheduler: Cycle completed successfully.")
 		s.notificationHelper.SendScanCompletionNotification(
@@ -157,6 +160,7 @@ func (s *Scheduler) executeScanCycle(
 	startSummary.Targets = htmlURLs
 	startSummary.TotalTargets = len(htmlURLs)
 	startSummary.Status = string(models.ScanStatusStarted)
+	startSummary.CycleMinutes = s.globalConfig.SchedulerConfig.CycleMinutes
 
 	s.logger.Info().
 		Str("scan_session_id", scanSessionID).
@@ -285,6 +289,10 @@ func (s *Scheduler) buildInterruptSummary(summary models.ScanSummaryData) models
 
 func (s *Scheduler) handleFinalFailure(config scanAttemptConfig) {
 	summary := s.buildFailureSummary(config)
+
+	// Add cycle minutes for failure notification
+	summary.CycleMinutes = s.globalConfig.SchedulerConfig.CycleMinutes
+
 	s.logger.Error().Str("scan_session_id", config.scanSessionID).Msg("Scheduler: All retry attempts exhausted.")
 	s.notificationHelper.SendScanCompletionNotification(
 		context.Background(),
