@@ -155,8 +155,8 @@ func (lb *LoggerBuilder) configureStandardLog(logger zerolog.Logger) {
 }
 
 // GetZerolog returns the underlying zerolog instance
-func (l *Logger) GetZerolog() zerolog.Logger {
-	return l.zerolog
+func (l *Logger) GetZerolog() *zerolog.Logger {
+	return &l.zerolog
 }
 
 // GetConfig returns the logger configuration
@@ -186,7 +186,7 @@ func (l *Logger) Reconfigure(cfg config.LogConfig) error {
 	}
 
 	// Update current logger
-	l.zerolog = newLogger.zerolog
+	l.zerolog = *newLogger.GetZerolog()
 	l.config = newLogger.config
 
 	return nil
@@ -198,7 +198,7 @@ func New(cfg config.LogConfig) (zerolog.Logger, error) {
 	if err != nil {
 		return zerolog.Logger{}, err
 	}
-	return logger.GetZerolog(), nil
+	return *logger.GetZerolog(), nil
 }
 
 // NewWithScanID creates a new logger instance with scan ID for organizing logs
@@ -210,7 +210,7 @@ func NewWithScanID(cfg config.LogConfig, scanID string) (zerolog.Logger, error) 
 	if err != nil {
 		return zerolog.Logger{}, err
 	}
-	return logger.GetZerolog(), nil
+	return *logger.GetZerolog(), nil
 }
 
 // NewWithCycleID creates a new logger instance with cycle ID for organizing logs
@@ -222,7 +222,7 @@ func NewWithCycleID(cfg config.LogConfig, cycleID string) (zerolog.Logger, error
 	if err != nil {
 		return zerolog.Logger{}, err
 	}
-	return logger.GetZerolog(), nil
+	return *logger.GetZerolog(), nil
 }
 
 // NewWithContext creates a new logger instance with context-based ID
@@ -240,5 +240,5 @@ func NewWithContext(cfg config.LogConfig, scanID, cycleID string) (zerolog.Logge
 	if err != nil {
 		return zerolog.Logger{}, err
 	}
-	return logger.GetZerolog(), nil
+	return *logger.GetZerolog(), nil
 }
