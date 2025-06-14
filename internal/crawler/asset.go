@@ -269,6 +269,14 @@ func (hae *HTMLAssetExtractor) shouldSkipURL(urlStr string) bool {
 		return true
 	}
 
+	// Additional checks for problematic URLs
+	if hae.hasProblematicPatterns(urlStr) {
+		hae.crawlerInstance.logger.Warn().
+			Str("url", urlStr).
+			Msg("Skipping URL with problematic patterns")
+		return true
+	}
+
 	return false
 }
 
@@ -298,8 +306,8 @@ func (hae *HTMLAssetExtractor) hasRepeatedPathSegments(urlStr string) bool {
 
 	segments := strings.Split(path, "/")
 
-	// Check if we have more than 20 segments (very suspicious)
-	if len(segments) > 20 {
+	// Check if we have more than 15 segments (reduced threshold)
+	if len(segments) > 15 {
 		hae.crawlerInstance.logger.Warn().
 			Str("url", urlStr).
 			Int("segment_count", len(segments)).
@@ -307,28 +315,27 @@ func (hae *HTMLAssetExtractor) hasRepeatedPathSegments(urlStr string) bool {
 		return true
 	}
 
-	// Check for any segment appearing more than 10 times in the path (extreme repetition)
+	// Check for any segment appearing more than 3 times in the path (reduced threshold)
 	segmentCount := make(map[string]int)
 	for _, segment := range segments {
 		if segment != "" && len(segment) >= 2 {
 			segmentCount[segment]++
-			if segmentCount[segment] > 10 {
+			if segmentCount[segment] > 3 {
 				hae.crawlerInstance.logger.Warn().
 					Str("url", urlStr).
 					Str("repeated_segment", segment).
 					Int("count", segmentCount[segment]).
-					Msg("URL has extremely repeated path segment")
+					Msg("URL has repeated path segment")
 				return true
 			}
 		}
 	}
 
-	// Check for obvious infinite loops - 3+ consecutive identical segments
-	// (reduced from 4 to be more sensitive)
-	for i := 0; i < len(segments)-2; i++ {
+	// Check for obvious infinite loops - 2+ consecutive identical segments
+	// (reduced from 3 to be more sensitive)
+	for i := 0; i < len(segments)-1; i++ {
 		if len(segments[i]) >= 2 && segments[i] != "" &&
-			segments[i] == segments[i+1] &&
-			segments[i] == segments[i+2] {
+			segments[i] == segments[i+1] {
 			hae.crawlerInstance.logger.Warn().
 				Str("url", urlStr).
 				Str("repeated_segment", segments[i]).
@@ -337,14 +344,94 @@ func (hae *HTMLAssetExtractor) hasRepeatedPathSegments(urlStr string) bool {
 		}
 	}
 
-	// Check for very long individual path segments (might indicate malformed URLs)
+	// Check for very long individual path segments (reduced threshold)
 	for _, segment := range segments {
-		if len(segment) > 500 {
+		if len(segment) > 200 {
 			hae.crawlerInstance.logger.Warn().
 				Str("url", urlStr).
-				Str("long_segment", segment[:100]+"...").
+				Str("long_segment", segment[:50]+"...").
 				Int("segment_length", len(segment)).
 				Msg("URL has extremely long path segment")
+			return true
+		}
+	}
+
+	// Check for specific patterns that indicate infinite loops
+	// Pattern 1: Same segment appears at beginning and end
+	if len(segments) > 3 {
+		firstSegment := segments[0]
+		lastSegment := segments[len(segments)-1]
+		if firstSegment != "" && firstSegment == lastSegment && len(firstSegment) >= 2 {
+			hae.crawlerInstance.logger.Warn().
+				Str("url", urlStr).
+				Str("repeated_segment", firstSegment).
+				Msg("URL has same segment at beginning and end")
+			return true
+		}
+	}
+
+	// Pattern 2: Check for alternating patterns like /a/b/a/b/a/b
+	if len(segments) >= 6 {
+		for i := 0; i < len(segments)-5; i++ {
+			if segments[i] != "" && len(segments[i]) >= 2 &&
+				segments[i] == segments[i+2] && segments[i] == segments[i+4] &&
+				segments[i+1] == segments[i+3] && segments[i+1] == segments[i+5] {
+				hae.crawlerInstance.logger.Warn().
+					Str("url", urlStr).
+					Str("pattern", segments[i]+"/"+segments[i+1]).
+					Msg("URL has alternating pattern")
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// hasProblematicPatterns checks for additional problematic URL patterns
+func (hae *HTMLAssetExtractor) hasProblematicPatterns(urlStr string) bool {
+	// Check for extremely long URLs (potential issue)
+	if len(urlStr) > 2000 {
+		hae.crawlerInstance.logger.Warn().
+			Str("url", urlStr[:100]+"...").
+			Int("length", len(urlStr)).
+			Msg("URL is extremely long")
+		return true
+	}
+
+	// Check for URLs with excessive slashes
+	slashCount := strings.Count(urlStr, "/")
+	if slashCount > 50 {
+		hae.crawlerInstance.logger.Warn().
+			Str("url", urlStr).
+			Int("slash_count", slashCount).
+			Msg("URL has excessive slashes")
+		return true
+	}
+
+	// Check for URLs that contain the same path fragment multiple times
+	// This is a simplified check for patterns like /js/js/js/...
+	if strings.Contains(urlStr, "/js/js/") ||
+		strings.Contains(urlStr, "/css/css/") ||
+		strings.Contains(urlStr, "/img/img/") ||
+		strings.Contains(urlStr, "/static/static/") ||
+		strings.Contains(urlStr, "/assets/assets/") {
+		hae.crawlerInstance.logger.Warn().
+			Str("url", urlStr).
+			Msg("URL contains repeated path fragments")
+		return true
+	}
+
+	// Check for URLs with recursive directory patterns
+	recursivePatterns := []string{
+		"/../../../", "/./././", "/./../", "/../../",
+	}
+	for _, pattern := range recursivePatterns {
+		if strings.Contains(urlStr, pattern) {
+			hae.crawlerInstance.logger.Warn().
+				Str("url", urlStr).
+				Str("pattern", pattern).
+				Msg("URL contains recursive directory pattern")
 			return true
 		}
 	}
@@ -354,6 +441,14 @@ func (hae *HTMLAssetExtractor) hasRepeatedPathSegments(urlStr string) bool {
 
 // resolveURL resolves a URL against the base page URL
 func (hae *HTMLAssetExtractor) resolveURL(rawURL string) string {
+	// Early validation to skip problematic URLs before resolution
+	if hae.isInvalidURLPattern(rawURL) {
+		hae.crawlerInstance.logger.Debug().
+			Str("url", rawURL).
+			Msg("Skipping URL with invalid pattern before resolution")
+		return ""
+	}
+
 	// Use urlhandler.ResolveURL for consistent URL resolution
 	resolved, err := urlhandler.ResolveURL(rawURL, hae.basePageURL)
 	if err != nil {
@@ -363,7 +458,94 @@ func (hae *HTMLAssetExtractor) resolveURL(rawURL string) string {
 			Msg("Failed to resolve URL using urlhandler")
 		return ""
 	}
+
+	// Final validation after resolution
+	if hae.isInvalidURLPattern(resolved) {
+		hae.crawlerInstance.logger.Debug().
+			Str("resolved_url", resolved).
+			Msg("Skipping resolved URL with invalid pattern")
+		return ""
+	}
+
 	return resolved
+}
+
+// isInvalidURLPattern performs early detection of invalid URL patterns
+func (hae *HTMLAssetExtractor) isInvalidURLPattern(urlStr string) bool {
+	if urlStr == "" {
+		return true
+	}
+
+	// Skip URLs that are too long (potential issue)
+	if len(urlStr) > 1000 {
+		return true
+	}
+
+	// Skip URLs with obvious repeated patterns immediately
+	// Check for simple patterns like /js/js/ or /css/css/
+	if strings.Contains(urlStr, "/js/js/") ||
+		strings.Contains(urlStr, "/css/css/") ||
+		strings.Contains(urlStr, "/img/img/") ||
+		strings.Contains(urlStr, "/static/static/") ||
+		strings.Contains(urlStr, "/assets/assets/") {
+		return true
+	}
+
+	// Check for excessive slashes (early detection)
+	slashCount := strings.Count(urlStr, "/")
+	if slashCount > 30 {
+		return true
+	}
+
+	// Check for recursive patterns
+	recursivePatterns := []string{
+		"/../../../", "/./././", "/./../",
+	}
+	for _, pattern := range recursivePatterns {
+		if strings.Contains(urlStr, pattern) {
+			return true
+		}
+	}
+
+	// Check for URLs that are just repeated characters/patterns
+	if hae.hasObviousRepeatedChars(urlStr) {
+		return true
+	}
+
+	return false
+}
+
+// hasObviousRepeatedChars checks for URLs with obviously repeated character patterns
+func (hae *HTMLAssetExtractor) hasObviousRepeatedChars(urlStr string) bool {
+	// Extract just the path part
+	if idx := strings.Index(urlStr, "//"); idx != -1 {
+		// Find the path part after hostname
+		remaining := urlStr[idx+2:]
+		if pathIdx := strings.Index(remaining, "/"); pathIdx != -1 {
+			urlStr = remaining[pathIdx:]
+		}
+	}
+
+	// Check for patterns like /js/js/js/js/...
+	segments := strings.Split(strings.Trim(urlStr, "/"), "/")
+	if len(segments) > 5 {
+		// Count occurrences of each segment
+		segmentCount := make(map[string]int)
+		for _, segment := range segments {
+			if segment != "" && len(segment) >= 2 {
+				segmentCount[segment]++
+			}
+		}
+
+		// If any segment appears more than 3 times, it's suspicious
+		for _, count := range segmentCount {
+			if count > 3 {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // getTagName safely extracts tag name from selection
