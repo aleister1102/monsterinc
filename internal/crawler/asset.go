@@ -298,20 +298,55 @@ func (hae *HTMLAssetExtractor) hasRepeatedPathSegments(urlStr string) bool {
 
 	segments := strings.Split(path, "/")
 
-	// Only check for obvious infinite loops - 4+ consecutive identical segments
-	// and segments must be at least 3 characters to avoid false positives
-	for i := 0; i < len(segments)-3; i++ {
-		if len(segments[i]) >= 3 && segments[i] != "" &&
+	// Check if we have more than 20 segments (very suspicious)
+	if len(segments) > 20 {
+		hae.crawlerInstance.logger.Warn().
+			Str("url", urlStr).
+			Int("segment_count", len(segments)).
+			Msg("URL has excessive path segments, likely infinite loop")
+		return true
+	}
+
+	// Check for any segment appearing more than 10 times in the path (extreme repetition)
+	segmentCount := make(map[string]int)
+	for _, segment := range segments {
+		if segment != "" && len(segment) >= 2 {
+			segmentCount[segment]++
+			if segmentCount[segment] > 10 {
+				hae.crawlerInstance.logger.Warn().
+					Str("url", urlStr).
+					Str("repeated_segment", segment).
+					Int("count", segmentCount[segment]).
+					Msg("URL has extremely repeated path segment")
+				return true
+			}
+		}
+	}
+
+	// Check for obvious infinite loops - 3+ consecutive identical segments
+	// (reduced from 4 to be more sensitive)
+	for i := 0; i < len(segments)-2; i++ {
+		if len(segments[i]) >= 2 && segments[i] != "" &&
 			segments[i] == segments[i+1] &&
-			segments[i] == segments[i+2] &&
-			segments[i] == segments[i+3] {
+			segments[i] == segments[i+2] {
+			hae.crawlerInstance.logger.Warn().
+				Str("url", urlStr).
+				Str("repeated_segment", segments[i]).
+				Msg("URL has consecutive repeated path segments")
 			return true
 		}
 	}
 
-	// Check if we have more than 15 segments (very suspicious)
-	if len(segments) > 15 {
-		return true
+	// Check for very long individual path segments (might indicate malformed URLs)
+	for _, segment := range segments {
+		if len(segment) > 500 {
+			hae.crawlerInstance.logger.Warn().
+				Str("url", urlStr).
+				Str("long_segment", segment[:100]+"...").
+				Int("segment_length", len(segment)).
+				Msg("URL has extremely long path segment")
+			return true
+		}
 	}
 
 	return false
