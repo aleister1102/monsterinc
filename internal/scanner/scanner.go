@@ -130,6 +130,15 @@ func (s *Scanner) SetProgressDisplay(progressDisplay *common.ProgressDisplayMana
 	}
 }
 
+// ResetCrawler shuts down the crawler executor to clean up its state.
+// This is intended to be called between independent scan cycles.
+func (s *Scanner) ResetCrawler() {
+	s.logger.Info().Msg("Resetting crawler executor for next scan cycle")
+	if s.crawlerExecutor != nil {
+		s.crawlerExecutor.Shutdown()
+	}
+}
+
 // UpdateLogger updates the logger for this scanner and its components
 func (s *Scanner) UpdateLogger(newLogger zerolog.Logger) {
 	s.logger = newLogger.With().Str("module", "Scanner").Logger()

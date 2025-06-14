@@ -132,6 +132,7 @@ func (s *Scheduler) executeScanCycle(
 	// Track active scan session for interrupt handling
 	SetActiveScanSessionID(scanSessionID)
 	defer SetActiveScanSessionID("") // Clear when done
+	defer s.scanner.ResetCrawler()   // Reset crawler state after cycle
 
 	// Create scan logger
 	scanLogger, err := logger.NewWithScanID(s.globalConfig.LogConfig, scanSessionID)
