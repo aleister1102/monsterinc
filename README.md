@@ -1,43 +1,43 @@
 # MonsterInc
 
-MonsterInc là một công cụ bảo mật toàn diện được viết bằng Go, chuyên dụng cho việc thu thập URL từ website, thăm dò HTTP/HTTPS, giám sát thay đổi nội dung theo thời gian thực và tạo báo cáo chi tiết. Công cụ này được thiết kế để hỗ trợ các chuyên gia bảo mật trong việc trinh sát và giám sát ứng dụng web.
+MonsterInc is a comprehensive security tool written in Go, specialized for URL collection from websites, HTTP/HTTPS probing, real-time content change monitoring, and detailed report generation. This tool is designed to support security professionals in web application reconnaissance and monitoring.
 
-## Tính năng chính
+## Key Features
 
-### 🕷️ Thu thập URL (Web Crawling)
-- Thu thập URL từ website với cấu hình phạm vi chi tiết
-- Hỗ trợ trình duyệt headless cho nội dung động  
-- Kiểm soát phạm vi theo hostname, subdomain, phần mở rộng file
-- Trích xuất tài nguyên từ HTML (hình ảnh, script, stylesheet)
-- **Xử lý tín hiệu ngắt responsive** - dừng ngay lập tức khi nhận SIGINT/SIGTERM
+### 🕷️ URL Collection (Web Crawling)
+- URL collection from websites with detailed scope configuration
+- Headless browser support for dynamic content
+- Scope control by hostname, subdomain, file extensions
+- Resource extraction from HTML (images, scripts, stylesheets)
+- **Responsive interrupt handling** - immediate stop upon receiving SIGINT/SIGTERM
 
-### 🔍 Thăm dó HTTP/HTTPS
-- Thăm dò URL với engine httpx tích hợp
-- Trích xuất metadata hoàn chỉnh: headers, công nghệ, thông tin TLS, ASN
-- Hỗ trợ retry và rate limiting thông minh
-- Phát hiện công nghệ tự động (tech detection)
-- **Batch processing** - xử lý hiệu quả cho tập dữ liệu lớn
+### 🔍 HTTP/HTTPS Probing
+- URL probing with integrated httpx engine
+- Complete metadata extraction: headers, technologies, TLS information, ASN
+- Smart retry and rate limiting support
+- Automatic technology detection (tech detection)
+- **Batch processing** - efficient processing for large datasets
 
-### 📊 Giám sát thay đổi thời gian thực
-- Theo dõi nội dung website liên tục với interval tùy chỉnh
-- So sánh thay đổi bằng hash và diff algorithms
-- **Batch URL processing** - quản lý hiệu quả URL sets lớn
-- Lưu trữ lịch sử thay đổi với Parquet format
-- Tạo báo cáo diff HTML trực quan với highlight thay đổi
+### 📊 Real-time Change Monitoring
+- Continuous website content monitoring with customizable intervals
+- Change comparison using hash and diff algorithms
+- **Batch URL processing** - efficient management of large URL sets
+- Change history storage with Parquet format
+- Visual HTML diff reports with change highlighting
 
-### 🔒 Phát hiện Secret/API Keys
-- Quét và phát hiện các secret, API keys, tokens trong mã nguồn
-- Regex patterns được tối ưu cho các dịch vụ phổ biến
-- Tích hợp với workflow crawling và monitoring
-- Báo cáo chi tiết với context và vị trí
+### 🔒 Secret/API Keys Detection
+- Scan and detect secrets, API keys, tokens in source code
+- Optimized regex patterns for popular services
+- Integration with crawling and monitoring workflows
+- Detailed reports with context and location
 
-### 📈 Báo cáo và Thông báo
-- Tạo báo cáo HTML interactive với DataTables
-- Diff reports với syntax highlighting
-- Thông báo Discord tự động với file đính kèm
-- Template system linh hoạt cho custom reports
+### 📈 Reporting and Notifications
+- Interactive HTML reports with DataTables
+- Diff reports with syntax highlighting
+- Automatic Discord notifications with file attachments
+- Flexible template system for custom reports
 
-## Kiến trúc hệ thống
+## System Architecture
 
 ```mermaid
 graph TD
@@ -86,111 +86,111 @@ graph TD
     style O fill:#f1f8e9
 ```
 
-## Cấu trúc thư mục
+## Directory Structure
 
 ### Core Components
 
 #### `cmd/monsterinc/`
-- **`main.go`** - Entry point chính với flag parsing và signal handling
-- **`flags.go`** - Command-line flags và validation
+- **`main.go`** - Main entry point with flag parsing and signal handling
+- **`flags.go`** - Command-line flags and validation
 
 #### `internal/scanner/`
-- **Main orchestrator** cho toàn bộ scanning pipeline
-- Quản lý workflow từ crawling → probing → diffing → reporting
-- Hỗ trợ batch processing cho dataset lớn
-- Integration với tất cả components khác
+- **Main orchestrator** for the entire scanning pipeline
+- Manages workflow from crawling → probing → diffing → reporting
+- Supports batch processing for large datasets
+- Integration with all other components
 
 #### `internal/monitor/`
-- **Real-time monitoring service** cho web content changes
-- Batch URL management cho efficient processing
-- Change detection với content hashing
-- Cycle tracking và progress management
+- **Real-time monitoring service** for web content changes
+- Batch URL management for efficient processing
+- Change detection with content hashing
+- Cycle tracking and progress management
 
 #### `internal/crawler/`
-- **Web crawling engine** dựa trên Colly framework
-- Asset extraction từ HTML/CSS/JS
-- Headless browser support cho dynamic content
-- Scope management và URL filtering
+- **Web crawling engine** based on Colly framework
+- Asset extraction from HTML/CSS/JS
+- Headless browser support for dynamic content
+- Scope management and URL filtering
 
 #### `internal/httpxrunner/`
-- **HTTP probing wrapper** cho httpx library
-- Result mapping và error handling
-- Technology detection và metadata extraction
+- **HTTP probing wrapper** for httpx library
+- Result mapping and error handling
+- Technology detection and metadata extraction
 
 #### `internal/datastore/`
-- **Parquet-based storage layer** cho high-performance persistence
-- Streaming operations cho memory efficiency
-- File history tracking cho monitoring
-- Schema optimization cho scan results
+- **Parquet-based storage layer** for high-performance persistence
+- Streaming operations for memory efficiency
+- File history tracking for monitoring
+- Schema optimization for scan results
 
 #### `internal/differ/`
-- **Content comparison engine** với diff algorithms
-- URL diffing cho new/old/existing classification
-- Content diffing với line-by-line analysis
+- **Content comparison engine** with diff algorithms
+- URL diffing for new/old/existing classification
+- Content diffing with line-by-line analysis
 
 #### `internal/reporter/`
-- **HTML report generation** với interactive templates
-- Asset embedding cho standalone reports
-- Multi-part reports cho large datasets
+- **HTML report generation** with interactive templates
+- Asset embedding for standalone reports
+- Multi-part reports for large datasets
 - Custom CSS/JS injection
 
 #### `internal/notifier/`
-- **Discord notification system** với webhook integration
-- File attachment handling với compression
-- Message formatting với embed builders
-- Error aggregation và batch notifications
+- **Discord notification system** with webhook integration
+- File attachment handling with compression
+- Message formatting with embed builders
+- Error aggregation and batch notifications
 
 ### Supporting Components
 
 #### `internal/config/`
 - Centralized configuration management
-- YAML/JSON parsing với validation
+- YAML/JSON parsing with validation
 - Environment variable support
 - Component-specific config builders
 
 #### `internal/common/`
-- Shared utilities và foundational components
-- HTTP client với connection pooling
-- File operations với context support
-- Memory pools và resource limiting
-- Progress tracking và display
+- Shared utilities and foundational components
+- HTTP client with connection pooling
+- File operations with context support
+- Memory pools and resource limiting
+- Progress tracking and display
 
 #### `internal/models/`
-- Data structures và interfaces
+- Data structures and interfaces
 - Parquet schema definitions
 - Notification payload builders
 
 #### `internal/extractor/`
-- Path extraction từ JavaScript content
-- URL validation và resolution
+- Path extraction from JavaScript content
+- URL validation and resolution
 - Custom regex support
 
 #### `internal/secretscanner/`
 - Secret pattern detection
-- Multiple rule sets cho different services
-- Context extraction cho findings
+- Multiple rule sets for different services
+- Context extraction for findings
 
 #### `internal/urlhandler/`
-- URL normalization và validation
-- Target management từ files/inputs
+- URL normalization and validation
+- Target management from files/inputs
 
 #### `internal/logger/`
-- Structured logging với zerolog
+- Structured logging with zerolog
 - Multiple output formats (JSON, console)
-- Log rotation và organization
+- Log rotation and organization
 
 #### `internal/scheduler/`
-- Task scheduling với SQLite persistence
-- Cron-like intervals với retry logic
-- State management cho automated scans
+- Task scheduling with SQLite persistence
+- Cron-like intervals with retry logic
+- State management for automated scans
 
 ## Installation
 
 ### Prerequisites
 - Go 1.21+
-- Google Chrome (cho headless browsing)
+- Google Chrome (for headless browsing)
 
-### Build từ source
+### Build from source
 
 ```bash
 git clone https://github.com/your-org/monsterinc.git
@@ -200,10 +200,10 @@ go build -o bin/monsterinc cmd/monsterinc/main.go
 
 ### Configuration
 
-Tạo file `config.yaml`:
+Create `config.yaml` file:
 
 ```yaml
-mode: "onetime"  # hoặc "automated", "monitor"
+mode: "onetime"  # or "automated", "monitor"
 
 crawler_config:
   max_depth: 3
@@ -264,31 +264,31 @@ storage_config:
 ./bin/monsterinc -config config.yaml -targets targets.txt -debug
 ```
 
-## Key Features Detail
+## Detailed Key Features
 
 ### Batch Processing
-- **Intelligent batching** cho large URL sets (>500 URLs)
-- Configurable batch sizes và concurrency
-- Memory optimization với streaming operations
+- **Intelligent batching** for large URL sets (>500 URLs)
+- Configurable batch sizes and concurrency
+- Memory optimization with streaming operations
 - Progress tracking across batches
 
 ### Interrupt Handling  
-- **Graceful shutdown** với SIGINT/SIGTERM
+- **Graceful shutdown** with SIGINT/SIGTERM
 - Context cancellation propagation
-- Resource cleanup và state preservation
+- Resource cleanup and state preservation
 - Immediate response time (<2 seconds)
 
 ### Performance Optimization
-- **Resource limiting** với memory/goroutine monitoring
-- Connection pooling và HTTP/2 support
-- Parquet format cho fast I/O operations
-- Memory pools cho reduced GC pressure
+- **Resource limiting** with memory/goroutine monitoring
+- Connection pooling and HTTP/2 support
+- Parquet format for fast I/O operations
+- Memory pools for reduced GC pressure
 
 ### Security Focus
-- **Secret detection** trong source code
+- **Secret detection** in source code
 - Technology fingerprinting
-- Change monitoring cho security-critical files
-- Comprehensive logging cho audit trails
+- Change monitoring for security-critical files
+- Comprehensive logging for audit trails
 
 ## Development
 
@@ -316,7 +316,7 @@ monsterinc/
 # Run all tests
 go test ./...
 
-# Run tests với coverage
+# Run tests with coverage
 go test -cover ./...
 
 # Run specific package tests
@@ -326,10 +326,10 @@ go test ./internal/scanner/
 ### Contributing
 
 1. Fork repository
-2. Tạo feature branch (`git checkout -b feature/amazing-feature`)
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
 3. Commit changes (`git commit -am 'Add amazing feature'`)
 4. Push branch (`git push origin feature/amazing-feature`)
-5. Tạo Pull Request
+5. Create Pull Request
 
 ## License
 
