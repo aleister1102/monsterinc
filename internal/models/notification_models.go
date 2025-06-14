@@ -355,6 +355,7 @@ type ScanSummaryData struct {
 	ErrorMessages    []string      // Any critical errors encountered during the scan
 	Component        string        // Component where an error might have occurred (for critical errors)
 	RetriesAttempted int           // Number of retries, if applicable
+	CycleMinutes     int           // Cycle interval in minutes (only for automated mode)
 }
 
 // ProbeStats holds statistics related to the probing phase of a scan.

@@ -257,6 +257,12 @@ func (b *ScanSummaryDataBuilder) WithRetriesAttempted(retriesAttempted int) *Sca
 	return b
 }
 
+// WithCycleMinutes sets the CycleMinutes for the ScanSummaryData
+func (b *ScanSummaryDataBuilder) WithCycleMinutes(cycleMinutes int) *ScanSummaryDataBuilder {
+	b.summary.CycleMinutes = cycleMinutes
+	return b
+}
+
 // Reset resets the builder to default state
 func (b *ScanSummaryDataBuilder) Reset() *ScanSummaryDataBuilder {
 	b.summary = GetDefaultScanSummaryData()

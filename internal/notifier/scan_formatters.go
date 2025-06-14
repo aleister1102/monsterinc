@@ -26,7 +26,7 @@ func FormatScanStartMessage(summary models.ScanSummaryData, cfg config.Notificat
 // buildScanStartDescription creates the description for scan start message
 func buildScanStartDescription(summary models.ScanSummaryData) string {
 	description := fmt.Sprintf(
-		"🚀 **New security scan initiated**\n\n"+
+		"🚀 **Scan initialization started**\n\n"+
 			"**Session ID:** `%s`\n"+
 			"**Mode:** %s\n"+
 			"**Target Source:** %s\n"+
@@ -36,6 +36,12 @@ func buildScanStartDescription(summary models.ScanSummaryData) string {
 		summary.TargetSource,
 		summary.TotalTargets,
 	)
+
+	// Add cycle interval for automated mode
+	if summary.CycleMinutes > 0 && summary.ScanMode == "automated" {
+		cycleDuration := time.Duration(summary.CycleMinutes) * time.Minute
+		description += fmt.Sprintf("\n**Scan Cycle:** Every %s", formatDuration(cycleDuration))
+	}
 
 	return addTargetURLsToDescription(description, summary.Targets)
 }
@@ -147,6 +153,14 @@ func buildScanCompleteDescription(summary models.ScanSummaryData, statusEmoji st
 		strings.ToUpper(summary.Status),
 		formatDuration(summary.ScanDuration),
 	)
+
+	// Add next scan time for automated mode (calculated from current time + cycle minutes)
+	if summary.CycleMinutes > 0 && summary.ScanMode == "automated" {
+		nextScanTime := time.Now().Add(time.Duration(summary.CycleMinutes) * time.Minute)
+		nextScanFormatted := nextScanTime.Format("2006-01-02 15:04:05 MST")
+		cycleDuration := time.Duration(summary.CycleMinutes) * time.Minute
+		baseDescription += fmt.Sprintf("\n**Next Scan:** %s (in %s)", nextScanFormatted, formatDuration(cycleDuration))
+	}
 
 	// Add batch processing info if this is a multi-part report
 	if strings.Contains(summary.ReportPath, "part") && strings.Contains(summary.ReportPath, "of") {
