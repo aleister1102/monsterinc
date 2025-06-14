@@ -15,7 +15,7 @@ As the continuous monitoring engine, this package:
 The monitor package enables:
 - **Continuous Monitoring**: Automated checking of URLs at configurable intervals
 - **Change Detection**: Content comparison using cryptographic hashing
-- **Event Aggregation**: Batched notification delivery for efficiency
+- **Batched Processing**: Efficient processing of large URL sets using batch workflow
 - **Content Diffing**: Detailed analysis of what changed between versions
 - **Path Extraction**: URL and endpoint discovery from JavaScript files
 - **Report Generation**: Visual HTML diff reports for change analysis
@@ -24,15 +24,15 @@ The monitor package enables:
 **Interrupt Handling Features:**
 - **Context propagation** - cancellation signals immediately stop all URL checking
 - **Safe operation termination** - in-progress HTTP requests are cancelled within timeout
-- **Event aggregator shutdown** - graceful termination of notification batching
+- **Batch processing shutdown** - graceful termination of batch operations
 - **Resource cleanup** - proper cleanup of active connections and temporary data
 
 ## Architecture
 
 ```
 ┌─────────────────────┐    ┌──────────────────────┐
-│ MonitoringService   │ ──► │    URLManager        │
-│  (Main Service)     │    │ (URL Collection)     │
+│ MonitoringService   │ ──► │ BatchURLManager      │
+│  (Main Service)     │    │ (Batch Processing)   │
 └─────────────────────┘    └──────────────────────┘
          │                          │
          ▼                          ▼
@@ -43,8 +43,8 @@ The monitor package enables:
          │                          │
          ▼                          ▼
 ┌─────────────────────┐    ┌──────────────────────┐
-│ ContentProcessor    │    │  EventAggregator     │
-│ (Content Analysis)  │    │ (Event Batching)     │
+│ ContentProcessor    │    │  URLManager          │
+│ (Content Analysis)  │    │ (URL Collection)     │
 └─────────────────────┘    └──────────────────────┘
 ```
 
@@ -53,9 +53,9 @@ The monitor package enables:
 ### Core Components
 
 - **`service.go`** - Main monitoring service and orchestration
+- **`batch_url_manager.go`** - Batched URL processing management
 - **`url_checker.go`** - Individual URL change detection logic
 - **`content_processor.go`** - Content processing and hashing
-- **`event_aggregator.go`** - Event batching and notification management
 - **`cycle_tracker.go`** - Monitoring cycle state management
 
 ### Supporting Components
@@ -83,13 +83,13 @@ The monitor package enables:
 - Path extraction from JavaScript files
 - Historical comparison with previous versions
 
-### 3. Event Aggregation
+### 3. Batch Processing
 
 **Features:**
-- Time-based event batching
-- Maximum event count limits
-- Automatic notification delivery
-- Error event collection
+- Intelligent batching for large URL sets
+- Configurable batch sizes and concurrency
+- Progress tracking across batches
+- Memory-efficient processing
 - Graceful shutdown handling
 
 ## Usage Examples

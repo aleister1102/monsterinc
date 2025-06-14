@@ -1,24 +1,111 @@
 # Scheduler Package
 
-The scheduler package provides automated task scheduling and execution for MonsterInc security scanner. It manages periodic scans, coordinates scan and monitoring workflows, and maintains persistent scheduling state using SQLite database.
+The scheduler package provides automated task scheduling and execution for MonsterInc security operations. It manages periodic scans, coordinates monitoring workflows, and maintains persistent scheduling state using SQLite database.
+
+## Package Role in MonsterInc
+As the automation engine, this package:
+- **Scanner Automation**: Schedules and executes automated security scans at configurable intervals
+- **Monitor Orchestration**: Coordinates monitoring cycles and file change detection workflows
+- **Task Persistence**: Provides reliable SQLite-based task storage with execution history
+- **Resource Management**: Manages concurrent task execution and system resource allocation
+- **Integration Hub**: Coordinates Scanner and Monitor services with automated execution
 
 ## Overview
 
 The scheduler package enables:
-- **Automated Scanning**: Schedule periodic security scans with configurable intervals
-- **Task Persistence**: SQLite-based storage for reliable task management
-- **Worker Coordination**: Concurrent execution of scanning and monitoring tasks
-- **Retry Logic**: Automatic retry mechanisms for failed operations
-- **State Management**: Track task execution history and manage schedules
+- **Automated Scanning**: Schedule periodic security scans with flexible timing configurations
+- **Task Persistence**: SQLite-based storage for reliable task management across restarts
+- **Worker Coordination**: Concurrent execution of scanning and monitoring tasks with resource limits
+- **Retry Logic**: Automatic retry mechanisms for failed operations with exponential backoff
+- **State Management**: Track task execution history and manage schedule states
+
+## Integration with MonsterInc Components
+
+### With Scanner Service
+
+```go
+// Scheduler executes automated scans
+scanExecutor := scheduler.GetScanExecutor()
+taskResult, err := scanExecutor.ExecuteScheduledScan(ctx, taskConfig)
+
+if err != nil {
+    logger.Error().Err(err).Msg("Scheduled scan failed")
+    // Scheduler handles retry logic automatically
+    return scheduler.MarkTaskForRetry(taskID)
+}
+
+// Scanner workflow integration
+summary := &models.ScanSummaryData{
+    ScanSessionID: taskResult.SessionID,
+    ScanMode:      "scheduled",
+    Status:        "COMPLETED",
+}
+
+// Notifier integration through scheduler
+notifier.SendScanCompletionNotification(ctx, summary, 
+    notifier.ScanServiceNotification, taskResult.ReportPaths)
+```
+
+### With Monitor Service
+
+```go  
+// Scheduler coordinates monitoring cycles
+monitorExecutor := scheduler.GetMonitorExecutor()
+err := monitorExecutor.ExecuteMonitoringCycle(ctx, monitorConfig)
+
+if err != nil {
+    logger.Error().Err(err).Msg("Monitoring cycle failed")
+    // Scheduler manages retry and error reporting
+    return scheduler.HandleMonitorError(err, cycleID)
+}
+
+// Monitor integration with batch processing
+batchManager := monitor.GetBatchURLManager()
+changedURLs, err := batchManager.ProcessBatch(ctx, urlBatch)
+
+// Scheduler tracks monitoring statistics
+scheduler.UpdateMonitorStats(cycleID, changedURLs, err)
+```
+
+### With Datastore Integration
+
+```go
+// Scheduler maintains task persistence
+db := scheduler.GetDatabase()
+
+// Task scheduling with database backing
+task := &models.ScheduledTask{
+    Name:         "daily-security-scan",
+    Type:         scheduler.TaskTypeScan,
+    Interval:     24 * time.Hour,
+    NextRunTime:  time.Now().Add(24 * time.Hour),
+    ConfigJSON:   configJSON,
+}
+
+err = db.SaveScheduledTask(task)
+if err != nil {
+    return fmt.Errorf("failed to save scheduled task: %w", err)
+}
+
+// Execution history tracking
+execution := &models.TaskExecution{
+    TaskID:     task.ID,
+    StartTime:  time.Now(),
+    Status:     "RUNNING",
+    SessionID:  sessionID,
+}
+
+db.SaveTaskExecution(execution)
+```
 
 ## File Structure
 
 ### Core Components
 
-- **`scheduler.go`** - Main scheduler service and orchestration
-- **`db.go`** - SQLite database management and operations
-- **`scan_executor.go`** - Automated scan execution and coordination
-- **`monitor_workers.go`** - Monitoring task workers
+- **`scheduler_core.go`** - Main scheduler service and orchestration logic
+- **`scheduler_executor.go`** - Task execution coordinator and worker management
+- **`scan_executor.go`** - Automated scan execution and Scanner service integration
+- **`db.go`** - SQLite database management and persistence operations
 - **`helpers.go`** - Utility functions and common operations
 
 ## Features
@@ -26,33 +113,33 @@ The scheduler package enables:
 ### 1. Automated Task Scheduling
 
 **Capabilities:**
-- Configurable scan intervals (minutes/hours/days)
-- Persistent scheduling across application restarts
-- Task priority management
-- Concurrent task execution
-- Flexible scheduling patterns
+- **Flexible Intervals**: Configure scan intervals in minutes, hours, or days
+- **Cron-like Scheduling**: Support for complex scheduling patterns
+- **Task Priorities**: Manage task execution order and resource allocation
+- **Concurrent Execution**: Multiple tasks running simultaneously with limits
+- **Dynamic Scheduling**: Add, modify, or remove schedules at runtime
 
 ### 2. Database-Backed Persistence
 
 **Features:**
-- SQLite database for reliable storage
-- Task execution history tracking
-- Schedule state management
-- Atomic operations with transactions
-- Database schema migrations
+- **SQLite Storage**: Lightweight, reliable database for task persistence
+- **Execution History**: Complete audit trail of task executions
+- **Schedule State**: Persistent schedule state across application restarts
+- **Atomic Operations**: ACID compliance with transaction support
+- **Schema Migrations**: Automatic database schema updates
 
 ### 3. Worker Management
 
 **Coordination:**
-- Separate workers for scan and monitor tasks
-- Configurable worker pools
-- Resource allocation management
-- Graceful shutdown handling
-- Load balancing across workers
+- **Resource Pools**: Separate worker pools for scan and monitor tasks
+- **Load Balancing**: Smart distribution of tasks across available workers
+- **Graceful Shutdown**: Proper cleanup and task completion on shutdown
+- **Resource Limits**: Configurable limits to prevent system overload
+- **Health Monitoring**: Track worker health and performance metrics
 
 ## Usage Examples
 
-### Basic Scheduler Setup
+### Basic Scheduler Setup and Configuration
 
 ```go
 import (
@@ -60,95 +147,188 @@ import (
     "github.com/aleister1102/monsterinc/internal/config"
 )
 
-// Initialize scheduler
+// Initialize scheduler with dependencies
 schedulerService, err := scheduler.NewScheduler(
-    globalConfig.SchedulerConfig,
+    cfg.SchedulerConfig,
     logger,
-    scannerService,
-    monitoringService,
-    notificationHelper,
+    scannerService,  // Scanner service for automated scans
+    monitorService,  // Monitor service for monitoring cycles
+    notificationHelper, // Notifier for task completion alerts
 )
 if err != nil {
-    return fmt.Errorf("scheduler init failed: %w", err)
+    return fmt.Errorf("scheduler initialization failed: %w", err)
 }
 
-// Start scheduler
+// Start scheduler with context
 ctx := context.Background()
 err = schedulerService.Start(ctx)
 if err != nil {
     return fmt.Errorf("scheduler start failed: %w", err)
 }
 
-// Schedule a recurring scan
-err = schedulerService.ScheduleScan(
-    "daily-security-scan",
-    "targets.txt",
-    24*time.Hour, // Run every 24 hours
-    scheduler.ScanOptions{
+// Schedule recurring security scan
+err = schedulerService.ScheduleRecurringScan(
+    &scheduler.ScanScheduleConfig{
+        Name:           "daily-security-scan",
+        TargetsFile:    "targets.txt",
+        Interval:       24 * time.Hour,
+        StartTime:      time.Now().Add(1 * time.Hour), // Start in 1 hour
         EnableCrawling: true,
         EnableDiffing:  true,
+        MaxConcurrent:  2,
     },
 )
+
+if err != nil {
+    return fmt.Errorf("failed to schedule scan: %w", err)
+}
 ```
 
-### Advanced Scheduling Configuration
+### Advanced Scheduling Patterns
 
 ```go
-// Configure scheduler with custom settings
+// Configure scheduler with custom worker settings
 schedulerConfig := config.SchedulerConfig{
-    CycleMinutes:  30,           // Check for tasks every 30 minutes
-    RetryAttempts: 3,            // Retry failed tasks up to 3 times
-    SQLiteDBPath:  "./scheduler.db", // Database path
+    CycleMinutes:          15,              // Check for tasks every 15 minutes
+    RetryAttempts:         3,               // Retry failed tasks up to 3 times
+    SQLiteDBPath:          "./scheduler.db", // Database path
+    MaxConcurrentScans:    2,               // Limit concurrent scans
+    MaxConcurrentMonitors: 5,               // Limit concurrent monitor tasks
+    TaskTimeoutMinutes:    120,             // 2-hour task timeout
 }
 
-// Create scheduler with custom worker pools
-scheduler := scheduler.NewScheduler(schedulerConfig, logger, scanner, monitor, notifier)
-
-// Schedule multiple scan types
-err = scheduler.ScheduleMultipleTasks([]scheduler.TaskDefinition{
+// Schedule multiple task types with different patterns
+tasks := []scheduler.TaskDefinition{
     {
-        Name:     "morning-scan",
+        Name:     "morning-vulnerability-scan",
         Type:     scheduler.TaskTypeScan,
-        Interval: 24 * time.Hour,
-        StartTime: time.Date(2024, 1, 1, 8, 0, 0, 0, time.UTC), // 8 AM daily
+        Schedule: "0 8 * * *", // 8 AM daily (cron format)
         Config: scheduler.ScanTaskConfig{
-            TargetsFile:    "targets.txt",
+            TargetsFile:       "production-targets.txt",
+            EnableCrawling:    true,
+            EnableDiffing:     true,
+            EnableSecretScan:  true,
+            NotifyOnCompletion: true,
+        },
+    },
+    {
+        Name:     "continuous-monitoring",
+        Type:     scheduler.TaskTypeMonitor,
+        Interval: 30 * time.Minute, // Every 30 minutes
+        Config: scheduler.MonitorTaskConfig{
+            BatchSize:     50,
+            CheckInterval: 300, // 5 minutes per check
+            MaxRetries:    2,
+        },
+    },
+    {
+        Name:     "weekend-deep-scan",
+        Type:     scheduler.TaskTypeScan,
+        Schedule: "0 2 * * 6", // 2 AM every Saturday
+        Config: scheduler.ScanTaskConfig{
+            TargetsFile:    "comprehensive-targets.txt",
             EnableCrawling: true,
             EnableDiffing:  true,
+            DeepScanMode:   true,
         },
     },
-    {
-        Name:     "monitoring-cycle",
-        Type:     scheduler.TaskTypeMonitor,
-        Interval: 2 * time.Hour,     // Every 2 hours
-        Config: scheduler.MonitorTaskConfig{
-            CheckInterval: 300,      // 5 minutes
-            MaxChecks:     100,
-        },
-    },
-})
+}
+
+err = schedulerService.ScheduleMultipleTasks(tasks)
+if err != nil {
+    return fmt.Errorf("failed to schedule tasks: %w", err)
+}
 ```
 
-### Manual Task Execution
+### Manual Task Management
 
 ```go
-// Execute immediate scan
-taskID, err := scheduler.ExecuteImmediateScan(
-    "emergency-scan",
-    "urgent-targets.txt",
-    scheduler.ScanOptions{
-        EnableCrawling:     true,
-        EnableDiffing:      true,
-        NotifyOnCompletion: true,
+// Execute immediate emergency scan
+taskID, err := schedulerService.ExecuteImmediateScan(
+    &scheduler.ImmediateScanConfig{
+        Name:        "emergency-vulnerability-scan",
+        TargetsFile: "critical-targets.txt",
+        Priority:    scheduler.HighPriority,
+        Options: scheduler.ScanOptions{
+            EnableCrawling:     true,
+            EnableDiffing:      true,
+            EnableSecretScan:   true,
+            NotifyOnCompletion: true,
+            OverrideRateLimit:  true, // For emergency scans
+        },
     },
 )
 
-// Check task status
-status, err := scheduler.GetTaskStatus(taskID)
-fmt.Printf("Task %s status: %s\n", taskID, status.State)
+if err != nil {
+    return fmt.Errorf("immediate scan failed: %w", err)
+}
 
-// Cancel running task
-err = scheduler.CancelTask(taskID)
+// Monitor task progress
+ticker := time.NewTicker(30 * time.Second)
+defer ticker.Stop()
+
+for {
+    select {
+    case <-ticker.C:
+        status, err := schedulerService.GetTaskStatus(taskID)
+        if err != nil {
+            logger.Error().Err(err).Msg("Failed to get task status")
+            continue
+        }
+        
+        logger.Info().
+            Str("task_id", taskID).
+            Str("status", status.State).
+            Int("progress", status.Progress).
+            Msg("Task progress update")
+            
+        if status.State == "COMPLETED" || status.State == "FAILED" {
+            break
+        }
+        
+    case <-ctx.Done():
+        // Cancel task on context cancellation
+        schedulerService.CancelTask(taskID)
+        return ctx.Err()
+    }
+}
+```
+
+### Task History and Analytics
+
+```go
+// Query task execution history
+history, err := schedulerService.GetTaskHistory(&scheduler.HistoryQuery{
+    TaskName:  "daily-security-scan",
+    StartDate: time.Now().AddDate(0, -1, 0), // Last month
+    EndDate:   time.Now(),
+    Status:    []string{"COMPLETED", "FAILED"},
+    Limit:     100,
+})
+
+if err != nil {
+    return fmt.Errorf("failed to get task history: %w", err)
+}
+
+// Generate execution statistics
+stats := scheduler.CalculateTaskStats(history)
+logger.Info().
+    Int("total_executions", stats.TotalExecutions).
+    Int("successful_executions", stats.SuccessfulExecutions).
+    Float64("success_rate", stats.SuccessRate).
+    Dur("avg_duration", stats.AverageDuration).
+    Msg("Task execution statistics")
+
+// Clean up old task records
+cleanupConfig := scheduler.CleanupConfig{
+    MaxHistoryDays:    30,  // Keep 30 days of history
+    MaxExecutionsPerTask: 100, // Keep last 100 executions per task
+}
+
+err = schedulerService.CleanupTaskHistory(cleanupConfig)
+if err != nil {
+    logger.Error().Err(err).Msg("Task history cleanup failed")
+}
 ```
 
 ## Configuration
@@ -157,39 +337,66 @@ err = scheduler.CancelTask(taskID)
 
 ```yaml
 scheduler_config:
+  # Core scheduling settings
   cycle_minutes: 15              # Task check interval in minutes
   retry_attempts: 3              # Maximum retry attempts for failed tasks
   sqlite_db_path: "./scheduler.db"  # SQLite database path
+  
+  # Resource management
   max_concurrent_scans: 2        # Maximum concurrent scan tasks
   max_concurrent_monitors: 5     # Maximum concurrent monitor tasks
-  task_timeout_minutes: 120      # Task execution timeout
-  cleanup_interval_hours: 24     # How often to clean up old task records
-  max_task_history_days: 30      # How long to keep task history
+  task_timeout_minutes: 120      # Task execution timeout (2 hours)
+  
+  # Maintenance settings
+  cleanup_interval_hours: 24     # How often to clean up old records
+  max_task_history_days: 30      # How long to keep task execution history
+  max_executions_per_task: 200   # Maximum executions to keep per task
+  
+  # Performance tuning
+  worker_pool_size: 10           # Worker pool size for task execution
+  queue_buffer_size: 100         # Task queue buffer size
+  health_check_interval: 300     # Health check interval in seconds
+  
+  # Error handling
+  retry_backoff_multiplier: 2.0  # Exponential backoff multiplier
+  max_retry_delay_minutes: 60    # Maximum retry delay
+  enable_dead_letter_queue: true # Failed task tracking
 ```
 
-### Configuration Options
+### Configuration Structure
 
-- **`cycle_minutes`**: How often scheduler checks for pending tasks
-- **`retry_attempts`**: Maximum retries for failed tasks
-- **`sqlite_db_path`**: Path to SQLite database file
-- **`max_concurrent_scans`**: Limit on concurrent scan executions
-- **`max_concurrent_monitors`**: Limit on concurrent monitor operations
-- **`task_timeout_minutes`**: Maximum execution time per task
+```go
+type SchedulerConfig struct {
+    CycleMinutes              int     `yaml:"cycle_minutes"`
+    RetryAttempts             int     `yaml:"retry_attempts"`
+    SQLiteDBPath              string  `yaml:"sqlite_db_path"`
+    MaxConcurrentScans        int     `yaml:"max_concurrent_scans"`
+    MaxConcurrentMonitors     int     `yaml:"max_concurrent_monitors"`
+    TaskTimeoutMinutes        int     `yaml:"task_timeout_minutes"`
+    CleanupIntervalHours      int     `yaml:"cleanup_interval_hours"`
+    MaxTaskHistoryDays        int     `yaml:"max_task_history_days"`
+    WorkerPoolSize            int     `yaml:"worker_pool_size"`
+    RetryBackoffMultiplier    float64 `yaml:"retry_backoff_multiplier"`
+    MaxRetryDelayMinutes      int     `yaml:"max_retry_delay_minutes"`
+}
+```
 
 ## Database Schema
 
 ### Task Management Tables
 
 ```sql
--- Main tasks table
+-- Main scheduled tasks table
 CREATE TABLE scheduled_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
     type TEXT NOT NULL,           -- 'scan' or 'monitor'
-    interval_minutes INTEGER NOT NULL,
+    schedule_type TEXT NOT NULL,  -- 'interval' or 'cron'
+    schedule_value TEXT NOT NULL, -- interval duration or cron expression
     next_run_time INTEGER NOT NULL,
     config_json TEXT NOT NULL,
     is_active BOOLEAN DEFAULT 1,
+    priority INTEGER DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -198,451 +405,96 @@ CREATE TABLE scheduled_tasks (
 CREATE TABLE task_executions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL,
-    execution_id TEXT UNIQUE NOT NULL,
-    status TEXT NOT NULL,         -- 'pending', 'running', 'completed', 'failed'
-    started_at INTEGER,
-    completed_at INTEGER,
-    result_json TEXT,
+    session_id TEXT UNIQUE NOT NULL,
+    status TEXT NOT NULL,         -- 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED'
+    start_time INTEGER NOT NULL,
+    end_time INTEGER,
     error_message TEXT,
+    result_json TEXT,
     retry_count INTEGER DEFAULT 0,
     FOREIGN KEY (task_id) REFERENCES scheduled_tasks (id)
 );
 
--- Task dependencies (for future use)
-CREATE TABLE task_dependencies (
+-- Task metrics and statistics
+CREATE TABLE task_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL,
-    depends_on_task_id INTEGER NOT NULL,
-    FOREIGN KEY (task_id) REFERENCES scheduled_tasks (id),
-    FOREIGN KEY (depends_on_task_id) REFERENCES scheduled_tasks (id)
+    execution_id INTEGER NOT NULL,
+    metric_name TEXT NOT NULL,
+    metric_value REAL NOT NULL,
+    recorded_at INTEGER NOT NULL,
+    FOREIGN KEY (execution_id) REFERENCES task_executions (id)
 );
+
+-- Indexes for performance
+CREATE INDEX idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_time, is_active);
+CREATE INDEX idx_task_executions_status ON task_executions(status, start_time);
+CREATE INDEX idx_task_executions_session ON task_executions(session_id);
 ```
 
-## Task Types
+## Task Types and Configuration
 
-### 1. Scan Tasks
-
-Execute automated security scans:
+### Scan Task Configuration
 
 ```go
 type ScanTaskConfig struct {
-    TargetsFile         string                 `json:"targets_file"`
-    EnableCrawling      bool                   `json:"enable_crawling"`
-    EnableDiffing       bool                   `json:"enable_diffing"`
-    EnableNotifications bool                   `json:"enable_notifications"`
-    ScanMode           string                 `json:"scan_mode"`
-    CustomOptions      map[string]interface{} `json:"custom_options,omitempty"`
+    TargetsFile        string        `json:"targets_file"`
+    EnableCrawling     bool         `json:"enable_crawling"`
+    EnableDiffing      bool         `json:"enable_diffing"`
+    EnableSecretScan   bool         `json:"enable_secret_scan"`
+    MaxConcurrent      int          `json:"max_concurrent"`
+    TimeoutMinutes     int          `json:"timeout_minutes"`
+    NotifyOnCompletion bool         `json:"notify_on_completion"`
+    OutputDirectory    string       `json:"output_directory"`
+    ScanMode          string       `json:"scan_mode"` // "fast", "normal", "deep"
 }
-
-// Schedule scan task
-err := scheduler.ScheduleScanTask(scheduler.ScanTaskDefinition{
-    Name:     "weekly-full-scan",
-    Interval: 7 * 24 * time.Hour, // Weekly
-    Config: ScanTaskConfig{
-        TargetsFile:         "all-targets.txt",
-        EnableCrawling:      true,
-        EnableDiffing:       true,
-        EnableNotifications: true,
-        ScanMode:           "comprehensive",
-    },
-})
 ```
 
-### 2. Monitor Tasks
-
-Execute monitoring cycles:
+### Monitor Task Configuration
 
 ```go
 type MonitorTaskConfig struct {
-    MonitorTargetsFile string `json:"monitor_targets_file"`
-    CheckInterval      int    `json:"check_interval"`
-    MaxChecks          int    `json:"max_checks"`
-    GenerateReports    bool   `json:"generate_reports"`
-}
-
-// Schedule monitor task
-err := scheduler.ScheduleMonitorTask(scheduler.MonitorTaskDefinition{
-    Name:     "continuous-monitoring",
-    Interval: 4 * time.Hour, // Every 4 hours
-    Config: MonitorTaskConfig{
-        MonitorTargetsFile: "monitor-urls.txt",
-        CheckInterval:      300, // 5 minutes
-        MaxChecks:         200,
-        GenerateReports:   true,
-    },
-})
-```
-
-## Worker Implementation
-
-### Scan Executor
-
-```go
-type ScanExecutor struct {
-    scanner         *scanner.Scanner
-    notifier        *notifier.NotificationHelper
-    logger          zerolog.Logger
-    maxConcurrent   int
-    activeScans     map[string]*ScanExecution
-    scanSemaphore   chan struct{}
-}
-
-func (se *ScanExecutor) ExecuteScanTask(ctx context.Context, task ScheduledTask) (*TaskResult, error) {
-    // Acquire semaphore for concurrency control
-    select {
-    case se.scanSemaphore <- struct{}{}:
-    case <-ctx.Done():
-        return nil, ctx.Err()
-    }
-    defer func() { <-se.scanSemaphore }()
-    
-    // Parse scan configuration
-    var config ScanTaskConfig
-    if err := json.Unmarshal([]byte(task.ConfigJSON), &config); err != nil {
-        return nil, fmt.Errorf("invalid scan config: %w", err)
-    }
-    
-    // Execute scan
-    scanInput := scanner.WorkflowInput{
-        TargetsFile:           config.TargetsFile,
-        ScanMode:              config.ScanMode,
-        SessionID:             generateSessionID(task.Name),
-        EnableCrawling:        config.EnableCrawling,
-        EnableDiffing:         config.EnableDiffing,
-        EnableReportGeneration: true,
-    }
-    
-    summary, err := se.scanner.ExecuteWorkflow(ctx, scanInput)
-    if err != nil {
-        return &TaskResult{
-            Status:       TaskStatusFailed,
-            ErrorMessage: err.Error(),
-        }, nil
-    }
-    
-    // Send notifications if enabled
-    if config.EnableNotifications {
-        se.notifier.SendScanCompletionNotification(ctx, *summary, 
-            notifier.ScanServiceNotification, []string{summary.ReportPath})
-    }
-    
-    return &TaskResult{
-        Status:    TaskStatusCompleted,
-        ResultData: summary,
-    }, nil
+    BatchSize         int           `json:"batch_size"`
+    CheckInterval     int           `json:"check_interval"`
+    MaxRetries        int           `json:"max_retries"`
+    NotifyOnChanges   bool         `json:"notify_on_changes"`
+    DiffReporting     bool         `json:"diff_reporting"`
+    TargetFilter      string       `json:"target_filter"` // Filter expression
 }
 ```
-
-### Monitor Workers
-
-```go
-type MonitorWorkers struct {
-    monitor       *monitor.MonitoringService
-    logger        zerolog.Logger
-    maxConcurrent int
-    workerPool    chan struct{}
-}
-
-func (mw *MonitorWorkers) ExecuteMonitorTask(ctx context.Context, task ScheduledTask) (*TaskResult, error) {
-    // Acquire worker from pool
-    select {
-    case mw.workerPool <- struct{}{}:
-    case <-ctx.Done():
-        return nil, ctx.Err()
-    }
-    defer func() { <-mw.workerPool }()
-    
-    // Parse monitor configuration
-    var config MonitorTaskConfig
-    if err := json.Unmarshal([]byte(task.ConfigJSON), &config); err != nil {
-        return nil, fmt.Errorf("invalid monitor config: %w", err)
-    }
-    
-    // Load monitor targets
-    err := mw.monitor.LoadAndMonitorFromSources(config.MonitorTargetsFile)
-    if err != nil {
-        return &TaskResult{
-            Status:       TaskStatusFailed,
-            ErrorMessage: fmt.Sprintf("failed to load targets: %v", err),
-        }, nil
-    }
-    
-    // Execute monitoring cycle
-    cycleID := mw.monitor.GenerateNewCycleID()
-    mw.monitor.SetCurrentCycleID(cycleID)
-    
-    // Run monitoring for specified duration
-    monitorCtx, cancel := context.WithTimeout(ctx, 
-        time.Duration(config.CheckInterval)*time.Second*time.Duration(config.MaxChecks))
-    defer cancel()
-    
-    // Trigger monitoring cycle
-    mw.monitor.TriggerCycleEndReport()
-    
-    // Wait for completion or timeout
-    <-monitorCtx.Done()
-    
-    return &TaskResult{
-        Status: TaskStatusCompleted,
-        ResultData: map[string]interface{}{
-            "cycle_id":       cycleID,
-            "checks_performed": config.MaxChecks,
-        },
-    }, nil
-}
-```
-
-## Error Handling and Retry Logic
-
-### Automatic Retry Mechanism
-
-```go
-func (s *Scheduler) executeTaskWithRetry(ctx context.Context, task ScheduledTask) error {
-    maxRetries := s.config.RetryAttempts
-    var lastErr error
-    
-    for attempt := 0; attempt <= maxRetries; attempt++ {
-        // Create execution record
-        execution := &TaskExecution{
-            TaskID:      task.ID,
-            ExecutionID: generateExecutionID(),
-            Status:      TaskStatusRunning,
-            StartedAt:   time.Now(),
-            RetryCount:  attempt,
-        }
-        
-        // Save execution record
-        if err := s.db.SaveTaskExecution(execution); err != nil {
-            s.logger.Error().Err(err).Msg("Failed to save task execution")
-        }
-        
-        // Execute task
-        result, err := s.executeTask(ctx, task)
-        if err == nil {
-            // Success - update execution record
-            execution.Status = TaskStatusCompleted
-            execution.CompletedAt = time.Now()
-            execution.ResultJSON = marshalResult(result)
-            s.db.UpdateTaskExecution(execution)
-            return nil
-        }
-        
-        lastErr = err
-        
-        // Failed - check if we should retry
-        if attempt < maxRetries && s.shouldRetry(err) {
-            retryDelay := s.calculateRetryDelay(attempt)
-            s.logger.Warn().
-                Err(err).
-                Int("attempt", attempt+1).
-                Int("max_retries", maxRetries+1).
-                Dur("retry_delay", retryDelay).
-                Msg("Task failed, retrying")
-            
-            // Update execution with failure
-            execution.Status = TaskStatusFailed
-            execution.ErrorMessage = err.Error()
-            execution.CompletedAt = time.Now()
-            s.db.UpdateTaskExecution(execution)
-            
-            // Wait before retry
-            select {
-            case <-time.After(retryDelay):
-            case <-ctx.Done():
-                return ctx.Err()
-            }
-            
-            continue
-        }
-        
-        // Final failure
-        execution.Status = TaskStatusFailed
-        execution.ErrorMessage = err.Error()
-        execution.CompletedAt = time.Now()
-        s.db.UpdateTaskExecution(execution)
-        break
-    }
-    
-    return fmt.Errorf("task failed after %d attempts: %w", maxRetries+1, lastErr)
-}
-```
-
-### Retry Strategy
-
-```go
-func (s *Scheduler) shouldRetry(err error) bool {
-    // Don't retry certain types of errors
-    if errors.Is(err, context.Canceled) {
-        return false
-    }
-    if errors.Is(err, context.DeadlineExceeded) {
-        return false
-    }
-    
-    // Check for specific error patterns
-    errStr := err.Error()
-    nonRetryablePatterns := []string{
-        "invalid configuration",
-        "permission denied",
-        "file not found",
-    }
-    
-    for _, pattern := range nonRetryablePatterns {
-        if strings.Contains(errStr, pattern) {
-            return false
-        }
-    }
-    
-    return true
-}
-
-func (s *Scheduler) calculateRetryDelay(attempt int) time.Duration {
-    // Exponential backoff with jitter
-    baseDelay := time.Minute
-    maxDelay := 15 * time.Minute
-    
-    delay := baseDelay * time.Duration(1<<uint(attempt))
-    if delay > maxDelay {
-        delay = maxDelay
-    }
-    
-    // Add jitter (±25%)
-    jitter := time.Duration(rand.Float64() * 0.5 * float64(delay))
-    if rand.Float64() < 0.5 {
-        delay -= jitter
-    } else {
-        delay += jitter
-    }
-    
-    return delay
-}
-```
-
-## Integration Examples
-
-### With Main Application
-
-```go
-// Main application integration
-func main() {
-    // Initialize components
-    globalConfig, _ := config.LoadGlobalConfig("config.yaml", logger)
-    scanner := scanner.NewScanner(globalConfig, logger)
-    monitor := monitor.NewMonitoringService(globalConfig, logger, notifier)
-    
-    // Initialize scheduler
-    scheduler, err := scheduler.NewScheduler(
-        globalConfig.SchedulerConfig,
-        logger,
-        scanner,
-        monitor,
-        notifier,
-    )
-    if err != nil {
-        log.Fatal("Failed to initialize scheduler:", err)
-    }
-    
-    // Start scheduler
-    ctx := context.Background()
-    if err := scheduler.Start(ctx); err != nil {
-        log.Fatal("Failed to start scheduler:", err)
-    }
-    
-    // Schedule default tasks
-    scheduler.ScheduleDefaultTasks()
-    
-    // Wait for shutdown signal
-    sigChan := make(chan os.Signal, 1)
-    signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-    <-sigChan
-    
-    // Graceful shutdown
-    scheduler.Stop()
-}
-```
-
-### REST API Integration
-
-```go
-// HTTP handlers for scheduler management
-func (api *API) scheduleTaskHandler(w http.ResponseWriter, r *http.Request) {
-    var req ScheduleTaskRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        http.Error(w, "Invalid request", http.StatusBadRequest)
-        return
-    }
-    
-    taskID, err := api.scheduler.ScheduleTask(req.ToTaskDefinition())
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    json.NewEncoder(w).Encode(map[string]interface{}{
-        "task_id": taskID,
-        "status":  "scheduled",
-    })
-}
-
-func (api *API) getTaskStatusHandler(w http.ResponseWriter, r *http.Request) {
-    taskID := r.URL.Query().Get("task_id")
-    status, err := api.scheduler.GetTaskStatus(taskID)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusNotFound)
-        return
-    }
-    
-    json.NewEncoder(w).Encode(status)
-}
-```
-
-## Performance Considerations
-
-### Database Optimization
-- Indexed queries for fast task lookup
-- Connection pooling for concurrent access
-- Batch operations for bulk updates
-- Regular cleanup of old execution records
-
-### Memory Management
-- Limited concurrent task execution
-- Stream processing for large result sets
-- Proper cleanup of completed tasks
-- Resource monitoring and alerting
-
-### Concurrency Control
-- Semaphore-based worker pools
-- Graceful shutdown with context cancellation
-- Deadlock prevention in database operations
-- Proper synchronization of shared resources
 
 ## Dependencies
 
+- **github.com/aleister1102/monsterinc/internal/scanner** - Scanner service integration
+- **github.com/aleister1102/monsterinc/internal/monitor** - Monitor service integration
+- **github.com/aleister1102/monsterinc/internal/notifier** - Notification delivery
+- **github.com/aleister1102/monsterinc/internal/models** - Data structures
+- **github.com/aleister1102/monsterinc/internal/config** - Configuration management
+- **github.com/mattn/go-sqlite3** - SQLite database driver
+- **github.com/rs/zerolog** - Structured logging
 - **database/sql** - SQL database interface
-- **github.com/mattn/go-sqlite3** - SQLite driver
-- **github.com/aleister1102/monsterinc/internal/scanner** - Scan execution
-- **github.com/aleister1102/monsterinc/internal/monitor** - Monitoring execution
-- **github.com/aleister1102/monsterinc/internal/notifier** - Notifications
-- **github.com/aleister1102/monsterinc/internal/config** - Configuration
-
-## Thread Safety
-
-- All scheduler operations are thread-safe
-- Database operations use proper locking
-- Worker pools prevent resource conflicts
-- Context propagation for cancellation
-- Atomic updates for task state changes
 
 ## Best Practices
 
-### Scheduling
-- Use appropriate intervals based on target sensitivity
-- Monitor task execution duration and adjust timeouts
-- Implement proper error handling and notifications
-- Regular cleanup of completed task history
+### Task Scheduling
+- Use cron expressions for complex scheduling patterns
+- Set appropriate timeout values based on expected task duration
+- Implement proper retry logic with exponential backoff
+- Monitor task execution success rates and adjust schedules accordingly
+
+### Resource Management
+- Configure concurrent limits based on system resources
+- Monitor system performance during peak task execution
+- Implement graceful degradation when resources are constrained
+- Use priority queues for critical tasks
 
 ### Database Management
-- Regular database maintenance and optimization
-- Backup scheduling data regularly
+- Regularly clean up old task execution records
 - Monitor database size and performance
-- Use transactions for atomic operations 
+- Implement proper indexing for frequently queried columns
+- Use transactions for atomic operations
+
+### Error Handling and Monitoring
+- Log all task execution attempts and outcomes
+- Implement alerting for persistent task failures
+- Track task execution metrics and performance trends
+- Provide operational dashboards for task monitoring 

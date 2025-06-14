@@ -4,21 +4,21 @@ The notifier package provides comprehensive Discord notification capabilities fo
 
 ## Package Role in MonsterInc
 As the communication hub, this package:
-- **Security Alerts**: Delivers immediate notifications for security findings
-- **Scan Reporting**: Provides formatted reports for completed scans
-- **Monitor Integration**: Sends alerts for detected content changes
-- **File Delivery**: Uploads HTML reports and attachments to Discord
-- **Team Coordination**: Enables team collaboration on security findings
+- **Scanner Integration**: Sends scan result notifications with HTML reports
+- **Monitor Integration**: Delivers real-time alerts for content changes with diff reports
+- **Reporter Integration**: Uploads and shares generated HTML reports via Discord
+- **Team Communication**: Enables team collaboration on security findings
+- **System Notifications**: Provides status updates and error alerts
 
 ## Overview
 
 The notifier package enables:
 - **Discord Integration**: Webhook-based notification delivery to Discord channels
 - **Rich Formatting**: Structured embeds with colors, fields, and metadata
-- **File Attachments**: Automatic report upload with size optimization
+- **File Attachments**: Automatic report upload with size optimization and compression
 - **Message Building**: Fluent API for constructing Discord messages
 - **Service Routing**: Different webhooks for scanner and monitor services
-- **Error Handling**: Robust delivery with fallback mechanisms
+- **Error Handling**: Robust delivery with retry mechanisms and fallback strategies
 
 ## Architecture
 
@@ -41,58 +41,115 @@ The notifier package enables:
 └─────────────────────┘    └──────────────────────┘
 ```
 
+## Integration with MonsterInc Components
+
+### With Scanner Service
+
+```go
+// Scanner sends scan completion notifications with reports
+helper := scanner.GetNotificationHelper()
+reportPaths := []string{"./reports/scan-report.html"}
+
+helper.SendScanCompletionNotification(ctx, scanSummary, 
+    notifier.ScanServiceNotification, reportPaths)
+
+// Error notifications for failed scans
+if scanError != nil {
+    helper.SendScanFailureNotification(ctx, scanSummary, scanError)
+}
+```
+
+### With Monitor Service
+
+```go
+// Monitor sends file change notifications with diff reports
+helper := monitor.GetNotificationHelper()
+
+// Single file change notification
+helper.SendFileChangeNotification(ctx, changeInfo, diffReportPath)
+
+// Aggregated changes notification
+helper.SendAggregatedFileChangesNotification(ctx, changes, aggregatedReportPath)
+
+// Monitor cycle completion
+helper.SendMonitorCycleCompleteNotification(ctx, cycleData)
+```
+
+### With Reporter Integration
+
+```go
+// Notifier automatically handles report uploads
+type NotificationConfig struct {
+    MaxFileSize    int64 // Discord's 10MB limit
+    CompressLarge  bool  // Auto-compress oversized files
+    CleanupAfter   bool  // Remove files after upload
+}
+
+// Reporter generates report, notifier handles delivery
+reportPath, err := reporter.GenerateReport(data)
+if err != nil {
+    return err
+}
+
+// Notifier handles file size checks and compression
+err = notifier.SendReportNotification(ctx, reportPath, webhook)
+if err != nil {
+    logger.Error().Err(err).Msg("Failed to send report")
+}
+```
+
 ## File Structure
 
 ### Core Components
 
-- **`helper.go`** - Main notification service and high-level API
-- **`notifier.go`** - Discord HTTP client and file operations
-- **`scan_formatters.go`** - Scan-related message formatting
-- **`monitor_formatters.go`** - Monitor-related message formatting
+- **`notifier.go`** - Main notification service and Discord HTTP client
+- **`helper.go`** - High-level API and service integrations
+- **`scan_formatters.go`** - Scanner service message formatting
+- **`monitor_formatters.go`** - Monitor service message formatting
 - **`builders.go`** - Discord embed and payload builders
 
 ### Supporting Components
 
 - **`utils.go`** - Utility functions and validation
-- **`constants.go`** - Color constants and configuration
+- **`constants.go`** - Color constants and configuration values
 
 ## Features
 
 ### 1. Discord Integration
 
 **Capabilities:**
-- Webhook-based message delivery
-- Rich embed formatting with colors and fields
-- File attachment handling up to Discord limits
-- Custom usernames and avatars
-- Role mention support
+- **Webhook Delivery**: Reliable webhook-based message delivery
+- **Rich Embeds**: Structured embeds with colors, fields, and metadata
+- **File Attachments**: Upload HTML reports and other files up to Discord's limits
+- **Message Threading**: Group related notifications together
+- **Role Mentions**: Notify specific roles for critical alerts
 
 ### 2. Message Types
 
-**Scan Notifications:**
-- Scan start notifications with target information
-- Completion notifications with statistics
-- Failure notifications with error details
-- Critical error alerts with system information
+**Scanner Service Notifications:**
+- **Scan Start**: Notifications with target information and expected duration
+- **Scan Completion**: Success notifications with statistics and HTML reports
+- **Scan Failure**: Error notifications with detailed failure information
+- **Critical Alerts**: High-priority security finding notifications
 
-**Monitor Notifications:**
-- File change notifications with diff reports
-- Monitoring cycle completion summaries
-- Error aggregation reports
-- Fetch failure notifications
+**Monitor Service Notifications:**
+- **File Changes**: Individual file change notifications with diff reports
+- **Batch Changes**: Aggregated change notifications for multiple files
+- **Cycle Completion**: Monitor cycle summary with statistics
+- **Error Aggregation**: Bundled error reports for fetch failures
 
 ### 3. File Management
 
-**Features:**
-- Automatic file size detection and optimization
-- ZIP compression for oversized reports
-- Multi-part report handling
-- Auto-cleanup after successful delivery
-- Graceful fallback for upload failures
+**Advanced Features:**
+- **Size Detection**: Automatic file size validation before upload
+- **Compression**: ZIP compression for files exceeding Discord's 10MB limit
+- **Multi-part Handling**: Smart handling of split reports from Reporter
+- **Auto-cleanup**: Configurable cleanup of temporary files after delivery
+- **Fallback Strategies**: Graceful degradation when file upload fails
 
 ## Usage Examples
 
-### Basic Setup
+### Basic Setup and Configuration
 
 ```go
 import (
@@ -101,20 +158,20 @@ import (
     "github.com/aleister1102/monsterinc/internal/common"
 )
 
-// Create HTTP client for Discord
+// Create HTTP client optimized for Discord
 httpClientFactory := common.NewHTTPClientFactory(logger)
 discordClient, err := httpClientFactory.CreateDiscordClient(30 * time.Second)
 if err != nil {
     return fmt.Errorf("failed to create Discord client: %w", err)
 }
 
-// Create Discord notifier
+// Create Discord notifier with retry logic
 discordNotifier, err := notifier.NewDiscordNotifier(logger, discordClient)
 if err != nil {
     return fmt.Errorf("failed to create Discord notifier: %w", err)
 }
 
-// Create notification helper
+// Create notification helper with configuration
 helper := notifier.NewNotificationHelper(
     discordNotifier,
     cfg.NotificationConfig,
@@ -122,62 +179,87 @@ helper := notifier.NewNotificationHelper(
 )
 ```
 
-### Scan Notifications
+### Scanner Integration Examples
 
 ```go
-// Create scan summary
-summary := models.ScanSummaryData{
-    ScanSessionID: "20240101-120000",
+// Scan workflow notifications
+ctx := context.Background()
+
+// 1. Scan start notification
+summary := &models.ScanSummaryData{
+    ScanSessionID: "scan-20240101-120000",
     ScanMode:      "onetime",
     TargetSource:  "file:targets.txt",
-    TotalTargets:  100,
-    ProbeStats: models.ProbeStats{
-        TotalProbed:      100,
-        SuccessfulProbes: 85,
-        FailedProbes:     15,
-    },
-    ScanDuration: 5 * time.Minute,
-    Status:       "COMPLETED",
+    TotalTargets:  150,
+    StartTime:     time.Now(),
 }
 
-// Send scan start notification
-ctx := context.Background()
 helper.SendScanStartNotification(ctx, summary)
 
-// Send completion notification with report
-reportPaths := []string{"./reports/scan-report.html"}
-helper.SendScanCompletionNotification(ctx, summary, 
-    notifier.ScanServiceNotification, reportPaths)
-```
+// 2. Progress updates (optional)
+helper.SendScanProgressNotification(ctx, summary, 75) // 75% complete
 
-### Monitor Notifications
+// 3. Scan completion with results
+summary.ProbeStats = models.ProbeStats{
+    TotalProbed:      150,
+    SuccessfulProbes: 142,
+    FailedProbes:     8,
+}
+summary.ScanDuration = 5 * time.Minute  
+summary.Status = "COMPLETED"
 
-```go
-// File change notification
-changes := []models.FileChangeInfo{
-    {
-        URL:            "https://example.com/app.js",
-        OldHash:        "abc123",
-        NewHash:        "def456",
-        ContentType:    "application/javascript",
-        ChangeTime:     time.Now(),
-        DiffReportPath: stringPtr("./reports/app-js-diff.html"),
-        CycleID:        "cycle-001",
-    },
+// Include generated reports
+reportPaths := []string{
+    "./reports/scan-report.html",
+    "./reports/extracted-paths.html",
 }
 
-// Send aggregated changes notification
-helper.SendAggregatedFileChangesNotification(ctx, changes, 
-    "./reports/aggregated-diff.html")
+helper.SendScanCompletionNotification(ctx, summary, 
+    notifier.ScanServiceNotification, reportPaths)
 
-// Monitor cycle completion
+// 4. Error handling
+if scanError != nil {
+    helper.SendScanFailureNotification(ctx, summary, scanError)
+}
+```
+
+### Monitor Integration Examples
+
+```go
+// Monitor workflow notifications
+ctx := context.Background()
+
+// 1. Individual file change notification
+changeInfo := models.FileChangeInfo{
+    URL:            "https://example.com/critical-config.js",
+    OldHash:        "abc123def456",
+    NewHash:        "789ghi012jkl",
+    ContentType:    "application/javascript",
+    ChangeTime:     time.Now(),
+    DiffReportPath: stringPtr("./reports/config-js-diff.html"),
+    CycleID:        "cycle-20240101-001",
+}
+
+helper.SendFileChangeNotification(ctx, changeInfo, 
+    *changeInfo.DiffReportPath)
+
+// 2. Aggregated changes notification
+changes := []models.FileChangeInfo{changeInfo, /* more changes */}
+aggregatedReportPath := "./reports/aggregated-changes.html"
+
+helper.SendAggregatedFileChangesNotification(ctx, changes, 
+    aggregatedReportPath)
+
+// 3. Monitor cycle completion
 cycleData := models.MonitorCycleCompleteData{
-    CycleID:        "cycle-001",
-    ChangedURLs:    []string{"https://example.com/app.js"},
+    CycleID:        "cycle-20240101-001",
+    ChangedURLs:    []string{"https://example.com/critical-config.js"},
     FileChanges:    changes,
-    TotalMonitored: 50,
+    TotalMonitored: 100,
+    SuccessfulChecks: 98,
+    FailedChecks:   2,
     Timestamp:      time.Now(),
-    ReportPath:     "./reports/cycle-report.html",
+    ReportPath:     "./reports/cycle-complete.html",
 }
 
 helper.SendMonitorCycleCompleteNotification(ctx, cycleData)
@@ -186,55 +268,61 @@ helper.SendMonitorCycleCompleteNotification(ctx, cycleData)
 ### Custom Message Building
 
 ```go
-// Build custom embed with fluent API
+// Build custom security alert
 embed := notifier.NewDiscordEmbedBuilder().
-    WithTitle("🔍 Security Alert").
-    WithDescription("Critical vulnerability detected in monitored file").
+    WithTitle("🚨 Critical Security Alert").
+    WithDescription("High-severity vulnerability detected in monitored endpoint").
     WithColor(notifier.CriticalEmbedColor).
     WithTimestamp(time.Now()).
-    AddField("Affected File", "https://example.com/critical-config.js", false).
-    AddField("Severity", "HIGH", true).
-    AddField("Action Required", "Immediate Review", true).
-    WithFooter("MonsterInc Security Scanner", "").
+    AddField("🎯 Target", "https://api.example.com/auth/login", false).
+    AddField("🔍 Issue", "Authentication bypass vulnerability", false).
+    AddField("⚠️ Severity", "CRITICAL", true).
+    AddField("🚀 Action Required", "Immediate patching required", true).
+    AddField("📊 Confidence", "High (95%)", true).
+    WithFooter("MonsterInc Security Monitor", "").
     Build()
 
-// Build complete message payload
-allowedMentions := models.NewAllowedMentionsBuilder().
-    WithRoles([]string{"123456789"}).
+// Send custom notification
+payload := notifier.NewDiscordPayloadBuilder().
+    WithUsername("MonsterInc Security").
+    WithEmbeds([]*notifier.DiscordEmbed{embed}).
     Build()
 
-payload := notifier.NewDiscordMessagePayloadBuilder().
-    WithUsername("MonsterInc Security Alert").
-    WithContent("🚨 **SECURITY ALERT** 🚨").
-    AddEmbed(embed).
-    WithAllowedMentions(allowedMentions).
-    Build()
-
-// Send directly via notifier
-err := discordNotifier.SendNotification(ctx, webhookURL, payload, "")
+err := discordNotifier.SendNotification(ctx, webhook, payload)
+if err != nil {
+    logger.Error().Err(err).Msg("Failed to send custom alert")
+}
 ```
 
-### Error Notifications
+### Advanced File Handling
 
 ```go
-// Critical error notification
-helper.SendCriticalErrorNotification(ctx, 
-    "Database connection failed", 
-    "scanner", 
-    notifier.ScanServiceNotification)
-
-// Monitor fetch errors
-fetchErrors := []models.MonitorFetchErrorInfo{
-    {
-        URL:        "https://example.com/unavailable.js",
-        Error:      "connection timeout",
-        Source:     "fetch",
-        OccurredAt: time.Now(),
-        CycleID:    "cycle-001",
-    },
+// Handle large report files with compression
+config := &notifier.FileUploadConfig{
+    MaxFileSizeMB:     10,  // Discord limit
+    CompressOversized: true,
+    RetryCount:        3,
+    CleanupAfterSend:  true,
 }
 
-helper.SendAggregatedFetchErrorsNotification(ctx, fetchErrors)
+// Send report with automatic compression if needed
+err := helper.SendReportWithConfig(ctx, reportPath, webhook, config)
+if err != nil {
+    logger.Error().Err(err).Msg("Failed to send report")
+}
+
+// Handle multi-part reports (from Reporter splitting)
+reportParts := []string{
+    "./reports/scan-report-part1.html",
+    "./reports/scan-report-part2.html",
+    "./reports/scan-report-part3.html",
+}
+
+err = helper.SendMultiPartReport(ctx, reportParts, webhook, 
+    "Scan Report (Multiple Parts)")
+if err != nil {
+    logger.Error().Err(err).Msg("Failed to send multi-part report")
+}
 ```
 
 ## Configuration
@@ -243,283 +331,118 @@ helper.SendAggregatedFetchErrorsNotification(ctx, fetchErrors)
 
 ```yaml
 notification_config:
-  scan_service_discord_webhook_url: "https://discord.com/api/webhooks/..."
-  monitor_service_discord_webhook_url: "https://discord.com/api/webhooks/..."
-  notify_on_scan_start: true             # Send scan start notifications
-  notify_on_success: true                # Send successful completion notifications
-  notify_on_failure: true                # Send failure notifications
-  notify_on_critical_error: true         # Send critical error alerts
-  mention_role_ids:                      # Role IDs to mention in notifications
-    - "123456789012345678"
-    - "987654321098765432"
-  auto_delete_partial_diff_reports: true # Delete partial reports after sending
+  # Discord webhooks for different services
+  scanner_webhook: "https://discord.com/api/webhooks/xxx/yyy"
+  monitor_webhook: "https://discord.com/api/webhooks/aaa/bbb"
+  
+  # File upload settings
+  max_file_size_mb: 10
+  compress_large_files: true
+  cleanup_after_send: true
+  
+  # Retry and error handling
+  retry_count: 3
+  retry_delay_seconds: 5
+  enable_fallback: true
+  
+  # Message customization
+  bot_username: "MonsterInc Security"
+  enable_mentions: true
+  mention_roles: ["@security-team"]
+  
+  # Rate limiting
+  rate_limit_per_minute: 30
+  burst_limit: 5
 ```
 
-### Configuration Options
+### Configuration Structure
 
-- **`scan_service_discord_webhook_url`**: Webhook for scan-related notifications
-- **`monitor_service_discord_webhook_url`**: Webhook for monitor-related notifications
-- **`notify_on_*`**: Boolean flags to control notification types
-- **`mention_role_ids`**: Discord role IDs to mention in notifications
-- **`auto_delete_partial_diff_reports`**: Cleanup partial reports after delivery
+```go
+type NotificationConfig struct {
+    ScannerWebhook     string   `yaml:"scanner_webhook"`
+    MonitorWebhook     string   `yaml:"monitor_webhook"`
+    MaxFileSizeMB      int64    `yaml:"max_file_size_mb"`
+    CompressLargeFiles bool     `yaml:"compress_large_files"`
+    CleanupAfterSend   bool     `yaml:"cleanup_after_send"`
+    RetryCount         int      `yaml:"retry_count"`
+    RetryDelaySeconds  int      `yaml:"retry_delay_seconds"`
+    BotUsername        string   `yaml:"bot_username"`
+    EnableMentions     bool     `yaml:"enable_mentions"`
+    MentionRoles       []string `yaml:"mention_roles"`
+}
+```
 
 ## Message Formatting
 
-### Embed Colors
+### Color Coding System
 
 ```go
 const (
-    SuccessEmbedColor  = 0x5CB85C  // Green - successful operations
-    ErrorEmbedColor    = 0xD9534F  // Red - failed operations
-    WarningEmbedColor  = 0xF0AD4E  // Orange - warnings
-    InfoEmbedColor     = 0x5BC0DE  // Blue - informational
-    MonitorEmbedColor  = 0x6F42C1  // Purple - monitoring events
-    CriticalEmbedColor = 0xDC3545  // Dark Red - critical alerts
+    // Status colors
+    SuccessEmbedColor = 0x00FF00  // Green - successful operations
+    WarningEmbedColor = 0xFFFF00  // Yellow - warnings and non-critical issues
+    ErrorEmbedColor   = 0xFF0000  // Red - errors and failures
+    InfoEmbedColor    = 0x0099FF  // Blue - informational messages
+    CriticalEmbedColor = 0xFF0066 // Pink - critical security alerts
 )
+
+// Usage in formatters
+embed.WithColor(notifier.SuccessEmbedColor) // For successful scans
+embed.WithColor(notifier.CriticalEmbedColor) // For security alerts
 ```
 
-### Standard Message Structure
+### Message Templates
 
-```go
-// Scan completion embed structure
-type ScanCompletionEmbed struct {
-    Title       string    // "🎯 Scan Completed"
-    Description string    // Scan summary
-    Color       int       // Based on success/failure
-    Fields      []Field   // Statistics and details
-    Timestamp   time.Time // Completion time
-    Footer      string    // Scanner identification
-}
+**Scan Completion Template:**
+```
+🎯 Scan Completed Successfully
+Target: file:targets.txt
+Duration: 5m 30s
+Results: 142/150 successful (94.7%)
+📊 Report: [scan-report.html]
 ```
 
-### Field Formatting
-
-```go
-// Common embed fields
-fields := []models.DiscordEmbedField{
-    {Name: "📊 Targets Processed", Value: "100", Inline: true},
-    {Name: "✅ Successful Probes", Value: "85", Inline: true},
-    {Name: "❌ Failed Probes", Value: "15", Inline: true},
-    {Name: "⏱️ Duration", Value: "5m 30s", Inline: true},
-    {Name: "🔗 Report", Value: "[View Report](./report.html)", Inline: false},
-}
+**File Change Template:**
 ```
-
-## File Handling
-
-### Size Optimization
-
-```go
-// Automatic file size management
-func (dn *DiscordNotifier) handleFileAttachment(ctx context.Context, filePath string) error {
-    fileInfo, err := os.Stat(filePath)
-    if err != nil {
-        return err
-    }
-    
-    // Discord file size limit (safe margin)
-    if fileInfo.Size() > discordFileSizeLimit {
-        return dn.compressAndUpload(ctx, filePath)
-    }
-    
-    return dn.uploadFile(ctx, filePath)
-}
+📝 Content Change Detected
+🔗 URL: https://example.com/config.js
+🔄 Status: Modified
+⏰ Time: 2024-01-01 12:00:00 UTC
+📋 Diff Report: [config-js-diff.html]
 ```
-
-### ZIP Compression
-
-```go
-// Compress large files for Discord
-func (dn *DiscordNotifier) compressFile(sourceFile string) (string, error) {
-    zipPath := sourceFile + ".zip"
-    
-    archive, err := os.Create(zipPath)
-    if err != nil {
-        return "", err
-    }
-    defer archive.Close()
-    
-    zipWriter := zip.NewWriter(archive)
-    defer zipWriter.Close()
-    
-    // Add file to ZIP
-    return dn.addFileToZip(zipWriter, sourceFile)
-}
-```
-
-### Cleanup Management
-
-```go
-// Auto-cleanup after sending
-func (dn *DiscordNotifier) SendWithCleanup(ctx context.Context, 
-    webhookURL string, payload models.DiscordMessagePayload, filePath string) error {
-    
-    err := dn.SendNotification(ctx, webhookURL, payload, filePath)
-    
-    // Cleanup on success or configured auto-delete
-    if err == nil || dn.shouldAutoDelete(filePath) {
-        dn.cleanupFile(filePath)
-    }
-    
-    return err
-}
-```
-
-## Integration Examples
-
-### With Scanner Service
-
-```go
-// Scanner completion hook
-scanner.OnScanComplete(func(summary models.ScanSummaryData, reportPaths []string) {
-    ctx := context.Background()
-    
-    // Send notification based on scan result
-    if summary.Status == string(models.ScanStatusCompleted) {
-        helper.SendScanCompletionNotification(ctx, summary, 
-            notifier.ScanServiceNotification, reportPaths)
-    } else {
-        helper.SendScanFailureNotification(ctx, summary, 
-            notifier.ScanServiceNotification)
-    }
-})
-```
-
-### With Monitor Service
-
-```go
-// Monitor change detection hook
-monitor.OnChangesDetected(func(changes []models.FileChangeInfo, reportPath string) {
-    ctx := context.Background()
-    
-    // Send aggregated notification for multiple changes
-    if len(changes) > 1 {
-        helper.SendAggregatedFileChangesNotification(ctx, changes, reportPath)
-    } else {
-        // Send individual notification for single change
-        helper.SendFileChangeNotification(ctx, changes[0])
-    }
-})
-```
-
-### With Scheduler
-
-```go
-// Scheduled task completion
-scheduler.OnTaskComplete(func(task scheduler.Task, result scheduler.TaskResult) {
-    ctx := context.Background()
-    
-    // Send notification based on task type and result
-    switch task.Type {
-    case scheduler.TaskTypeScan:
-        helper.SendScanCompletionNotification(ctx, result.ScanSummary, 
-            notifier.ScanServiceNotification, result.ReportPaths)
-    case scheduler.TaskTypeMonitor:
-        helper.SendMonitorCycleCompleteNotification(ctx, result.CycleData)
-    }
-})
-```
-
-## Error Handling
-
-### Network Retry Logic
-
-```go
-// HTTP client with retry capabilities
-func (dn *DiscordNotifier) sendWithRetry(ctx context.Context, 
-    req *common.HTTPRequest, maxRetries int) (*common.HTTPResponse, error) {
-    
-    var lastErr error
-    for attempt := 0; attempt <= maxRetries; attempt++ {
-        resp, err := dn.httpClient.Do(req)
-        if err == nil && resp.StatusCode < 500 {
-            return resp, nil
-        }
-        
-        lastErr = err
-        if attempt < maxRetries {
-            backoff := time.Duration(attempt+1) * time.Second
-            time.Sleep(backoff)
-        }
-    }
-    
-    return nil, lastErr
-}
-```
-
-### Validation
-
-```go
-// Webhook URL validation
-func (dn *DiscordNotifier) validateWebhookURL(webhookURL string) error {
-    if webhookURL == "" {
-        return errors.New("webhook URL is required")
-    }
-    
-    if !strings.HasPrefix(webhookURL, "https://discord.com/api/webhooks/") {
-        return errors.New("invalid Discord webhook URL format")
-    }
-    
-    return nil
-}
-```
-
-### Fallback Mechanisms
-
-```go
-// Graceful degradation for file upload failures
-func (dn *DiscordNotifier) sendWithFallback(ctx context.Context, 
-    webhookURL string, payload models.DiscordMessagePayload, filePath string) error {
-    
-    // Try with file attachment first
-    err := dn.SendNotification(ctx, webhookURL, payload, filePath)
-    if err == nil {
-        return nil
-    }
-    
-    // Fallback to text-only message
-    dn.logger.Warn().Err(err).Msg("File upload failed, sending text-only")
-    return dn.SendNotification(ctx, webhookURL, payload, "")
-}
-```
-
-## Thread Safety
-
-- All public methods are thread-safe
-- HTTP client uses connection pooling safely
-- File operations use proper locking mechanisms
-- Context propagation for cancellation support
-- Concurrent notification sending supported
 
 ## Dependencies
 
-- **github.com/aleister1102/monsterinc/internal/common** - HTTP client functionality
-- **github.com/aleister1102/monsterinc/internal/models** - Data models and structures
+- **github.com/aleister1102/monsterinc/internal/models** - Data structures
 - **github.com/aleister1102/monsterinc/internal/config** - Configuration management
+- **github.com/aleister1102/monsterinc/internal/common** - HTTP client factory
 - **github.com/rs/zerolog** - Structured logging
+- **net/http** - HTTP client operations
+- **encoding/json** - JSON marshaling for Discord API
+- **archive/zip** - File compression functionality
 
 ## Best Practices
 
-### Message Design
-- Use appropriate embed colors for different message types
-- Include relevant context and actionable information
-- Keep descriptions concise but informative
-- Use inline fields for related data grouping
-
-### File Management
-- Monitor file sizes and optimize for Discord limits
-- Implement proper cleanup to prevent disk space issues
-- Use meaningful filenames for uploaded reports
-- Consider compression for large report files
-
 ### Error Handling
-- Implement retry logic for transient network failures
-- Provide fallback mechanisms for file upload issues
-- Log notification failures for debugging
-- Use appropriate error recovery strategies
+- Implement retry logic with exponential backoff
+- Log all notification attempts and failures
+- Provide fallback mechanisms for critical notifications
+- Handle Discord rate limits gracefully
 
 ### Performance Optimization
-- Batch notifications when appropriate to reduce API calls
-- Use efficient HTTP client with connection pooling
-- Implement reasonable timeouts for webhook requests
-- Monitor notification delivery success rates
+- Use connection pooling for HTTP clients
+- Implement message batching for high-volume notifications
+- Cache frequently used embed templates
+- Monitor and optimize file upload performance
+
+### Security Considerations
+- Validate webhook URLs before use
+- Sanitize user input in message content
+- Implement proper authentication for webhook endpoints
+- Monitor for potential sensitive data leakage in notifications
+
+### File Management
+- Always validate file sizes before upload attempts
+- Implement proper cleanup of temporary files
+- Use compression for large files to stay within Discord limits
+- Provide clear error messages for file-related failures

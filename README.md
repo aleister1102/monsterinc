@@ -1,424 +1,314 @@
 # MonsterInc
 
-MonsterInc is a comprehensive security tool written in Go, specialized for website crawling, HTTP/HTTPS probing, real-time content change monitoring and detailed report generation. This tool is designed to support security professionals in reconnaissance and monitoring of web applications.
+MonsterInc là một công cụ bảo mật toàn diện được viết bằng Go, chuyên dụng cho việc thu thập URL từ website, thăm dò HTTP/HTTPS, giám sát thay đổi nội dung theo thời gian thực và tạo báo cáo chi tiết. Công cụ này được thiết kế để hỗ trợ các chuyên gia bảo mật trong việc trinh sát và giám sát ứng dụng web.
 
-## Key Features
+## Tính năng chính
 
-### 🕷️ Web Crawling
-- URL collection from websites with detailed scope configuration
-- Headless browser support for dynamic content
-- Scope control by hostname, subdomain, file extension
-- Asset extraction from HTML (images, scripts, stylesheets)
-- **Responsive interrupt handling** - immediate stop on SIGINT/SIGTERM
+### 🕷️ Thu thập URL (Web Crawling)
+- Thu thập URL từ website với cấu hình phạm vi chi tiết
+- Hỗ trợ trình duyệt headless cho nội dung động  
+- Kiểm soát phạm vi theo hostname, subdomain, phần mở rộng file
+- Trích xuất tài nguyên từ HTML (hình ảnh, script, stylesheet)
+- **Xử lý tín hiệu ngắt responsive** - dừng ngay lập tức khi nhận SIGINT/SIGTERM
 
-### 🔍 HTTP/HTTPS Probing
-- URL probing with integrated httpx engine
-- Complete metadata extraction: headers, technologies, TLS info, ASN
-- Support for custom headers, proxy, rate limiting
-- Technology detection and fingerprinting
-- **Context-aware cancellation** - graceful termination with active operation monitoring
+### 🔍 Thăm dó HTTP/HTTPS
+- Thăm dò URL với engine httpx tích hợp
+- Trích xuất metadata hoàn chỉnh: headers, công nghệ, thông tin TLS, ASN
+- Hỗ trợ retry và rate limiting thông minh
+- Phát hiện công nghệ tự động (tech detection)
+- **Batch processing** - xử lý hiệu quả cho tập dữ liệu lớn
 
-### 📊 Intelligent Reporting
-- Interactive HTML reports with search, filter, sort
-- Content diff reports with side-by-side comparison
-- Multi-part reports for large datasets
-- Dark/light theme support
+### 📊 Giám sát thay đổi thời gian thực
+- Theo dõi nội dung website liên tục với interval tùy chỉnh
+- So sánh thay đổi bằng hash và diff algorithms
+- **Batch URL processing** - quản lý hiệu quả URL sets lớn
+- Lưu trữ lịch sử thay đổi với Parquet format
+- Tạo báo cáo diff HTML trực quan với highlight thay đổi
 
-### 💾 Optimized Data Storage
-- Parquet format with compression for high performance
-- Structured data with schema versioning
-- Time-series data with efficient querying
-- Automatic file rotation and cleanup
+### 🔒 Phát hiện Secret/API Keys
+- Quét và phát hiện các secret, API keys, tokens trong mã nguồn
+- Regex patterns được tối ưu cho các dịch vụ phổ biến
+- Tích hợp với workflow crawling và monitoring
+- Báo cáo chi tiết với context và vị trí
 
-### 🔄 Continuous Monitoring
-- Real-time file monitoring with change detection
-- Event aggregation and batch notifications
-- Cycle-based monitoring with detailed reporting
-- Content diff analysis for detected changes
-- **Immediate interrupt response** - stops monitoring cycles instantly
+### 📈 Báo cáo và Thông báo
+- Tạo báo cáo HTML interactive với DataTables
+- Diff reports với syntax highlighting
+- Thông báo Discord tự động với file đính kèm
+- Template system linh hoạt cho custom reports
 
-### ⚙️ Advanced Configuration
-- YAML/JSON configuration with validation
-- Environment-based config resolution
-- Hot-reload capabilities
-- Hierarchical configuration merging
-
-### 🔐 Security Analysis
-- Path extraction from JS/HTML content
-- API endpoint discovery
-
-### 📈 Historical Analysis
-- URL diff analysis (New/Old/Existing)
-- Content change tracking
-- Trend analysis and reporting
-- Data retention policies
-
-### 🚨 Interrupt Handling
-- **Immediate response** to SIGINT/SIGTERM signals
-- Context-based cancellation propagation across all components
-- Graceful shutdown with 2-second timeout for active operations
-- **Force quit** support (second interrupt signal)
-- Comprehensive logging of shutdown process
-- Safe resource cleanup and state preservation
-
-### 🧠 Memory Management & Auto-Shutdown
-- **System memory monitoring** using `gopsutil` for total system memory tracking
-- **Configurable memory thresholds** - application memory (default: 1GB) and system memory (default: 50%)
-- **Auto-shutdown capability** - graceful application termination when system memory exceeds threshold
-- **Application memory limits** with automatic garbage collection triggers
-- **Goroutine monitoring** with configurable warning thresholds
-- **Resource usage logging** with detailed system and application memory statistics
-- **Graceful shutdown callbacks** for custom cleanup logic during memory-triggered shutdowns
-
-## Quick Start
-
-### Installation
-
-```bash
-# Clone repository
-git clone https://github.com/aleister1102/monsterinc.git
-cd monsterinc
-
-# Build application
-go mod tidy
-go build -o monsterinc cmd/monsterinc/*.go
-```
-
-Install with `go install`:
-
-```shell
-go install github.com/aleister1102/monsterinc/cmd/monsterinc@latest
-```
-
-### Basic Usage
-
-```bash
-# One-time scan
-./monsterinc -scan-targets targets.txt -globalconfig config.yaml -mode onetime
-
-# Automated monitoring 
-./monsterinc -scan-targets targets.txt -monitor-targets monitor.txt -globalconfig config.yaml -mode automated
-
-# With aliases
-./monsterinc -st targets.txt -mt monitor.txt -gc config.yaml -m automated
-```
-
-### Interrupt Handling
-
-MonsterInc provides immediate response to interrupt signals:
-
-```bash
-# During any operation, press Ctrl+C to interrupt
-./monsterinc -scan-targets large-targets.txt -config config.yaml -mode onetime
-# Press Ctrl+C - operation stops within 2 seconds
-
-# Force quit with double interrupt
-# Press Ctrl+C twice for immediate termination
-```
-
-**Signal Behavior:**
-- **First SIGINT/SIGTERM**: Graceful shutdown with 2-second timeout
-- **Second SIGINT/SIGTERM**: Force quit immediately
-- **Context cancellation**: Propagates to all active components
-- **Resource cleanup**: Automatic cleanup of temporary files and connections
-- **Partial results**: Available for interrupted scans
-
-### Tips
-
-- Filter input file with `httpx` before scanning
-- Filter library JS files before monitoring
-
-## Configuration
-
-### Configuration File Priority
-
-1. `--globalconfig` parameter
-2. `MONSTERINC_CONFIG` environment variable
-3. `config.yaml` in working directory
-4. `config.json` in working directory
-
-### Configuration Structure
-
-```yaml
-# Core service configurations
-scanner_config: {...}      # Main scanning workflow
-monitor_config: {...}      # Continuous monitoring
-scheduler_config: {...}    # Automated scheduling
-
-# Data processing
-crawler_config: {...}      # Web crawling settings
-httpx_runner_config: {...} # HTTP probing settings
-differ_config: {...}       # Content comparison
-extractor_config: {...}    # Path extraction
-
-# Storage & output
-storage_config: {...}      # Parquet storage
-reporter_config: {...}     # HTML reports
-notification_config: {...} # Discord notifications
-
-# Infrastructure
-log_config: {...}          # Logging configuration
-```
-
-See [config.example.yaml](configs/config.example.yaml) for a complete configuration template.
-
-## Architecture Overview
-
-MonsterInc is designed with a modular architecture featuring independent packages, each responsible for a specific part of the workflow:
-
-### Core Data Flow
+## Kiến trúc hệ thống
 
 ```mermaid
 graph TD
-    A[CLI Entry Point] --> B[Config Manager]
-    B --> C[Scanner Orchestrator]
-    C --> D[URL Handler]
-    D --> E[Crawler]
-    E --> F[HTTPX Runner]
-    F --> G[Data Store]
-    G --> H[Differ]
-    H --> I[Reporter]
-    I --> J[Notifier]
+    A["CLI Entry Point<br/>(cmd/monsterinc/main.go)"] --> B["Configuration Manager<br/>(internal/config)"]
+    B --> C{"Operation Mode"}
     
-    C --> K[Monitor Service]
-    K --> L[Event Aggregator]
-    L --> J
+    C -->|One-time Scan| D["Scanner Service<br/>(internal/scanner)"]
+    C -->|Automated Mode| E["Scheduler Service<br/>(internal/scheduler)"]
+    C -->|Monitoring| F["Monitor Service<br/>(internal/monitor)"]
     
-    C --> M[Scheduler]
-    M --> N[Workers]
-    N --> C
+    D --> G["URL Handler<br/>(internal/urlhandler)"]
+    G --> H["Batch Workflow<br/>Orchestrator"]
     
-    subgraph "Storage Layer"
-        G
-        O[Parquet Files]
-        P[SQLite DB]
-    end
+    H --> I["Web Crawler<br/>(internal/crawler)"]
+    I --> J["HTTPX Runner<br/>(internal/httpxrunner)"]
+    J --> K["Diff Processor<br/>(internal/differ)"]
+    K --> L["Data Store<br/>(internal/datastore)"]
     
-    subgraph "Analysis Layer" 
-        Q[Path Extractor]
-        R[Content Differ]
-    end
+    L --> M["Reporter<br/>(internal/reporter)"]
+    M --> N["HTML Reports<br/>with Interactive UI"]
     
-    F --> Q
-    K --> R
+    L --> O["Notifier<br/>(internal/notifier)"]
+    O --> P["Discord Notifications"]
+    
+    E --> Q["Task Execution"]
+    Q --> D
+    
+    F --> R["Batch URL Manager"]
+    R --> S["URL Checker"]
+    S --> T["Content Processor"]
+    T --> U["Cycle Tracker"]
+    U --> L
+    U --> O
+    
+    L --> V["Secret Scanner<br/>(internal/secretscanner)"]
+    V --> O
+    
+    I --> W["Path Extractor<br/>(internal/extractor)"]
+    W --> L
+    
+    style A fill:#e1f5fe
+    style D fill:#f3e5f5
+    style E fill:#e8f5e8
+    style F fill:#fff3e0
+    style L fill:#fce4ec
+    style O fill:#f1f8e9
 ```
 
-## Data Flow Diagrams
+## Cấu trúc thư mục
 
-### Scanner Workflow
+### Core Components
 
-```mermaid
-sequenceDiagram
-    participant CLI
-    participant Scanner
-    participant Crawler
-    participant HTTPXRunner
-    participant DataStore
-    participant Differ
-    participant Reporter
-    participant Notifier
+#### `cmd/monsterinc/`
+- **`main.go`** - Entry point chính với flag parsing và signal handling
+- **`flags.go`** - Command-line flags và validation
 
-    CLI->>Scanner: Start scan session
-    Scanner->>Crawler: Crawl targets
-    Crawler-->>Scanner: Discovered URLs
-    Scanner->>HTTPXRunner: Probe URLs
-    HTTPXRunner-->>Scanner: Probe results
-    Scanner->>DataStore: Store results
-    Scanner->>Differ: Compare with history
-    Differ-->>Scanner: Diff results
-    Scanner->>Reporter: Generate reports
-    Reporter-->>Scanner: Report paths
-    Scanner->>Notifier: Send notifications
-    Notifier-->>CLI: Completion status
+#### `internal/scanner/`
+- **Main orchestrator** cho toàn bộ scanning pipeline
+- Quản lý workflow từ crawling → probing → diffing → reporting
+- Hỗ trợ batch processing cho dataset lớn
+- Integration với tất cả components khác
+
+#### `internal/monitor/`
+- **Real-time monitoring service** cho web content changes
+- Batch URL management cho efficient processing
+- Change detection với content hashing
+- Cycle tracking và progress management
+
+#### `internal/crawler/`
+- **Web crawling engine** dựa trên Colly framework
+- Asset extraction từ HTML/CSS/JS
+- Headless browser support cho dynamic content
+- Scope management và URL filtering
+
+#### `internal/httpxrunner/`
+- **HTTP probing wrapper** cho httpx library
+- Result mapping và error handling
+- Technology detection và metadata extraction
+
+#### `internal/datastore/`
+- **Parquet-based storage layer** cho high-performance persistence
+- Streaming operations cho memory efficiency
+- File history tracking cho monitoring
+- Schema optimization cho scan results
+
+#### `internal/differ/`
+- **Content comparison engine** với diff algorithms
+- URL diffing cho new/old/existing classification
+- Content diffing với line-by-line analysis
+
+#### `internal/reporter/`
+- **HTML report generation** với interactive templates
+- Asset embedding cho standalone reports
+- Multi-part reports cho large datasets
+- Custom CSS/JS injection
+
+#### `internal/notifier/`
+- **Discord notification system** với webhook integration
+- File attachment handling với compression
+- Message formatting với embed builders
+- Error aggregation và batch notifications
+
+### Supporting Components
+
+#### `internal/config/`
+- Centralized configuration management
+- YAML/JSON parsing với validation
+- Environment variable support
+- Component-specific config builders
+
+#### `internal/common/`
+- Shared utilities và foundational components
+- HTTP client với connection pooling
+- File operations với context support
+- Memory pools và resource limiting
+- Progress tracking và display
+
+#### `internal/models/`
+- Data structures và interfaces
+- Parquet schema definitions
+- Notification payload builders
+
+#### `internal/extractor/`
+- Path extraction từ JavaScript content
+- URL validation và resolution
+- Custom regex support
+
+#### `internal/secretscanner/`
+- Secret pattern detection
+- Multiple rule sets cho different services
+- Context extraction cho findings
+
+#### `internal/urlhandler/`
+- URL normalization và validation
+- Target management từ files/inputs
+
+#### `internal/logger/`
+- Structured logging với zerolog
+- Multiple output formats (JSON, console)
+- Log rotation và organization
+
+#### `internal/scheduler/`
+- Task scheduling với SQLite persistence
+- Cron-like intervals với retry logic
+- State management cho automated scans
+
+## Installation
+
+### Prerequisites
+- Go 1.21+
+- Google Chrome (cho headless browsing)
+
+### Build từ source
+
+```bash
+git clone https://github.com/your-org/monsterinc.git
+cd monsterinc
+go build -o bin/monsterinc cmd/monsterinc/main.go
 ```
 
-### Monitor Service Flow
+### Configuration
 
-```mermaid
-flowchart TD
-    A[Monitor Service] --> B[URL Manager]
-    A --> C[URL Checker]
-    A --> D[Event Aggregator]
-    
-    B --> E[Load Target URLs]
-    E --> F[Validate URLs]
-    F --> G[Queue for Monitoring]
-    
-    C --> H[Fetch Content]
-    H --> I[Process Content]
-    I --> J[Detect Changes]
-    J --> K[Store History]
-    K --> L[Generate Diff Report]
-    
-    L --> D
-    J --> D
-    D --> M[Aggregate Events]
-    M --> N[Send Notifications]
-    
-    subgraph "Cycle Management"
-        O[Cycle Tracker]
-        P[Generate Cycle ID]
-        Q[Track Changed URLs]
-        R[End Cycle Report]
-    end
-    
-    A --> O
-    O --> P
-    Q --> R
+Tạo file `config.yaml`:
+
+```yaml
+mode: "onetime"  # hoặc "automated", "monitor"
+
+crawler_config:
+  max_depth: 3
+  max_concurrent_requests: 20
+  request_timeout_secs: 30
+  seed_urls:
+    - "https://example.com"
+  
+httpx_runner_config:
+  threads: 50
+  timeout_secs: 30
+  tech_detect: true
+  
+monitor_config:
+  enabled: true
+  check_interval_seconds: 300
+  max_concurrent_checks: 10
+  
+notification_config:
+  scan_service_discord_webhook_url: "https://discord.com/api/webhooks/..."
+  monitor_service_discord_webhook_url: "https://discord.com/api/webhooks/..."
+  
+storage_config:
+  parquet_base_path: "./data"
+  compression_codec: "zstd"
 ```
 
-### Data Storage Architecture
+## Usage
 
-```mermaid
-graph TB
-    subgraph "Input Sources"
-        A[Target Files]
-        B[Configuration]
-        C[Monitor URLs]
-    end
-    
-    subgraph "Processing Layer"
-        D[Scanner Service]
-        E[Monitor Service]
-        F[Scheduler Service]
-    end
-    
-    subgraph "Storage Layer"
-        G[(Parquet Files)]
-        H[(SQLite DB)]
-        I[HTML Reports]
-        J[Diff Reports]
-    end
-    
-    subgraph "Output Layer"
-        K[Discord Notifications]
-        L[File System Reports]
-        M[Aggregated Data]
-    end
-    
-    A --> D
-    B --> D
-    C --> E
-    
-    D --> G
-    E --> G
-    F --> H
-    
-    G --> I
-    G --> J
-    
-    I --> K
-    J --> K
-    I --> L
-    J --> L
-    G --> M
+### One-time Scan
+
+```bash
+./bin/monsterinc -config config.yaml -targets targets.txt
 ```
 
-### Configuration Flow
+### Automated Scanning
 
-```mermaid
-flowchart LR
-    A[Config Files] --> B[Config Loader]
-    B --> C[Validator]
-    C --> D[Global Config]
-    
-    D --> E[Scanner Config]
-    D --> F[Monitor Config]
-    D --> G[Scheduler Config]
-    D --> H[Storage Config]
-    D --> I[Notification Config]
-    
-    E --> J[Scanner Service]
-    F --> K[Monitor Service]
-    G --> L[Scheduler Service]
-    H --> M[DataStore Services]
-    I --> N[Notifier Service]
-    
-    subgraph "Config Sources"
-        O[config.yaml]
-        P[config.json]
-        Q[Environment Variables]
-        R[CLI Arguments]
-    end
-    
-    O --> A
-    P --> A
-    Q --> B
-    R --> B
+```bash
+./bin/monsterinc -config config.yaml -targets targets.txt -mode automated
 ```
 
-## Package Documentation
+### Monitoring Mode
 
-### Core Packages
-
-- **[Scanner](internal/scanner/README.md)** - Main orchestration service, workflow coordination
-- **[Monitor](internal/monitor/README.md)** - Continuous monitoring and change detection
-- **[Scheduler](internal/scheduler/README.md)** - Automated task scheduling with SQLite persistence
-
-### Data Processing
-
-- **[Crawler](internal/crawler/README.md)** - Web crawling with asset extraction
-- **[HTTPXRunner](internal/httpxrunner/README.md)** - HTTP probing and metadata extraction
-- **[Differ](internal/differ/README.md)** - Content comparison and URL diff analysis
-- **[Extractor](internal/extractor/README.md)** - Path extraction from JS/HTML content
-
-### Data Management
-
-- **[DataStore](internal/datastore/README.md)** - Parquet-based data storage and querying
-- **[Models](internal/models/README.md)** - Data structures and schemas
-- **[URLHandler](internal/urlhandler/README.md)** - URL processing and normalization
-
-### Infrastructure
-
-- **[Config](internal/config/README.md)** - Configuration management and validation
-- **[Logger](internal/logger/README.md)** - Structured logging framework
-- **[Common](internal/common/README.md)** - Shared utilities and patterns
-
-### Output & Notification
-
-- **[Reporter](internal/reporter/README.md)** - HTML report generation
-- **[Notifier](internal/notifier/README.md)** - Discord notifications with file attachments
-
-## Project Structure
-
-```
-monsterinc/
-├── cmd/monsterinc/           # Application entry point
-├── internal/                 # Core application logic
-│   ├── scanner/             # Main orchestration service
-│   ├── monitor/             # Continuous monitoring
-│   ├── scheduler/           # Automated scheduling
-│   ├── crawler/             # Web crawling
-│   ├── httpxrunner/         # HTTP probing
-│   ├── differ/              # Content comparison
-│   ├── extractor/           # Path extraction
-│   ├── datastore/           # Data storage (Parquet)
-│   ├── reporter/            # HTML report generation
-│   ├── notifier/            # Discord notifications
-│   ├── config/              # Configuration management
-│   ├── logger/              # Logging framework
-│   ├── models/              # Data structures
-│   ├── common/              # Shared utilities
-│   └── urlhandler/          # URL processing
-├── configs/                  # Configuration files
-├── database/                # Parquet storage
-├── reports/                 # Generated reports
-├── tasks/                   # Development tasks & PRDs
-└── target/                  # Target URL files
+```bash
+./bin/monsterinc -config config.yaml -targets monitor-targets.txt -mode monitor
 ```
 
+### Advanced Options
+
+```bash
+# Custom config location
+./bin/monsterinc -config /path/to/config.yaml -targets targets.txt
+
+# Override mode
+./bin/monsterinc -config config.yaml -targets targets.txt -mode onetime
+
+# Enable debug logging
+./bin/monsterinc -config config.yaml -targets targets.txt -debug
+```
+
+## Key Features Detail
+
+### Batch Processing
+- **Intelligent batching** cho large URL sets (>500 URLs)
+- Configurable batch sizes và concurrency
+- Memory optimization với streaming operations
+- Progress tracking across batches
+
+### Interrupt Handling  
+- **Graceful shutdown** với SIGINT/SIGTERM
+- Context cancellation propagation
+- Resource cleanup và state preservation
+- Immediate response time (<2 seconds)
+
+### Performance Optimization
+- **Resource limiting** với memory/goroutine monitoring
+- Connection pooling và HTTP/2 support
+- Parquet format cho fast I/O operations
+- Memory pools cho reduced GC pressure
+
+### Security Focus
+- **Secret detection** trong source code
+- Technology fingerprinting
+- Change monitoring cho security-critical files
+- Comprehensive logging cho audit trails
 
 ## Development
 
-### Package Dependencies
-
-Each package is designed with clear dependencies to maintain modularity:
-
-- **Scanner** depends on all processing packages
-- **Monitor** is independent from scanner, shares components via common
-- **Scheduler** orchestrates both Scanner and Monitor
-- **Common** package has no dependencies on business logic packages
-- **Models** defines shared data structures
+### Project Structure
+```
+monsterinc/
+├── cmd/monsterinc/          # CLI entry point
+├── internal/                # Private packages
+│   ├── scanner/            # Main orchestration
+│   ├── monitor/            # Real-time monitoring  
+│   ├── crawler/            # Web crawling
+│   ├── httpxrunner/        # HTTP probing
+│   ├── datastore/          # Data persistence
+│   ├── differ/             # Content comparison
+│   ├── reporter/           # Report generation
+│   ├── notifier/           # Notifications
+│   └── common/             # Shared utilities
+├── configs/                 # Sample configurations
+└── tasks/                  # Task definitions
+```
 
 ### Testing
 
@@ -426,63 +316,27 @@ Each package is designed with clear dependencies to maintain modularity:
 # Run all tests
 go test ./...
 
-# Test specific package
-go test ./internal/scanner/...
-
-# Run with coverage
+# Run tests với coverage
 go test -cover ./...
+
+# Run specific package tests
+go test ./internal/scanner/
 ```
 
 ### Contributing
 
 1. Fork repository
-2. Create feature branch
-3. Implement changes with appropriate tests
-4. Update documentation
-5. Submit pull request
-
-## Performance Considerations
-
-### Memory Management
-- Buffer pooling for large data processing
-- Streaming reads for Parquet files
-- Resource limiting to prevent OOM
-
-### Concurrency
-- Worker pools for HTTP requests
-- Channel-based coordination
-- Context-based cancellation
-
-### Storage Optimization
-- Parquet compression (ZSTD default)
-- Efficient schema design
-- Automatic file rotation
-
-## Monitoring & Observability
-
-### Logging
-- Structured logging with zerolog
-- Multiple output formats (JSON, console)
-- Log rotation and retention
-
-### Metrics
-- Processing statistics
-- Performance metrics
-- Error tracking
-
-### Health Checks
-- Service health monitoring
-- Resource usage tracking
-- Automatic cleanup procedures
+2. Tạo feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -am 'Add amazing feature'`)
+4. Push branch (`git push origin feature/amazing-feature`)
+5. Tạo Pull Request
 
 ## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
-## Credits
+## Contact
 
-- [httpx](https://github.com/projectdiscovery/httpx) by ProjectDiscovery
-- [jsluice](https://github.com/BishopFox/jsluice) by BishopFox
-- [parquet-go](https://github.com/parquet-go/parquet-go) for data storage
-- [colly](https://github.com/gocolly/colly) for web crawling
+- Project Repository: [https://github.com/your-org/monsterinc](https://github.com/your-org/monsterinc)
+- Issues: [https://github.com/your-org/monsterinc/issues](https://github.com/your-org/monsterinc/issues)
 
