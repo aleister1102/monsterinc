@@ -4,10 +4,11 @@ import (
 	"fmt"
 
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpx"
 )
 
 // GenerateReport generates HTML reports from probe results and secret findings
-func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, secretFindings []models.SecretFinding, baseOutputPath string) ([]string, error) {
+func (r *HtmlReporter) GenerateReport(probeResults []*httpx.ProbeResult, secretFindings []models.SecretFinding, baseOutputPath string) ([]string, error) {
 	if len(probeResults) == 0 && len(secretFindings) == 0 {
 		r.logger.Warn().Msg("No probe results or secret findings provided for report generation.")
 		return []string{}, nil
@@ -37,7 +38,7 @@ func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, secret
 }
 
 // generateSingleReport creates a single HTML report file
-func (r *HtmlReporter) generateSingleReport(probeResults []*models.ProbeResult, secretFindings []models.SecretFinding, baseOutputPath string) ([]string, error) {
+func (r *HtmlReporter) generateSingleReport(probeResults []*httpx.ProbeResult, secretFindings []models.SecretFinding, baseOutputPath string) ([]string, error) {
 	pageData, err := r.prepareReportData(probeResults, secretFindings, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare report data: %w", err)
@@ -52,7 +53,7 @@ func (r *HtmlReporter) generateSingleReport(probeResults []*models.ProbeResult, 
 }
 
 // generateChunkedReports creates multiple HTML report files for large result sets
-func (r *HtmlReporter) generateChunkedReports(probeResults []*models.ProbeResult, secretFindings []models.SecretFinding, baseOutputPath string, maxResults int) ([]string, error) {
+func (r *HtmlReporter) generateChunkedReports(probeResults []*httpx.ProbeResult, secretFindings []models.SecretFinding, baseOutputPath string, maxResults int) ([]string, error) {
 	totalChunks := (len(probeResults) + maxResults - 1) / maxResults
 	outputPaths := make([]string, 0, totalChunks)
 

@@ -1,4 +1,4 @@
-package httpxrunner
+package httpx
 
 import "testing"
 

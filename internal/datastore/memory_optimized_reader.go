@@ -8,6 +8,7 @@ import (
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpx"
 	"github.com/parquet-go/parquet-go"
 	"github.com/rs/zerolog"
 )
@@ -31,7 +32,7 @@ func NewStreamingParquetReader(cfg *config.StorageConfig, logger zerolog.Logger)
 }
 
 // StreamProbeResultsCallback defines callback function for streaming results
-type StreamProbeResultsCallback func(result models.ProbeResult) error
+type StreamProbeResultsCallback func(result httpx.ProbeResult) error
 
 // StreamFileHistoryCallback defines callback function for streaming file history
 type StreamFileHistoryCallback func(record models.FileHistoryRecord) error
@@ -199,21 +200,21 @@ func (spr *StreamingParquetReader) openParquetFile(filePath string) (*os.File, e
 // BatchProcessor for processing results in batches
 type BatchProcessor struct {
 	batchSize int
-	buffer    []models.ProbeResult
-	callback  func(batch []models.ProbeResult) error
+	buffer    []httpx.ProbeResult
+	callback  func(batch []httpx.ProbeResult) error
 }
 
 // NewBatchProcessor creates a new batch processor
-func NewBatchProcessor(batchSize int, callback func(batch []models.ProbeResult) error) *BatchProcessor {
+func NewBatchProcessor(batchSize int, callback func(batch []httpx.ProbeResult) error) *BatchProcessor {
 	return &BatchProcessor{
 		batchSize: batchSize,
-		buffer:    make([]models.ProbeResult, 0, batchSize),
+		buffer:    make([]httpx.ProbeResult, 0, batchSize),
 		callback:  callback,
 	}
 }
 
 // Add adds a result to the batch and processes if batch is full
-func (bp *BatchProcessor) Add(result models.ProbeResult) error {
+func (bp *BatchProcessor) Add(result httpx.ProbeResult) error {
 	bp.buffer = append(bp.buffer, result)
 
 	if len(bp.buffer) >= bp.batchSize {

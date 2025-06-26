@@ -8,6 +8,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// CancellationResult represents the result of a cancellation check.
+type CancellationResult struct {
+	Cancelled bool
+	Error     error
+}
+
 func CheckCancellationWithLog(ctx context.Context, logger zerolog.Logger, componentName string) CancellationResult {
 	select {
 	case <-ctx.Done():
@@ -44,4 +50,4 @@ func CheckCancellation(ctx context.Context) CancellationResult {
 	default:
 		return CancellationResult{Cancelled: false}
 	}
-} 
+}

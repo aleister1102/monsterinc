@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpx"
 )
 
 // ScanWorkflowInput contains all necessary information to execute scan workflow
@@ -43,7 +44,7 @@ func (swi *ScanWorkflowInput) WithScanMode(scanMode string) *ScanWorkflowInput {
 // ScanWorkflowResult contains the results of scan workflow
 // Separates output data for easier management and testing
 type ScanWorkflowResult struct {
-	ProbeResults    []models.ProbeResult
+	ProbeResults    []httpx.ProbeResult
 	URLDiffResults  map[string]models.URLDiffResult
 	ReportFilePaths []string
 	SummaryData     models.ScanSummaryData

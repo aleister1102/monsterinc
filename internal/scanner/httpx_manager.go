@@ -5,18 +5,17 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 
 // HTTPXManager manages a singleton httpx runner instance for reuse across batches
 type HTTPXManager struct {
 	logger         zerolog.Logger
-	runnerInstance *httpxrunner.Runner
+	runnerInstance *httpx.Runner
 	mutex          sync.RWMutex
 	initialized    bool
-	lastConfig     *httpxrunner.Config
+	lastConfig     *httpx.Config
 	lastRootTarget string
 }
 
@@ -28,7 +27,7 @@ func NewHTTPXManager(logger zerolog.Logger) *HTTPXManager {
 }
 
 // GetOrCreateRunner returns the existing runner instance or creates a new one if config changed
-func (hm *HTTPXManager) GetOrCreateRunner(config *httpxrunner.Config, rootTargetURL string) (*httpxrunner.Runner, error) {
+func (hm *HTTPXManager) GetOrCreateRunner(config *httpx.Config, rootTargetURL string) (*httpx.Runner, error) {
 	hm.mutex.Lock()
 	defer hm.mutex.Unlock()
 
@@ -43,7 +42,7 @@ func (hm *HTTPXManager) GetOrCreateRunner(config *httpxrunner.Config, rootTarget
 }
 
 // needsRecreation checks if the runner needs to be recreated
-func (hm *HTTPXManager) needsRecreation(config *httpxrunner.Config, rootTargetURL string) bool {
+func (hm *HTTPXManager) needsRecreation(config *httpx.Config, rootTargetURL string) bool {
 	if !hm.initialized || hm.runnerInstance == nil {
 		return true
 	}
@@ -63,14 +62,14 @@ func (hm *HTTPXManager) needsRecreation(config *httpxrunner.Config, rootTargetUR
 }
 
 // createNewRunner creates a new httpx runner instance
-func (hm *HTTPXManager) createNewRunner(config *httpxrunner.Config, rootTargetURL string) error {
+func (hm *HTTPXManager) createNewRunner(config *httpx.Config, rootTargetURL string) error {
 	hm.logger.Debug().
 		Str("root_target", rootTargetURL).
 		Int("threads", config.Threads).
 		Int("timeout", config.Timeout).
 		Msg("Creating new HTTPXRunner instance")
 
-	runner, err := httpxrunner.NewRunner(config, rootTargetURL, hm.logger)
+	runner, err := httpx.NewRunner(config, rootTargetURL, hm.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create httpx runner: %w", err)
 	}
@@ -90,7 +89,7 @@ func (hm *HTTPXManager) createNewRunner(config *httpxrunner.Config, rootTargetUR
 }
 
 // ExecuteRunnerBatch executes httpx runner for a specific batch
-func (hm *HTTPXManager) ExecuteRunnerBatch(ctx context.Context, config *httpxrunner.Config, rootTargetURL, scanSessionID string) ([]models.ProbeResult, error) {
+func (hm *HTTPXManager) ExecuteRunnerBatch(ctx context.Context, config *httpx.Config, rootTargetURL, scanSessionID string) ([]httpx.ProbeResult, error) {
 	runner, err := hm.GetOrCreateRunner(config, rootTargetURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get httpx runner: %w", err)

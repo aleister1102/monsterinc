@@ -1,7 +1,9 @@
 package monitor
 
 import (
+	"fmt"
 	"sync"
+	"time"
 )
 
 // CycleTracker tracks changes within a monitoring cycle
@@ -9,15 +11,45 @@ type CycleTracker struct {
 	changedURLs    map[string]struct{}
 	currentCycleID string
 	mutex          sync.RWMutex
+	maxCycles      int
+	currentCycle   int
 }
 
 // NewCycleTracker creates a new CycleTracker
-func NewCycleTracker(initialCycleID string) *CycleTracker {
+func NewCycleTracker(maxCycles int) *CycleTracker {
 	return &CycleTracker{
-		changedURLs:    make(map[string]struct{}),
-		currentCycleID: initialCycleID,
-		mutex:          sync.RWMutex{},
+		changedURLs:  make(map[string]struct{}),
+		maxCycles:    maxCycles,
+		currentCycle: 0,
+		mutex:        sync.RWMutex{},
 	}
+}
+
+// StartCycle begins a new cycle, increments the counter, and sets a new ID.
+func (ct *CycleTracker) StartCycle() {
+	ct.mutex.Lock()
+	defer ct.mutex.Unlock()
+
+	ct.currentCycle++
+	ct.currentCycleID = fmt.Sprintf("monitor-%s", time.Now().Format("20060102-150405"))
+	ct.changedURLs = make(map[string]struct{})
+}
+
+// EndCycle marks the end of a cycle. Currently, it just clears the changed URLs.
+func (ct *CycleTracker) EndCycle() {
+	ct.mutex.Lock()
+	defer ct.mutex.Unlock()
+	ct.changedURLs = make(map[string]struct{})
+}
+
+// ShouldContinue returns false if the maximum number of cycles has been reached.
+func (ct *CycleTracker) ShouldContinue() bool {
+	ct.mutex.RLock()
+	defer ct.mutex.RUnlock()
+	if ct.maxCycles == 0 {
+		return true // Run indefinitely
+	}
+	return ct.currentCycle < ct.maxCycles
 }
 
 // AddChangedURL adds a URL to the changed URLs list for the current cycle

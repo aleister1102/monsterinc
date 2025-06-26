@@ -11,6 +11,7 @@ import (
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
+	"github.com/monsterinc/httpx"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/rs/zerolog"
@@ -33,7 +34,7 @@ func NewParquetWriter(cfg *config.StorageConfig, logger zerolog.Logger) (*Parque
 
 // WriteRequest encapsulates a write request
 type WriteRequest struct {
-	ProbeResults  []models.ProbeResult
+	ProbeResults  []httpx.ProbeResult
 	ScanSessionID string
 	RootTarget    string
 	ScanTime      time.Time
@@ -48,7 +49,7 @@ type WriteResult struct {
 }
 
 // Write takes a slice of ProbeResult and writes them to a Parquet file
-func (pw *ParquetWriter) Write(ctx context.Context, currentProbeResults []models.ProbeResult, scanSessionID string, hostname string) error {
+func (pw *ParquetWriter) Write(ctx context.Context, currentProbeResults []httpx.ProbeResult, scanSessionID string, hostname string) error {
 	request := WriteRequest{
 		ProbeResults:  currentProbeResults,
 		ScanSessionID: scanSessionID,

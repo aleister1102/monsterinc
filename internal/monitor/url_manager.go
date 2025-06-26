@@ -39,6 +39,32 @@ func (um *URLManager) AddURL(url string) {
 	um.logURLAdded(url)
 }
 
+// GetURLsForCycle returns a copy of currently monitored URLs
+func (um *URLManager) GetURLsForCycle() []string {
+	um.urlsMutex.RLock()
+	defer um.urlsMutex.RUnlock()
+
+	return um.extractURLsFromMap()
+}
+
+// UpdateWithCycleResults adds discovered assets from a cycle to the monitored URLs.
+func (um *URLManager) UpdateWithCycleResults(assets []models.Asset) {
+	um.urlsMutex.Lock()
+	defer um.urlsMutex.Unlock()
+
+	addedCount := 0
+	for _, asset := range assets {
+		if _, exists := um.monitorUrls[asset.AbsoluteURL]; !exists {
+			um.monitorUrls[asset.AbsoluteURL] = struct{}{}
+			addedCount++
+		}
+	}
+
+	if addedCount > 0 {
+		um.logger.Info().Int("count", addedCount).Msg("Added new discovered assets to monitor list")
+	}
+}
+
 // GetCurrentURLs returns a copy of currently monitored URLs
 func (um *URLManager) GetCurrentURLs() []string {
 	um.urlsMutex.RLock()

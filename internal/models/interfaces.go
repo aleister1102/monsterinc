@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/monsterinc/httpx"
+)
 
 // Validator interface for models that can validate themselves
 type Validator interface {
@@ -54,7 +58,7 @@ type ErrorProvider interface {
 // TechnologyDetector interface for models that can detect technologies
 type TechnologyDetector interface {
 	HasTechnologies() bool
-	GetTechnologies() []Technology
+	GetTechnologies() []httpx.Technology
 }
 
 // DiffResult interface for models that represent diff results

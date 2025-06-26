@@ -13,13 +13,16 @@ import (
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
-	"github.com/monsterinc/logger"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/monitor"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/scanner"
 	"github.com/aleister1102/monsterinc/internal/scheduler"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
+	"github.com/monsterinc/httpclient"
+	"github.com/monsterinc/limiter"
+	"github.com/monsterinc/logger"
+	"github.com/monsterinc/progress"
 	"github.com/rs/zerolog"
 )
 
@@ -96,17 +99,17 @@ func main() {
 
 	// Initialize progress display manager - ENABLED for progress tracking
 	// Initialize progress display with config
-	progressConfig := &common.ProgressDisplayConfig{
+	progressConfig := &progress.ProgressDisplayConfig{
 		DisplayInterval:   gCfg.ProgressConfig.GetDisplayIntervalDuration(),
 		EnableProgress:    gCfg.ProgressConfig.EnableProgress,
 		ShowETAEstimation: gCfg.ProgressConfig.ShowETAEstimation,
 	}
-	progressDisplay := common.NewProgressDisplayManager(zLogger, progressConfig)
+	progressDisplay := progress.NewProgressDisplayManager(zLogger, progressConfig)
 	progressDisplay.Start()
 	defer progressDisplay.Stop()
 
 	// Start global resource limiter with config from file
-	resourceLimiterConfig := common.ResourceLimiterConfig{
+	resourceLimiterConfig := limiter.ResourceLimiterConfig{
 		MaxMemoryMB:        gCfg.ResourceLimiterConfig.MaxMemoryMB,
 		MaxGoroutines:      gCfg.ResourceLimiterConfig.MaxGoroutines,
 		CheckInterval:      time.Duration(gCfg.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
@@ -117,32 +120,21 @@ func main() {
 		EnableAutoShutdown: gCfg.ResourceLimiterConfig.EnableAutoShutdown,
 	}
 
-	resourceLimiter := common.NewResourceLimiter(resourceLimiterConfig, zLogger)
+	resourceLimiter := limiter.NewResourceLimiter(resourceLimiterConfig, zLogger)
 	resourceLimiter.Start()
 
-	// Initialize global resource stats monitor for continuous monitoring
-	globalResourceStatsConfig := common.ResourceStatsMonitorConfig{
-		DisplayInterval: time.Duration(gCfg.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
-		ComponentName:   "Global",
-		ModuleName:      "System",
-	}
-	globalResourceStatsMonitor := common.NewResourceStatsMonitor(
-		resourceLimiter,
-		globalResourceStatsConfig,
-		zLogger,
-	)
-	globalResourceStatsMonitor.Start()
-
-	// Ensure global resource limiter and stats monitor are stopped on exit
+	// Ensure global resource limiter is stopped on exit
 	defer func() {
-		globalResourceStatsMonitor.Stop()
 		resourceLimiter.Stop()
 		common.StopGlobalResourceLimiter()
 	}()
 
-	discordHttpClient, err := common.NewHTTPClientFactory(zLogger).CreateDiscordClient(
-		20 * time.Second,
-	)
+	httpClient, err := httpclient.NewHTTPClientBuilder(zLogger).Build()
+	if err != nil {
+		zLogger.Fatal().Err(err).Msg("Failed to create main HTTP client.")
+	}
+
+	discordHttpClient, err := httpclient.NewHTTPClientBuilder(zLogger).WithTimeout(20 * time.Second).Build()
 	if err != nil {
 		zLogger.Fatal().Err(err).Msg("Failed to create Discord HTTP client.")
 	}
@@ -155,9 +147,6 @@ func main() {
 	// Update resource limiter shutdown callback to include notification
 	resourceLimiter.SetShutdownCallback(func() {
 		zLogger.Error().Msg("System resource limits exceeded, initiating graceful shutdown...")
-
-		// Stop global resource stats monitor first
-		globalResourceStatsMonitor.Stop()
 
 		// Send critical error notification for resource limit trigger
 		criticalErrSummary := models.GetDefaultScanSummaryData()
@@ -188,7 +177,7 @@ func main() {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize scanner.")
 	}
 
-	ms, err := initializeMonitoringService(gCfg, flags.MonitorTargetsFile, zLogger, notificationHelper)
+	ms, err := initializeMonitoringService(gCfg, flags.MonitorTargetsFile, zLogger, notificationHelper, resourceLimiter, httpClient)
 	if err != nil {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize monitoring service.")
 	}
@@ -280,7 +269,9 @@ func initializeMonitoringService(
 	monitorTargetsFile string,
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
-) (*monitor.MonitoringService, error) {
+	resourceLimiter *limiter.ResourceLimiter,
+	httpClient *httpclient.HTTPClient,
+) (*monitor.Service, error) {
 	if monitorTargetsFile == "" || !gCfg.MonitorConfig.Enabled {
 		zLogger.Info().Msg("Monitoring service not initialized: no monitor targets file provided or monitoring is disabled in configuration.")
 		return nil, nil // No monitoring service to initialize
@@ -288,14 +279,13 @@ func initializeMonitoringService(
 
 	// Initialize monitoring service
 	monitorLogger := zLogger.With().Str("service", "FileMonitor").Logger()
-	ms, err := monitor.NewMonitoringService(
+	ms := monitor.NewService(
 		gCfg,
+		&gCfg.MonitorConfig,
 		monitorLogger,
-		notificationHelper,
+		resourceLimiter,
+		httpClient,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize monitoring service: %w", err)
-	}
 	zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service initialized.")
 
 	// Preload monitor targets if provided
@@ -312,7 +302,7 @@ func initializeMonitoringService(
 // preloadMonitoringTargets preloads monitoring targets from a file.
 // Refactored ✅
 func preloadMonitoringTargets(
-	ms *monitor.MonitoringService,
+	ms *monitor.Service,
 	monitorTargetsFile string,
 	zLogger zerolog.Logger,
 ) error {
@@ -339,7 +329,7 @@ func setupSignalHandling(
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	gCfg *config.GlobalConfig,
-	monitoringService *monitor.MonitoringService,
+	monitoringService *monitor.Service,
 ) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -386,18 +376,12 @@ func setupSignalHandling(
 			zLogger.Debug().Int("monitor_urls_count", len(currentURLs)).Msg("Checking for active monitor URLs")
 
 			if len(currentURLs) > 0 {
-				currentCycleID := monitoringService.GetCurrentCycleID()
-				if currentCycleID == "" {
-					currentCycleID = monitoringService.GenerateNewCycleID() // Create new cycle ID if none exists
-				}
-
-				// Get actual progress from monitoring service instead of hardcoded 0
-				processedTargets, totalTargets := monitoringService.GetCurrentProgress()
+				currentCycleID := monitoringService.GenerateNewCycleID() // Create new cycle ID if none exists
 
 				interruptData := models.MonitorInterruptData{
 					CycleID:          currentCycleID,
-					TotalTargets:     totalTargets,
-					ProcessedTargets: processedTargets,
+					TotalTargets:     len(currentURLs),
+					ProcessedTargets: 0,
 					Timestamp:        time.Now(),
 					Reason:           "user_signal",
 					LastActivity:     fmt.Sprintf("Monitor service interrupted by user signal (%s)", sig.String()),
@@ -405,8 +389,7 @@ func setupSignalHandling(
 
 				zLogger.Info().
 					Str("cycle_id", currentCycleID).
-					Int("total_targets", totalTargets).
-					Int("processed_targets", processedTargets).
+					Int("total_targets", len(currentURLs)).
 					Msg("Sending monitor interrupt notification for active monitoring")
 				notificationHelper.SendMonitorInterruptNotification(notificationCtx, interruptData)
 				notificationSent = true
@@ -463,9 +446,9 @@ func runApplicationLogic(
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	scanner *scanner.Scanner,
-	monitoringService *monitor.MonitoringService,
+	monitoringService *monitor.Service,
 	schedulerPtr **scheduler.Scheduler,
-	progressDisplay *common.ProgressDisplayManager,
+	progressDisplay *progress.ProgressDisplayManager,
 ) {
 	scanTargetsFile := ""
 	if flags.ScanTargetsFile != "" {
@@ -515,7 +498,7 @@ func runOnetimeScan(
 	baseLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	scannerInstance *scanner.Scanner,
-	progressDisplay *common.ProgressDisplayManager,
+	progressDisplay *progress.ProgressDisplayManager,
 ) {
 	// Create a new context for this scan that we can cancel.
 	scanCtx, scanCancel := context.WithCancel(ctx)
@@ -585,7 +568,7 @@ func runOnetimeScan(
 	// Set up progress display for scanner
 	scannerInstance.SetProgressDisplay(progressDisplay)
 	if progressDisplay != nil {
-		progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Starting scan workflow")
+		progressDisplay.SetScanStatus(progress.ProgressStatusRunning, "Starting scan workflow")
 	}
 
 	// Create batch workflow orchestrator
@@ -704,11 +687,11 @@ func runAutomatedScan(
 	scanTargetsFile string,
 	scanner *scanner.Scanner,
 	monitorTargetsFile string,
-	monitoringService *monitor.MonitoringService,
+	monitoringService *monitor.Service,
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	schedulerPtr **scheduler.Scheduler,
-	progressDisplay *common.ProgressDisplayManager,
+	progressDisplay *progress.ProgressDisplayManager,
 ) {
 	// Determine if the scheduler should run.
 	// Scheduler runs if scan targets are provided OR if monitor targets have been loaded into the service.
@@ -722,14 +705,11 @@ func runAutomatedScan(
 	// Set up progress display for scanner and monitoring service
 	scanner.SetProgressDisplay(progressDisplay)
 	if progressDisplay != nil {
-		progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Scanner ready for automated mode")
+		progressDisplay.SetScanStatus(progress.ProgressStatusRunning, "Scanner ready for automated mode")
 	}
 
-	if monitoringService != nil {
-		monitoringService.SetProgressDisplay(progressDisplay)
-		if progressDisplay != nil {
-			progressDisplay.SetMonitorStatus(common.ProgressStatusRunning, "Monitoring service active")
-		}
+	if monitoringService != nil && progressDisplay != nil {
+		progressDisplay.SetMonitorStatus(progress.ProgressStatusRunning, "Monitoring service active")
 	}
 
 	// Initialize scheduler
@@ -774,10 +754,10 @@ func runAutomatedScan(
 }
 
 func shutdownServices(
-	ms *monitor.MonitoringService,
+	ms *monitor.Service,
 	scanner *scanner.Scanner,
 	scheduler *scheduler.Scheduler,
-	progressDisplay *common.ProgressDisplayManager,
+	progressDisplay *progress.ProgressDisplayManager,
 	zLogger zerolog.Logger,
 	ctx context.Context,
 ) {

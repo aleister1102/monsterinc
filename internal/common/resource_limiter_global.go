@@ -1,9 +1,13 @@
 package common
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/monsterinc/limiter"
+)
 
 var (
-	globalResourceLimiter *ResourceLimiter
+	globalResourceLimiter *limiter.ResourceLimiter
 	globalLimiterMutex    sync.RWMutex
 )
 

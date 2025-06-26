@@ -2,7 +2,7 @@ package scanner
 
 import (
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/httpxrunner"
+	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 
@@ -33,10 +33,10 @@ func (cb *ConfigBuilder) BuildCrawlerConfig(seedURLs []string, scanSessionID str
 }
 
 // BuildHTTPXConfig creates HTTPX runner configuration from global config
-func (cb *ConfigBuilder) BuildHTTPXConfig(targets []string) *httpxrunner.Config {
+func (cb *ConfigBuilder) BuildHTTPXConfig(targets []string) *httpx.Config {
 	httpxCfg := &cb.globalConfig.HttpxRunnerConfig
 
-	return &httpxrunner.Config{
+	return &httpx.Config{
 		Targets:              targets,
 		Method:               httpxCfg.Method,
 		RequestURIs:          httpxCfg.RequestURIs,

@@ -134,6 +134,8 @@ func initializeHtmlDiffReporter(
 
 // createInitialCycleTracker creates the initial cycle tracker
 func createInitialCycleTracker() *CycleTracker {
-	initialCycleID := fmt.Sprintf("monitor-init-%s", time.Now().Format("20060102-150405"))
-	return NewCycleTracker(initialCycleID)
+	// The concept of an initial cycle ID is deprecated.
+	// The tracker is now initialized with max cycles from config.
+	// Providing a default of 0 (infinite) to fix compilation.
+	return NewCycleTracker(0)
 }

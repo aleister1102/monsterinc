@@ -13,6 +13,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
+	"github.com/monsterinc/httpx"
 )
 
 // buildOutputPath constructs the output file path
@@ -38,7 +39,7 @@ func (r *HtmlReporter) buildOutputPath(baseOutputPath string, partNum, totalPart
 }
 
 // prepareReportData sets up page data structure
-func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, secretFindings []models.SecretFinding, partInfo string) (*models.ReportPageData, error) {
+func (r *HtmlReporter) prepareReportData(probeResults []*httpx.ProbeResult, secretFindings []models.SecretFinding, partInfo string) (*models.ReportPageData, error) {
 	pageData := &models.ReportPageData{}
 
 	r.setBasicReportInfo(pageData, partInfo)
@@ -69,7 +70,7 @@ func (r *HtmlReporter) setBasicReportInfo(pageData *models.ReportPageData, partI
 }
 
 // processProbeResults processes probe results and populates collections
-func (r *HtmlReporter) processProbeResults(probeResults []*models.ProbeResult, pageData *models.ReportPageData) {
+func (r *HtmlReporter) processProbeResults(probeResults []*httpx.ProbeResult, pageData *models.ReportPageData) {
 	hostnames := make(map[string]bool)
 	statusCodes := make(map[int]bool)
 	contentTypes := make(map[string]bool)
@@ -107,11 +108,11 @@ func (r *HtmlReporter) processProbeResults(probeResults []*models.ProbeResult, p
 
 // TestProcessProbeResults is a test-only exported function to allow testing
 // the unexported processProbeResults function.
-func (r *HtmlReporter) TestProcessProbeResults(probeResults []*models.ProbeResult, pageData *models.ReportPageData) {
+func (r *HtmlReporter) TestProcessProbeResults(probeResults []*httpx.ProbeResult, pageData *models.ReportPageData) {
 	r.processProbeResults(probeResults, pageData)
 }
 
-func (r *HtmlReporter) shouldIncludeHostnameInFilter(pr *models.ProbeResult) bool {
+func (r *HtmlReporter) shouldIncludeHostnameInFilter(pr *httpx.ProbeResult) bool {
 	if pr.Error != "" && pr.StatusCode == 0 {
 		return false
 	}
@@ -170,7 +171,7 @@ func (r *HtmlReporter) serializeTableData(probeResults []models.ProbeResultDispl
 	return string(bytes), nil
 }
 
-func (r *HtmlReporter) collectFilterData(pr models.ProbeResult, hostnames map[string]bool, statusCodes map[int]bool, contentTypes map[string]bool, technologies map[string]bool, urlStatuses map[string]bool) {
+func (r *HtmlReporter) collectFilterData(pr httpx.ProbeResult, hostnames map[string]bool, statusCodes map[int]bool, contentTypes map[string]bool, technologies map[string]bool, urlStatuses map[string]bool) {
 	if r.shouldIncludeHostnameInFilter(&pr) {
 		hostname := r.extractHostnameFromURL(pr.InputURL)
 		if hostname != "" {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 
@@ -21,7 +22,7 @@ func NewRecordTransformer(logger zerolog.Logger) *RecordTransformer {
 }
 
 // TransformToParquetResult converts a models.ProbeResult to a models.ParquetProbeResult
-func (rt *RecordTransformer) TransformToParquetResult(pr models.ProbeResult, scanTime time.Time, scanSessionID string) models.ParquetProbeResult {
+func (rt *RecordTransformer) TransformToParquetResult(pr httpx.ProbeResult, scanTime time.Time, scanSessionID string) models.ParquetProbeResult {
 	headersJSON := rt.marshalHeaders(pr.Headers, pr.InputURL)
 	techNames := rt.extractTechnologyNames(pr.Technologies)
 	firstSeen := rt.determineFirstSeenTimestamp(pr.OldestScanTimestamp, scanTime)
@@ -66,7 +67,7 @@ func (rt *RecordTransformer) marshalHeaders(headers map[string]string, inputURL 
 }
 
 // extractTechnologyNames extracts technology names from Technology slice
-func (rt *RecordTransformer) extractTechnologyNames(technologies []models.Technology) []string {
+func (rt *RecordTransformer) extractTechnologyNames(technologies []httpx.Technology) []string {
 	var techNames []string
 	for _, tech := range technologies {
 		techNames = append(techNames, tech.Name)

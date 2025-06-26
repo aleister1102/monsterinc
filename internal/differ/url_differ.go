@@ -3,6 +3,7 @@ package differ
 import (
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpx"
 
 	"github.com/rs/zerolog"
 )
@@ -72,7 +73,7 @@ func NewUrlDiffer(pr *datastore.ParquetReader, logger zerolog.Logger) (*UrlDiffe
 }
 
 // validateInputs validates the input parameters for URL comparison
-func (ud *UrlDiffer) validateInputs(currentScanProbes []*models.ProbeResult, rootTarget string) error {
+func (ud *UrlDiffer) validateInputs(currentScanProbes []*httpx.ProbeResult, rootTarget string) error {
 	if rootTarget == "" {
 		return NewValidationError("root_target", rootTarget, "root target cannot be empty")
 	}
@@ -85,7 +86,7 @@ func (ud *UrlDiffer) validateInputs(currentScanProbes []*models.ProbeResult, roo
 }
 
 // Compare performs the diffing logic
-func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget string, scanSessionID string) (*models.URLDiffResult, error) {
+func (ud *UrlDiffer) Compare(currentScanProbes []*httpx.ProbeResult, rootTarget string, scanSessionID string) (*models.URLDiffResult, error) {
 	// Validate inputs
 	if err := ud.validateInputs(currentScanProbes, rootTarget); err != nil {
 		return nil, WrapError(err, "failed to validate URL differ inputs")

@@ -25,7 +25,7 @@ type Scheduler struct {
 	notificationHelper *notifier.NotificationHelper
 	targetManager      *urlhandler.TargetManager
 	scanner            *scanner.Scanner
-	monitoringService  *monitor.MonitoringService
+	monitoringService  *monitor.Service
 	stopChan           chan struct{}
 	wg                 sync.WaitGroup
 	isRunning          bool
@@ -40,7 +40,7 @@ func NewScheduler(
 	scanTargetsFile string,
 	scanner *scanner.Scanner,
 	monitorTargetsFile string,
-	monitoringService *monitor.MonitoringService,
+	monitoringService *monitor.Service,
 	logger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 ) (*Scheduler, error) {

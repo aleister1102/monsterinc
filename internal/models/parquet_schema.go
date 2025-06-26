@@ -3,6 +3,8 @@ package models
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/monsterinc/httpx"
 )
 
 // Required for TLSCertExpiry potentially if it becomes time.Time
@@ -47,22 +49,22 @@ func TimePtrToUnixMilliOptional(t time.Time) *int64 {
 }
 
 // ToProbeResult converts a ParquetProbeResult back to a models.ProbeResult.
-func (ppr *ParquetProbeResult) ToProbeResult() ProbeResult {
+func (ppr *ParquetProbeResult) ToProbeResult() httpx.ProbeResult {
 	var headers map[string]string
 	if ppr.HeadersJSON != nil && *ppr.HeadersJSON != "" {
 		if err := json.Unmarshal([]byte(*ppr.HeadersJSON), &headers); err != nil {
 			// Log or handle error appropriately, for now, headers will be nil
 			headers = nil
-			return ProbeResult{}
+			return httpx.ProbeResult{}
 		}
 	}
 
-	var technologies []Technology
+	var technologies []httpx.Technology
 	for _, name := range ppr.Technologies { // Assuming ppr.Technologies is []string
-		technologies = append(technologies, Technology{Name: name})
+		technologies = append(technologies, httpx.Technology{Name: name})
 	}
 
-	return ProbeResult{
+	return httpx.ProbeResult{
 		InputURL:            ppr.OriginalURL,
 		FinalURL:            StringFromPtr(ppr.FinalURL),
 		Method:              StringFromPtr(ppr.Method),

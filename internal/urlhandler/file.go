@@ -35,11 +35,11 @@ func ReadURLsFromFile(filePath string, logger zerolog.Logger) ([]string, error) 
 	}
 
 	if fileInfo.IsDir {
-		return nil, NewError("path", filePath, "is a directory, not a file")
+		return nil, common.NewError("path %s is a directory, not a file", filePath)
 	}
 
 	if fileInfo.Size == 0 {
-		return nil, NewError("file_size", fileInfo.Size, "file is empty")
+		return nil, common.NewError("file has size %d, it is empty", fileInfo.Size)
 	}
 
 	// Read file using FileManager
@@ -78,7 +78,7 @@ func ReadURLsFromFile(filePath string, logger zerolog.Logger) ([]string, error) 
 	}
 
 	if len(urls) == 0 {
-		return nil, NewError("no valid URLs found after processing "+string(rune(len(lines)))+" lines")
+		return nil, common.NewError("no valid URLs found after processing %d lines", len(lines))
 	}
 
 	logger.Info().

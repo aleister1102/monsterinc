@@ -9,6 +9,7 @@ import (
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/reporter"
+	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 
@@ -31,14 +32,14 @@ func NewReportGenerator(config *config.ReporterConfig, logger zerolog.Logger, se
 
 // ReportGenerationInput contains information needed to generate reports
 type ReportGenerationInput struct {
-	ProbeResults   []models.ProbeResult
+	ProbeResults   []httpx.ProbeResult
 	URLDiffResults map[string]models.URLDiffResult
 	ScanSessionID  string
 	ShouldGenerate bool // Determines whether to generate reports
 }
 
 // NewReportGenerationInput creates input for report generation
-func NewReportGenerationInput(probeResults []models.ProbeResult, scanSessionID string) *ReportGenerationInput {
+func NewReportGenerationInput(probeResults []httpx.ProbeResult, scanSessionID string) *ReportGenerationInput {
 	return &ReportGenerationInput{
 		ProbeResults:   probeResults,
 		ScanSessionID:  scanSessionID,
@@ -47,7 +48,7 @@ func NewReportGenerationInput(probeResults []models.ProbeResult, scanSessionID s
 }
 
 // NewReportGenerationInputWithDiff creates input for report generation including URL diff results
-func NewReportGenerationInputWithDiff(probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, scanSessionID string) *ReportGenerationInput {
+func NewReportGenerationInputWithDiff(probeResults []httpx.ProbeResult, urlDiffResults map[string]models.URLDiffResult, scanSessionID string) *ReportGenerationInput {
 	return &ReportGenerationInput{
 		ProbeResults:   probeResults,
 		URLDiffResults: urlDiffResults,
@@ -120,13 +121,13 @@ func (rg *ReportGenerator) buildBaseReportPath(scanSessionID string) string {
 }
 
 // convertToPointersOptimized converts ProbeResult slice to pointer slice efficiently
-func (rg *ReportGenerator) convertToPointersOptimized(probeResults []models.ProbeResult) []*models.ProbeResult {
+func (rg *ReportGenerator) convertToPointersOptimized(probeResults []httpx.ProbeResult) []*httpx.ProbeResult {
 	if len(probeResults) == 0 {
 		return nil
 	}
 
 	// Pre-allocate with exact capacity
-	probeResultsPtr := make([]*models.ProbeResult, len(probeResults))
+	probeResultsPtr := make([]*httpx.ProbeResult, len(probeResults))
 	for i := range probeResults {
 		probeResultsPtr[i] = &probeResults[i]
 	}
@@ -149,7 +150,7 @@ func (rg *ReportGenerator) logReportGeneration(scanSessionID string, reportPaths
 }
 
 // combineProbeResultsWithOldURLs combines current scan results with old URLs from diff results
-func (rg *ReportGenerator) combineProbeResultsWithOldURLs(probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult) []models.ProbeResult {
+func (rg *ReportGenerator) combineProbeResultsWithOldURLs(probeResults []httpx.ProbeResult, urlDiffResults map[string]models.URLDiffResult) []httpx.ProbeResult {
 	// Calculate total capacity for pre-allocation
 	totalOldResults := 0
 	for _, urlDiffResult := range urlDiffResults {
@@ -160,7 +161,7 @@ func (rg *ReportGenerator) combineProbeResultsWithOldURLs(probeResults []models.
 		}
 	}
 
-	allProbeResults := make([]models.ProbeResult, 0, len(probeResults)+totalOldResults)
+	allProbeResults := make([]httpx.ProbeResult, 0, len(probeResults)+totalOldResults)
 	allProbeResults = append(allProbeResults, probeResults...)
 
 	// Add old URLs from diff results

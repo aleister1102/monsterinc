@@ -1,7 +1,7 @@
 package differ
 
 import (
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpx"
 )
 
 // URLComparerConfig holds configuration for URL comparison
@@ -20,8 +20,8 @@ func DefaultURLComparerConfig() URLComparerConfig {
 
 // URLMaps holds the mapping data for URL comparison
 type URLMaps struct {
-	HistoricalURLMap map[string]models.ProbeResult
-	CurrentURLMap    map[string]models.ProbeResult
+	HistoricalURLMap map[string]httpx.ProbeResult
+	CurrentURLMap    map[string]httpx.ProbeResult
 }
 
 // URLStatusCounts holds the counts for different URL statuses

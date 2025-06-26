@@ -8,14 +8,16 @@ require (
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/go-rod/rod v0.116.2
 	github.com/gocolly/colly/v2 v2.2.0
+	github.com/monsterinc/httpclient v0.0.0-00010101000000-000000000000
+	github.com/monsterinc/httpx v0.0.0-00010101000000-000000000000
+	github.com/monsterinc/limiter v0.0.0-00010101000000-000000000000
+	github.com/monsterinc/logger v0.0.0-00010101000000-000000000000
+	github.com/monsterinc/progress v0.0.0-00010101000000-000000000000
 	github.com/parquet-go/parquet-go v0.25.0
-	github.com/projectdiscovery/httpx v1.7.0
 	github.com/rs/zerolog v1.34.0
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3
-	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/net v0.41.0
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.37.1
 )
@@ -100,11 +102,6 @@ require (
 	github.com/minio/selfupdate v0.6.1-0.20230907112617-f11e74f84ca7 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/monsterinc/httpclient v0.0.0-00010101000000-000000000000 // indirect
-	github.com/monsterinc/httpx v0.0.0-00010101000000-000000000000 // indirect
-	github.com/monsterinc/limiter v0.0.0-00010101000000-000000000000 // indirect
-	github.com/monsterinc/logger v0.0.0-00010101000000-000000000000 // indirect
-	github.com/monsterinc/progress v0.0.0-00010101000000-000000000000 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
@@ -131,6 +128,7 @@ require (
 	github.com/projectdiscovery/gologger v1.1.53 // indirect
 	github.com/projectdiscovery/gostruct v0.0.2 // indirect
 	github.com/projectdiscovery/hmap v0.0.87 // indirect
+	github.com/projectdiscovery/httpx v1.7.0 // indirect
 	github.com/projectdiscovery/machineid v0.0.0-20240226150047-2e2c51e35983 // indirect
 	github.com/projectdiscovery/mapcidr v1.1.34 // indirect
 	github.com/projectdiscovery/networkpolicy v0.1.12 // indirect
@@ -149,11 +147,11 @@ require (
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
 	github.com/sashabaranov/go-openai v1.37.0 // indirect
+	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/smacker/go-tree-sitter v0.0.0-20230720070738-0d0a9f78d8f8 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf // indirect
-	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/syndtr/goleveldb v1.0.0 // indirect
 	github.com/temoto/robotstxt v1.1.2 // indirect
 	github.com/tidwall/btree v1.7.0 // indirect
@@ -197,6 +195,7 @@ require (
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/djherbis/times.v1 v1.3.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	modernc.org/libc v1.65.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

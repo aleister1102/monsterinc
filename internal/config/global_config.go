@@ -107,7 +107,7 @@ func isYAMLFile(ext string) bool {
 // parseYAMLConfig parses YAML configuration
 func parseYAMLConfig(data []byte, filePath string, cfg *GlobalConfig) error {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return NewError("failed to unmarshal YAML from '%s': %w", filePath, err)
+		return common.NewError("failed to unmarshal YAML from '%s': %w", filePath, err)
 	}
 	return nil
 }
@@ -115,7 +115,7 @@ func parseYAMLConfig(data []byte, filePath string, cfg *GlobalConfig) error {
 // parseJSONConfig parses JSON configuration
 func parseJSONConfig(data []byte, filePath string, cfg *GlobalConfig) error {
 	if err := json.Unmarshal(data, cfg); err != nil {
-		return NewError("failed to unmarshal JSON from '%s': %w", filePath, err)
+		return common.NewError("failed to unmarshal JSON from '%s': %w", filePath, err)
 	}
 	return nil
 }

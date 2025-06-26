@@ -271,7 +271,8 @@ func (cv *ConfigValidator) handleValidationError(err error) error {
 	}
 
 	errorMessages := cv.formatValidationErrors(validationErrors)
-	return common.NewError("configuration validation failed:\n  " + strings.Join(errorMessages, "\n  "))
+	fullMessage := "configuration validation failed:\n  " + strings.Join(errorMessages, "\n  ")
+	return common.NewError(fullMessage)
 }
 
 // formatValidationErrors formats validation errors into readable messages

@@ -5,6 +5,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 )
@@ -26,7 +27,7 @@ func TestProcessProbeResults_SecretAssociation(t *testing.T) {
 	reporter := newTestHtmlReporter(t)
 
 	// --- Test Data ---
-	probeResults := []*models.ProbeResult{
+	probeResults := []*httpx.ProbeResult{
 		{InputURL: "https://example.com/page1", StatusCode: 200},
 		{InputURL: "https://example.com/page2", StatusCode: 404},
 		{InputURL: "https://example.com/page3", StatusCode: 200},

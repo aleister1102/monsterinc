@@ -1,5 +1,7 @@
 package models
 
+import "github.com/monsterinc/httpx"
+
 // URLStatus represents the status of a URL in a diff comparison.
 type URLStatus string
 
@@ -15,7 +17,7 @@ const (
 // DiffedURL represents a URL that has been compared and its status determined.
 // It now directly embeds/references ProbeResult which holds all necessary data including its status.
 type DiffedURL struct {
-	ProbeResult ProbeResult // Embeds or references ProbeResult, which includes URLStatus and other details
+	ProbeResult httpx.ProbeResult // Embeds or references ProbeResult, which includes URLStatus and other details
 	// Status URLStatus // Removed: Status is now part of ProbeResult
 	// OldestScanTimestamp *time.Time // Removed: This information, if needed, should be part of ProbeResult (e.g., LastSeen)
 }
