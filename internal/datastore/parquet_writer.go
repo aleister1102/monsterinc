@@ -122,12 +122,12 @@ func (pw *ParquetWriter) writeProbeResults(ctx context.Context, request WriteReq
 // validateWriteRequest validates the write request parameters
 func (pw *ParquetWriter) validateWriteRequest(request WriteRequest) error {
 	if pw.config.ParquetBasePath == "" {
-		return common.NewValidationError("parquet_base_path", pw.config.ParquetBasePath, "ParquetBasePath is not configured")
+		return NewValidationError("parquet_base_path", pw.config.ParquetBasePath, "ParquetBasePath is not configured")
 	}
 
 	sanitizedHostname := urlhandler.SanitizeFilename(request.RootTarget)
 	if sanitizedHostname == "" {
-		return common.NewValidationError("hostname", request.RootTarget, "sanitized hostname is empty, cannot write parquet file")
+		return NewValidationError("hostname", request.RootTarget, "sanitized hostname is empty, cannot write parquet file")
 	}
 
 	return nil
@@ -135,7 +135,7 @@ func (pw *ParquetWriter) validateWriteRequest(request WriteRequest) error {
 
 // checkCancellation checks for context cancellation
 func (pw *ParquetWriter) checkCancellation(ctx context.Context, operation string) error {
-	if result := common.CheckCancellationWithLog(ctx, pw.logger, operation); result.Cancelled {
+	if result := CheckCancellationWithLog(ctx, pw.logger, operation); result.Cancelled {
 		return result.Error
 	}
 	return nil
@@ -147,7 +147,7 @@ func (pw *ParquetWriter) prepareOutputFile(hostname string) (string, error) {
 
 	scanOutputDir := filepath.Join(pw.config.ParquetBasePath, "scan")
 	if err := os.MkdirAll(scanOutputDir, 0755); err != nil {
-		return "", common.WrapError(err, "failed to create scan-specific Parquet directory: "+scanOutputDir)
+		return "", WrapError(err, "failed to create scan-specific Parquet directory: "+scanOutputDir)
 	}
 
 	fileName := fmt.Sprintf("%s.parquet", sanitizedHostname)
@@ -205,7 +205,7 @@ func (pw *ParquetWriter) writeToParquetFile(filePath string, parquetResults []mo
 
 	recordsWritten, err := pw.writeRecords(writer, parquetResults)
 	if err != nil {
-		return 0, common.WrapError(err, "failed to write probe results to parquet file")
+		return 0, WrapError(err, "failed to write probe results to parquet file")
 	}
 
 	return recordsWritten, nil
@@ -215,7 +215,7 @@ func (pw *ParquetWriter) writeToParquetFile(filePath string, parquetResults []mo
 func (pw *ParquetWriter) createParquetFile(filePath string) (*os.File, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to create/truncate parquet file: "+filePath)
+		return nil, WrapError(err, "failed to create/truncate parquet file: "+filePath)
 	}
 	return file, nil
 }

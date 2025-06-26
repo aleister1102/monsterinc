@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/notifier"
@@ -97,7 +96,7 @@ func (cb *CrawlerBuilder) WithNotifier(notifier notifier.Notifier) *CrawlerBuild
 // Build creates a new Crawler instance with the configured settings
 func (cb *CrawlerBuilder) Build() (*Crawler, error) {
 	if cb.config == nil {
-		return nil, common.NewValidationError("config", nil, "crawler config cannot be nil")
+		return nil, NewValidationError("config", nil, "crawler config cannot be nil")
 	}
 
 	crawler := &Crawler{
@@ -110,7 +109,7 @@ func (cb *CrawlerBuilder) Build() (*Crawler, error) {
 	if cb.config.Secrets.Enabled {
 		secretsStore, err := datastore.NewSecretsStore(&cb.config.Secrets.SecretsStore, cb.logger)
 		if err != nil {
-			return nil, common.WrapError(err, "failed to create secrets store")
+			return nil, WrapError(err, "failed to create secrets store")
 		}
 		detector, err := secretscanner.NewDetector(
 			&cb.config.Secrets,
@@ -119,14 +118,14 @@ func (cb *CrawlerBuilder) Build() (*Crawler, error) {
 			cb.logger,
 		)
 		if err != nil {
-			return nil, common.WrapError(err, "failed to create secret detector")
+			return nil, WrapError(err, "failed to create secret detector")
 		}
 		crawler.detector = detector
 		crawler.logger.Info().Msg("Secret detection enabled")
 	}
 
 	if err := crawler.initialize(); err != nil {
-		return nil, common.WrapError(err, "failed to initialize crawler")
+		return nil, WrapError(err, "failed to initialize crawler")
 	}
 
 	return crawler, nil

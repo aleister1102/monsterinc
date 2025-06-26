@@ -76,23 +76,23 @@ func (bwo *BatchWorkflowOrchestrator) ExecuteBatchScan(
 
 	// Validate inputs
 	if gCfg == nil {
-		return nil, common.NewError("global config cannot be nil")
+		return nil, NewError("global config cannot be nil")
 	}
 	if scanTargetsFile == "" {
-		return nil, common.NewError("scan targets file cannot be empty")
+		return nil, NewError("scan targets file cannot be empty")
 	}
 	if scanSessionID == "" {
-		return nil, common.NewError("scan session ID cannot be empty")
+		return nil, NewError("scan session ID cannot be empty")
 	}
 
 	// Load targets from file
 	targets, determinedSource, err := bwo.targetManager.LoadAndSelectTargets(scanTargetsFile)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to load scan targets")
+		return nil, WrapError(err, "failed to load scan targets")
 	}
 
 	if len(targets) == 0 {
-		return nil, common.NewError("no valid targets found in source: %s", determinedSource)
+		return nil, NewError("no valid targets found in source: " + determinedSource)
 	}
 
 	targetURLs := bwo.targetManager.GetTargetStrings(targets)

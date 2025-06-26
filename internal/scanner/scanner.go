@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/extractor"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
-
+	"github.com/monsterinc/progress"
+	"github.com/monsterinc/limiter"
+	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 
@@ -28,9 +29,9 @@ type Scanner struct {
 	crawlerExecutor    *CrawlerExecutor
 	httpxExecutor      *HTTPXExecutor
 	diffProcessor      *DiffStorageProcessor
-	progressDisplay    *common.ProgressDisplayManager
+	progressDisplay    *progress.ProgressDisplayManager
 	urlPreprocessor    *URLPreprocessor
-	resourceLimiter    *common.ResourceLimiter
+	resourceLimiter    *limiter.ResourceLimiter
 	secretsStore       *datastore.SecretsStore
 	notificationHelper interface {
 		SendScanStartNotification(ctx context.Context, summary models.ScanSummaryData)
@@ -86,7 +87,7 @@ func NewScanner(
 	scanner.urlPreprocessor = NewURLPreprocessor(preprocessorConfig, logger)
 
 	// Initialize resource limiter
-	resourceLimiterConfig := common.ResourceLimiterConfig{
+	resourceLimiterConfig := limiter.ResourceLimiterConfig{
 		MaxMemoryMB:        globalConfig.ResourceLimiterConfig.MaxMemoryMB,
 		MaxGoroutines:      globalConfig.ResourceLimiterConfig.MaxGoroutines,
 		CheckInterval:      time.Duration(globalConfig.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
@@ -96,7 +97,7 @@ func NewScanner(
 		CPUThreshold:       globalConfig.ResourceLimiterConfig.CPUThreshold,
 		EnableAutoShutdown: false, // Disable auto-shutdown for scanner, main handles this
 	}
-	scanner.resourceLimiter = common.NewResourceLimiter(resourceLimiterConfig, logger)
+	scanner.resourceLimiter = limiter.NewResourceLimiter(resourceLimiterConfig, logger)
 	scanner.resourceLimiter.Start()
 
 	logger.Info().
@@ -118,7 +119,7 @@ func (s *Scanner) SetNotificationHelper(notificationHelper interface {
 }
 
 // SetProgressDisplay đặt progress display manager
-func (s *Scanner) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
+func (s *Scanner) SetProgressDisplay(progressDisplay *progress.ProgressDisplayManager) {
 	s.progressDisplay = progressDisplay
 
 	// Pass progress display to executors
@@ -164,7 +165,7 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 	scanSessionID string,
 	targetSource string,
 	scanMode string,
-) (models.ScanSummaryData, []models.ProbeResult, []string, error) {
+) (models.ScanSummaryData, []httpx.ProbeResult, []string, error) {
 	startTime := time.Now()
 	probeResults, urlDiffResults, err := s.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
 	if err != nil {
@@ -208,7 +209,7 @@ func (s *Scanner) ExecuteCompleteScanWorkflow(
 	seedURLs []string,
 	scanSessionID string,
 	targetSource string,
-) (models.ScanSummaryData, []models.ProbeResult, map[string]models.URLDiffResult, error) {
+) (models.ScanSummaryData, []httpx.ProbeResult, map[string]models.URLDiffResult, error) {
 	probeResults, urlDiffResults, err := s.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
 	if err != nil {
 		return models.ScanSummaryData{}, nil, nil, err
@@ -233,7 +234,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 	ctx context.Context,
 	seedURLs []string,
 	scanSessionID string,
-) ([]models.ProbeResult, map[string]models.URLDiffResult, error) {
+) ([]httpx.ProbeResult, map[string]models.URLDiffResult, error) {
 	startTime := time.Now()
 
 	// Log resource usage before scan workflow
@@ -271,7 +272,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 	// Use processed URLs for the rest of the workflow
 	if len(processedSeedURLs) == 0 {
 		if s.progressDisplay != nil {
-			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "No URLs remaining after preprocessing")
+			s.progressDisplay.SetScanStatus(progress.ProgressStatusError, "No URLs remaining after preprocessing")
 		}
 
 		// Send error notification
@@ -301,7 +302,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 	crawlerConfig, primaryRootTargetURL, err := s.configBuilder.BuildCrawlerConfig(processedSeedURLs, scanSessionID)
 	if err != nil {
 		if s.progressDisplay != nil {
-			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "Failed to build crawler config")
+			s.progressDisplay.SetScanStatus(progress.ProgressStatusError, "Failed to build crawler config")
 		}
 
 		// Send error notification
@@ -354,7 +355,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 	crawlerResult := s.crawlerExecutor.Execute(crawlerInput)
 	if crawlerResult.Error != nil {
 		if s.progressDisplay != nil {
-			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "Crawler execution failed")
+			s.progressDisplay.SetScanStatus(progress.ProgressStatusError, "Crawler execution failed")
 		}
 
 		// Send error notification
@@ -418,7 +419,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 	httpxResult := s.httpxExecutor.Execute(httpxInput)
 	if httpxResult.Error != nil {
 		if s.progressDisplay != nil {
-			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "HTTPX execution failed")
+			s.progressDisplay.SetScanStatus(progress.ProgressStatusError, "HTTPX execution failed")
 		}
 
 		// Send error notification

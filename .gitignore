@@ -11,3 +11,7 @@
 /build/monsterinc.exe
 /configs/config.varonis.yaml
 /monsterinc.exe~
+
+# Libs
+libs/**/vendor/
+libs/**/*.test.out

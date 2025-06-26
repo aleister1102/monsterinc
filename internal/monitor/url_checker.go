@@ -12,6 +12,7 @@ import (
 	"github.com/aleister1102/monsterinc/internal/extractor"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/reporter"
+	"github.com/monsterinc/httpclient"
 
 	"github.com/rs/zerolog"
 )
@@ -35,7 +36,7 @@ type URLChecker struct {
 	logger           zerolog.Logger
 	gCfg             *config.GlobalConfig
 	historyStore     models.FileHistoryStore
-	fetcher          *common.Fetcher
+	fetcher          *httpclient.Fetcher
 	processor        *ContentProcessor
 	contentDiffer    *differ.ContentDiffer
 	pathExtractor    *extractor.PathExtractor
@@ -51,7 +52,7 @@ func NewURLChecker(
 	logger zerolog.Logger,
 	gCfg *config.GlobalConfig,
 	historyStore models.FileHistoryStore,
-	fetcher *common.Fetcher,
+	fetcher *httpclient.Fetcher,
 	processor *ContentProcessor,
 	contentDiffer *differ.ContentDiffer,
 	pathExtractor *extractor.PathExtractor,
@@ -161,7 +162,7 @@ func (uc *URLChecker) CheckURL(ctx context.Context, url string) CheckResult {
 }
 
 // fetchContentWithOptimization fetches content using memory-optimized approach
-func (uc *URLChecker) fetchContentWithOptimization(ctx context.Context, url string) (*common.FetchFileContentResult, error) {
+func (uc *URLChecker) fetchContentWithOptimization(ctx context.Context, url string) (*httpclient.FetchFileContentResult, error) {
 	var previousETag, previousLastModified string
 
 	// Only get previous cache headers if not bypassing cache
@@ -172,7 +173,7 @@ func (uc *URLChecker) fetchContentWithOptimization(ctx context.Context, url stri
 		}
 	}
 
-	fetchInput := common.FetchFileContentInput{
+	fetchInput := httpclient.FetchFileContentInput{
 		URL:                  url,
 		PreviousETag:         previousETag,
 		PreviousLastModified: previousLastModified,
@@ -238,7 +239,7 @@ func (uc *URLChecker) extractPathsWithOptimization(sourceURL string, content []b
 }
 
 // storeFileRecord stores the file record with extracted paths and diff results
-func (uc *URLChecker) storeFileRecord(url string, result CheckResult, fetchResult *common.FetchFileContentResult) error {
+func (uc *URLChecker) storeFileRecord(url string, result CheckResult, fetchResult *httpclient.FetchFileContentResult) error {
 	record := models.FileHistoryRecord{
 		URL:          url,
 		Timestamp:    result.ProcessedAt.UnixMilli(),

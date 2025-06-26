@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/monsterinc/logger"
 	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v3"
 )
@@ -16,7 +17,7 @@ type GlobalConfig struct {
 	DiffReporterConfig    DiffReporterConfig    `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
 	ExtractorConfig       ExtractorConfig       `json:"extractor_config,omitempty" yaml:"extractor_config,omitempty"`
 	HttpxRunnerConfig     HttpxRunnerConfig     `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
-	LogConfig             LogConfig             `json:"log_config,omitempty" yaml:"log_config,omitempty"`
+	LogConfig             logger.FileLogConfig  `json:"log_config,omitempty" yaml:"log_config,omitempty"`
 	Mode                  string                `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
 	MonitorConfig         MonitorConfig         `json:"monitor_config,omitempty" yaml:"monitor_config,omitempty"`
 	NotificationConfig    NotificationConfig    `json:"notification_config,omitempty" yaml:"notification_config,omitempty"`
@@ -38,7 +39,7 @@ func NewDefaultGlobalConfig() *GlobalConfig {
 		DiffReporterConfig:    NewDefaultDiffReporterConfig(),
 		ExtractorConfig:       NewDefaultExtractorConfig(),
 		HttpxRunnerConfig:     NewDefaultHTTPXRunnerConfig(),
-		LogConfig:             NewDefaultLogConfig(),
+		LogConfig:             logger.NewDefaultFileLogConfig(),
 		Mode:                  "onetime",
 		MonitorConfig:         NewDefaultMonitorConfig(),
 		NotificationConfig:    NewDefaultNotificationConfig(),
@@ -66,16 +67,16 @@ func LoadGlobalConfig(providedPath string, logger zerolog.Logger) (*GlobalConfig
 
 	fileManager := common.NewFileManager(logger)
 	if !fileManager.FileExists(filePath) {
-		return nil, common.NewValidationError("config_file", filePath, "config file does not exist")
+		return nil, NewValidationError("config_file", filePath, "config file does not exist")
 	}
 
 	data, err := loadConfigFileContent(fileManager, filePath)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to load config file content")
+		return nil, WrapError(err, "failed to load config file content")
 	}
 
 	if err := parseConfigContent(data, filePath, cfg); err != nil {
-		return nil, common.WrapError(err, "failed to parse config content")
+		return nil, WrapError(err, "failed to parse config content")
 	}
 
 	return cfg, nil
@@ -106,7 +107,7 @@ func isYAMLFile(ext string) bool {
 // parseYAMLConfig parses YAML configuration
 func parseYAMLConfig(data []byte, filePath string, cfg *GlobalConfig) error {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return common.NewError("failed to unmarshal YAML from '%s': %w", filePath, err)
+		return NewError("failed to unmarshal YAML from '%s': %w", filePath, err)
 	}
 	return nil
 }
@@ -114,7 +115,7 @@ func parseYAMLConfig(data []byte, filePath string, cfg *GlobalConfig) error {
 // parseJSONConfig parses JSON configuration
 func parseJSONConfig(data []byte, filePath string, cfg *GlobalConfig) error {
 	if err := json.Unmarshal(data, cfg); err != nil {
-		return common.NewError("failed to unmarshal JSON from '%s': %w", filePath, err)
+		return NewError("failed to unmarshal JSON from '%s': %w", filePath, err)
 	}
 	return nil
 }

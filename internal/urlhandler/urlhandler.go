@@ -1,15 +1,13 @@
 package urlhandler
 
 import (
-	"errors" // Assuming your error model is defined here
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/aleister1102/monsterinc/internal/common"
 )
 
 // Regex for cleaning filenames
@@ -22,7 +20,7 @@ var (
 func NormalizeURL(rawURL string) (string, error) {
 	trimmedURL := strings.TrimSpace(rawURL)
 	if trimmedURL == "" {
-		return "", common.NewError("URL is empty")
+		return "", NewError("URL is empty")
 	}
 
 	// Add scheme if missing
@@ -33,7 +31,7 @@ func NormalizeURL(rawURL string) (string, error) {
 	// Parse and validate URL
 	parsedURL, err := url.Parse(trimmedURL)
 	if err != nil {
-		return "", common.WrapError(err, "could not parse URL '"+trimmedURL+"'")
+		return "", WrapError(err, "could not parse URL '"+trimmedURL+"'")
 	}
 
 	// Lowercase the hostname
@@ -46,7 +44,7 @@ func NormalizeURL(rawURL string) (string, error) {
 func ResolveURL(href string, base *url.URL) (string, error) {
 	trimmedHref := strings.TrimSpace(href)
 	if trimmedHref == "" {
-		return "", common.NewError("href is empty")
+		return "", NewError("href is empty")
 	}
 
 	// Try to parse as absolute URL first
@@ -58,21 +56,21 @@ func ResolveURL(href string, base *url.URL) (string, error) {
 	if base == nil {
 		// Try to parse as standalone URL
 		if _, parseErr := url.Parse(trimmedHref); parseErr != nil {
-			return "", common.WrapError(parseErr, "error parsing base-less href '"+trimmedHref+"'")
+			return "", WrapError(parseErr, "error parsing base-less href '"+trimmedHref+"'")
 		}
-		return "", common.NewError("cannot process relative URL '" + trimmedHref + "' without a base URL")
+		return "", NewError("cannot process relative URL '" + trimmedHref + "' without a base URL")
 	}
 
 	// Parse the href to create proper URL struct
 	parsedHref, err := url.Parse(trimmedHref)
 	if err != nil {
-		return "", common.WrapError(err, "error parsing href '"+trimmedHref+"'")
+		return "", WrapError(err, "error parsing href '"+trimmedHref+"'")
 	}
 
 	// Resolve relative URL against base using proper URL struct
 	resolvedURL := base.ResolveReference(parsedHref)
 	if resolvedURL == nil {
-		return "", common.NewError("error resolving href '" + trimmedHref + "' with base '" + base.String() + "'")
+		return "", NewError("error resolving href '" + trimmedHref + "' with base '" + base.String() + "'")
 	}
 
 	return resolvedURL.String(), nil
@@ -203,16 +201,16 @@ func SanitizeFilename(input string) string {
 // ExtractHostnameWithPort extracts hostname with port from a URL string
 func ExtractHostnameWithPort(urlString string) (string, error) {
 	if urlString == "" {
-		return "", common.NewError("URL string is empty")
+		return "", NewError("URL string is empty")
 	}
 
 	parsedURL, err := url.Parse(urlString)
 	if err != nil {
-		return "", common.WrapError(err, "could not parse URL '"+urlString+"'")
+		return "", WrapError(err, "could not parse URL '"+urlString+"'")
 	}
 
 	if parsedURL.Host == "" {
-		return "", common.NewError("URL has no hostname component: " + urlString)
+		return "", NewError("URL has no hostname component: " + urlString)
 	}
 
 	return parsedURL.Host, nil
@@ -222,12 +220,12 @@ func ExtractHostnameWithPort(urlString string) (string, error) {
 func ValidateURLFormat(rawURL string) error {
 	trimmedURL := strings.TrimSpace(rawURL)
 	if trimmedURL == "" {
-		return common.NewError("URL is empty")
+		return NewError("URL is empty")
 	}
 
 	_, err := url.Parse(trimmedURL)
 	if err != nil {
-		return common.WrapError(err, "invalid URL format '"+trimmedURL+"'")
+		return WrapError(err, "invalid URL format '"+trimmedURL+"'")
 	}
 
 	return nil
@@ -259,17 +257,17 @@ func RestoreHostnamePort(sanitizedHostnamePort string) string {
 // ExtractHostname extracts hostname without port from a URL string
 func ExtractHostname(urlString string) (string, error) {
 	if urlString == "" {
-		return "", common.NewError("URL string is empty")
+		return "", NewError("URL string is empty")
 	}
 
 	parsedURL, err := url.Parse(urlString)
 	if err != nil {
-		return "", common.WrapError(err, "could not parse URL '"+urlString+"'")
+		return "", WrapError(err, "could not parse URL '"+urlString+"'")
 	}
 
 	hostname := parsedURL.Hostname()
 	if hostname == "" {
-		return "", common.NewError("URL has no hostname component: " + urlString)
+		return "", NewError("URL has no hostname component: " + urlString)
 	}
 
 	return hostname, nil
@@ -311,7 +309,7 @@ func NormalizeURLSlice(urls []string) ([]string, error) {
 	}
 
 	if len(errors) > 0 {
-		return normalized, common.NewError("failed to normalize some URLs: %s", strings.Join(errors, "; "))
+		return normalized, NewError(fmt.Sprintf("failed to normalize some URLs: %s", strings.Join(errors, "; ")))
 	}
 
 	return normalized, nil

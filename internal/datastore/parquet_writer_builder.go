@@ -36,7 +36,7 @@ func (b *ParquetWriterBuilder) WithWriterConfig(cfg ParquetWriterConfig) *Parque
 // Build creates a new ParquetWriter instance
 func (b *ParquetWriterBuilder) Build() (*ParquetWriter, error) {
 	if b.config == nil {
-		return nil, common.NewValidationError("config", b.config, "storage config cannot be nil")
+		return nil, NewValidationError("config", b.config, "storage config cannot be nil")
 	}
 
 	if b.config.ParquetBasePath == "" {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
 
@@ -89,15 +88,15 @@ func NewPathExtractor(extractorCfg config.ExtractorConfig, logger zerolog.Logger
 // validateInputs validates the input parameters for path extraction
 func (pe *PathExtractor) validateInputs(sourceURL string, content []byte, contentType string) error {
 	if sourceURL == "" {
-		return common.NewValidationError("source_url", sourceURL, "source URL cannot be empty")
+		return NewValidationError("source_url", sourceURL, "source URL cannot be empty")
 	}
 
 	if content == nil {
-		return common.NewValidationError("content", content, "content cannot be nil")
+		return NewValidationError("content", content, "content cannot be nil")
 	}
 
 	if pe.extractorConfig.MaxContentSize > 0 && int64(len(content)) > pe.extractorConfig.MaxContentSize {
-		return common.NewValidationError("content", len(content),
+		return NewValidationError("content", len(content),
 			fmt.Sprintf("content too large (%d bytes > %d bytes limit)", len(content), pe.extractorConfig.MaxContentSize))
 	}
 
@@ -109,7 +108,7 @@ func (pe *PathExtractor) parseBaseURL(sourceURL string) (*url.URL, error) {
 	base, err := url.Parse(sourceURL)
 	if err != nil {
 		pe.logger.Error().Err(err).Str("source_url", sourceURL).Msg("Failed to parse source URL")
-		return nil, common.WrapError(err, "failed to parse source URL: "+sourceURL)
+		return nil, WrapError(err, "failed to parse source URL: "+sourceURL)
 	}
 	return base, nil
 }
@@ -118,7 +117,7 @@ func (pe *PathExtractor) parseBaseURL(sourceURL string) (*url.URL, error) {
 func (pe *PathExtractor) ExtractPaths(sourceURL string, content []byte, contentType string) ([]models.ExtractedPath, error) {
 	// Validate inputs
 	if err := pe.validateInputs(sourceURL, content, contentType); err != nil {
-		return nil, common.WrapError(err, "failed to validate path extraction inputs")
+		return nil, WrapError(err, "failed to validate path extraction inputs")
 	}
 
 	var extractedPaths []models.ExtractedPath

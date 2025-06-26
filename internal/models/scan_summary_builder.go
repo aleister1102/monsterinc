@@ -2,8 +2,6 @@ package models
 
 import (
 	"time"
-
-	"github.com/aleister1102/monsterinc/internal/common"
 )
 
 // ScanSummaryValidator handles validation of scan summary data
@@ -17,27 +15,27 @@ func NewScanSummaryValidator() *ScanSummaryValidator {
 // ValidateSummary validates the scan summary data
 func (ssv *ScanSummaryValidator) ValidateSummary(summary ScanSummaryData) error {
 	if summary.ScanSessionID == "" {
-		return common.NewValidationError("scan_session_id", summary.ScanSessionID, "scan session ID cannot be empty")
+		return NewValidationError("scan_session_id", summary.ScanSessionID, "scan session ID cannot be empty")
 	}
 
 	if summary.TotalTargets < 0 {
-		return common.NewValidationError("total_targets", summary.TotalTargets, "total targets cannot be negative")
+		return NewValidationError("total_targets", summary.TotalTargets, "total targets cannot be negative")
 	}
 
 	if summary.ProbeStats.TotalProbed < 0 {
-		return common.NewValidationError("total_probed", summary.ProbeStats.TotalProbed, "total probed cannot be negative")
+		return NewValidationError("total_probed", summary.ProbeStats.TotalProbed, "total probed cannot be negative")
 	}
 
 	if summary.ProbeStats.SuccessfulProbes < 0 {
-		return common.NewValidationError("successful_probes", summary.ProbeStats.SuccessfulProbes, "successful probes cannot be negative")
+		return NewValidationError("successful_probes", summary.ProbeStats.SuccessfulProbes, "successful probes cannot be negative")
 	}
 
 	if summary.ProbeStats.FailedProbes < 0 {
-		return common.NewValidationError("failed_probes", summary.ProbeStats.FailedProbes, "failed probes cannot be negative")
+		return NewValidationError("failed_probes", summary.ProbeStats.FailedProbes, "failed probes cannot be negative")
 	}
 
 	if summary.ScanDuration < 0 {
-		return common.NewValidationError("scan_duration", summary.ScanDuration, "scan duration cannot be negative")
+		return NewValidationError("scan_duration", summary.ScanDuration, "scan duration cannot be negative")
 	}
 
 	return nil
@@ -296,7 +294,7 @@ func (b *ScanSummaryDataBuilder) Validate() error {
 // Build returns the constructed ScanSummaryData object with validation
 func (b *ScanSummaryDataBuilder) Build() (ScanSummaryData, error) {
 	if err := b.Validate(); err != nil {
-		return ScanSummaryData{}, common.WrapError(err, "validation failed")
+		return ScanSummaryData{}, WrapError(err, "validation failed")
 	}
 
 	// Ensure total targets matches targets count if targets are provided

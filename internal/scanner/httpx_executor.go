@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/crawler"
-	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
+	"github.com/monsterinc/httpx"
+	"github.com/monsterinc/progress"
 	"github.com/rs/zerolog"
 )
 
@@ -18,7 +17,7 @@ import (
 type HTTPXExecutor struct {
 	logger          zerolog.Logger
 	crawlerInstance *crawler.Crawler
-	progressDisplay *common.ProgressDisplayManager
+	progressDisplay *progress.ProgressDisplayManager
 	httpxManager    *HTTPXManager // Added httpx manager for singleton instance
 }
 
@@ -36,7 +35,7 @@ func (he *HTTPXExecutor) SetCrawlerInstance(crawlerInstance *crawler.Crawler) {
 }
 
 // SetProgressDisplay sets the progress display manager
-func (he *HTTPXExecutor) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
+func (he *HTTPXExecutor) SetProgressDisplay(progressDisplay *progress.ProgressDisplayManager) {
 	he.progressDisplay = progressDisplay
 }
 
@@ -59,12 +58,12 @@ type HTTPXExecutionInput struct {
 	SeedURLs             []string
 	PrimaryRootTargetURL string
 	ScanSessionID        string
-	HttpxRunnerConfig    *httpxrunner.Config
+	HttpxRunnerConfig    *httpx.Config
 }
 
 // HTTPXExecutionResult contains the results from HTTPX execution
 type HTTPXExecutionResult struct {
-	ProbeResults []models.ProbeResult
+	ProbeResults []httpx.ProbeResult
 	Error        error
 }
 
@@ -79,7 +78,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 	}
 
 	// Check context cancellation early
-	if cancelled := common.CheckCancellation(input.Context); cancelled.Cancelled {
+	if cancelled := CheckCancellation(input.Context); cancelled.Cancelled {
 		he.logger.Info().Str("session_id", input.ScanSessionID).Msg("Context cancelled before HTTPX execution")
 		result.Error = cancelled.Error
 		return result
@@ -119,7 +118,7 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 	}
 
 	// Final context check after completion
-	if cancelled := common.CheckCancellation(input.Context); cancelled.Cancelled {
+	if cancelled := CheckCancellation(input.Context); cancelled.Cancelled {
 		he.logger.Info().Str("session_id", input.ScanSessionID).Msg("Context cancelled after HTTPX completion")
 
 		// Update progress - cancelled
@@ -145,22 +144,22 @@ func (he *HTTPXExecutor) Execute(input HTTPXExecutionInput) *HTTPXExecutionResul
 }
 
 // runHTTPXRunner uses the managed httpx runner instead of creating new instances
-func (he *HTTPXExecutor) runHTTPXRunner(ctx context.Context, runnerConfig *httpxrunner.Config, primaryRootTargetURL, scanSessionID string) ([]models.ProbeResult, error) {
+func (he *HTTPXExecutor) runHTTPXRunner(ctx context.Context, runnerConfig *httpx.Config, primaryRootTargetURL, scanSessionID string) ([]httpx.ProbeResult, error) {
 	return he.httpxManager.ExecuteRunnerBatch(ctx, runnerConfig, primaryRootTargetURL, scanSessionID)
 }
 
 // processHTTPXResults maps the raw httpx results to models.ProbeResult and assigns RootTargetURL
 // Handles cases where no probe result is found for a discovered URL
 func (he *HTTPXExecutor) processHTTPXResults(
-	runnerResults []models.ProbeResult,
+	runnerResults []httpx.ProbeResult,
 	discoveredURLs []string,
 	seedURLs []string,
-) []models.ProbeResult {
+) []httpx.ProbeResult {
 	// Pre-allocate slice with exact capacity
-	processedResults := make([]models.ProbeResult, 0, len(discoveredURLs))
+	processedResults := make([]httpx.ProbeResult, 0, len(discoveredURLs))
 
 	// Create map for O(1) lookup instead of nested loops
-	probeResultMap := make(map[string]models.ProbeResult, len(runnerResults))
+	probeResultMap := make(map[string]httpx.ProbeResult, len(runnerResults))
 	for _, r := range runnerResults {
 		probeResultMap[r.InputURL] = r
 	}
@@ -181,7 +180,7 @@ func (he *HTTPXExecutor) processHTTPXResults(
 			processedResults = append(processedResults, r)
 		} else {
 			// Create error entry for missing probe result
-			processedResults = append(processedResults, models.ProbeResult{
+			processedResults = append(processedResults, httpx.ProbeResult{
 				InputURL:      urlString,
 				Error:         "No response from httpx probe",
 				Timestamp:     time.Now(),

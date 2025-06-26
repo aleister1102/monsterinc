@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpx"
+	"github.com/monsterinc/progress"
 )
 
 // executeBatchedScan executes scan in batches
@@ -29,7 +30,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 	// Update progress display - initialize batch processing
 	if bwo.scanner.progressDisplay != nil {
 		bwo.scanner.progressDisplay.UpdateScanProgress(0, int64(batchCount), "Batch Processing", fmt.Sprintf("Starting batch scan: %d batches", batchCount))
-		bwo.scanner.progressDisplay.UpdateBatchProgressWithURLs(common.ProgressTypeScan, 0, batchCount, 0, len(targetURLs), 0)
+		bwo.scanner.progressDisplay.UpdateBatchProgressWithURLs(progress.ProgressTypeScan, 0, batchCount, 0, len(targetURLs), 0)
 	}
 
 	// Optimize configuration for memory efficiency during batch processing
@@ -44,7 +45,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 
 	// Always merge batch results to avoid separate reports per batch
 	// But still respect max_probe_results_per_report_file for Discord file size limits
-	var allProbeResults []models.ProbeResult
+	var allProbeResults []httpx.ProbeResult
 	allURLDiffResults := make(map[string]models.URLDiffResult)
 	bwo.logger.Info().Msg("Aggregating all batch results into merged reports (respecting Discord file size limits)")
 
@@ -85,14 +86,14 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		if bwo.scanner.progressDisplay != nil {
 			// Reset progress for new batch to get accurate ETA
 			bwo.scanner.progressDisplay.ResetBatchProgress(
-				common.ProgressTypeScan,
+				progress.ProgressTypeScan,
 				batchNumber,
 				batchCount,
 				"Batch Processing",
 				fmt.Sprintf("Starting batch %d/%d (%d targets)", batchNumber, batchCount, len(batch)),
 			)
 			// Update URL tracking info with correct processed count
-			bwo.scanner.progressDisplay.UpdateBatchProgressWithURLs(common.ProgressTypeScan, batchNumber, batchCount, len(batch), len(targetURLs), processedURLsSoFar)
+			bwo.scanner.progressDisplay.UpdateBatchProgressWithURLs(progress.ProgressTypeScan, batchNumber, batchCount, len(batch), len(targetURLs), processedURLsSoFar)
 		}
 
 		// Log memory usage before batch
@@ -134,7 +135,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 				)
 				// Calculate processed URLs up to failed batch
 				failedAtURLs := processedURLsSoFar
-				bwo.scanner.progressDisplay.UpdateBatchProgressWithURLs(common.ProgressTypeScan, batchNumber, batchCount, len(batch), len(targetURLs), failedAtURLs)
+				bwo.scanner.progressDisplay.UpdateBatchProgressWithURLs(progress.ProgressTypeScan, batchNumber, batchCount, len(batch), len(targetURLs), failedAtURLs)
 			}
 
 			lastBatchError = err
@@ -183,7 +184,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 				"Batch Completed",
 				fmt.Sprintf("Completed batch %d/%d (%d targets processed)", batchNumber, batchCount, completedTargets),
 			)
-			bwo.scanner.progressDisplay.UpdateBatchProgressWithURLs(common.ProgressTypeScan, batchNumber, batchCount, len(batch), len(targetURLs), completedTargets)
+			bwo.scanner.progressDisplay.UpdateBatchProgressWithURLs(progress.ProgressTypeScan, batchNumber, batchCount, len(batch), len(targetURLs), completedTargets)
 		}
 
 		// Force garbage collection after each batch to free memory

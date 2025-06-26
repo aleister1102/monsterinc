@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
@@ -12,6 +11,8 @@ import (
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/reporter"
+	"github.com/monsterinc/httpclient"
+	"github.com/monsterinc/limiter"
 	"github.com/rs/zerolog"
 )
 
@@ -24,9 +25,9 @@ func validateMonitoringConfig(gCfg *config.GlobalConfig) error {
 }
 
 // initializeResourceLimiter creates and configures the resource limiter
-func initializeResourceLimiter(gCfg *config.GlobalConfig, logger zerolog.Logger) *common.ResourceLimiter {
-	// Convert config to common.ResourceLimiterConfig
-	commonConfig := common.ResourceLimiterConfig{
+func initializeResourceLimiter(gCfg *config.GlobalConfig, logger zerolog.Logger) *limiter.ResourceLimiter {
+	// Convert config to limiter.ResourceLimiterConfig
+	limiterConfig := limiter.ResourceLimiterConfig{
 		MaxMemoryMB:        gCfg.ResourceLimiterConfig.MaxMemoryMB,
 		MaxGoroutines:      gCfg.ResourceLimiterConfig.MaxGoroutines,
 		CheckInterval:      time.Duration(gCfg.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
@@ -37,7 +38,7 @@ func initializeResourceLimiter(gCfg *config.GlobalConfig, logger zerolog.Logger)
 		EnableAutoShutdown: gCfg.ResourceLimiterConfig.EnableAutoShutdown,
 	}
 
-	return common.NewResourceLimiter(commonConfig, logger)
+	return limiter.NewResourceLimiter(limiterConfig, logger)
 }
 
 // initializeHistoryStore creates and configures the history store
@@ -50,20 +51,28 @@ func initializeHistoryStore(gCfg *config.GlobalConfig, logger zerolog.Logger) (*
 }
 
 // initializeHTTPFetcher creates and configures the HTTP fetcher
-func initializeHTTPFetcher(gCfg *config.GlobalConfig, logger zerolog.Logger) (*common.Fetcher, error) {
+func initializeHTTPFetcher(gCfg *config.GlobalConfig, logger zerolog.Logger) (*httpclient.Fetcher, error) {
 	httpTimeout := determineHTTPTimeout(gCfg, logger)
 
-	httpClientFactory := common.NewHTTPClientFactory(logger)
-	httpClient, err := httpClientFactory.CreateMonitorClient(httpTimeout, gCfg.MonitorConfig.MonitorInsecureSkipVerify)
+	httpClientBuilder := httpclient.NewHTTPClientBuilder(logger).
+		WithTimeout(httpTimeout).
+		WithInsecureSkipVerify(gCfg.MonitorConfig.MonitorInsecureSkipVerify).
+		WithUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36").
+		WithFollowRedirects(true).
+		WithMaxRedirects(5).
+		WithConnectionPooling(50, 10, 0).
+		WithHTTP2(true)
+
+	httpClient, err := httpClientBuilder.Build()
 	if err != nil {
-		return nil, common.WrapError(err, "failed to create HTTP client for monitoring")
+		return nil, WrapError(err, "failed to create HTTP client for monitoring")
 	}
 
-	fetcherConfig := &common.HTTPClientFetcherConfig{
+	fetcherConfig := &httpclient.HTTPClientFetcherConfig{
 		MaxContentSize: gCfg.MonitorConfig.MaxContentSize,
 	}
 
-	return common.NewFetcher(httpClient, logger, fetcherConfig), nil
+	return httpclient.NewFetcher(httpClient, logger, fetcherConfig), nil
 }
 
 // determineHTTPTimeout determines the HTTP timeout from configuration

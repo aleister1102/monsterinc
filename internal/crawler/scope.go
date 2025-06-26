@@ -7,7 +7,6 @@ import (
 
 	"slices"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
 )
@@ -212,12 +211,12 @@ func (s *ScopeSettings) checkPathScope(path string) bool {
 func (s *ScopeSettings) IsURLAllowed(urlString string) (bool, error) {
 	parsedURL, err := url.Parse(urlString)
 	if err != nil {
-		return false, common.WrapError(err, "failed to parse URL for scope check")
+		return false, WrapError(err, "failed to parse URL for scope check")
 	}
 
 	hostname := parsedURL.Hostname()
 	if hostname == "" {
-		return false, common.NewValidationError("hostname", hostname, "hostname cannot be empty")
+		return false, NewValidationError("hostname", hostname, "hostname cannot be empty")
 	}
 
 	if !s.CheckHostnameScope(hostname) {

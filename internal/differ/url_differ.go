@@ -1,7 +1,6 @@
 package differ
 
 import (
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
 
@@ -48,7 +47,7 @@ func (b *UrlDifferBuilder) WithConfig(config URLComparerConfig) *UrlDifferBuilde
 // Build creates a new UrlDiffer instance
 func (b *UrlDifferBuilder) Build() (*UrlDiffer, error) {
 	if b.parquetReader == nil {
-		return nil, common.NewValidationError("parquet_reader", b.parquetReader, "parquet reader cannot be nil")
+		return nil, NewValidationError("parquet_reader", b.parquetReader, "parquet reader cannot be nil")
 	}
 
 	dataLoader := NewHistoricalDataLoader(b.parquetReader)
@@ -75,11 +74,11 @@ func NewUrlDiffer(pr *datastore.ParquetReader, logger zerolog.Logger) (*UrlDiffe
 // validateInputs validates the input parameters for URL comparison
 func (ud *UrlDiffer) validateInputs(currentScanProbes []*models.ProbeResult, rootTarget string) error {
 	if rootTarget == "" {
-		return common.NewValidationError("root_target", rootTarget, "root target cannot be empty")
+		return NewValidationError("root_target", rootTarget, "root target cannot be empty")
 	}
 
 	if currentScanProbes == nil {
-		return common.NewValidationError("current_scan_probes", currentScanProbes, "current scan probes cannot be nil")
+		return NewValidationError("current_scan_probes", currentScanProbes, "current scan probes cannot be nil")
 	}
 
 	return nil
@@ -89,7 +88,7 @@ func (ud *UrlDiffer) validateInputs(currentScanProbes []*models.ProbeResult, roo
 func (ud *UrlDiffer) Compare(currentScanProbes []*models.ProbeResult, rootTarget string, scanSessionID string) (*models.URLDiffResult, error) {
 	// Validate inputs
 	if err := ud.validateInputs(currentScanProbes, rootTarget); err != nil {
-		return nil, common.WrapError(err, "failed to validate URL differ inputs")
+		return nil, WrapError(err, "failed to validate URL differ inputs")
 	}
 
 	resultBuilder := NewURLDiffResultBuilder(rootTarget)

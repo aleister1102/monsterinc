@@ -1,24 +1,32 @@
 package notifier
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"mime/multipart"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpclient"
 	"github.com/rs/zerolog"
 )
 
 // DiscordNotifier handles sending notifications to Discord
 type DiscordNotifier struct {
 	logger     zerolog.Logger
-	httpClient *common.HTTPClient
+	httpClient *httpclient.HTTPClient
 	webhookURL string
 }
 
 // NewDiscordNotifier creates a new DiscordNotifier instance
-func NewDiscordNotifier(cfg *config.NotificationConfig, logger zerolog.Logger, httpClient *common.HTTPClient) (*DiscordNotifier, error) {
+func NewDiscordNotifier(cfg *config.NotificationConfig, logger zerolog.Logger, httpClient *httpclient.HTTPClient) (*DiscordNotifier, error) {
 	return &DiscordNotifier{
 		logger:     logger.With().Str("module", "DiscordNotifier").Logger(),
 		httpClient: httpClient,
@@ -33,7 +41,7 @@ func (dn *DiscordNotifier) SendNotification(ctx context.Context, webhookURL stri
 		return nil
 	}
 
-	err := dn.httpClient.SendDiscordNotification(ctx, webhookURL, payload, attachmentPath)
+	err := dn.sendDiscordNotification(ctx, webhookURL, payload, attachmentPath)
 	if err != nil {
 		dn.logger.Error().Err(err).Str("webhook_url", webhookURL).Msg("Failed to send Discord notification")
 		return err
@@ -55,7 +63,7 @@ func (dn *DiscordNotifier) SendSecretNotification(finding models.SecretFinding) 
 	dn.logger.Info().Str("webhook_url", dn.webhookURL).Msg("Sending secret finding notification to Discord")
 
 	// Context can be background for now as it's a fire-and-forget notification
-	err := dn.httpClient.SendDiscordNotification(context.Background(), dn.webhookURL, payload, "")
+	err := dn.sendDiscordNotification(context.Background(), dn.webhookURL, payload, "")
 	if err != nil {
 		dn.logger.Error().Err(err).Str("webhook_url", dn.webhookURL).Msg("Failed to send Discord notification")
 		return err
@@ -83,4 +91,103 @@ func (dn *DiscordNotifier) formatSecretMessage(finding models.SecretFinding) mod
 			},
 		},
 	}
+}
+
+// sendDiscordNotification sends a notification to Discord webhook
+func (dn *DiscordNotifier) sendDiscordNotification(ctx context.Context, webhookURL string, payload interface{}, filePath string) error {
+	if filePath == "" {
+		// Send JSON payload only
+		return dn.sendDiscordJSON(ctx, webhookURL, payload)
+	}
+
+	// Send multipart form-data with file attachment
+	return dn.sendDiscordMultipart(ctx, webhookURL, payload, filePath)
+}
+
+// sendDiscordJSON sends JSON payload to Discord webhook
+func (dn *DiscordNotifier) sendDiscordJSON(ctx context.Context, webhookURL string, payload interface{}) error {
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return WrapError(err, "failed to marshal Discord payload")
+	}
+
+	req := &httpclient.HTTPRequest{
+		URL:    webhookURL,
+		Method: "POST",
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body:    bytes.NewReader(jsonData),
+		Context: ctx,
+	}
+
+	resp, err := dn.httpClient.Do(req)
+	if err != nil {
+		return WrapError(err, "failed to send Discord notification")
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("Discord webhook returned status %d: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	dn.logger.Debug().Int("status_code", resp.StatusCode).Msg("Discord notification sent successfully")
+	return nil
+}
+
+// sendDiscordMultipart sends multipart form-data to Discord webhook with file attachment
+func (dn *DiscordNotifier) sendDiscordMultipart(ctx context.Context, webhookURL string, payload interface{}, filePath string) error {
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	// Add JSON payload as form field
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return WrapError(err, "failed to marshal Discord payload")
+	}
+
+	if err := writer.WriteField("payload_json", string(jsonData)); err != nil {
+		return WrapError(err, "failed to write payload_json field")
+	}
+
+	// Add file attachment
+	file, err := os.Open(filePath)
+	if err != nil {
+		return WrapError(err, "failed to open file for Discord attachment")
+	}
+	defer file.Close()
+
+	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	if err != nil {
+		return WrapError(err, "failed to create form file")
+	}
+
+	if _, err := io.Copy(part, file); err != nil {
+		return WrapError(err, "failed to copy file content")
+	}
+
+	if err := writer.Close(); err != nil {
+		return WrapError(err, "failed to close multipart writer")
+	}
+
+	req := &httpclient.HTTPRequest{
+		URL:    webhookURL,
+		Method: "POST",
+		Headers: map[string]string{
+			"Content-Type": writer.FormDataContentType(),
+		},
+		Body:    &buf,
+		Context: ctx,
+	}
+
+	resp, err := dn.httpClient.Do(req)
+	if err != nil {
+		return WrapError(err, "failed to send Discord notification with attachment")
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("Discord webhook returned status %d: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	dn.logger.Debug().Int("status_code", resp.StatusCode).Msg("Discord notification with attachment sent successfully")
+	return nil
 }

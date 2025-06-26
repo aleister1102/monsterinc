@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
@@ -47,7 +46,7 @@ func (b *ContentDifferBuilder) WithDiffConfig(cfg DiffConfig) *ContentDifferBuil
 // Build creates a new ContentDiffer instance
 func (b *ContentDifferBuilder) Build() (*ContentDiffer, error) {
 	if b.diffConfig == nil {
-		return nil, common.NewValidationError("diff_config", b.diffConfig, "diff reporter config cannot be nil")
+		return nil, NewValidationError("diff_config", b.diffConfig, "diff reporter config cannot be nil")
 	}
 
 	return &ContentDiffer{
@@ -74,7 +73,7 @@ func (cd *ContentDiffer) GenerateDiff(previousContent []byte, currentContent []b
 		if cd.isContentTooLargeError(err) {
 			return cd.createTooLargeResult(previousContent, currentContent, contentType, oldHash, newHash, time.Since(startTime)), nil
 		}
-		return nil, common.WrapError(err, "failed to validate diff inputs")
+		return nil, WrapError(err, "failed to validate diff inputs")
 	}
 
 	return cd.processDiff(previousContent, currentContent, contentType, oldHash, newHash, startTime)
@@ -91,7 +90,7 @@ func (cd *ContentDiffer) validateInputs(previousContent, currentContent []byte, 
 
 // isContentTooLargeError checks if the error is due to content being too large
 func (cd *ContentDiffer) isContentTooLargeError(err error) bool {
-	if validationErr, ok := err.(*common.ValidationError); ok {
+	if validationErr, ok := err.(*ValidationError); ok {
 		return validationErr.Field == "previous_content" || validationErr.Field == "current_content"
 	}
 	return false

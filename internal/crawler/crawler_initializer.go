@@ -8,7 +8,6 @@ import (
 
 	"slices"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/gocolly/colly/v2"
 )
@@ -79,7 +78,7 @@ func (cr *Crawler) setupScope() error {
 	)
 
 	if err != nil {
-		return common.WrapError(err, "failed to initialize scope settings")
+		return WrapError(err, "failed to initialize scope settings")
 	}
 
 	cr.scope = scope
@@ -90,7 +89,7 @@ func (cr *Crawler) setupScope() error {
 func (cr *Crawler) setupCollector() error {
 	collector, err := cr.createCollector()
 	if err != nil {
-		return common.WrapError(err, "failed to configure colly collector")
+		return WrapError(err, "failed to configure colly collector")
 	}
 
 	cr.collector = collector
@@ -144,7 +143,7 @@ func (cr *Crawler) createCollector() (*colly.Collector, error) {
 	})
 
 	if err != nil {
-		return nil, common.WrapError(err, "error setting up colly limit rule")
+		return nil, WrapError(err, "error setting up colly limit rule")
 	}
 
 	return collector, nil
@@ -178,7 +177,7 @@ func (cr *Crawler) setupHeadlessBrowser() error {
 			return nil
 		}
 
-		return common.WrapError(err, "failed to start headless browser manager")
+		return WrapError(err, "failed to start headless browser manager")
 	}
 
 	cr.headlessBrowserManager = hbm

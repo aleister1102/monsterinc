@@ -1,7 +1,6 @@
 package urlhandler
 
 import (
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
@@ -29,7 +28,7 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string) ([]models.
 		// tm.logger.Info().Str("file", inputFileOption).Msg("Loading targets from command-line file option")
 		urls, err := ReadURLsFromFile(inputFileOption, tm.logger)
 		if err != nil {
-			return nil, determinedSource, common.WrapError(err, "failed to load URLs from file '"+inputFileOption+"'")
+			return nil, determinedSource, WrapError(err, "failed to load URLs from file '"+inputFileOption+"'")
 		}
 		targets = tm.convertURLsToTargets(urls)
 		determinedSource = inputFileOption
@@ -43,7 +42,7 @@ func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string) ([]models.
 
 	// Validate that we have targets
 	if len(targets) == 0 {
-		return nil, determinedSource, common.NewError("no valid URLs found in source: %s", determinedSource)
+		return nil, determinedSource, NewError("no valid URLs found in source: " + determinedSource)
 	}
 
 	return targets, determinedSource, nil

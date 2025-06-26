@@ -1,8 +1,6 @@
 module github.com/aleister1102/monsterinc
 
-go 1.23.1
-
-toolchain go1.24.2
+go 1.24.4
 
 require (
 	github.com/BishopFox/jsluice v0.0.0-20240110145140-0ddfab153e06
@@ -14,9 +12,9 @@ require (
 	github.com/projectdiscovery/httpx v1.7.0
 	github.com/rs/zerolog v1.34.0
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3
-	github.com/shirou/gopsutil/v3 v3.24.2
+	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/net v0.40.0
+	golang.org/x/net v0.41.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.37.1
@@ -102,6 +100,11 @@ require (
 	github.com/minio/selfupdate v0.6.1-0.20230907112617-f11e74f84ca7 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/monsterinc/httpclient v0.0.0-00010101000000-000000000000 // indirect
+	github.com/monsterinc/httpx v0.0.0-00010101000000-000000000000 // indirect
+	github.com/monsterinc/limiter v0.0.0-00010101000000-000000000000 // indirect
+	github.com/monsterinc/logger v0.0.0-00010101000000-000000000000 // indirect
+	github.com/monsterinc/progress v0.0.0-00010101000000-000000000000 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
@@ -180,14 +183,14 @@ require (
 	github.com/zmap/zcrypto v0.0.0-20240512203510-0fef58d9a9db // indirect
 	go.etcd.io/bbolt v1.3.10 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.38.0 // indirect
+	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
-	golang.org/x/mod v0.24.0 // indirect
+	golang.org/x/mod v0.25.0 // indirect
 	golang.org/x/oauth2 v0.29.0 // indirect
-	golang.org/x/sync v0.14.0 // indirect
+	golang.org/x/sync v0.15.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/term v0.32.0 // indirect
-	golang.org/x/text v0.25.0 // indirect
+	golang.org/x/text v0.26.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
 	golang.org/x/tools v0.33.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
@@ -197,4 +200,12 @@ require (
 	modernc.org/libc v1.65.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
+)
+
+replace (
+	github.com/monsterinc/httpclient => ./libs/httpclient
+	github.com/monsterinc/httpx => ./libs/httpx
+	github.com/monsterinc/limiter => ./libs/limiter
+	github.com/monsterinc/logger => ./libs/logger
+	github.com/monsterinc/progress => ./libs/progress
 )

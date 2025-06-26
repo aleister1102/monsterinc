@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/crawler"
+	"github.com/monsterinc/progress"
 	"github.com/rs/zerolog"
 )
 
@@ -16,7 +16,7 @@ import (
 type CrawlerManager struct {
 	logger           zerolog.Logger
 	crawlerInstance  *crawler.Crawler
-	progressDisplay  *common.ProgressDisplayManager
+	progressDisplay  *progress.ProgressDisplayManager
 	mu               sync.RWMutex
 	isInstanceActive bool
 	autoCalibrateSet bool
@@ -58,7 +58,7 @@ func (cm *CrawlerManager) ExecuteCrawlerBatch(
 	cfg *config.CrawlerConfig,
 	seedURLs []string,
 	sessionID string,
-	progressDisplay *common.ProgressDisplayManager,
+	progressDisplay *progress.ProgressDisplayManager,
 ) (*CrawlerBatchResult, error) {
 	// Get or create crawler instance
 	crawlerInstance, err := cm.GetOrCreateCrawler(cfg)
@@ -84,7 +84,7 @@ func (cm *CrawlerManager) ExecuteCrawlerBatch(
 	}
 
 	// Check for context cancellation
-	if cancelled := common.CheckCancellation(ctx); cancelled.Cancelled {
+	if cancelled := CheckCancellation(ctx); cancelled.Cancelled {
 		return nil, cancelled.Error
 	}
 
@@ -148,7 +148,7 @@ func (cm *CrawlerManager) runCrawlerBatch(ctx context.Context, crawlerInstance *
 }
 
 // runCrawlerBatchWithProgress runs a single crawler batch with progress updates
-func (cm *CrawlerManager) runCrawlerBatchWithProgress(ctx context.Context, crawlerInstance *crawler.Crawler, seedURLs []string, progressDisplay *common.ProgressDisplayManager) ([]string, error) {
+func (cm *CrawlerManager) runCrawlerBatchWithProgress(ctx context.Context, crawlerInstance *crawler.Crawler, seedURLs []string, progressDisplay *progress.ProgressDisplayManager) ([]string, error) {
 	// Initial progress update
 	if progressDisplay != nil {
 		progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", fmt.Sprintf("Starting crawler batch with %d seed URLs", len(seedURLs)))
@@ -177,7 +177,7 @@ func (cm *CrawlerManager) runCrawlerBatchWithProgress(ctx context.Context, crawl
 }
 
 // monitorCrawlerProgress monitors crawler progress and updates display
-func (cm *CrawlerManager) monitorCrawlerProgress(ctx context.Context, crawlerInstance *crawler.Crawler, totalSeeds int, progressDisplay *common.ProgressDisplayManager, done chan struct{}) {
+func (cm *CrawlerManager) monitorCrawlerProgress(ctx context.Context, crawlerInstance *crawler.Crawler, totalSeeds int, progressDisplay *progress.ProgressDisplayManager, done chan struct{}) {
 	ticker := time.NewTicker(3 * time.Second) // Reduce frequency to avoid spam
 	defer ticker.Stop()
 

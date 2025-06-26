@@ -39,12 +39,12 @@ func (b *ParquetFileHistoryStoreBuilder) WithConfig(cfg ParquetFileHistoryStoreC
 // Build creates a new ParquetFileHistoryStore instance
 func (b *ParquetFileHistoryStoreBuilder) Build() (*ParquetFileHistory, error) {
 	if b.storageConfig == nil {
-		return nil, common.NewValidationError("storage_config", b.storageConfig, "storage config cannot be nil")
+		return nil, NewValidationError("storage_config", b.storageConfig, "storage config cannot be nil")
 	}
 
 	basePath := b.storageConfig.ParquetBasePath
 	if err := os.MkdirAll(basePath, 0755); err != nil {
-		return nil, common.WrapError(err, "failed to ensure monitor history base directory: "+basePath)
+		return nil, WrapError(err, "failed to ensure monitor history base directory: "+basePath)
 	}
 
 	mutexManager := NewURLMutexManager(b.config.EnableURLMutexes, b.logger)

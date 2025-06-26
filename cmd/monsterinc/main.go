@@ -13,7 +13,7 @@ import (
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
-	"github.com/aleister1102/monsterinc/internal/logger"
+	"github.com/monsterinc/logger"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/monitor"
 	"github.com/aleister1102/monsterinc/internal/notifier"

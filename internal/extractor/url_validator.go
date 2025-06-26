@@ -4,7 +4,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/rs/zerolog"
@@ -26,7 +25,7 @@ func NewURLValidator(logger zerolog.Logger) *URLValidator {
 func (uv *URLValidator) ValidateAndResolveURL(rawPath string, base *url.URL, sourceURL string) ValidationResult {
 	rawPath = strings.TrimSpace(rawPath)
 	if rawPath == "" {
-		return ValidationResult{IsValid: false, Error: common.NewValidationError("raw_path", rawPath, "path cannot be empty")}
+		return ValidationResult{IsValid: false, Error: NewValidationError("raw_path", rawPath, "path cannot be empty")}
 	}
 
 	// Check if already absolute URL
@@ -45,7 +44,7 @@ func (uv *URLValidator) ValidateAndResolveURL(rawPath string, base *url.URL, sou
 
 	// Handle special cases for relative URLs without base
 	if uv.isRelativeWithoutBase(rawPath, sourceURL) {
-		return ValidationResult{IsValid: false, Error: common.NewError("cannot resolve relative path without valid base URL")}
+		return ValidationResult{IsValid: false, Error: NewError("cannot resolve relative path without valid base URL")}
 	}
 
 	// Final validation attempt
@@ -61,17 +60,17 @@ func (uv *URLValidator) validateAbsoluteURL(rawPath string) ValidationResult {
 
 	// Validate URL format
 	if err := urlhandler.ValidateURLFormat(rawPath); err != nil {
-		return ValidationResult{IsValid: false, Error: common.WrapError(err, "failed to validate URL format")}
+		return ValidationResult{IsValid: false, Error: WrapError(err, "failed to validate URL format")}
 	}
 
 	parsedMatch, err := url.Parse(rawPath)
 	if err != nil {
-		return ValidationResult{IsValid: false, Error: common.WrapError(err, "failed to parse URL")}
+		return ValidationResult{IsValid: false, Error: WrapError(err, "failed to parse URL")}
 	}
 
 	if !strings.Contains(parsedMatch.Host, ".") {
 		uv.logger.Debug().Str("url", rawPath).Str("host", parsedMatch.Host).Msg("URL host seems invalid")
-		return ValidationResult{IsValid: false, Error: common.NewValidationError("host", parsedMatch.Host, "host appears invalid")}
+		return ValidationResult{IsValid: false, Error: NewValidationError("host", parsedMatch.Host, "host appears invalid")}
 	}
 
 	return ValidationResult{AbsoluteURL: rawPath, IsValid: true}
@@ -81,21 +80,21 @@ func (uv *URLValidator) validateAbsoluteURL(rawPath string) ValidationResult {
 func (uv *URLValidator) validateResolvedURL(absoluteURL string) ValidationResult {
 	// Check if URL is absolute using urlhandler
 	if !urlhandler.IsAbsoluteURL(absoluteURL) {
-		return ValidationResult{IsValid: false, Error: common.NewValidationError("resolved_url", absoluteURL, "resolved URL is not absolute")}
+		return ValidationResult{IsValid: false, Error: NewValidationError("resolved_url", absoluteURL, "resolved URL is not absolute")}
 	}
 
 	// Validate URL format using urlhandler
 	if err := urlhandler.ValidateURLFormat(absoluteURL); err != nil {
-		return ValidationResult{IsValid: false, Error: common.WrapError(err, "failed to validate resolved URL format")}
+		return ValidationResult{IsValid: false, Error: WrapError(err, "failed to validate resolved URL format")}
 	}
 
 	finalParsed, err := url.Parse(absoluteURL)
 	if err != nil {
-		return ValidationResult{IsValid: false, Error: common.WrapError(err, "failed to parse resolved URL")}
+		return ValidationResult{IsValid: false, Error: WrapError(err, "failed to parse resolved URL")}
 	}
 
 	if !strings.Contains(finalParsed.Host, ".") {
-		return ValidationResult{IsValid: false, Error: common.NewValidationError("resolved_url", absoluteURL, "resolved URL host appears invalid")}
+		return ValidationResult{IsValid: false, Error: NewValidationError("resolved_url", absoluteURL, "resolved URL host appears invalid")}
 	}
 
 	return ValidationResult{AbsoluteURL: absoluteURL, IsValid: true}

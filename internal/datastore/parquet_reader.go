@@ -96,7 +96,7 @@ func (pr *ParquetReader) searchProbeResults(query ProbeResultQuery) (*ProbeResul
 
 	results, err := pr.readProbeResultsFromFile(filePath, query.RootTargetURL)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to read probe results from file")
+		return nil, WrapError(err, "failed to read probe results from file")
 	}
 
 	pr.logger.Info().
@@ -115,7 +115,7 @@ func (pr *ParquetReader) searchProbeResults(query ProbeResultQuery) (*ProbeResul
 // validateConfiguration checks if the reader is properly configured
 func (pr *ParquetReader) validateConfiguration() error {
 	if pr.storageConfig == nil || pr.storageConfig.ParquetBasePath == "" {
-		return common.NewValidationError("parquet_base_path", pr.storageConfig, "ParquetBasePath is not configured")
+		return NewValidationError("parquet_base_path", pr.storageConfig, "ParquetBasePath is not configured")
 	}
 	return nil
 }
@@ -124,7 +124,7 @@ func (pr *ParquetReader) validateConfiguration() error {
 func (pr *ParquetReader) buildParquetFilePath(rootTargetURL string) (string, error) {
 	sanitizedTargetName := urlhandler.SanitizeFilename(rootTargetURL)
 	if sanitizedTargetName == "" {
-		return "", common.NewValidationError("root_target_url", rootTargetURL, "sanitized to empty string, cannot determine Parquet file path")
+		return "", NewValidationError("root_target_url", rootTargetURL, "sanitized to empty string, cannot determine Parquet file path")
 	}
 
 	fileName := fmt.Sprintf("%s.parquet", sanitizedTargetName)
@@ -139,7 +139,7 @@ func (pr *ParquetReader) validateFileExists(filePath string) (os.FileInfo, error
 		return nil, nil // Not an error - file simply doesn't exist yet
 	}
 	if err != nil {
-		return nil, common.WrapError(err, "failed to stat Parquet file: "+filePath)
+		return nil, WrapError(err, "failed to stat Parquet file: "+filePath)
 	}
 	return fileInfo, nil
 }
@@ -172,7 +172,7 @@ func (pr *ParquetReader) readProbeResultsFromFile(filePath, contextualRootTarget
 
 	results, err := pr.readAllRecords(reader, contextualRootTargetURL)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to read records from Parquet file")
+		return nil, WrapError(err, "failed to read records from Parquet file")
 	}
 
 	pr.logger.Debug().
@@ -188,7 +188,7 @@ func (pr *ParquetReader) openParquetFile(filePath string) (*os.File, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		pr.logger.Error().Err(err).Str("file", filePath).Msg("Failed to open Parquet file")
-		return nil, common.WrapError(err, "failed to open Parquet file: "+filePath)
+		return nil, WrapError(err, "failed to open Parquet file: "+filePath)
 	}
 	return file, nil
 }
@@ -222,7 +222,7 @@ func (pr *ParquetReader) readAllRecords(reader *parquet.Reader, contextualRootTa
 				break // End of file reached
 			}
 			pr.logger.Error().Err(err).Msg("Failed to read row from Parquet file")
-			return nil, common.WrapError(err, "failed to read row from Parquet file")
+			return nil, WrapError(err, "failed to read row from Parquet file")
 		}
 
 		probeResult := pr.convertParquetRecord(row, contextualRootTargetURL)

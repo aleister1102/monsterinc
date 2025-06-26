@@ -59,12 +59,12 @@ func (spr *StreamingParquetReader) StreamProbeResults(
 
 	stat, err := file.Stat()
 	if err != nil {
-		return common.WrapError(err, "failed to stat parquet file")
+		return WrapError(err, "failed to stat parquet file")
 	}
 
 	pqFile, err := parquet.OpenFile(file, stat.Size())
 	if err != nil {
-		return common.WrapError(err, "failed to open parquet file for reading")
+		return WrapError(err, "failed to open parquet file for reading")
 	}
 
 	reader := parquet.NewReader(pqFile)
@@ -82,13 +82,13 @@ func (spr *StreamingParquetReader) StreamProbeResults(
 			if err == io.EOF {
 				break
 			}
-			return common.WrapError(err, "failed to read parquet record")
+			return WrapError(err, "failed to read parquet record")
 		}
 
 		// Convert and call callback
 		probeResult := parquetResult.ToProbeResult()
 		if err := callback(probeResult); err != nil {
-			return common.WrapError(err, "callback error during streaming")
+			return WrapError(err, "callback error during streaming")
 		}
 	}
 
@@ -113,12 +113,12 @@ func (spr *StreamingParquetReader) StreamFileHistory(
 
 	stat, err := file.Stat()
 	if err != nil {
-		return common.WrapError(err, "failed to stat parquet file")
+		return WrapError(err, "failed to stat parquet file")
 	}
 
 	pqFile, err := parquet.OpenFile(file, stat.Size())
 	if err != nil {
-		return common.WrapError(err, "failed to open parquet file for reading")
+		return WrapError(err, "failed to open parquet file for reading")
 	}
 
 	reader := parquet.NewReader(pqFile)
@@ -136,11 +136,11 @@ func (spr *StreamingParquetReader) StreamFileHistory(
 			if err == io.EOF {
 				break
 			}
-			return common.WrapError(err, "failed to read file history record")
+			return WrapError(err, "failed to read file history record")
 		}
 
 		if err := callback(record); err != nil {
-			return common.WrapError(err, "callback error during streaming")
+			return WrapError(err, "callback error during streaming")
 		}
 	}
 
@@ -161,12 +161,12 @@ func (spr *StreamingParquetReader) CountRecords(ctx context.Context, filePath st
 
 	stat, err := file.Stat()
 	if err != nil {
-		return 0, common.WrapError(err, "failed to stat parquet file")
+		return 0, WrapError(err, "failed to stat parquet file")
 	}
 
 	pqFile, err := parquet.OpenFile(file, stat.Size())
 	if err != nil {
-		return 0, common.WrapError(err, "failed to open parquet file for reading")
+		return 0, WrapError(err, "failed to open parquet file for reading")
 	}
 
 	// Get total number of rows efficiently
@@ -185,12 +185,12 @@ func (spr *StreamingParquetReader) buildParquetFilePath(rootTargetURL string) (s
 
 func (spr *StreamingParquetReader) openParquetFile(filePath string) (*os.File, error) {
 	if !spr.fileManager.FileExists(filePath) {
-		return nil, common.NewError("parquet file does not exist: " + filePath)
+		return nil, NewError("parquet file does not exist: " + filePath)
 	}
 
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to open parquet file")
+		return nil, WrapError(err, "failed to open parquet file")
 	}
 
 	return file, nil

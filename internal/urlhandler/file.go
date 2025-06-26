@@ -25,21 +25,21 @@ func ReadURLsFromFile(filePath string, logger zerolog.Logger) ([]string, error) 
 
 	// Check if file exists
 	if !fileManager.FileExists(filePath) {
-		return nil, common.WrapError(common.ErrNotFound, "file not found: "+filePath)
+		return nil, WrapError(ErrNotFound, "file not found: "+filePath)
 	}
 
 	// Get file info for validation
 	fileInfo, err := fileManager.GetFileInfo(filePath)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to get file info for: "+filePath)
+		return nil, WrapError(err, "failed to get file info for: "+filePath)
 	}
 
 	if fileInfo.IsDir {
-		return nil, common.NewValidationError("path", filePath, "is a directory, not a file")
+		return nil, NewError("path", filePath, "is a directory, not a file")
 	}
 
 	if fileInfo.Size == 0 {
-		return nil, common.NewValidationError("file_size", fileInfo.Size, "file is empty")
+		return nil, NewError("file_size", fileInfo.Size, "file is empty")
 	}
 
 	// Read file using FileManager
@@ -50,7 +50,7 @@ func ReadURLsFromFile(filePath string, logger zerolog.Logger) ([]string, error) 
 
 	content, err := fileManager.ReadFile(filePath, opts)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to read file: "+filePath)
+		return nil, WrapError(err, "failed to read file: "+filePath)
 	}
 
 	// Parse URLs from content
@@ -78,7 +78,7 @@ func ReadURLsFromFile(filePath string, logger zerolog.Logger) ([]string, error) 
 	}
 
 	if len(urls) == 0 {
-		return nil, common.NewValidationError("content", filePath, "no valid URLs found after processing "+string(rune(len(lines)))+" lines")
+		return nil, NewError("no valid URLs found after processing "+string(rune(len(lines)))+" lines")
 	}
 
 	logger.Info().

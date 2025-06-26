@@ -4,7 +4,7 @@ import (
 	"html/template"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/monsterinc/httpx"
 )
 
 // ProbeResultDisplay is a struct tailored for displaying probe results in the HTML report.
@@ -88,7 +88,7 @@ type ReporterConfigForTemplate struct {
 // Helper function to transform ProbeResult to ProbeResultDisplay
 // This function should be in a package that can import both models and httpxrunner if ProbeResult is from there.
 // For now, assuming ProbeResult is models.ProbeResult.
-func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
+func ToProbeResultDisplay(pr httpx.ProbeResult) ProbeResultDisplay {
 	// Determine if the probe was successful (e.g., status code 2xx and no major error)
 	isSuccess := pr.Error == "" && (pr.StatusCode >= 200 && pr.StatusCode < 400) // Consider 3xx as success for reachability
 
@@ -115,7 +115,7 @@ func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
 		Headers:         pr.Headers,
 		Body:            pr.Body, // Consider snippet or link
 		Error:           pr.Error,
-		Timestamp:       common.FormatTimeOptional(pr.Timestamp, "2006-01-02 15:04:05 MST"),
+		Timestamp:       FormatTimeOptional(pr.Timestamp, "2006-01-02 15:04:05 MST"),
 		IsSuccess:       isSuccess,
 		HasTechnologies: len(technologies) > 0,
 		HasASN:          pr.ASN != 0,

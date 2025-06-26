@@ -7,8 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
-	"github.com/aleister1102/monsterinc/internal/logger"
+	"github.com/monsterinc/logger"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/scanner"
@@ -76,7 +75,7 @@ func (s *Scheduler) createScanAttemptConfig() scanAttemptConfig {
 
 // shouldCancelScan checks if scan should be cancelled
 func (s *Scheduler) shouldCancelScan(ctx context.Context, attempt int) bool {
-	if result := common.CheckCancellationWithLog(ctx, s.logger, fmt.Sprintf("scan attempt %d", attempt+1)); result.Cancelled {
+	if result := CheckCancellationWithLog(ctx, s.logger, fmt.Sprintf("scan attempt %d", attempt+1)); result.Cancelled {
 		s.logger.Info().Int("attempt", attempt+1).Msg("Scan cancelled before attempt")
 		return true
 	}
@@ -410,7 +409,7 @@ func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlU
 	s.logger.Info().Msg("Scheduler: Starting to load and prepare scan targets.")
 	targets, detSource, loadErr := s.targetManager.LoadAndSelectTargets(s.scanTargetsFile)
 	if loadErr != nil {
-		return nil, initialTargetSource, common.WrapError(loadErr, "failed to load targets")
+		return nil, initialTargetSource, WrapError(loadErr, "failed to load targets")
 	}
 
 	determinedSource = detSource
@@ -420,7 +419,7 @@ func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlU
 
 	if len(targets) == 0 {
 		s.logger.Info().Str("source", determinedSource).Msg("Scheduler: No targets loaded to process.")
-		return nil, determinedSource, common.NewError("no targets to process from source: %s", determinedSource)
+		return nil, determinedSource, NewError("no targets to process from source: " + determinedSource)
 	}
 
 	// Convert targets to string slice
@@ -449,7 +448,7 @@ func (s *Scheduler) recordScanStartToDB(
 ) (int64, error) {
 	dbScanID, err := s.db.RecordScanStart(scanSessionID, targetSource, len(htmlURLs), startTime)
 	if err != nil {
-		return 0, common.WrapError(err, fmt.Sprintf("scheduler failed to record scan start in DB for session %s", scanSessionID))
+		return 0, WrapError(err, fmt.Sprintf("scheduler failed to record scan start in DB for session %s", scanSessionID))
 	}
 
 	s.logger.Info().

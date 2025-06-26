@@ -69,7 +69,7 @@ func (bum *BatchURLManager) LoadURLsInBatches(
 	// Load URLs using the regular URL manager approach
 	err := bum.urlManager.LoadAndMonitorFromSources(inputFileOption)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to load monitor URLs from file")
+		return nil, WrapError(err, "failed to load monitor URLs from file")
 	}
 
 	allURLs := bum.urlManager.GetCurrentURLs()

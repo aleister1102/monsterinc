@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 
@@ -75,26 +75,26 @@ func (wo *WorkflowOrchestrator) ExecuteCompleteWorkflow(input *ScanWorkflowInput
 // validateInput validates the workflow input parameters
 func (wo *WorkflowOrchestrator) validateInput(input *ScanWorkflowInput) error {
 	if input == nil {
-		return common.NewError("workflow input cannot be nil")
+		return NewError("workflow input cannot be nil")
 	}
 
 	if len(input.SeedURLs) == 0 {
-		return common.NewError("no seed URLs provided for scan workflow")
+		return NewError("no seed URLs provided for scan workflow")
 	}
 
 	if input.ScanSessionID == "" {
-		return common.NewError("scan session ID cannot be empty")
+		return NewError("scan session ID cannot be empty")
 	}
 
 	if input.Ctx == nil {
-		return common.NewError("context cannot be nil")
+		return NewError("context cannot be nil")
 	}
 
 	return nil
 }
 
 // generateReports handles report generation with error handling
-func (wo *WorkflowOrchestrator) generateReports(ctx context.Context, probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, scanSessionID string) ([]string, error) {
+func (wo *WorkflowOrchestrator) generateReports(ctx context.Context, probeResults []httpx.ProbeResult, urlDiffResults map[string]models.URLDiffResult, scanSessionID string) ([]string, error) {
 	reportInput := NewReportGenerationInputWithDiff(probeResults, urlDiffResults, scanSessionID)
 
 	reportPaths, err := wo.reportGenerator.GenerateReports(ctx, reportInput)
@@ -111,7 +111,7 @@ func (wo *WorkflowOrchestrator) generateReports(ctx context.Context, probeResult
 // buildSummary creates comprehensive scan summary
 func (wo *WorkflowOrchestrator) buildSummary(
 	input *ScanWorkflowInput,
-	probeResults []models.ProbeResult,
+	probeResults []httpx.ProbeResult,
 	urlDiffResults map[string]models.URLDiffResult,
 	reportPaths []string,
 	workflowError error,
@@ -154,6 +154,6 @@ func (wo *WorkflowOrchestrator) createFailureResult(input *ScanWorkflowInput, er
 
 // ExecuteCoreWorkflow executes only the core scanning workflow without reporting
 // Useful for cases where only scan results are needed
-func (wo *WorkflowOrchestrator) ExecuteCoreWorkflow(ctx context.Context, seedURLs []string, scanSessionID string) ([]models.ProbeResult, map[string]models.URLDiffResult, error) {
+func (wo *WorkflowOrchestrator) ExecuteCoreWorkflow(ctx context.Context, seedURLs []string, scanSessionID string) ([]httpx.ProbeResult, map[string]models.URLDiffResult, error) {
 	return wo.scanner.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
 }

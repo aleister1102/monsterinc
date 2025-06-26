@@ -2,8 +2,6 @@ package differ
 
 import (
 	"fmt"
-
-	"github.com/aleister1102/monsterinc/internal/common"
 )
 
 // ContentSizeValidator validates content size against limits
@@ -30,7 +28,7 @@ func (csv *ContentSizeValidator) ValidateSize(previousContent, currentContent []
 // validateSingleContent validates a single content size
 func (csv *ContentSizeValidator) validateSingleContent(content []byte, fieldName string) error {
 	if int64(len(content)) > csv.maxSizeBytes {
-		return common.NewValidationError(fieldName, len(content),
+		return NewValidationError(fieldName, len(content),
 			fmt.Sprintf("%s too large (%d bytes > %d bytes limit)",
 				fieldName, len(content), csv.maxSizeBytes))
 	}
@@ -48,7 +46,7 @@ func NewInputValidator() *InputValidator {
 // ValidateInputs validates the input parameters for diff generation
 func (iv *InputValidator) ValidateInputs(contentType string) error {
 	if contentType == "" {
-		return common.NewValidationError("content_type", contentType, "content type cannot be empty")
+		return NewValidationError("content_type", contentType, "content type cannot be empty")
 	}
 	return nil
 }

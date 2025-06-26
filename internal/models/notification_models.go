@@ -3,8 +3,6 @@ package models
 import (
 	"fmt"
 	"time"
-
-	"github.com/aleister1102/monsterinc/internal/common"
 )
 
 // Discord color constants for different types of notifications
@@ -172,39 +170,39 @@ func NewDiscordEmbedValidator() *DiscordEmbedValidator {
 // ValidateEmbed validates a Discord embed
 func (dev *DiscordEmbedValidator) ValidateEmbed(embed DiscordEmbed) error {
 	if len(embed.Title) > 256 {
-		return common.NewValidationError("title", embed.Title, "title cannot exceed 256 characters")
+		return NewValidationError("title", embed.Title, "title cannot exceed 256 characters")
 	}
 
 	if len(embed.Description) > 4096 {
-		return common.NewValidationError("description", embed.Description, "description cannot exceed 4096 characters")
+		return NewValidationError("description", embed.Description, "description cannot exceed 4096 characters")
 	}
 
 	if len(embed.Fields) > 25 {
-		return common.NewValidationError("fields", embed.Fields, "cannot have more than 25 fields")
+		return NewValidationError("fields", embed.Fields, "cannot have more than 25 fields")
 	}
 
 	// Validate fields
 	for i, field := range embed.Fields {
 		if len(field.Name) > 256 {
-			return common.NewValidationError("field_name", field.Name, fmt.Sprintf("field %d name cannot exceed 256 characters", i))
+			return NewValidationError("field_name", field.Name, fmt.Sprintf("field %d name cannot exceed 256 characters", i))
 		}
 		if len(field.Value) > 1024 {
-			return common.NewValidationError("field_value", field.Value, fmt.Sprintf("field %d value cannot exceed 1024 characters", i))
+			return NewValidationError("field_value", field.Value, fmt.Sprintf("field %d value cannot exceed 1024 characters", i))
 		}
 		if field.Name == "" {
-			return common.NewValidationError("field_name", field.Name, fmt.Sprintf("field %d name cannot be empty", i))
+			return NewValidationError("field_name", field.Name, fmt.Sprintf("field %d name cannot be empty", i))
 		}
 		if field.Value == "" {
-			return common.NewValidationError("field_value", field.Value, fmt.Sprintf("field %d value cannot be empty", i))
+			return NewValidationError("field_value", field.Value, fmt.Sprintf("field %d value cannot be empty", i))
 		}
 	}
 
 	if embed.Footer != nil && len(embed.Footer.Text) > 2048 {
-		return common.NewValidationError("footer_text", embed.Footer.Text, "footer text cannot exceed 2048 characters")
+		return NewValidationError("footer_text", embed.Footer.Text, "footer text cannot exceed 2048 characters")
 	}
 
 	if embed.Author != nil && len(embed.Author.Name) > 256 {
-		return common.NewValidationError("author_name", embed.Author.Name, "author name cannot exceed 256 characters")
+		return NewValidationError("author_name", embed.Author.Name, "author name cannot exceed 256 characters")
 	}
 
 	return nil
@@ -330,7 +328,7 @@ func (deb *DiscordEmbedBuilder) Validate() error {
 // Build builds the Discord embed with validation
 func (deb *DiscordEmbedBuilder) Build() (DiscordEmbed, error) {
 	if err := deb.Validate(); err != nil {
-		return DiscordEmbed{}, common.WrapError(err, "embed validation failed")
+		return DiscordEmbed{}, WrapError(err, "embed validation failed")
 	}
 	return deb.embed, nil
 }

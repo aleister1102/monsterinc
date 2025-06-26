@@ -3,8 +3,8 @@ package scanner
 import (
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 
@@ -28,7 +28,7 @@ type SummaryInput struct {
 	ScanMode        string
 	Targets         []string
 	StartTime       time.Time
-	ProbeResults    []models.ProbeResult
+	ProbeResults    []httpx.ProbeResult
 	URLDiffResults  map[string]models.URLDiffResult
 	WorkflowError   error
 	ErrorMessages   []string
@@ -67,7 +67,7 @@ func (sb *SummaryBuilder) BuildSummary(input *SummaryInput) models.ScanSummaryDa
 }
 
 // calculateStats calculates both probe and diff statistics efficiently
-func (sb *SummaryBuilder) calculateStats(summary *models.ScanSummaryData, probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult) {
+func (sb *SummaryBuilder) calculateStats(summary *models.ScanSummaryData, probeResults []httpx.ProbeResult, urlDiffResults map[string]models.URLDiffResult) {
 	// Calculate probe stats
 	totalProbed := len(probeResults)
 	successCount := 0
@@ -108,7 +108,7 @@ func (sb *SummaryBuilder) determineStatus(summary *models.ScanSummaryData, input
 
 	// Determine status based on workflow error and context
 	if input.WorkflowError != nil {
-		if common.ContainsCancellationError(summary.ErrorMessages) {
+		if ContainsCancellationError(summary.ErrorMessages) {
 			summary.Status = string(models.ScanStatusInterrupted)
 		} else {
 			summary.Status = string(models.ScanStatusFailed)

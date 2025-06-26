@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/crawler"
+	"github.com/monsterinc/progress"
 	"github.com/rs/zerolog"
 )
 
@@ -14,7 +14,7 @@ import (
 // Separates crawler execution logic from the main scanner
 type CrawlerExecutor struct {
 	logger          zerolog.Logger
-	progressDisplay *common.ProgressDisplayManager
+	progressDisplay *progress.ProgressDisplayManager
 	crawlerManager  *CrawlerManager // Added crawler manager for singleton instance
 }
 
@@ -27,7 +27,7 @@ func NewCrawlerExecutor(logger zerolog.Logger) *CrawlerExecutor {
 }
 
 // SetProgressDisplay sets the progress display manager
-func (ce *CrawlerExecutor) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
+func (ce *CrawlerExecutor) SetProgressDisplay(progressDisplay *progress.ProgressDisplayManager) {
 	ce.progressDisplay = progressDisplay
 }
 
@@ -58,7 +58,7 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 	}
 
 	// Check for context cancellation before starting crawler
-	if cancelled := common.CheckCancellation(input.Context); cancelled.Cancelled {
+	if cancelled := CheckCancellation(input.Context); cancelled.Cancelled {
 		result.Error = cancelled.Error
 		return result
 	}

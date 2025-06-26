@@ -3,7 +3,6 @@ package extractor
 import (
 	"regexp"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 
 	"github.com/rs/zerolog"
@@ -33,17 +32,17 @@ func (rc *RegexCompiler) CompileRegexSets(extractorCfg config.ExtractorConfig) C
 	regexSet := CompiledRegexSet{}
 
 	if len(extractorCfg.CustomRegexes) > 0 {
-		regexSet.CustomRegexes = common.CompileRegexes(extractorCfg.CustomRegexes, rc.logger)
+		regexSet.CustomRegexes = CompileRegexes(extractorCfg.CustomRegexes, rc.logger)
 		rc.logger.Debug().Int("compiled_count", len(regexSet.CustomRegexes)).Msg("Compiled custom regexes")
 	}
 
 	if len(extractorCfg.Allowlist) > 0 {
-		regexSet.AllowlistRegexes = common.CompileRegexes(extractorCfg.Allowlist, rc.logger)
+		regexSet.AllowlistRegexes = CompileRegexes(extractorCfg.Allowlist, rc.logger)
 		rc.logger.Debug().Int("compiled_count", len(regexSet.AllowlistRegexes)).Msg("Compiled allowlist regexes")
 	}
 
 	if len(extractorCfg.Denylist) > 0 {
-		regexSet.DenylistRegexes = common.CompileRegexes(extractorCfg.Denylist, rc.logger)
+		regexSet.DenylistRegexes = CompileRegexes(extractorCfg.Denylist, rc.logger)
 		rc.logger.Debug().Int("compiled_count", len(regexSet.DenylistRegexes)).Msg("Compiled denylist regexes")
 	}
 
