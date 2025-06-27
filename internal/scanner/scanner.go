@@ -19,19 +19,19 @@ import (
 // Scanner handles the core logic of scanning operations
 // Focuses on coordinating crawler, httpx probing, and diff/storage operations
 type Scanner struct {
-	config             *config.GlobalConfig
-	logger             zerolog.Logger
-	parquetReader      *datastore.ParquetReader
-	parquetWriter      *datastore.ParquetWriter
-	pathExtractor      *extractor.PathExtractor
-	configBuilder      *ConfigBuilder
-	crawlerExecutor    *CrawlerExecutor
-	httpxExecutor      *HTTPXExecutor
-	diffProcessor      *DiffStorageProcessor
-	progressDisplay    *common.ProgressDisplayManager
-	urlPreprocessor    *URLPreprocessor
-	resourceLimiter    *common.ResourceLimiter
-	secretsStore       *datastore.SecretsStore
+	config          *config.GlobalConfig
+	logger          zerolog.Logger
+	parquetReader   *datastore.ParquetReader
+	parquetWriter   *datastore.ParquetWriter
+	pathExtractor   *extractor.PathExtractor
+	configBuilder   *ConfigBuilder
+	crawlerExecutor *CrawlerExecutor
+	httpxExecutor   *HTTPXExecutor
+	diffProcessor   *DiffStorageProcessor
+	progressDisplay *common.ProgressDisplayManager
+	urlPreprocessor *URLPreprocessor
+	resourceLimiter *common.ResourceLimiter
+
 	notificationHelper interface {
 		SendScanStartNotification(ctx context.Context, summary models.ScanSummaryData)
 		SendScanCompletionNotification(ctx context.Context, summary models.ScanSummaryData, serviceType notifier.NotificationServiceType, reportFilePaths []string)
@@ -45,14 +45,12 @@ func NewScanner(
 	logger zerolog.Logger,
 	pReader *datastore.ParquetReader,
 	pWriter *datastore.ParquetWriter,
-	secretsStore *datastore.SecretsStore,
 ) *Scanner {
 	scanner := &Scanner{
 		config:        globalConfig,
 		logger:        logger.With().Str("module", "Scanner").Logger(),
 		parquetReader: pReader,
 		parquetWriter: pWriter,
-		secretsStore:  secretsStore,
 		configBuilder: NewConfigBuilder(globalConfig, logger),
 	}
 
@@ -174,7 +172,7 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 	// Generate HTML reports if we have results
 	var reportFilePaths []string
 	if len(probeResults) > 0 {
-		reportGenerator := NewReportGenerator(&gCfg.ReporterConfig, s.logger, s.secretsStore)
+		reportGenerator := NewReportGenerator(&gCfg.ReporterConfig, s.logger)
 		reportInput := NewReportGenerationInputWithDiff(probeResults, urlDiffResults, scanSessionID)
 		reportPaths, reportErr := reportGenerator.GenerateReports(ctx, reportInput)
 		if reportErr != nil {

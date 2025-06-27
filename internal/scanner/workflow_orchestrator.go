@@ -6,7 +6,6 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
@@ -18,22 +17,15 @@ type WorkflowOrchestrator struct {
 	reportGenerator *ReportGenerator
 	summaryBuilder  *SummaryBuilder
 	logger          zerolog.Logger
-	secretsStore    *datastore.SecretsStore
 }
 
 // NewWorkflowOrchestrator creates a new workflow orchestrator
 func NewWorkflowOrchestrator(scanner *Scanner, config *config.GlobalConfig, logger zerolog.Logger) (*WorkflowOrchestrator, error) {
-	secretsStore, err := datastore.NewSecretsStore(&config.StorageConfig, logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create secrets store for orchestrator: %w", err)
-	}
-
 	return &WorkflowOrchestrator{
 		scanner:         scanner,
-		reportGenerator: NewReportGenerator(&config.ReporterConfig, logger, secretsStore),
+		reportGenerator: NewReportGenerator(&config.ReporterConfig, logger),
 		summaryBuilder:  NewSummaryBuilder(logger),
 		logger:          logger.With().Str("module", "WorkflowOrchestrator").Logger(),
-		secretsStore:    secretsStore,
 	}, nil
 }
 

@@ -262,13 +262,8 @@ func initializeScanner(gCfg *config.GlobalConfig, appLogger zerolog.Logger) (*sc
 		return nil, fmt.Errorf("could not initialize ParquetWriter: %w", err)
 	}
 
-	secretsStore, err := datastore.NewSecretsStore(&gCfg.StorageConfig, appLogger)
-	if err != nil {
-		return nil, fmt.Errorf("could not initialize SecretsStore: %w", err)
-	}
-
 	appLogger.Info().Msg("Initializing scanner...")
-	scannerInstance := scanner.NewScanner(gCfg, appLogger, pReader, pWriter, secretsStore)
+	scannerInstance := scanner.NewScanner(gCfg, appLogger, pReader, pWriter)
 	appLogger.Info().Msg("Scanner initialized successfully.")
 	return scannerInstance, nil
 }

@@ -25,11 +25,7 @@ MonsterInc is a comprehensive security tool written in Go, specialized for URL c
 - Change history storage with Parquet format
 - Visual HTML diff reports with change highlighting
 
-### 🔒 Secret/API Keys Detection
-- Scan and detect secrets, API keys, tokens in source code
-- Optimized regex patterns for popular services
-- Integration with crawling and monitoring workflows
-- Detailed reports with context and location
+
 
 ### 📈 Reporting and Notifications
 - Interactive HTML reports with DataTables
@@ -158,7 +154,7 @@ graph TD
     U --> L
     U --> O
     
-    L --> V["Secret Scanner<br/>(internal/secretscanner)"]
+    
     V --> O
     
     I --> W["Path Extractor<br/>(internal/extractor)"]

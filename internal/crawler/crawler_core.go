@@ -8,9 +8,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/notifier"
-	"github.com/aleister1102/monsterinc/internal/secretscanner"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/gocolly/colly/v2"
 	"github.com/rs/zerolog"
@@ -21,7 +19,6 @@ type StatsCallback interface {
 	OnAssetsExtracted(count int64)
 	OnURLProcessed(count int64)
 	OnError(count int64)
-	OnSecretFound(count int64)
 }
 
 // Crawler represents the web crawler instance with thread-safe operations
@@ -58,8 +55,6 @@ type Crawler struct {
 	patternDetector *URLPatternDetector
 	// Stats callback for monitoring
 	statsCallback StatsCallback
-	// Secret detector
-	detector *secretscanner.Detector
 }
 
 // NewCrawler initializes a new Crawler based on the provided configuration
@@ -105,24 +100,6 @@ func (cb *CrawlerBuilder) Build() (*Crawler, error) {
 		urlParentMap:   make(map[string]string),
 		logger:         cb.logger,
 		config:         cb.config,
-	}
-
-	if cb.config.Secrets.Enabled {
-		secretsStore, err := datastore.NewSecretsStore(&cb.config.Secrets.SecretsStore, cb.logger)
-		if err != nil {
-			return nil, common.WrapError(err, "failed to create secrets store")
-		}
-		detector, err := secretscanner.NewDetector(
-			&cb.config.Secrets,
-			secretsStore,
-			cb.notifier,
-			cb.logger,
-		)
-		if err != nil {
-			return nil, common.WrapError(err, "failed to create secret detector")
-		}
-		crawler.detector = detector
-		crawler.logger.Info().Msg("Secret detection enabled")
 	}
 
 	if err := crawler.initialize(); err != nil {
@@ -202,14 +179,6 @@ func (cr *Crawler) DisableAutoCalibrate() {
 func (cr *Crawler) EnableAutoCalibrate() {
 	cr.logger.Debug().Msg("Auto-calibrate enabled")
 	cr.config.AutoCalibrate.Enabled = true
-}
-
-// SetStatsCallback sets the stats callback for monitoring
-func (cr *Crawler) SetStatsCallback(callback StatsCallback) {
-	cr.statsCallback = callback
-	if cr.detector != nil {
-		cr.detector.SetStatsCallback(cr.statsCallback)
-	}
 }
 
 // extractRootHostname extracts hostname from the first seed URL

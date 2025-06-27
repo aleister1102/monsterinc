@@ -38,11 +38,10 @@ func (r *HtmlReporter) buildOutputPath(baseOutputPath string, partNum, totalPart
 }
 
 // prepareReportData sets up page data structure
-func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, secretFindings []models.SecretFinding, partInfo string) (*models.ReportPageData, error) {
+func (r *HtmlReporter) prepareReportData(probeResults []*models.ProbeResult, partInfo string) (*models.ReportPageData, error) {
 	pageData := &models.ReportPageData{}
 
 	r.setBasicReportInfo(pageData, partInfo)
-	pageData.SecretFindings = secretFindings
 	r.processProbeResults(probeResults, pageData)
 
 	if jsonData, err := r.serializeTableData(pageData.ProbeResults); err == nil {
@@ -76,26 +75,12 @@ func (r *HtmlReporter) processProbeResults(probeResults []*models.ProbeResult, p
 	technologies := make(map[string]bool)
 	urlStatuses := make(map[string]bool)
 
-	secretsMap := make(map[string][]models.SecretFinding)
-	for _, sf := range pageData.SecretFindings {
-		secretsMap[sf.SourceURL] = append(secretsMap[sf.SourceURL], sf)
-	}
-
 	displayResults := make([]models.ProbeResultDisplay, len(probeResults))
 	for i, pr := range probeResults {
 		if pr == nil {
 			continue
 		}
 		displayResult := models.ToProbeResultDisplay(*pr)
-
-		// Try to match secrets by multiple URL variations
-		var secrets []models.SecretFinding
-		if foundSecrets, ok := secretsMap[pr.InputURL]; ok {
-			secrets = foundSecrets
-		} else if foundSecrets, ok := secretsMap[pr.FinalURL]; ok {
-			secrets = foundSecrets
-		}
-		displayResult.SecretFindings = secrets
 
 		displayResults[i] = displayResult
 		r.collectFilterData(*pr, hostnames, statusCodes, contentTypes, technologies, urlStatuses)

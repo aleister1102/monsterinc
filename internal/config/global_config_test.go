@@ -25,7 +25,6 @@ func TestNewDefaultGlobalConfig(t *testing.T) {
 	assert.NotNil(t, cfg.ReporterConfig)
 	assert.NotNil(t, cfg.ResourceLimiterConfig)
 	assert.NotNil(t, cfg.SchedulerConfig)
-	assert.NotNil(t, cfg.SecretsConfig)
 	assert.NotNil(t, cfg.StorageConfig)
 	assert.NotNil(t, cfg.ScanBatchConfig)
 	assert.NotNil(t, cfg.MonitorBatchConfig)

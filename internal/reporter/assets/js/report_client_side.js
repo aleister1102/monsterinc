@@ -1,885 +1,444 @@
 /**
- * ReportRenderer Class
- *
- * Handles all client-side logic for the interactive HTML report, including:
- * - Data initialization and state management (filtering, sorting, pagination).
- * - Rendering the main results table and pagination controls.
- * - Binding all user interface events (search, filter, sort, etc.).
- * - Populating and displaying the details modal for each result.
- * - Dynamically rendering secret findings within the details modal.
+ * Client-side JavaScript for the MonsterInc HTML Report
+ * Provides interactive features:
+ * - Responsive DataTables for probe results filtering and pagination.
+ * - Modal functionality for viewing detailed probe result information.
+ * - Technology filtering and visual feedback.
+ * - Responsive design adaptations.
  */
-class ReportRenderer {
-    constructor () {
-        // Initialize data and state
-        this.data = window.reportData || [];
-        this.filteredData = [...this.data];
+
+class ReportManager {
+    constructor (probeResultsData) {
+        this.probeResults = probeResultsData || [];
         this.currentPage = 1;
         this.itemsPerPage = 25;
-        this.totalItems = this.data.length;
+        this.totalItems = this.probeResults.length;
         this.totalPages = Math.ceil(this.totalItems / this.itemsPerPage);
-        this.currentSort = { column: null, direction: 'asc' };
-        this.filters = {
-            global: '',
-            hostname: '',
-            statusCode: '',
-            contentType: '',
-            technology: '',
-            diffStatus: ''
-        };
+        this.table = null; // DataTable instance
 
-        // View state for switching between probe results and secret findings
-        this.currentView = 'probe'; // 'probe' or 'secrets'
+        // Filter state
+        this.globalFilter = '';
+        this.statusFilter = '';
+        this.techFilter = '';
+        this.hostnameFilter = '';
+        this.rootTargetFilter = '';
 
-        // Secrets pagination state
-        this.secretsCurrentPage = 1;
-        this.secretsItemsPerPage = 25;
-        this.secretsData = [];
-        this.secretsTotalItems = 0;
-        this.secretsTotalPages = 1;
+        // View state for switching between probe results
+        this.currentView = 'probe';
 
-        // Start the rendering process
-        this.init();
+        this.initializeTable();
     }
 
-    init() {
-        // Initial setup
-        this.hideLoading();
-        this.showControls();
-        this.bindEvents();
-        this.render();
-        this.setupScrollToTop();
-        this.setupViewSwitching();
+    initializeTable() {
+        if ($.fn.DataTable) {
+            this.setupDataTable();
+        } else {
+            console.warn('DataTables is not available. Falling back to manual table management.');
+            this.setupManualPagination();
+        }
     }
 
-    hideLoading() {
-        document.getElementById('loading').style.display = 'none';
-    }
-
-    showControls() {
-        document.getElementById('controls').style.display = 'block';
-        document.getElementById('resultsContainer').style.display = 'block';
-        document.getElementById('paginationContainer').style.display = 'block';
-        document.getElementById('paginationContainerBottom').style.display = 'block';
-    }
-
-    setupViewSwitching() {
-        // Add view switching buttons
-        const controlsContainer = document.getElementById('controls');
-        const viewSwitchHTML = `
-            <div class="row mt-3">
-                <div class="col-12">
-                    <div class="btn-group" role="group" aria-label="View switching">
-                        <button type="button" id="probeViewBtn" class="btn btn-primary active">
-                            <i class="fas fa-search me-2"></i>Probe Results
-                        </button>
-                        <button type="button" id="secretsViewBtn" class="btn btn-outline-primary">
-                            <i class="fas fa-user-secret me-2"></i>Secret Findings
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-        controlsContainer.insertAdjacentHTML('beforeend', viewSwitchHTML);
-
-        // Bind view switching events
-        document.getElementById('probeViewBtn').addEventListener('click', () => this.switchView('probe'));
-        document.getElementById('secretsViewBtn').addEventListener('click', () => this.switchView('secrets'));
-    }
-
-    switchView(view) {
-        this.currentView = view;
+    switchView(viewType) {
+        this.currentView = viewType;
 
         // Update button states
         const probeBtn = document.getElementById('probeViewBtn');
-        const secretsBtn = document.getElementById('secretsViewBtn');
 
-        if (view === 'probe') {
+        if (viewType === 'probe') {
             probeBtn.className = 'btn btn-primary active';
-            secretsBtn.className = 'btn btn-outline-primary';
-            document.getElementById('resultsContainer').style.display = 'block';
 
-            // Hide secrets container if it exists
-            const secretsContainer = document.getElementById('secretsContainer');
-            if (secretsContainer) {
-                secretsContainer.style.display = 'none';
-            }
-        } else {
-            probeBtn.className = 'btn btn-outline-primary';
-            secretsBtn.className = 'btn btn-primary active';
-            document.getElementById('resultsContainer').style.display = 'none';
-
-            // Ensure secrets container exists and show it
-            this.renderSecretsTable();
-            const secretsContainer = document.getElementById('secretsContainer');
-            if (secretsContainer) {
-                secretsContainer.style.display = 'block';
-            }
-        }
-
-        this.render();
-    }
-
-    renderSecretsTable() {
-        let secretsContainer = document.getElementById('secretsContainer');
-        if (!secretsContainer) {
-            // Create secrets container if it doesn't exist
+            // Hide any other containers and show probe results
             const resultsContainer = document.getElementById('resultsContainer');
-            if (resultsContainer && resultsContainer.parentNode) {
-                secretsContainer = document.createElement('div');
-                secretsContainer.id = 'secretsContainer';
-                secretsContainer.className = 'table-container';
-                secretsContainer.style.display = 'none';
-                resultsContainer.parentNode.insertBefore(secretsContainer, resultsContainer.nextSibling);
-            } else {
-                console.error('Cannot create secrets container: resultsContainer not found');
-                return;
+            if (resultsContainer) {
+                resultsContainer.style.display = 'block';
             }
-        }
-
-        // Collect all secret findings
-        const secretFindings = [];
-        this.filteredData.forEach(item => {
-            // Check both field names for compatibility: SecretFindings (Go struct) and secrets (JSON tag)
-            const secrets = item.SecretFindings || item.secrets;
-            if (secrets && secrets.length > 0) {
-                secrets.forEach(secret => {
-                    secretFindings.push({
-                        url: item.InputURL,
-                        ruleId: secret.RuleID,
-                        secretText: secret.SecretText,
-                        context: secret.Context || 'N/A'
-                    });
-                });
-            }
-        });
-
-        // Update secrets pagination data
-        this.secretsData = secretFindings;
-        this.secretsTotalItems = secretFindings.length;
-        this.secretsTotalPages = Math.ceil(this.secretsTotalItems / this.secretsItemsPerPage);
-
-        if (secretFindings.length === 0) {
-            secretsContainer.innerHTML = `
-                <div class="text-center py-5">
-                    <i class="fas fa-shield-alt fa-3x text-muted mb-3"></i>
-                    <h4 class="text-muted">No Secret Findings</h4>
-                    <p>No secrets were detected in the scanned URLs.</p>
-                </div>
-            `;
-            return;
-        }
-
-        // Apply pagination
-        const startIndex = (this.secretsCurrentPage - 1) * this.secretsItemsPerPage;
-        const endIndex = startIndex + this.secretsItemsPerPage;
-        const pageSecrets = secretFindings.slice(startIndex, endIndex);
-
-        secretsContainer.innerHTML = `
-            <div class="table-responsive">
-                <table class="table table-hover mb-3" id="secretsTable">
-                    <thead>
-                        <tr>
-                            <th style="width: 30%;"><i class="fas fa-link me-1"></i>URL</th>
-                            <th style="width: 12%;"><i class="fas fa-user-secret me-1"></i>Rule ID</th>
-                            <th style="width: 35%;"><i class="fas fa-key me-1"></i>Secret Text</th>
-                            <th style="width: 13%;"><i class="fas fa-info-circle me-1"></i>Context</th>
-                            <th style="width: 10%;"><i class="fas fa-cog me-1"></i>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${pageSecrets.map((finding, index) => `
-                            <tr>
-                                <td>
-                                    <a href="${this.escapeHtml(finding.url)}" target="_blank" title="${this.escapeHtml(finding.url)}">
-                                        ${this.escapeHtml(this.truncateUrl(finding.url, 50))}
-                                    </a>
-                                </td>
-                                <td><span class="badge bg-danger">${this.escapeHtml(finding.ruleId)}</span></td>
-                                <td>
-                                    <div class="secret-content" style="max-width: 400px;" title="${this.escapeHtml(finding.secretText)}">
-                                        ${this.formatSecretText(finding.secretText)}
-                                    </div>
-                                </td>
-                                <td class="text-center">
-                                    <button class="btn btn-info btn-sm" onclick="reportRenderer.showSecretContext(${startIndex + index})" title="View Context">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                </td>
-                                <td class="text-center">
-                                    <button class="btn btn-success btn-sm me-1" onclick="reportRenderer.copySecret(${startIndex + index})" title="Copy Secret">
-                                        <i class="fas fa-copy"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        `;
-    }
-
-    bindEvents() {
-        // Debounced global search
-        let searchTimeout;
-        document.getElementById('globalSearchInput').addEventListener('input', (e) => {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(() => {
-                this.filters.global = e.target.value.toLowerCase();
-                this.applyFilters();
-            }, 300);
-        });
-
-        // Event listeners for all filter dropdowns
-        document.getElementById('rootURLFilter').addEventListener('change', (e) => { this.filters.hostname = e.target.value; this.applyFilters(); });
-        document.getElementById('statusCodeFilter').addEventListener('change', (e) => { this.filters.statusCode = e.target.value; this.applyFilters(); });
-        document.getElementById('contentTypeFilter').addEventListener('change', (e) => { this.filters.contentType = e.target.value; this.applyFilters(); });
-        document.getElementById('technologyFilter').addEventListener('change', (e) => { this.filters.technology = e.target.value; this.applyFilters(); });
-        document.getElementById('diffStatusFilter').addEventListener('change', (e) => { this.filters.diffStatus = e.target.value; this.applyFilters(); });
-
-        // Sync items per page dropdowns
-        const syncItemsPerPage = (e) => {
-            if (this.currentView === 'probe') {
-                this.itemsPerPage = parseInt(e.target.value);
-                this.totalPages = Math.ceil(this.totalItems / this.itemsPerPage);
-                this.currentPage = 1;
-            } else {
-                this.secretsItemsPerPage = parseInt(e.target.value);
-                this.secretsTotalPages = Math.ceil(this.secretsTotalItems / this.secretsItemsPerPage);
-                this.secretsCurrentPage = 1;
-            }
-            document.getElementById('itemsPerPageSelect').value = e.target.value;
-            document.getElementById('itemsPerPageSelectBottom').value = e.target.value;
-            this.render();
-        };
-        document.getElementById('itemsPerPageSelect').addEventListener('change', syncItemsPerPage);
-        document.getElementById('itemsPerPageSelectBottom').addEventListener('change', syncItemsPerPage);
-
-        // Table sorting
-        document.querySelectorAll('.sortable').forEach(th => {
-            th.addEventListener('click', () => {
-                this.sortData(th.dataset.colName);
-            });
-        });
-    }
-
-    applyFilters() {
-        this.filteredData = this.data.filter(item => {
-            if (this.filters.global && ![item.InputURL, item.FinalURL, item.Title, item.ContentType, item.WebServer, item.diff_status, ...(item.Technologies || [])].join(' ').toLowerCase().includes(this.filters.global)) return false;
-            if (this.filters.hostname && this.extractHostname(item.InputURL) !== this.filters.hostname) return false;
-            if (this.filters.statusCode && item.StatusCode.toString() !== this.filters.statusCode) return false;
-            if (this.filters.contentType && (!item.ContentType || !item.ContentType.includes(this.filters.contentType))) return false;
-            if (this.filters.technology && !(item.Technologies || []).some(tech => (tech.Name || tech).toLowerCase().includes(this.filters.technology.toLowerCase()))) return false;
-            if (this.filters.diffStatus && (item.diff_status || '') !== this.filters.diffStatus) return false;
-            return true;
-        });
-
-        this.totalItems = this.filteredData.length;
-        this.totalPages = Math.ceil(this.totalItems / this.itemsPerPage);
-        this.currentPage = 1;
-        this.render();
-    }
-
-    sortData(column) {
-        if (this.currentSort.column === column) {
-            this.currentSort.direction = this.currentSort.direction === 'asc' ? 'desc' : 'asc';
-        } else {
-            this.currentSort.column = column;
-            this.currentSort.direction = 'asc';
-        }
-
-        this.filteredData.sort((a, b) => {
-            let aVal = '';
-            let bVal = '';
-
-            // Handle URL column mapping to InputURL
-            if (column === 'URL') {
-                aVal = a['InputURL'] || '';
-                bVal = b['InputURL'] || '';
-            } else {
-                aVal = a[column] || '';
-                bVal = b[column] || '';
-            }
-
-            if (this.currentSort.direction === 'asc') {
-                return aVal.toString().localeCompare(bVal.toString());
-            } else {
-                return bVal.toString().localeCompare(aVal.toString());
-            }
-        });
-
-        this.updateSortIndicators();
-        this.render();
-    }
-
-    updateSortIndicators() {
-        document.querySelectorAll('.sortable').forEach(th => {
-            th.classList.remove('sort-asc', 'sort-desc');
-            if (th.dataset.colName === this.currentSort.column) {
-                th.classList.add(`sort-${this.currentSort.direction}`);
-            }
-        });
-    }
-
-    render() {
-        if (this.currentView === 'probe') {
-            this.renderTable();
-            this.renderPagination();
-            this.updateResultsInfo();
-        } else {
-            this.renderSecretsTable();
-            this.renderPagination(); // Use shared pagination
-            this.updateSecretsResultsInfo();
         }
     }
 
     renderTable() {
-        const tbody = document.querySelector('#resultsTable tbody');
-        if (!tbody) return;
-
-        if (this.filteredData.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No results found</td></tr>';
-            document.getElementById('noResults').style.display = 'block';
-            return;
-        }
-        document.getElementById('noResults').style.display = 'none';
-
         const startIndex = (this.currentPage - 1) * this.itemsPerPage;
         const endIndex = startIndex + this.itemsPerPage;
-        const pageItems = this.filteredData.slice(startIndex, endIndex);
+        const pageData = this.probeResults.slice(startIndex, endIndex);
 
-        tbody.innerHTML = '';
-        pageItems.forEach((item, index) => {
-            tbody.appendChild(this.createTableRow(item, startIndex + index));
+        const tableBody = document.getElementById('resultsTableBody');
+        if (!tableBody) {
+            console.error('Table body element not found');
+            return;
+        }
+
+        tableBody.innerHTML = '';
+
+        pageData.forEach((item, index) => {
+            if (!item) return;
+
+            const row = this.createTableRow(item, startIndex + index);
+            tableBody.appendChild(row);
         });
+
+        this.updatePaginationControls();
     }
 
-    createTableRow(item) {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>
-                <a href="${this.escapeHtml(item.InputURL)}" target="_blank" title="${this.escapeHtml(item.InputURL)}">
-                    ${this.escapeHtml(this.truncateUrl(item.InputURL, 40))}
-                </a>
-            </td>
-            <td>
-                <a href="${this.escapeHtml(item.FinalURL)}" target="_blank" title="${this.escapeHtml(item.FinalURL)}">
-                    ${this.escapeHtml(this.truncateUrl(item.FinalURL, 40))}
-                </a>
-            </td>
-            <td class="text-center">${this.renderDiffStatus(item.diff_status)}</td>
-            <td class="text-center">${this.renderStatusCode(item.StatusCode)}</td>
-            <td class="hide-on-mobile">${this.escapeHtml(item.Title || '')}</td>
-            <td class="hide-on-mobile">${this.escapeHtml(item.ContentType || '')}</td>
-            <td class="hide-on-mobile">${this.renderTechnologies(item.Technologies)}</td>
-            <td class="text-center"><button class="btn btn-primary btn-sm details-btn"><i class="fas fa-eye"></i></button></td>
-        `;
-        tr.querySelector('.details-btn').addEventListener('click', () => this.showDetails(item));
-        return tr;
-    }
+    createTableRow(item, index) {
+        const row = document.createElement('tr');
+        row.onclick = () => this.openDetailModal(item);
+        row.style.cursor = 'pointer';
 
-    renderDiffStatus(status) {
-        if (!status) {
-            return '<span class="badge bg-secondary">Unknown</span>';
-        }
+        // Status badge
+        const statusClass = this.getStatusBadgeClass(item.StatusCode);
+        const statusBadge = `<span class="badge ${statusClass}">${item.StatusCode || 'N/A'}</span>`;
 
-        const statusLower = status.toLowerCase();
-        switch (statusLower) {
-            case 'new':
-                return '<span class="diff-status-new">New</span>';
-            case 'old':
-                return '<span class="diff-status-old">Old</span>';
-            case 'existing':
-                return '<span class="diff-status-existing">Existing</span>';
-            default:
-                return `<span class="badge bg-secondary">${this.escapeHtml(status)}</span>`;
-        }
-    }
+        // Technologies (limit display to avoid wide columns)
+        const technologies = item.Technologies || [];
+        const techDisplay = technologies.length > 0
+            ? technologies.slice(0, 3).join(', ') + (technologies.length > 3 ? '...' : '')
+            : 'N/A';
 
-    renderStatusCode(statusCode) {
-        if (!statusCode) {
-            return '<span class="text-muted">N/A</span>';
-        }
+        // Content length formatting
+        const contentLength = item.ContentLength ? this.formatBytes(item.ContentLength) : 'N/A';
 
-        const code = parseInt(statusCode);
-        let className = '';
+        // URL status for diff (if available)
+        const urlStatus = item.URLStatus || '';
+        const diffBadge = urlStatus ? `<span class="badge badge-info">${urlStatus}</span>` : '';
 
-        // Use specific status class if defined, otherwise use generic class based on category
-        if (code >= 200 && code < 300) {
-            className = `status-${code}`;
-        } else if (code >= 300 && code < 400) {
-            className = `status-${code}`;
-        } else if (code >= 400 && code < 500) {
-            className = `status-${code}`;
-        } else if (code >= 500 && code < 600) {
-            className = `status-${code}`;
-        } else {
-            // For any other codes, use generic styling
-            className = 'status-generic';
-        }
-
-        return `<span class="${className}">${statusCode}</span>`;
-    }
-
-    renderTechnologies(technologies) {
-        if (!technologies || technologies.length === 0) {
-            return '<span class="text-muted">None</span>';
-        }
-        return technologies.map(tech =>
-            `<span class="tech-tag">${this.escapeHtml(tech.Name || tech)}</span>`
-        ).join(' ');
-    }
-
-    showDetails(item) {
-        if (!item) return;
-
-        const container = document.getElementById('probeDetailsContainer');
-        container.innerHTML = `
-            <div class="row mb-4"><div class="col-md-12"><div class="card h-100"><div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="fas fa-globe me-2"></i>URL Information</h6></div><div class="card-body"><p><strong>Input URL:</strong> <a href="${this.escapeHtml(item.InputURL)}" target="_blank" title="${this.escapeHtml(item.InputURL)}">${this.escapeHtml(this.truncateUrl(item.InputURL, 80))}</a></p><p><strong>Final URL:</strong> <a href="${this.escapeHtml(item.FinalURL)}" target="_blank" title="${this.escapeHtml(item.FinalURL)}">${this.escapeHtml(this.truncateUrl(item.FinalURL, 80))}</a></p><p><strong>Diff Status:</strong> ${this.renderDiffStatus(item.diff_status)}</p></div></div></div></div>
-            <div class="row"><div class="col-md-6"><div class="card h-100"><div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="fas fa-server me-2"></i>Response Details</h6></div><div class="card-body"><p><strong>Status Code:</strong> ${this.renderStatusCode(item.StatusCode)}</p><p><strong>Content Type:</strong> ${this.escapeHtml(item.ContentType || 'N/A')}</p><p><strong>Content Length:</strong> ${item.ContentLength || 'N/A'}</p><p><strong>Title:</strong> ${this.escapeHtml(item.Title || 'N/A')}</p><p><strong>Web Server:</strong> ${this.escapeHtml(item.WebServer || 'N/A')}</p></div></div></div><div class="col-md-6"><div class="card h-100"><div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="fas fa-cogs me-2"></i>Technologies</h6></div><div class="card-body">${this.renderTechnologies(item.Technologies)}</div></div></div></div>
-            <div class="row mt-4"><div class="col-md-12"><div class="card"><div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="fas fa-file-code me-2"></i>Response Body</h6></div><div class="card-body"><pre><code class="language-html" style="max-height: 300px; overflow-y: auto;">${this.escapeHtml(item.Body || 'No response body available')}</code></pre></div></div></div></div>
-            <div class="row mt-4"><div class="col-md-12"><p><strong>Error:</strong> ${this.escapeHtml(item.Error || 'None')}</p><p><strong>Timestamp:</strong> ${item.Timestamp || 'N/A'}</p></div></div>`;
-
-        const secretsSection = document.getElementById('modalSecretsSection');
-        // Check both field names for compatibility: SecretFindings (Go struct) and secrets (JSON tag)
-        const secrets = item.SecretFindings || item.secrets;
-        if (secrets && secrets.length > 0) {
-            secretsSection.innerHTML = `
-                <h5 class="mt-4"><i class="fas fa-user-secret me-2"></i>Secret Findings</h5>
-                <div class="table-responsive">
-                    <table class="table table-sm table-bordered">
-                        <thead class="table-secondary"><tr><th>Rule ID</th><th>Secret Snippet</th><th>Actions</th></tr></thead>
-                        <tbody>${secrets.map((s, index) => {
-                let secretText = this.escapeHtml(s.SecretText);
-                // Decode unicode escapes
-                secretText = secretText.replace(/\\u([0-9a-fA-F]{4})/g, (match, p1) => String.fromCharCode(parseInt(p1, 16)));
-                // Truncate if too long (show first 200 chars)
-                const truncatedText = secretText.length > 200 ? secretText.substring(0, 200) + '... [truncated]' : secretText;
-                const fullSecretText = this.escapeHtml(s.SecretText);
-                return `<tr>
-                    <td><span class="badge bg-danger">${this.escapeHtml(s.RuleID)}</span></td>
-                    <td><div class="secret-content" title="${fullSecretText}">${truncatedText}</div></td>
-                    <td class="text-center">
-                        <button class="btn btn-success btn-sm" onclick="reportRenderer.copySecretFromModal('${fullSecretText.replace(/'/g, '&#39;')}')" title="Copy Full Secret">
-                            <i class="fas fa-copy"></i>
-                        </button>
-                    </td>
-                </tr>`;
-            }).join('')}</tbody>
-                    </table>
-                </div>`;
-        } else {
-            secretsSection.innerHTML = '';
-        }
-
-        new bootstrap.Modal(document.getElementById('detailsModal')).show();
-    }
-
-    showSecretContext(secretIndex) {
-        const secret = this.secretsData[secretIndex];
-        if (!secret) return;
-
-        // Create modal if it doesn't exist
-        let modal = document.getElementById('secretContextModal');
-        if (!modal) {
-            modal = document.createElement('div');
-            modal.id = 'secretContextModal';
-            modal.className = 'modal fade';
-            modal.innerHTML = `
-                <div class="modal-dialog modal-lg">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title"><i class="fas fa-info-circle me-2"></i>Secret Context</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div id="secretContextContent"></div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                                <i class="fas fa-times me-1"></i>Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-        }
-
-        // Populate modal content
-        const content = document.getElementById('secretContextContent');
-        content.innerHTML = `
-            <div class="row mb-3">
-                <div class="col-md-3"><strong>URL:</strong></div>
-                <div class="col-md-9">
-                    <a href="${this.escapeHtml(secret.url)}" target="_blank" class="text-break" title="${this.escapeHtml(secret.url)}">
-                        ${this.escapeHtml(this.truncateUrl(secret.url, 80))}
-                    </a>
-                </div>
-            </div>
-            <div class="row mb-3">
-                <div class="col-md-3"><strong>Rule ID:</strong></div>
-                <div class="col-md-9">
-                    <span class="badge bg-danger">${this.escapeHtml(secret.ruleId)}</span>
-                </div>
-            </div>
-            <div class="row mb-3">
-                <div class="col-md-3"><strong>Secret Text:</strong></div>
-                <div class="col-md-9">
-                    <div class="p-2 bg-light border rounded">
-                        <code class="text-dark"><span class="secret-highlight">${this.escapeHtml(secret.secretText)}</span></code>
-                    </div>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-md-3"><strong>Context:</strong></div>
-                <div class="col-md-9">
-                    <div class="p-3 bg-light border rounded" style="max-height: 300px; overflow-y: auto;">
-                        <pre class="mb-0"><code>${this.highlightSecretInContext(secret.context, secret.secretText)}</code></pre>
-                    </div>
-                </div>
-            </div>
+        row.innerHTML = `
+            <td class="text-truncate" style="max-width: 300px;" title="${this.escapeHtml(item.InputURL || '')}">${this.escapeHtml(item.InputURL || '')}</td>
+            <td class="text-truncate" style="max-width: 200px;" title="${this.escapeHtml(item.FinalURL || '')}">${this.escapeHtml(item.FinalURL || '')}</td>
+            <td>${statusBadge}</td>
+            <td class="text-truncate" style="max-width: 200px;" title="${this.escapeHtml(item.Title || '')}">${this.escapeHtml(item.Title || '')}</td>
+            <td class="text-truncate" style="max-width: 150px;" title="${this.escapeHtml(techDisplay)}">${this.escapeHtml(techDisplay)}</td>
+            <td class="text-truncate" style="max-width: 120px;" title="${this.escapeHtml(item.WebServer || '')}">${this.escapeHtml(item.WebServer || '')}</td>
+            <td class="text-truncate" style="max-width: 120px;" title="${this.escapeHtml(item.ContentType || '')}">${this.escapeHtml(item.ContentType || '')}</td>
+            <td>${contentLength}</td>
+            <td>${diffBadge}</td>
         `;
 
-        new bootstrap.Modal(modal).show();
+        return row;
     }
 
-    extractHostname(url) {
-        try { return new URL(url).hostname; } catch (e) { return ''; }
+    openDetailModal(item) {
+        // Populate modal with probe result details
+        document.getElementById('modalInputURL').textContent = item.InputURL || 'N/A';
+        document.getElementById('modalFinalURL').textContent = item.FinalURL || 'N/A';
+        document.getElementById('modalMethod').textContent = item.Method || 'N/A';
+        document.getElementById('modalStatusCode').textContent = item.StatusCode || 'N/A';
+        document.getElementById('modalContentLength').textContent = this.formatBytes(item.ContentLength) || 'N/A';
+        document.getElementById('modalContentType').textContent = item.ContentType || 'N/A';
+        document.getElementById('modalTitle').textContent = item.Title || 'N/A';
+        document.getElementById('modalWebServer').textContent = item.WebServer || 'N/A';
+        document.getElementById('modalDuration').textContent = item.Duration ? `${item.Duration.toFixed(2)}s` : 'N/A';
+        document.getElementById('modalTimestamp').textContent = item.Timestamp || 'N/A';
+        document.getElementById('modalError').textContent = item.Error || 'None';
+
+        // Technologies
+        const technologies = item.Technologies || [];
+        const techList = document.getElementById('modalTechnologies');
+        techList.innerHTML = '';
+        if (technologies.length > 0) {
+            technologies.forEach(tech => {
+                const listItem = document.createElement('li');
+                listItem.textContent = tech;
+                listItem.className = 'list-group-item';
+                techList.appendChild(listItem);
+            });
+        } else {
+            const listItem = document.createElement('li');
+            listItem.textContent = 'No technologies detected';
+            listItem.className = 'list-group-item text-muted';
+            techList.appendChild(listItem);
+        }
+
+        // IPs
+        const ips = item.IPs || [];
+        document.getElementById('modalIPs').textContent = ips.length > 0 ? ips.join(', ') : 'N/A';
+
+        // CNAMEs
+        const cnames = item.CNAMEs || [];
+        document.getElementById('modalCNAMEs').textContent = cnames.length > 0 ? cnames.join(', ') : 'N/A';
+
+        // ASN
+        document.getElementById('modalASN').textContent = item.ASN || 'N/A';
+        document.getElementById('modalASNOrg').textContent = item.ASNOrg || 'N/A';
+
+        // TLS Information
+        document.getElementById('modalTLSVersion').textContent = item.TLSVersion || 'N/A';
+        document.getElementById('modalTLSCipher').textContent = item.TLSCipher || 'N/A';
+        document.getElementById('modalTLSCertIssuer').textContent = item.TLSCertIssuer || 'N/A';
+        document.getElementById('modalTLSCertExpiry').textContent = item.TLSCertExpiry || 'N/A';
+
+        // Headers
+        const headers = item.Headers || {};
+        const headersList = document.getElementById('modalHeaders');
+        headersList.innerHTML = '';
+        const headerEntries = Object.entries(headers);
+        if (headerEntries.length > 0) {
+            headerEntries.forEach(([key, value]) => {
+                const listItem = document.createElement('li');
+                listItem.innerHTML = `<strong>${this.escapeHtml(key)}:</strong> ${this.escapeHtml(value)}`;
+                listItem.className = 'list-group-item';
+                headersList.appendChild(listItem);
+            });
+        } else {
+            const listItem = document.createElement('li');
+            listItem.textContent = 'No headers available';
+            listItem.className = 'list-group-item text-muted';
+            headersList.appendChild(listItem);
+        }
+
+        // Body (truncated for display)
+        const body = item.Body || '';
+        const truncatedBody = body.length > 1000 ? body.substring(0, 1000) + '...' : body;
+        document.getElementById('modalBody').textContent = truncatedBody || 'No body content';
+
+        // Show the modal
+        const modal = new bootstrap.Modal(document.getElementById('detailModal'));
+        modal.show();
     }
 
-    truncateUrl(url, maxLength = 60) {
-        if (!url || url.length <= maxLength) return url;
+    renderModalSecretsSection() {
+        // Clear the section since secrets are removed
+        const modalSecretsSection = document.getElementById('modalSecretsSection');
+        if (modalSecretsSection) {
+            modalSecretsSection.innerHTML = '';
+        }
+    }
 
-        const halfLength = Math.floor((maxLength - 3) / 2);
-        return url.substring(0, halfLength) + '...' + url.substring(url.length - halfLength);
+    getStatusBadgeClass(statusCode) {
+        if (!statusCode) return 'bg-secondary';
+        if (statusCode >= 200 && statusCode < 300) return 'bg-success';
+        if (statusCode >= 300 && statusCode < 400) return 'bg-info';
+        if (statusCode >= 400 && statusCode < 500) return 'bg-warning';
+        if (statusCode >= 500) return 'bg-danger';
+        return 'bg-secondary';
+    }
+
+    formatBytes(bytes) {
+        if (!bytes) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
     escapeHtml(text) {
-        if (text === null || typeof text === 'undefined') return '';
-        return text.toString().replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
-    }
-
-    formatSecretText(secretText) {
-        if (!secretText) return '';
-
-        // Clean up whitespace and normalize
-        let cleaned = secretText.trim()
-            .replace(/\s+/g, ' ')           // Replace multiple whitespace with single space
-            .replace(/\n+/g, ' ')           // Replace newlines with space
-            .replace(/\t+/g, ' ')           // Replace tabs with space
-            .replace(/\r+/g, '');           // Remove carriage returns
-
-        // Truncate if too long
-        if (cleaned.length > 100) {
-            cleaned = cleaned.substring(0, 100) + '...';
-        }
-
-        return this.escapeHtml(cleaned);
-    }
-
-    highlightSecretInContext(context, secretText) {
-        if (!context || !secretText) return this.escapeHtml(context);
-
-        // Escape HTML first
-        let result = this.escapeHtml(context);
-        const escapedSecret = this.escapeHtml(secretText);
-
-        // For very long secrets, just highlight the first 50 chars to avoid performance issues
-        let searchText = escapedSecret;
-        if (escapedSecret.length > 100) {
-            searchText = escapedSecret.substring(0, 50);
-        }
-
-        // Create regex to find secret text (case sensitive for exact match)
-        const escapedSecretForRegex = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(${escapedSecretForRegex})`, 'g');
-
-        // Replace matches with highlighted version
-        result = result.replace(regex, '<span class="secret-highlight">$1</span>');
-
-        // Also highlight common key patterns if not already highlighted
-        const keyPatterns = [
-            /-----BEGIN [A-Z ]+-----/g,
-            /-----END [A-Z ]+-----/g,
-            /[A-Za-z0-9+\/]{40,}={0,2}/g // Base64-like patterns
-        ];
-
-        keyPatterns.forEach(pattern => {
-            result = result.replace(pattern, (match) => {
-                // Don't double-highlight if already highlighted
-                if (result.includes(`<span class="secret-highlight">${match}</span>`)) {
-                    return match;
-                }
-                return `<span class="secret-highlight">${match}</span>`;
-            });
-        });
-
-        return result;
-    }
-
-    renderPagination() {
-        if (this.currentView === 'probe') {
-            this.renderPaginationForElement('paginationList');
-            this.renderPaginationForElement('paginationListBottom');
-        } else {
-            this.renderSecretsPaginationForElement('paginationList');
-            this.renderSecretsPaginationForElement('paginationListBottom');
-        }
-    }
-
-    renderPaginationForElement(elementId) {
-        const ul = document.getElementById(elementId);
-        if (!ul) return;
-        ul.innerHTML = '';
-
-        if (this.totalPages <= 1) return;
-
-        const createPageItem = (text, page, isDisabled = false, isActive = false) => {
-            const li = document.createElement('li');
-            li.className = `page-item ${isDisabled ? 'disabled' : ''} ${isActive ? 'active' : ''}`;
-            const a = document.createElement('a');
-            a.className = 'page-link';
-            a.href = '#';
-            a.innerHTML = text;
-            a.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (!isDisabled) {
-                    this.currentPage = page;
-                    this.render();
-                }
-            });
-            li.appendChild(a);
-            return li;
+        if (!text) return '';
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
         };
-
-        ul.appendChild(createPageItem('&laquo;', 1, this.currentPage === 1));
-
-        let startPage = Math.max(1, this.currentPage - 2);
-        let endPage = Math.min(this.totalPages, this.currentPage + 2);
-
-        if (this.currentPage <= 3) endPage = Math.min(5, this.totalPages);
-        if (this.currentPage > this.totalPages - 3) startPage = Math.max(1, this.totalPages - 4);
-
-        if (startPage > 1) ul.appendChild(createPageItem('...', startPage - 1));
-        for (let i = startPage; i <= endPage; i++) {
-            ul.appendChild(createPageItem(i, i, false, this.currentPage === i));
-        }
-        if (endPage < this.totalPages) ul.appendChild(createPageItem('...', endPage + 1));
-
-        ul.appendChild(createPageItem('&raquo;', this.totalPages, this.currentPage === this.totalPages));
+        return text.replace(/[&<>"']/g, function (m) { return map[m]; });
     }
 
-    renderSecretsPaginationForElement(elementId) {
-        const ul = document.getElementById(elementId);
-        if (!ul) return;
-        ul.innerHTML = '';
-
-        if (this.secretsTotalPages <= 1) return;
-
-        const createPageItem = (text, page, isDisabled = false, isActive = false) => {
-            const li = document.createElement('li');
-            li.className = `page-item ${isDisabled ? 'disabled' : ''} ${isActive ? 'active' : ''}`;
-            const a = document.createElement('a');
-            a.className = 'page-link';
-            a.href = '#';
-            a.innerHTML = text;
-            a.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (!isDisabled) {
-                    this.secretsCurrentPage = page;
-                    this.render();
-                }
-            });
-            li.appendChild(a);
-            return li;
-        };
-
-        ul.appendChild(createPageItem('&laquo;', 1, this.secretsCurrentPage === 1));
-
-        let startPage = Math.max(1, this.secretsCurrentPage - 2);
-        let endPage = Math.min(this.secretsTotalPages, this.secretsCurrentPage + 2);
-
-        if (this.secretsCurrentPage <= 3) endPage = Math.min(5, this.secretsTotalPages);
-        if (this.secretsCurrentPage > this.secretsTotalPages - 3) startPage = Math.max(1, this.secretsTotalPages - 4);
-
-        if (startPage > 1) ul.appendChild(createPageItem('...', startPage - 1));
-        for (let i = startPage; i <= endPage; i++) {
-            ul.appendChild(createPageItem(i, i, false, this.secretsCurrentPage === i));
-        }
-        if (endPage < this.secretsTotalPages) ul.appendChild(createPageItem('...', endPage + 1));
-
-        ul.appendChild(createPageItem('&raquo;', this.secretsTotalPages, this.secretsCurrentPage === this.secretsTotalPages));
-    }
-
-    updateResultsInfo() {
-        const start = this.filteredData.length > 0 ? (this.currentPage - 1) * this.itemsPerPage + 1 : 0;
-        const end = Math.min(start + this.itemsPerPage - 1, this.totalItems);
-
-        document.getElementById('showingStart').textContent = start;
-        document.getElementById('showingEnd').textContent = end;
-        document.getElementById('totalItems').textContent = this.totalItems;
-        if (document.getElementById('showingStartBottom')) {
-            document.getElementById('showingStartBottom').textContent = start;
-            document.getElementById('showingEndBottom').textContent = end;
-            document.getElementById('totalItemsBottom').textContent = this.totalItems;
-        }
-    }
-
-    updateSecretsResultsInfo() {
-        const start = this.secretsTotalItems > 0 ? (this.secretsCurrentPage - 1) * this.secretsItemsPerPage + 1 : 0;
-        const end = Math.min(start + this.secretsItemsPerPage - 1, this.secretsTotalItems);
-
-        document.getElementById('showingStart').textContent = start;
-        document.getElementById('showingEnd').textContent = end;
-        document.getElementById('totalItems').textContent = this.secretsTotalItems;
-        if (document.getElementById('showingStartBottom')) {
-            document.getElementById('showingStartBottom').textContent = start;
-            document.getElementById('showingEndBottom').textContent = end;
-            document.getElementById('totalItemsBottom').textContent = this.secretsTotalItems;
-        }
-    }
-
-    setupScrollToTop() {
-        const toTopBtn = document.getElementById('toTopBtn');
-        window.onscroll = () => {
-            toTopBtn.style.display = (document.body.scrollTop > 20 || document.documentElement.scrollTop > 20) ? "block" : "none";
-        };
-        toTopBtn.addEventListener('click', () => {
-            document.body.scrollTop = 0;
-            document.documentElement.scrollTop = 0;
-        });
-    }
-
-    copySecret(secretIndex) {
-        const secret = this.secretsData[secretIndex];
-        if (!secret) {
-            this.showNotification('Secret not found', 'error');
+    setupDataTable() {
+        if (!$.fn.DataTable) {
+            console.warn('DataTables not available');
             return;
         }
 
-        // Use the Clipboard API if available
-        if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(secret.secretText).then(() => {
-                this.showNotification('Secret copied to clipboard!', 'success');
-            }).catch(err => {
-                console.error('Failed to copy: ', err);
-                this.fallbackCopyTextToClipboard(secret.secretText);
-            });
-        } else {
-            // Fallback for older browsers or non-HTTPS
-            this.fallbackCopyTextToClipboard(secret.secretText);
-        }
-    }
-
-    fallbackCopyTextToClipboard(text) {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-
-        // Avoid scrolling to bottom
-        textArea.style.top = "0";
-        textArea.style.left = "0";
-        textArea.style.position = "fixed";
-        textArea.style.opacity = "0";
-
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-
         try {
-            const successful = document.execCommand('copy');
-            if (successful) {
-                this.showNotification('Secret copied to clipboard!', 'success');
-            } else {
-                this.showNotification('Failed to copy secret', 'error');
-            }
-        } catch (err) {
-            console.error('Fallback: Oops, unable to copy', err);
-            this.showNotification('Failed to copy secret', 'error');
-        }
+            // Prepare data for DataTables
+            const tableData = this.probeResults.map(item => [
+                item.InputURL || '',
+                item.FinalURL || '',
+                item.StatusCode || 0,
+                item.Title || '',
+                (item.Technologies || []).join(', '),
+                item.WebServer || '',
+                item.ContentType || '',
+                item.ContentLength || 0,
+                item.URLStatus || ''
+            ]);
 
-        document.body.removeChild(textArea);
-    }
-
-    copySecretFromModal(secretText) {
-        // Decode HTML entities
-        const decodedText = secretText.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-
-        // Use the Clipboard API if available
-        if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(decodedText).then(() => {
-                this.showNotification('Secret copied to clipboard!', 'success');
-            }).catch(err => {
-                console.error('Failed to copy: ', err);
-                this.fallbackCopyTextToClipboard(decodedText);
+            this.table = $('#resultsTable').DataTable({
+                data: tableData,
+                columns: [
+                    { title: "Input URL", className: "text-truncate", width: "20%" },
+                    { title: "Final URL", className: "text-truncate", width: "20%" },
+                    { title: "Status", width: "8%" },
+                    { title: "Title", className: "text-truncate", width: "15%" },
+                    { title: "Technologies", className: "text-truncate", width: "12%" },
+                    { title: "Server", className: "text-truncate", width: "10%" },
+                    { title: "Content Type", className: "text-truncate", width: "10%" },
+                    { title: "Size", width: "8%" },
+                    { title: "Diff Status", width: "8%" }
+                ],
+                pageLength: this.itemsPerPage,
+                responsive: true,
+                searching: true,
+                ordering: true,
+                info: true,
+                lengthChange: true,
+                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+                language: {
+                    search: "Search all columns:",
+                    lengthMenu: "Show _MENU_ results per page",
+                    info: "Showing _START_ to _END_ of _TOTAL_ results",
+                    infoEmpty: "No results available",
+                    infoFiltered: "(filtered from _MAX_ total results)",
+                    paginate: {
+                        first: "First",
+                        last: "Last",
+                        next: "Next",
+                        previous: "Previous"
+                    }
+                },
+                dom: '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>' +
+                    '<"row"<"col-sm-12"tr>>' +
+                    '<"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>',
+                columnDefs: [
+                    {
+                        targets: [0, 1, 3, 4, 5, 6], // URL columns, title, tech, server, content type
+                        render: function (data, type, row) {
+                            if (type === 'display' && data && data.length > 50) {
+                                return '<span title="' + data + '">' + data.substr(0, 47) + '...</span>';
+                            }
+                            return data;
+                        }
+                    },
+                    {
+                        targets: 2, // Status code column
+                        render: function (data, type, row) {
+                            if (type === 'display') {
+                                const statusClass = data >= 200 && data < 300 ? 'bg-success' :
+                                    data >= 300 && data < 400 ? 'bg-info' :
+                                        data >= 400 && data < 500 ? 'bg-warning' :
+                                            data >= 500 ? 'bg-danger' : 'bg-secondary';
+                                return '<span class="badge ' + statusClass + '">' + (data || 'N/A') + '</span>';
+                            }
+                            return data;
+                        }
+                    },
+                    {
+                        targets: 7, // Content length column
+                        render: function (data, type, row) {
+                            if (type === 'display' && data) {
+                                return this.formatBytes(data);
+                            }
+                            return data || 'N/A';
+                        }.bind(this)
+                    },
+                    {
+                        targets: 8, // Diff status column
+                        render: function (data, type, row) {
+                            if (type === 'display' && data) {
+                                return '<span class="badge badge-info">' + data + '</span>';
+                            }
+                            return data || '';
+                        }
+                    }
+                ],
+                createdRow: (row, data, dataIndex) => {
+                    $(row).css('cursor', 'pointer');
+                    $(row).on('click', () => {
+                        this.openDetailModal(this.probeResults[dataIndex]);
+                    });
+                }
             });
-        } else {
-            // Fallback for older browsers or non-HTTPS
-            this.fallbackCopyTextToClipboard(decodedText);
+
+        } catch (error) {
+            console.error('Error initializing DataTable:', error);
+            this.setupManualPagination();
         }
     }
 
-    showNotification(message, type = 'info') {
-        // Create notification element if it doesn't exist
-        let notification = document.getElementById('notification');
-        if (!notification) {
-            notification = document.createElement('div');
-            notification.id = 'notification';
-            notification.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 12px 20px;
-                border-radius: 4px;
-                color: white;
-                font-weight: 500;
-                z-index: 9999;
-                transition: opacity 0.3s ease;
-                opacity: 0;
-                pointer-events: none;
-            `;
-            document.body.appendChild(notification);
+    setupManualPagination() {
+        this.renderTable();
+        this.setupPaginationControls();
+        this.setupFilterControls();
+    }
+
+    updatePaginationControls() {
+        const pagination = document.getElementById('paginationControls');
+        if (!pagination) return;
+
+        const startItem = ((this.currentPage - 1) * this.itemsPerPage) + 1;
+        const endItem = Math.min(this.currentPage * this.itemsPerPage, this.totalItems);
+
+        pagination.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="text-muted">
+                    Showing ${startItem}-${endItem} of ${this.totalItems} results
+                </span>
+                <div class="btn-group" role="group">
+                    <button class="btn btn-outline-secondary" ${this.currentPage === 1 ? 'disabled' : ''} 
+                            onclick="reportManager.goToPage(${this.currentPage - 1})">Previous</button>
+                    <span class="btn btn-outline-secondary disabled">Page ${this.currentPage} of ${this.totalPages}</span>
+                    <button class="btn btn-outline-secondary" ${this.currentPage === this.totalPages ? 'disabled' : ''} 
+                            onclick="reportManager.goToPage(${this.currentPage + 1})">Next</button>
+                </div>
+            </div>
+        `;
+    }
+
+    goToPage(page) {
+        if (page >= 1 && page <= this.totalPages) {
+            this.currentPage = page;
+            this.renderTable();
+        }
+    }
+
+    setupPaginationControls() {
+        this.updatePaginationControls();
+    }
+
+    setupFilterControls() {
+        // Global search
+        const globalSearch = document.getElementById('globalSearch');
+        if (globalSearch) {
+            globalSearch.addEventListener('input', (e) => {
+                this.globalFilter = e.target.value.toLowerCase();
+                this.applyFilters();
+            });
         }
 
-        // Set message and style based on type
-        notification.textContent = message;
-        switch (type) {
-            case 'success':
-                notification.style.backgroundColor = '#28a745';
-                break;
-            case 'error':
-                notification.style.backgroundColor = '#dc3545';
-                break;
-            case 'warning':
-                notification.style.backgroundColor = '#ffc107';
-                notification.style.color = '#212529';
-                break;
-            default:
-                notification.style.backgroundColor = '#17a2b8';
+        // Status filter
+        const statusFilter = document.getElementById('statusFilter');
+        if (statusFilter) {
+            statusFilter.addEventListener('change', (e) => {
+                this.statusFilter = e.target.value;
+                this.applyFilters();
+            });
         }
 
-        // Show notification
-        notification.style.opacity = '1';
-        notification.style.pointerEvents = 'auto';
+        // Technology filter
+        const techFilter = document.getElementById('techFilter');
+        if (techFilter) {
+            techFilter.addEventListener('input', (e) => {
+                this.techFilter = e.target.value.toLowerCase();
+                this.applyFilters();
+            });
+        }
 
-        // Hide after 3 seconds
-        setTimeout(() => {
-            notification.style.opacity = '0';
-            notification.style.pointerEvents = 'none';
-        }, 3000);
+        // Hostname filter
+        const hostnameFilter = document.getElementById('hostnameFilter');
+        if (hostnameFilter) {
+            hostnameFilter.addEventListener('change', (e) => {
+                this.hostnameFilter = e.target.value;
+                this.applyFilters();
+            });
+        }
+
+        // Root target filter
+        const rootTargetFilter = document.getElementById('rootTargetFilter');
+        if (rootTargetFilter) {
+            rootTargetFilter.addEventListener('change', (e) => {
+                this.rootTargetFilter = e.target.value;
+                this.applyFilters();
+            });
+        }
+    }
+
+    applyFilters() {
+        // Implementation for manual filtering when DataTables is not available
+        console.log('Applying manual filters...');
     }
 }
 
-// Initialize the report renderer when the DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-    try {
-        // Use window.reportData that's embedded in the template
-        if (window.reportData) {
-            window.reportRenderer = new ReportRenderer();
-        } else {
-            throw new Error('Report data not found');
-        }
-    } catch (e) {
-        console.error('Failed to parse report data:', e);
-        document.getElementById('loading').innerHTML = '<h4>Error: Failed to load report data.</h4>';
-    }
+// Initialize the report manager when the DOM is loaded
+document.addEventListener('DOMContentLoaded', function () {
+    // ProbeResultsData should be injected by the Go template
+    const reportManager = new ReportManager(window.ProbeResultsData || []);
+    window.reportManager = reportManager; // Make it globally accessible for inline onclick handlers
 });

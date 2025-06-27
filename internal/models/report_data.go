@@ -40,7 +40,6 @@ type ProbeResultDisplay struct {
 	HasIPs          bool            // Helper
 	RootTargetURL   string          // Added for multi-target navigation
 	URLStatus       string          `json:"diff_status,omitempty"` // Changed from URLStatus
-	SecretFindings  []SecretFinding `json:"secrets,omitempty"`
 }
 
 // ReportPageData holds all the data needed to render the HTML report page.
@@ -48,7 +47,6 @@ type ReportPageData struct {
 	ReportTitle    string
 	GeneratedAt    string // Formatted timestamp
 	ProbeResults   []ProbeResultDisplay
-	SecretFindings []SecretFinding
 	TotalResults   int
 	SuccessResults int
 	FailedResults  int

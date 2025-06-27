@@ -241,7 +241,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			Int("total_url_diffs", len(allURLDiffResults)).
 			Msg("Generating merged report from all batch results")
 
-		reportGenerator := NewReportGenerator(&gCfg.ReporterConfig, bwo.logger, bwo.scanner.secretsStore)
+		reportGenerator := NewReportGenerator(&gCfg.ReporterConfig, bwo.logger)
 		reportInput := NewReportGenerationInputWithDiff(allProbeResults, allURLDiffResults, scanSessionID)
 		mergedReportPaths, reportErr := reportGenerator.GenerateReports(ctx, reportInput)
 

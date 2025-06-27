@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/reporter"
 	"github.com/rs/zerolog"
@@ -15,17 +14,15 @@ import (
 // ReportGenerator is responsible for creating HTML reports from probe results
 // Separates report generation logic from main workflow according to single responsibility principle
 type ReportGenerator struct {
-	config       *config.ReporterConfig
-	logger       zerolog.Logger
-	secretsStore *datastore.SecretsStore
+	config *config.ReporterConfig
+	logger zerolog.Logger
 }
 
 // NewReportGenerator creates a new ReportGenerator instance
-func NewReportGenerator(config *config.ReporterConfig, logger zerolog.Logger, secretsStore *datastore.SecretsStore) *ReportGenerator {
+func NewReportGenerator(config *config.ReporterConfig, logger zerolog.Logger) *ReportGenerator {
 	return &ReportGenerator{
-		config:       config,
-		logger:       logger.With().Str("module", "ReportGenerator").Logger(),
-		secretsStore: secretsStore,
+		config: config,
+		logger: logger.With().Str("module", "ReportGenerator").Logger(),
 	}
 }
 
@@ -71,14 +68,6 @@ func (rg *ReportGenerator) GenerateReports(ctx context.Context, input *ReportGen
 		return nil, fmt.Errorf("failed to initialize HTML reporter: %w", err)
 	}
 
-	// Load secret findings
-	secretFindings, err := rg.secretsStore.LoadFindings(ctx)
-	if err != nil {
-		// Log the error but continue report generation without secret data
-		rg.logger.Error().Err(err).Msg("Failed to load secret findings for report")
-		secretFindings = []models.SecretFinding{} // Ensure it's not nil
-	}
-
 	baseReportPath := rg.buildBaseReportPath(input.ScanSessionID)
 
 	// Combine current scan results with old URLs from diff results
@@ -87,7 +76,7 @@ func (rg *ReportGenerator) GenerateReports(ctx context.Context, input *ReportGen
 	// OPTIMIZATION: Direct pointer conversion to avoid intermediate allocation
 	probeResultsPtr := rg.convertToPointersOptimized(allProbeResults)
 
-	reportPaths, err := htmlReporter.GenerateReport(probeResultsPtr, secretFindings, baseReportPath)
+	reportPaths, err := htmlReporter.GenerateReport(probeResultsPtr, baseReportPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate HTML report(s): %w", err)
 	}
