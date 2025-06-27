@@ -352,10 +352,6 @@ notification_config:
   # Default: ""
   scan_service_discord_webhook_url: "" # e.g., "https://discord.com/api/webhooks/your/scan_service_webhook"
 
-  # Discord webhook URL for the File Monitoring Service.
-  # Default: ""
-  monitor_service_discord_webhook_url: "" # e.g., "https://discord.com/api/webhooks/your/monitor_service_webhook"
-
   # List of Discord Role IDs to mention in notifications.
   # Default: []
   mention_role_ids:
@@ -429,16 +425,10 @@ diff_config:
   # Number of days to look back for previous scan data to compare against.
   # Default: 7
   previous_scan_lookback_days: 7
-
-# DiffReporterConfig: Configuration for generating content diff reports.
-diff_reporter_config:
   # Maximum file size in MB for generating a detailed line-by-line diff.
   # Files larger than this will still be reported as changed, but without a detailed diff.
   # Default: 5
   max_diff_file_size_mb: 5
-
-# MonitorConfig: Configuration for monitoring JS/HTML files for changes.
-monitor_config:
   # Whether the monitoring feature is enabled.
   # Default: false
   enabled: false
@@ -508,23 +498,3 @@ scan_batch_config:
   # Files with fewer targets than this will be processed normally without batching.
   # Default: 500 (larger threshold due to higher processing capacity)
   threshold_size: 500
-
-# Monitor Batch configuration: Settings for processing large monitor target files in batches.
-monitor_batch_config:
-  # Maximum number of URLs to process in each monitor batch.
-  # When input file has more than threshold_size URLs, it will be split into batches of this size.
-  # Default: 50 (smaller than scan due to more intensive monitoring operations)
-  batch_size: 50
-  # Maximum number of concurrent monitor batches to process at the same time.
-  # Set to 1 for sequential processing (recommended for monitoring stability).
-  # Default: 1
-  max_concurrent_batch: 1
-  # Timeout for each monitor batch processing in minutes.
-  # If a batch takes longer than this, it will be cancelled.
-  # Default: 20 (shorter timeout for monitoring operations)
-  batch_timeout_mins: 20
-  # Minimum number of URLs in input file to trigger batch processing.
-  # Files with fewer URLs than this will be processed normally without batching.
-  # For example, if set to 200, files with 500 URLs will create 10 batches of 50 URLs each.
-  # Default: 200
-  threshold_size: 200

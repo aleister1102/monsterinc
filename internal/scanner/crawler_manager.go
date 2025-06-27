@@ -14,12 +14,9 @@ import (
 
 // CrawlerManager manages a singleton crawler instance for reuse across batches
 type CrawlerManager struct {
-	logger           zerolog.Logger
-	crawlerInstance  *crawler.Crawler
-	progressDisplay  *common.ProgressDisplayManager
-	mu               sync.RWMutex
-	isInstanceActive bool
-	autoCalibrateSet bool
+	logger          zerolog.Logger
+	crawlerInstance *crawler.Crawler
+	mu              sync.RWMutex
 }
 
 // NewCrawlerManager creates a new crawler manager
@@ -134,17 +131,6 @@ func (cm *CrawlerManager) DisableAutoCalibrateForPreprocessedURLs() {
 		cm.crawlerInstance.DisableAutoCalibrate()
 		cm.logger.Info().Msg("Auto-calibrate disabled for preprocessed URLs")
 	}
-}
-
-// runCrawlerBatch runs a single crawler batch and returns discovered URLs
-func (cm *CrawlerManager) runCrawlerBatch(ctx context.Context, crawlerInstance *crawler.Crawler, seedURLs []string) ([]string, error) {
-	// Run crawler with context
-	crawlerInstance.RunBatch(ctx, seedURLs)
-
-	// Get discovered URLs
-	discoveredURLs := crawlerInstance.GetDiscoveredURLs()
-
-	return discoveredURLs, nil
 }
 
 // runCrawlerBatchWithProgress runs a single crawler batch with progress updates

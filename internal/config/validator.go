@@ -255,8 +255,6 @@ func (cv *ConfigValidator) createValidationView(cfg *GlobalConfig) interface{} {
 		SQLiteDBPath             string   `validate:"-"`
 	}{
 		PreviousScanLookbackDays: cfg.DiffConfig.PreviousScanLookbackDays,
-		JSFileExtensions:         cfg.MonitorConfig.JSFileExtensions,
-		HTMLFileExtensions:       cfg.MonitorConfig.HTMLFileExtensions,
 		CycleMinutes:             cfg.SchedulerConfig.CycleMinutes,
 		RetryAttempts:            cfg.SchedulerConfig.RetryAttempts,
 		SQLiteDBPath:             cfg.SchedulerConfig.SQLiteDBPath,

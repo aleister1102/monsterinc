@@ -17,7 +17,6 @@ type GlobalConfig struct {
 	HttpxRunnerConfig     HttpxRunnerConfig     `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
 	LogConfig             LogConfig             `json:"log_config,omitempty" yaml:"log_config,omitempty"`
 	Mode                  string                `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
-	MonitorConfig         MonitorConfig         `json:"monitor_config,omitempty" yaml:"monitor_config,omitempty"`
 	NotificationConfig    NotificationConfig    `json:"notification_config,omitempty" yaml:"notification_config,omitempty"`
 	ReporterConfig        ReporterConfig        `json:"reporter_config,omitempty" yaml:"reporter_config,omitempty"`
 	ResourceLimiterConfig ResourceLimiterConfig `json:"resource_limiter_config,omitempty" yaml:"resource_limiter_config,omitempty"`
@@ -37,7 +36,6 @@ func NewDefaultGlobalConfig() *GlobalConfig {
 		HttpxRunnerConfig:     NewDefaultHTTPXRunnerConfig(),
 		LogConfig:             NewDefaultLogConfig(),
 		Mode:                  "onetime",
-		MonitorConfig:         NewDefaultMonitorConfig(),
 		NotificationConfig:    NewDefaultNotificationConfig(),
 		ReporterConfig:        NewDefaultReporterConfig(),
 		ResourceLimiterConfig: NewDefaultResourceLimiterConfig(),

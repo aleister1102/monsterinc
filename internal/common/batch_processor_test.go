@@ -129,9 +129,7 @@ func TestBatchProcessor_ProcessBatches_Sequential(t *testing.T) {
 	processedItems := make([]string, 0)
 
 	processFunc := func(ctx context.Context, batch []string, batchIndex int) error {
-		for _, item := range batch {
-			processedItems = append(processedItems, item)
-		}
+		processedItems = append(processedItems, batch...)
 		return nil
 	}
 

@@ -330,27 +330,6 @@ func (dsp *DiffStorageProcessor) updateProcessedProbeResults(
 	}
 }
 
-// groupProbeResultsByRootTarget groups probe results by their root target URL
-func (dsp *DiffStorageProcessor) groupProbeResultsByRootTarget(
-	currentScanProbeResults []models.ProbeResult,
-	primaryRootTargetURL string,
-) (map[string][]models.ProbeResult, map[string][]int) {
-	targetGroups := make(map[string][]models.ProbeResult)
-	originalIndices := make(map[string][]int)
-
-	for i, result := range currentScanProbeResults {
-		rootTarget := result.RootTargetURL
-		if rootTarget == "" {
-			rootTarget = primaryRootTargetURL
-		}
-
-		targetGroups[rootTarget] = append(targetGroups[rootTarget], result)
-		originalIndices[rootTarget] = append(originalIndices[rootTarget], i)
-	}
-
-	return targetGroups, originalIndices
-}
-
 // groupProbeResultsByHostname groups probe results by their hostname
 func (dsp *DiffStorageProcessor) groupProbeResultsByHostname(
 	currentScanProbeResults []models.ProbeResult,
