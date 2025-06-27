@@ -3,7 +3,7 @@ package models
 import (
 	"time"
 
-	httpx "github.com/aleister1102/go-telescope"
+	httpx "github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 
 // Validator interface for models that can validate themselves

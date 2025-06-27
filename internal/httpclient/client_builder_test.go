@@ -1,4 +1,4 @@
-package comet
+package httpclient
 
 import (
 	"testing"

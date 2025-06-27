@@ -25,7 +25,7 @@ func NewRecordTransformer(logger zerolog.Logger) *RecordTransformer {
 func (rt *RecordTransformer) TransformToParquetResult(pr httpx.ProbeResult, scanTime time.Time, scanSessionID string) models.ParquetProbeResult {
 	headersJSON := rt.marshalHeaders(pr.Headers, pr.InputURL)
 	techNames := rt.extractTechnologyNames(pr.Technologies)
-	firstSeen := rt.determineFirstSeenTimestamp(pr.OldestScanTimestamp, scanTime)
+	firstSeen := rt.determineFirstSeenTimestamp(pr.FirstSeenTimestamp, scanTime)
 
 	return models.ParquetProbeResult{
 		OriginalURL:   pr.InputURL,

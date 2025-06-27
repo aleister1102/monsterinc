@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	logger "github.com/aleister1102/monsterinc/internal/logbook"
+	"github.com/aleister1102/monsterinc/internal/logger"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/scanner"

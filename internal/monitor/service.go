@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/config"
+	httpclient "github.com/aleister1102/monsterinc/internal/httpclient"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
-	httpclient "github.com/aleister1102/go-comet"
-	limiter "github.com/aleister1102/go-rslimiter"
+	limiter "github.com/aleister1102/monsterinc/internal/rslimiter"
 	"github.com/rs/zerolog"
 )
 

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"runtime"
 
-	progress "github.com/aleister1102/monsterinc/internal/odometer"
 	httpx "github.com/aleister1102/monsterinc/internal/httpxrunner"
+	"github.com/aleister1102/monsterinc/internal/progress"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
 )

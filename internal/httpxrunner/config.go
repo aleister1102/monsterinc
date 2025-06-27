@@ -1,4 +1,4 @@
-package telescope
+package httpxrunner
 
 import "github.com/projectdiscovery/goflags"
 

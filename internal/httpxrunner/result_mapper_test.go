@@ -1,4 +1,4 @@
-package telescope_test
+package httpxrunner_test
 
 import (
 	"testing"

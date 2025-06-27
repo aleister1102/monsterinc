@@ -1,4 +1,4 @@
-package odometer
+package progress
 
 import (
 	"testing"

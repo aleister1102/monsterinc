@@ -13,16 +13,16 @@ import (
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
+	"github.com/aleister1102/monsterinc/internal/httpclient"
+	"github.com/aleister1102/monsterinc/internal/logger"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/monitor"
 	"github.com/aleister1102/monsterinc/internal/notifier"
+	"github.com/aleister1102/monsterinc/internal/progress"
+	"github.com/aleister1102/monsterinc/internal/rslimiter"
 	"github.com/aleister1102/monsterinc/internal/scanner"
 	"github.com/aleister1102/monsterinc/internal/scheduler"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
-	"github.com/aleister1102/monsterinc/internal/httpclient"
-	limiter "github.com/aleister1102/monsterinc/internal/rslimiter"
-	"github.com/aleister1102/monsterinc/internal/logger"
-	"github.com/aleister1102/monsterinc/internal/progress"
 	"github.com/rs/zerolog"
 )
 
@@ -109,7 +109,7 @@ func main() {
 	defer progressDisplay.Stop()
 
 	// Start global resource limiter with config from file
-	resourceLimiterConfig := limiter.ResourceLimiterConfig{
+	resourceLimiterConfig := rslimiter.ResourceLimiterConfig{
 		MaxMemoryMB:        gCfg.ResourceLimiterConfig.MaxMemoryMB,
 		MaxGoroutines:      gCfg.ResourceLimiterConfig.MaxGoroutines,
 		CheckInterval:      time.Duration(gCfg.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
@@ -120,7 +120,7 @@ func main() {
 		EnableAutoShutdown: gCfg.ResourceLimiterConfig.EnableAutoShutdown,
 	}
 
-	resourceLimiter := limiter.NewResourceLimiter(resourceLimiterConfig, zLogger)
+	resourceLimiter := rslimiter.NewResourceLimiter(resourceLimiterConfig, zLogger)
 	resourceLimiter.Start()
 
 	// Ensure global resource limiter is stopped on exit
@@ -232,7 +232,7 @@ func loadConfiguration(flags AppFlags) (*config.GlobalConfig, error) {
 // initializeLogger initializes the logger based on the global configuration.
 // Refactored ✅
 func initializeLogger(gCfg *config.GlobalConfig) (zerolog.Logger, error) {
-	zLogger, err := logger.New(gCfg.LogConfig)
+	zLogger, err := logger.NewLoggerBuilder().Build()
 	if err != nil {
 		return zerolog.Nop(), fmt.Errorf("could not initialize logger: %w", err)
 	}
@@ -269,7 +269,7 @@ func initializeMonitoringService(
 	monitorTargetsFile string,
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
-	resourceLimiter *limiter.ResourceLimiter,
+	resourceLimiter *rslimiter.ResourceLimiter,
 	httpClient *httpclient.HTTPClient,
 ) (*monitor.Service, error) {
 	if monitorTargetsFile == "" || !gCfg.MonitorConfig.Enabled {

@@ -3,7 +3,7 @@ package differ
 import (
 	"strings"
 
-	httpx "github.com/aleister1102/monsterinc/internal/httpxrunner"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 )
@@ -21,14 +21,14 @@ func NewURLMapper(config URLComparerConfig) *URLMapper {
 }
 
 // CreateMaps creates lookup maps from probe result slices
-func (um *URLMapper) CreateMaps(historicalProbes []httpx.ProbeResult, currentProbes []*httpx.ProbeResult) URLMaps {
-	historicalURLMap := make(map[string]httpx.ProbeResult)
+func (um *URLMapper) CreateMaps(historicalProbes []httpxrunner.ProbeResult, currentProbes []*httpxrunner.ProbeResult) URLMaps {
+	historicalURLMap := make(map[string]httpxrunner.ProbeResult)
 	for _, p := range historicalProbes {
 		key := um.getURLKey(p.InputURL)
 		historicalURLMap[key] = p
 	}
 
-	currentURLMap := make(map[string]httpx.ProbeResult)
+	currentURLMap := make(map[string]httpxrunner.ProbeResult)
 	for _, p := range currentProbes {
 		key := um.getURLKey(p.InputURL)
 		currentURLMap[key] = *p
@@ -68,7 +68,7 @@ func NewURLStatusAnalyzer() *URLStatusAnalyzer {
 }
 
 // AnalyzeCurrentURLs analyzes current URLs against historical data
-func (usa *URLStatusAnalyzer) AnalyzeCurrentURLs(currentProbes []*httpx.ProbeResult, urlMaps URLMaps) ([]models.DiffedURL, URLStatusCounts) {
+func (usa *URLStatusAnalyzer) AnalyzeCurrentURLs(currentProbes []*httpxrunner.ProbeResult, urlMaps URLMaps) ([]models.DiffedURL, URLStatusCounts) {
 	var results []models.DiffedURL
 	counts := URLStatusCounts{}
 

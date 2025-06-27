@@ -1,4 +1,4 @@
-package telescope_test
+package httpxrunner_test
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/aleister1102/go-telescope"
+	telescope "github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
