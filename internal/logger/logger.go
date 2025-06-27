@@ -1,0 +1,222 @@
+package logger
+
+import (
+	"io"
+	stdlog "log" // Standard Go log package, aliased to avoid conflict with zerolog field
+
+	"github.com/rs/zerolog"
+	"gopkg.in/natefinch/lumberjack.v2"
+)
+
+// Logger represents the main logger with configuration
+type Logger struct {
+	zerolog    zerolog.Logger
+	config     LoggerConfig
+	factory    *WriterFactory
+	converter  *ConfigConverter
+	fileWriter *lumberjack.Logger // Keep a reference to the file writer
+}
+
+// LoggerBuilder provides fluent interface for building loggers
+type LoggerBuilder struct {
+	config    LoggerConfig
+	factory   *WriterFactory
+	converter *ConfigConverter
+}
+
+// NewLoggerBuilder creates a new logger builder
+func NewLoggerBuilder() *LoggerBuilder {
+	return &LoggerBuilder{
+		config:    DefaultLoggerConfig(),
+		factory:   NewWriterFactory(),
+		converter: NewConfigConverter(),
+	}
+}
+
+// WithFileConfig sets the logger configuration from a file config
+func (lb *LoggerBuilder) WithFileConfig(cfg FileLogConfig) *LoggerBuilder {
+	loggerConfig, _ := lb.converter.ConvertFileConfig(cfg)
+	lb.config = loggerConfig
+	return lb
+}
+
+// WithLevel sets the log level
+func (lb *LoggerBuilder) WithLevel(level zerolog.Level) *LoggerBuilder {
+	lb.config.Level = level
+	return lb
+}
+
+// WithFormat sets the log format
+func (lb *LoggerBuilder) WithFormat(format LogFormat) *LoggerBuilder {
+	lb.config.Format = format
+	return lb
+}
+
+// WithFile enables file logging
+func (lb *LoggerBuilder) WithFile(filePath string, maxSizeMB, maxBackups int) *LoggerBuilder {
+	lb.config.EnableFile = true
+	lb.config.FilePath = filePath
+	lb.config.MaxSizeMB = maxSizeMB
+	lb.config.MaxBackups = maxBackups
+	return lb
+}
+
+// WithScanID sets the scan ID for organizing logs by scan session
+func (lb *LoggerBuilder) WithScanID(scanID string) *LoggerBuilder {
+	lb.config.ScanID = scanID
+	return lb
+}
+
+// WithCycleID sets the cycle ID for organizing logs by monitor cycle
+func (lb *LoggerBuilder) WithCycleID(cycleID string) *LoggerBuilder {
+	lb.config.CycleID = cycleID
+	return lb
+}
+
+// WithSubdirs enables/disables subdirectory organization
+func (lb *LoggerBuilder) WithSubdirs(enabled bool) *LoggerBuilder {
+	lb.config.UseSubdirs = enabled
+	return lb
+}
+
+// WithConsole enables/disables console logging
+func (lb *LoggerBuilder) WithConsole(enabled bool) *LoggerBuilder {
+	lb.config.EnableConsole = enabled
+	return lb
+}
+
+// Build creates the logger instance
+func (lb *LoggerBuilder) Build() (*Logger, error) {
+	if err := lb.validateConfig(); err != nil {
+		return nil, err
+	}
+
+	writers, fileWriter := lb.createWriters()
+	if len(writers) == 0 {
+		return nil, NewError("no output writers configured")
+	}
+
+	multiWriter := zerolog.MultiLevelWriter(writers...)
+	zerologInstance := zerolog.New(multiWriter).
+		Level(lb.config.Level).
+		With().
+		Timestamp().
+		Logger()
+
+	// Configure global settings
+	zerolog.SetGlobalLevel(lb.config.Level)
+	lb.configureStandardLog(zerologInstance)
+
+	logger := &Logger{
+		zerolog:    zerologInstance,
+		config:     lb.config,
+		factory:    lb.factory,
+		converter:  lb.converter,
+		fileWriter: fileWriter,
+	}
+
+	return logger, nil
+}
+
+// validateConfig validates the logger configuration
+func (lb *LoggerBuilder) validateConfig() error {
+	if lb.config.EnableFile && lb.config.FilePath == "" {
+		return NewValidationError("file_path", lb.config.FilePath, "file path required when file logging enabled")
+	}
+
+	if lb.config.MaxSizeMB <= 0 {
+		return NewValidationError("max_size_mb", lb.config.MaxSizeMB, "max size must be positive")
+	}
+
+	return nil
+}
+
+// createWriters creates the appropriate writers based on configuration
+func (lb *LoggerBuilder) createWriters() ([]io.Writer, *lumberjack.Logger) {
+	var writers []io.Writer
+	var fileWriter *lumberjack.Logger
+
+	if lb.config.EnableConsole {
+		consoleWriter := lb.factory.CreateConsoleWriter(lb.config.Format)
+		writers = append(writers, consoleWriter)
+	}
+
+	if lb.config.EnableFile {
+		fileWriter = lb.factory.CreateFileWriter(lb.config)
+		var writerToUse io.Writer = fileWriter
+		if lb.config.Format == FormatConsole {
+			writerToUse = (&ConsoleWriterStrategy{NoColor: true}).CreateWriter(fileWriter)
+		} else if lb.config.Format == FormatText {
+			writerToUse = (&TextWriterStrategy{}).CreateWriter(fileWriter)
+		}
+		writers = append(writers, writerToUse)
+	}
+
+	return writers, fileWriter
+}
+
+// configureStandardLog configures standard Go log package
+func (lb *LoggerBuilder) configureStandardLog(logger zerolog.Logger) {
+	stdlog.SetOutput(logger)
+	stdlog.SetFlags(0)
+}
+
+// GetZerolog returns the underlying zerolog instance
+func (l *Logger) GetZerolog() *zerolog.Logger {
+	return &l.zerolog
+}
+
+// GetConfig returns the logger configuration
+func (l *Logger) GetConfig() LoggerConfig {
+	return l.config
+}
+
+// Reconfigure reconfigures the logger with new settings
+func (l *Logger) Reconfigure(cfg FileLogConfig) error {
+	// Close existing file writer before applying new configuration
+	if l.fileWriter != nil {
+		if err := l.fileWriter.Close(); err != nil {
+			// Log this error or handle it as a critical failure?
+			// For now, we'll return the error to the caller.
+			return WrapError(err, "failed to close existing file writer")
+		}
+	}
+
+	newConfig, err := l.converter.ConvertFileConfig(cfg)
+	if err != nil {
+		return WrapError(err, "failed to convert config")
+	}
+
+	builder := NewLoggerBuilder().
+		WithLevel(newConfig.Level).
+		WithFormat(newConfig.Format).
+		WithConsole(newConfig.EnableConsole)
+
+	if newConfig.EnableFile {
+		builder = builder.WithFile(newConfig.FilePath, newConfig.MaxSizeMB, newConfig.MaxBackups)
+	}
+
+	newLogger, err := builder.Build()
+	if err != nil {
+		return WrapError(err, "failed to build new logger")
+	}
+
+	// Update current logger
+	l.zerolog = *newLogger.GetZerolog()
+	l.config = newLogger.config
+	l.fileWriter = newLogger.fileWriter
+
+	// The newLogger is temporary and its fileWriter should not be closed by its own Close method,
+	// as its fileWriter has been transferred to the current logger.
+	newLogger.fileWriter = nil
+
+	return nil
+}
+
+// Close closes the underlying file writer, if any.
+func (l *Logger) Close() error {
+	if l.fileWriter != nil {
+		return l.fileWriter.Close()
+	}
+	return nil
+}
