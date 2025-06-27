@@ -1,1 +1,0 @@
-Sử dụng diff file đã cung cấp (hoặc mới nhất có trong project) để viết các conventional commit message. Mỗi commit đề cập đến các file cần commit trong commit đó. Message chỉ cần 1 dòng và phải đầy đủ thông tin.
