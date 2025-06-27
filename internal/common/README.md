@@ -149,86 +149,7 @@ strSlice := stringPool.Get()
 defer stringPool.Put(strSlice)
 ```
 
-### 5. Resource Limiter (`resource_limiter.go`)
-#### Purpose
-- Monitor and control application and system resource usage (memory, goroutines)
-- Prevent OOM crashes and goroutine leaks
-- Automatic garbage collection triggers for application memory
-- **System memory monitoring with auto-shutdown capability**
-- Graceful shutdown when system memory exceeds configurable threshold
-
-#### Key Features
-- **Application Memory Monitoring**: Track application memory usage and trigger GC
-- **System Memory Monitoring**: Monitor total system memory usage using `gopsutil`
-- **Auto-Shutdown**: Gracefully shutdown application when system memory > threshold
-- **Configurable Thresholds**: Separate thresholds for app memory, system memory, and goroutines
-- **Graceful Shutdown Callback**: Register custom shutdown logic for clean termination
-
-#### API Usage
-
-```go
-// Create resource limiter with system monitoring
-config := common.ResourceLimiterConfig{
-    MaxMemoryMB:        1024, // 1GB app memory limit
-    MaxGoroutines:      1000,
-    CheckInterval:      30 * time.Second,
-    MemoryThreshold:    0.8,  // 80% app memory warning
-    GoroutineWarning:   0.7,  // 70% goroutine warning
-    SystemMemThreshold: 0.5,  // 50% system memory shutdown trigger
-    EnableAutoShutdown: true, // Enable auto-shutdown
-}
-limiter := common.NewResourceLimiter(config, logger)
-
-// Set shutdown callback for graceful termination
-limiter.SetShutdownCallback(func() {
-    log.Info().Msg("Graceful shutdown triggered by memory limit")
-    // Custom cleanup logic here
-    cancel() // Cancel application context
-})
-
-// Start monitoring (includes system memory monitoring)
-limiter.Start()
-defer limiter.Stop()
-
-// Check limits manually
-err := limiter.CheckMemoryLimit()        // Application memory
-err = limiter.CheckGoroutineLimit()      // Goroutine count
-exceeded, err := limiter.CheckSystemMemoryLimit() // System memory
-
-// Force GC
-limiter.ForceGC()
-
-// Get comprehensive resource usage
-usage := limiter.GetResourceUsage()
-fmt.Printf("App Memory: %d MB, System Memory: %d/%d MB (%.1f%%), Goroutines: %d\n", 
-    usage.AllocMB, usage.SystemMemUsedMB, usage.SystemMemTotalMB, 
-    usage.SystemMemUsedPercent, usage.Goroutines)
-
-// Global instance (singleton pattern)
-common.StartGlobalResourceLimiter(logger)
-common.SetGlobalShutdownCallback(shutdownFunc) // Set global shutdown callback
-defer common.StopGlobalResourceLimiter()
-```
-
-#### Related Configuration
-```yaml
-resource_limiter_config:
-  max_memory_mb: 1024           # Application memory limit (1GB)
-  max_goroutines: 10000         # Max goroutines allowed
-  check_interval_secs: 30       # Monitoring interval
-  memory_threshold: 0.8         # App memory warning threshold (80%)
-  goroutine_warning: 0.7        # Goroutine warning threshold (70%)
-  system_mem_threshold: 0.5     # System memory shutdown threshold (50%)
-  enable_auto_shutdown: true    # Enable auto-shutdown feature
-```
-
-#### Safety Features
-- **Graceful Shutdown**: Uses callback pattern to ensure clean application termination
-- **Context Cancellation**: Integrates with application context for coordinated shutdown
-- **Detailed Logging**: Comprehensive resource usage logging with system memory stats
-- **Error Handling**: Graceful fallback if system memory monitoring fails
-
-### 6. Time Utilities (`time_utils.go`)
+### 5. Time Utilities (`time_utils.go`)
 #### Purpose
 - Centralized time handling with multiple formatters
 - Timezone-aware operations
@@ -261,7 +182,7 @@ timePtr := common.TimePtr(time.Now())
 duration := common.DurationPtr(30 * time.Second)
 ```
 
-### 7. Context Utilities (`context_utils.go`)
+### 6. Context Utilities (`context_utils.go`)
 #### Purpose
 - Context cancellation checking with logging
 - Centralized context error handling
@@ -287,7 +208,7 @@ messages := []string{"context canceled", "operation timeout"}
 hasCancellation := common.ContainsCancellationError(messages)
 ```
 
-### 8. Regex Utilities (`regex_utils.go`)
+### 7. Regex Utilities (`regex_utils.go`)
 #### Purpose
 - Compile multiple regexes with error handling
 - Centralized regex compilation for performance

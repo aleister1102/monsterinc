@@ -104,41 +104,6 @@ func main() {
 	progressDisplay.Start()
 	defer progressDisplay.Stop()
 
-	// Start global resource limiter with config from file
-	resourceLimiterConfig := common.ResourceLimiterConfig{
-		MaxMemoryMB:        gCfg.ResourceLimiterConfig.MaxMemoryMB,
-		MaxGoroutines:      gCfg.ResourceLimiterConfig.MaxGoroutines,
-		CheckInterval:      time.Duration(gCfg.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
-		MemoryThreshold:    gCfg.ResourceLimiterConfig.MemoryThreshold,
-		GoroutineWarning:   gCfg.ResourceLimiterConfig.GoroutineWarning,
-		SystemMemThreshold: gCfg.ResourceLimiterConfig.SystemMemThreshold,
-		CPUThreshold:       gCfg.ResourceLimiterConfig.CPUThreshold,
-		EnableAutoShutdown: gCfg.ResourceLimiterConfig.EnableAutoShutdown,
-	}
-
-	resourceLimiter := common.NewResourceLimiter(resourceLimiterConfig, zLogger)
-	resourceLimiter.Start()
-
-	// Initialize global resource stats monitor for continuous monitoring
-	globalResourceStatsConfig := common.ResourceStatsMonitorConfig{
-		DisplayInterval: time.Duration(gCfg.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
-		ComponentName:   "Global",
-		ModuleName:      "System",
-	}
-	globalResourceStatsMonitor := common.NewResourceStatsMonitor(
-		resourceLimiter,
-		globalResourceStatsConfig,
-		zLogger,
-	)
-	globalResourceStatsMonitor.Start()
-
-	// Ensure global resource limiter and stats monitor are stopped on exit
-	defer func() {
-		globalResourceStatsMonitor.Stop()
-		resourceLimiter.Stop()
-		common.StopGlobalResourceLimiter()
-	}()
-
 	discordHttpClient, err := common.NewHTTPClientFactory(zLogger).CreateDiscordClient(
 		20 * time.Second,
 	)
@@ -150,37 +115,6 @@ func main() {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize DiscordNotifier infra.")
 	}
 	notificationHelper := notifier.NewNotificationHelper(discordNotifier, gCfg.NotificationConfig, zLogger)
-
-	// Update resource limiter shutdown callback to include notification
-	resourceLimiter.SetShutdownCallback(func() {
-		zLogger.Error().Msg("System resource limits exceeded, initiating graceful shutdown...")
-
-		// Stop global resource stats monitor first
-		globalResourceStatsMonitor.Stop()
-
-		// Send critical error notification for resource limit trigger
-		criticalErrSummary := models.GetDefaultScanSummaryData()
-		criticalErrSummary.Component = "ResourceLimiter"
-		criticalErrSummary.ErrorMessages = []string{"System resource limits exceeded, application shutting down gracefully"}
-		criticalErrSummary.Status = string(models.ScanStatusInterrupted)
-
-		// Get current resource usage for the notification
-		resourceUsage := resourceLimiter.GetResourceUsage()
-		criticalErrSummary.ErrorMessages = append(criticalErrSummary.ErrorMessages,
-			fmt.Sprintf("System Memory: %.1f%% used (%d/%d MB)",
-				resourceUsage.SystemMemUsedPercent,
-				resourceUsage.SystemMemUsedMB,
-				resourceUsage.SystemMemTotalMB))
-
-		if resourceUsage.CPUUsagePercent > 0 {
-			criticalErrSummary.ErrorMessages = append(criticalErrSummary.ErrorMessages,
-				fmt.Sprintf("CPU Usage: %.1f%%", resourceUsage.CPUUsagePercent))
-		}
-
-		notificationHelper.SendCriticalErrorNotification(context.Background(), "ResourceLimiter", criticalErrSummary)
-
-		cancel() // Cancel the main context to trigger shutdown
-	})
 
 	scanner, err := initializeScanner(gCfg, zLogger)
 	if err != nil {
@@ -672,11 +606,6 @@ func shutdownServices(
 			scanner.Shutdown()
 			zLogger.Info().Msg("Scanner shutdown completed.")
 		}
-
-		// Stop global resource limiter
-		zLogger.Info().Msg("Stopping resource limiter...")
-		common.StopGlobalResourceLimiter()
-		zLogger.Info().Msg("Resource limiter stopped.")
 
 		// Give a bit of time for final cleanup
 		time.Sleep(1 * time.Second)

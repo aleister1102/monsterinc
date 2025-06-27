@@ -11,39 +11,37 @@ import (
 
 // GlobalConfig contains all configuration sections for the application
 type GlobalConfig struct {
-	CrawlerConfig         CrawlerConfig         `json:"crawler_config,omitempty" yaml:"crawler_config,omitempty"`
-	DiffConfig            DiffConfig            `json:"diff_config,omitempty" yaml:"diff_config,omitempty"`
-	DiffReporterConfig    DiffReporterConfig    `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
-	HttpxRunnerConfig     HttpxRunnerConfig     `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
-	LogConfig             LogConfig             `json:"log_config,omitempty" yaml:"log_config,omitempty"`
-	Mode                  string                `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
-	NotificationConfig    NotificationConfig    `json:"notification_config,omitempty" yaml:"notification_config,omitempty"`
-	ReporterConfig        ReporterConfig        `json:"reporter_config,omitempty" yaml:"reporter_config,omitempty"`
-	ResourceLimiterConfig ResourceLimiterConfig `json:"resource_limiter_config,omitempty" yaml:"resource_limiter_config,omitempty"`
-	SchedulerConfig       SchedulerConfig       `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
-	StorageConfig         StorageConfig         `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
-	ScanBatchConfig       ScanBatchConfig       `json:"scan_batch_config,omitempty" yaml:"scan_batch_config,omitempty"`
-	MonitorBatchConfig    MonitorBatchConfig    `json:"monitor_batch_config,omitempty" yaml:"monitor_batch_config,omitempty"`
-	ProgressConfig        ProgressConfig        `json:"progress_config,omitempty" yaml:"progress_config,omitempty"`
+	CrawlerConfig      CrawlerConfig      `json:"crawler_config,omitempty" yaml:"crawler_config,omitempty"`
+	DiffConfig         DiffConfig         `json:"diff_config,omitempty" yaml:"diff_config,omitempty"`
+	DiffReporterConfig DiffReporterConfig `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
+	HttpxRunnerConfig  HttpxRunnerConfig  `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
+	LogConfig          LogConfig          `json:"log_config,omitempty" yaml:"log_config,omitempty"`
+	Mode               string             `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
+	NotificationConfig NotificationConfig `json:"notification_config,omitempty" yaml:"notification_config,omitempty"`
+	ReporterConfig     ReporterConfig     `json:"reporter_config,omitempty" yaml:"reporter_config,omitempty"`
+	SchedulerConfig    SchedulerConfig    `json:"scheduler_config,omitempty" yaml:"scheduler_config,omitempty"`
+	StorageConfig      StorageConfig      `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
+	ScanBatchConfig    ScanBatchConfig    `json:"scan_batch_config,omitempty" yaml:"scan_batch_config,omitempty"`
+	MonitorBatchConfig MonitorBatchConfig `json:"monitor_batch_config,omitempty" yaml:"monitor_batch_config,omitempty"`
+	ProgressConfig     ProgressConfig     `json:"progress_config,omitempty" yaml:"progress_config,omitempty"`
 }
 
 // NewDefaultGlobalConfig creates a new GlobalConfig with default values
 func NewDefaultGlobalConfig() *GlobalConfig {
 	return &GlobalConfig{
-		CrawlerConfig:         NewDefaultCrawlerConfig(),
-		DiffConfig:            NewDefaultDiffConfig(),
-		DiffReporterConfig:    NewDefaultDiffReporterConfig(),
-		HttpxRunnerConfig:     NewDefaultHTTPXRunnerConfig(),
-		LogConfig:             NewDefaultLogConfig(),
-		Mode:                  "onetime",
-		NotificationConfig:    NewDefaultNotificationConfig(),
-		ReporterConfig:        NewDefaultReporterConfig(),
-		ResourceLimiterConfig: NewDefaultResourceLimiterConfig(),
-		SchedulerConfig:       NewDefaultSchedulerConfig(),
-		StorageConfig:         NewDefaultStorageConfig(),
-		ScanBatchConfig:       NewDefaultScanBatchConfig(),
-		MonitorBatchConfig:    NewDefaultMonitorBatchConfig(),
-		ProgressConfig:        NewDefaultProgressConfig(),
+		CrawlerConfig:      NewDefaultCrawlerConfig(),
+		DiffConfig:         NewDefaultDiffConfig(),
+		DiffReporterConfig: NewDefaultDiffReporterConfig(),
+		HttpxRunnerConfig:  NewDefaultHTTPXRunnerConfig(),
+		LogConfig:          NewDefaultLogConfig(),
+		Mode:               "onetime",
+		NotificationConfig: NewDefaultNotificationConfig(),
+		ReporterConfig:     NewDefaultReporterConfig(),
+		SchedulerConfig:    NewDefaultSchedulerConfig(),
+		StorageConfig:      NewDefaultStorageConfig(),
+		ScanBatchConfig:    NewDefaultScanBatchConfig(),
+		MonitorBatchConfig: NewDefaultMonitorBatchConfig(),
+		ProgressConfig:     NewDefaultProgressConfig(),
 	}
 }
 

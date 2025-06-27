@@ -28,7 +28,6 @@ type Scanner struct {
 	diffProcessor   *DiffStorageProcessor
 	progressDisplay *common.ProgressDisplayManager
 	urlPreprocessor *URLPreprocessor
-	resourceLimiter *common.ResourceLimiter
 
 	notificationHelper interface {
 		SendScanStartNotification(ctx context.Context, summary models.ScanSummaryData)
@@ -73,20 +72,6 @@ func NewScanner(
 		EnableParallel:   true,
 	}
 	scanner.urlPreprocessor = NewURLPreprocessor(preprocessorConfig, logger)
-
-	// Initialize resource limiter
-	resourceLimiterConfig := common.ResourceLimiterConfig{
-		MaxMemoryMB:        globalConfig.ResourceLimiterConfig.MaxMemoryMB,
-		MaxGoroutines:      globalConfig.ResourceLimiterConfig.MaxGoroutines,
-		CheckInterval:      time.Duration(globalConfig.ResourceLimiterConfig.CheckIntervalSecs) * time.Second,
-		MemoryThreshold:    globalConfig.ResourceLimiterConfig.MemoryThreshold,
-		GoroutineWarning:   globalConfig.ResourceLimiterConfig.GoroutineWarning,
-		SystemMemThreshold: globalConfig.ResourceLimiterConfig.SystemMemThreshold,
-		CPUThreshold:       globalConfig.ResourceLimiterConfig.CPUThreshold,
-		EnableAutoShutdown: false, // Disable auto-shutdown for scanner, main handles this
-	}
-	scanner.resourceLimiter = common.NewResourceLimiter(resourceLimiterConfig, logger)
-	scanner.resourceLimiter.Start()
 
 	logger.Info().
 		Int("crawler_threads", globalConfig.CrawlerConfig.MaxConcurrentRequests).
@@ -221,19 +206,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 	scanSessionID string,
 ) ([]models.ProbeResult, map[string]models.URLDiffResult, error) {
 	startTime := time.Now()
-
-	// Log resource usage before scan workflow
-	if s.resourceLimiter != nil {
-		resourceUsageBefore := s.resourceLimiter.GetResourceUsage()
-		s.logger.Info().
-			Int64("memory_mb", resourceUsageBefore.AllocMB).
-			Int("goroutines", resourceUsageBefore.Goroutines).
-			Float64("system_mem_percent", resourceUsageBefore.SystemMemUsedPercent).
-			Float64("cpu_percent", resourceUsageBefore.CPUUsagePercent).
-			Str("session_id", scanSessionID).
-			Msg("Resource usage before scan workflow")
-	}
-
 	// Note: Scan start notification is sent from the main entry point (main.go or scheduler)
 	// to avoid duplicate notifications when this workflow is called from different contexts
 
@@ -454,21 +426,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 		s.progressDisplay.UpdateWorkflowProgress(4, 5, "Complete", fmt.Sprintf("Found %d probe results", len(httpxResult.ProbeResults)))
 	}
 
-	// Log resource usage after scan workflow
-	if s.resourceLimiter != nil {
-		resourceUsageAfter := s.resourceLimiter.GetResourceUsage()
-		s.logger.Info().
-			Int64("memory_mb", resourceUsageAfter.AllocMB).
-			Int("goroutines", resourceUsageAfter.Goroutines).
-			Float64("system_mem_percent", resourceUsageAfter.SystemMemUsedPercent).
-			Float64("cpu_percent", resourceUsageAfter.CPUUsagePercent).
-			Dur("scan_duration", time.Since(startTime)).
-			Int("probe_results", len(httpxResult.ProbeResults)).
-			Int("url_diffs", len(urlDiffResults)).
-			Str("session_id", scanSessionID).
-			Msg("Resource usage after scan workflow")
-	}
-
 	// NOTE: Notification is sent from the caller level (main.go or scheduler)
 	// to avoid duplicate notifications and to include report file paths
 
@@ -479,17 +436,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 func (s *Scanner) Shutdown() {
 	s.logger.Info().Msg("Shutting down scanner")
 
-	// Log final resource usage before shutdown
-	if s.resourceLimiter != nil {
-		finalUsage := s.resourceLimiter.GetResourceUsage()
-		s.logger.Info().
-			Int64("final_memory_mb", finalUsage.AllocMB).
-			Int("final_goroutines", finalUsage.Goroutines).
-			Float64("final_system_mem_percent", finalUsage.SystemMemUsedPercent).
-			Float64("final_cpu_percent", finalUsage.CPUUsagePercent).
-			Msg("Final resource usage at scanner shutdown")
-	}
-
 	// Shutdown crawler executor (which will shutdown the managed crawler)
 	if s.crawlerExecutor != nil {
 		s.crawlerExecutor.Shutdown()
@@ -498,11 +444,6 @@ func (s *Scanner) Shutdown() {
 	// Shutdown HTTPX executor (which will shutdown the managed httpx runner)
 	if s.httpxExecutor != nil {
 		s.httpxExecutor.Shutdown()
-	}
-
-	// Stop resource limiter
-	if s.resourceLimiter != nil {
-		s.resourceLimiter.Stop()
 	}
 
 	s.logger.Info().Msg("Scanner shutdown complete")
