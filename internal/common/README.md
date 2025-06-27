@@ -31,7 +31,6 @@ config := common.HTTPClientConfig{
     FollowRedirects:    true,
     MaxRedirects:       5,
     InsecureSkipVerify: false,
-    UserAgent:          "MonsterInc/1.0",
     CustomHeaders:      map[string]string{"Accept": "application/json"},
 }
 client, err := common.NewHTTPClient(config, logger)

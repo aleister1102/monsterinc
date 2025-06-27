@@ -93,17 +93,6 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize progress display manager - ENABLED for progress tracking
-	// Initialize progress display with config
-	progressConfig := &common.ProgressDisplayConfig{
-		DisplayInterval:   gCfg.ProgressConfig.GetDisplayIntervalDuration(),
-		EnableProgress:    gCfg.ProgressConfig.EnableProgress,
-		ShowETAEstimation: gCfg.ProgressConfig.ShowETAEstimation,
-	}
-	progressDisplay := common.NewProgressDisplayManager(zLogger, progressConfig)
-	progressDisplay.Start()
-	defer progressDisplay.Stop()
-
 	discordHttpClient, err := common.NewHTTPClientFactory(zLogger).CreateDiscordClient(
 		20 * time.Second,
 	)
@@ -125,9 +114,9 @@ func main() {
 
 	var schedulerPtr *scheduler.Scheduler
 
-	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, scanner, &schedulerPtr, progressDisplay)
+	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, scanner, &schedulerPtr)
 
-	shutdownServices(scanner, schedulerPtr, progressDisplay, zLogger, ctx)
+	shutdownServices(scanner, schedulerPtr, zLogger, ctx)
 }
 
 // loadConfiguration loads the global configuration from the specified file,
@@ -282,7 +271,6 @@ func runApplicationLogic(
 	notificationHelper *notifier.NotificationHelper,
 	scanner *scanner.Scanner,
 	schedulerPtr **scheduler.Scheduler,
-	progressDisplay *common.ProgressDisplayManager,
 ) {
 	scanTargetsFile := ""
 	if flags.ScanTargetsFile != "" {
@@ -301,7 +289,6 @@ func runApplicationLogic(
 			zLogger,
 			notificationHelper,
 			scanner,
-			progressDisplay,
 		)
 	} else if gCfg.Mode == "automated" {
 		runAutomatedScan(
@@ -312,7 +299,6 @@ func runApplicationLogic(
 			zLogger,
 			notificationHelper,
 			schedulerPtr,
-			progressDisplay,
 		)
 	}
 }
@@ -324,7 +310,6 @@ func runOnetimeScan(
 	baseLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	scannerInstance *scanner.Scanner,
-	progressDisplay *common.ProgressDisplayManager,
 ) {
 	// Create a new context for this scan that we can cancel.
 	scanCtx, scanCancel := context.WithCancel(ctx)
@@ -390,12 +375,6 @@ func runOnetimeScan(
 	startSummary.TotalTargets = len(scanUrls)
 	// Send scan start notification
 	notificationHelper.SendScanStartNotification(ctx, startSummary)
-
-	// Set up progress display for scanner
-	scannerInstance.SetProgressDisplay(progressDisplay)
-	if progressDisplay != nil {
-		progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Starting scan workflow")
-	}
 
 	// Create batch workflow orchestrator
 	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(gCfg, scannerInstance, scanLogger)
@@ -515,7 +494,6 @@ func runAutomatedScan(
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	schedulerPtr **scheduler.Scheduler,
-	progressDisplay *common.ProgressDisplayManager,
 ) {
 	// Determine if the scheduler should run.
 	// Scheduler runs if scan targets are provided OR if monitor targets have been loaded into the service.
@@ -524,12 +502,6 @@ func runAutomatedScan(
 	if !automatedModeActive {
 		zLogger.Info().Msg("Automated mode: Scan targets (-st) were not provided. Scheduler will not start.")
 		return
-	}
-
-	// Set up progress display for scanner and monitoring service
-	scanner.SetProgressDisplay(progressDisplay)
-	if progressDisplay != nil {
-		progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Scanner ready for automated mode")
 	}
 
 	// Initialize scheduler
@@ -574,7 +546,6 @@ func runAutomatedScan(
 func shutdownServices(
 	scanner *scanner.Scanner,
 	scheduler *scheduler.Scheduler,
-	progressDisplay *common.ProgressDisplayManager,
 	zLogger zerolog.Logger,
 	ctx context.Context,
 ) {
@@ -587,11 +558,6 @@ func shutdownServices(
 
 	go func() {
 		defer close(done)
-
-		// Stop progress display first to avoid overlapping messages
-		if progressDisplay != nil {
-			progressDisplay.Stop()
-		}
 
 		// Stop scheduler first (it will stop monitoring service internally)
 		if scheduler != nil {

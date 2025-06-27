@@ -6,18 +6,6 @@
 # Default: "onetime"
 mode: "onetime"
 
-# Progress Display configuration: Settings for displaying scan progress
-progress_config:
-  # How often to display progress updates (in seconds).
-  # Default: 3
-  display_interval: 3
-  # Whether to enable progress display.
-  # Default: true
-  enable_progress: true
-  # Whether to show ETA estimation in progress display.
-  # Default: true
-  show_eta_estimation: true
-
 # HTTPX Runner configuration: Settings for the httpx tool.
 httpx_runner_config:
   # HTTP method to use for requests.
@@ -93,9 +81,6 @@ crawler_config:
   # Whether to add seed URL hostnames to allowed scope automatically
   # Default: true
   auto_add_seed_hostnames: true
-  # Skip TLS certificate verification
-  # Default: false
-  insecure_skip_tls_verify: false
   # Maximum number of concurrent crawler requests.
   # * Reduce for more results
   # Default: 10
@@ -109,9 +94,6 @@ crawler_config:
   # Timeout in seconds for each crawler request.
   # Default: 20
   request_timeout_secs: 10
-  # Whether to respect robots.txt rules
-  # Default: false
-  respect_robots_txt: false
   # URL scope restrictions
   scope:
     # Hostnames to exclude from crawling
@@ -140,8 +122,6 @@ crawler_config:
       - .heic
       - .ico
       - .icon
-  # User agent string for crawler requests
-  user_agent: "MonsterIncCrawler/1.0"
 
   # Auto-calibrate configuration: Settings for detecting and skipping similar URL patterns.
   auto_calibrate:
@@ -386,55 +366,6 @@ log_config:
   # This prevents file locking issues when multiple processes write to logs simultaneously.
   # Default: true
   use_subdirs: true
-
-# DiffConfig: Configuration for comparing current scan results with previous ones.
-diff_config:
-  # Number of days to look back for previous scan data to compare against.
-  # Default: 7
-  previous_scan_lookback_days: 7
-  # Maximum file size in MB for generating a detailed line-by-line diff.
-  # Files larger than this will still be reported as changed, but without a detailed diff.
-  # Default: 5
-  max_diff_file_size_mb: 5
-  # Whether the monitoring feature is enabled.
-  # Default: false
-  enabled: false
-  # Interval in seconds for how often to check monitored files.
-  # Default: 3600 (1 hour)
-  check_interval_seconds: 3600 # 24 hours
-  # Maximum number of concurrent checks for monitored files.
-  # Default: 5
-  max_concurrent_checks: 5
-  # Whether to store the full content of a file when a change is detected.
-  # If false, only hash/metadata might be stored.
-  # Default: false
-  store_full_content_on_change: false
-  # Timeout in seconds for HTTP requests made by the monitor.
-  # Default: 30
-  http_timeout_seconds: 30
-  # Whether to bypass cache and always fetch fresh content (ignoring ETag, Last-Modified headers).
-  # When true, adds cache-busting headers to ensure fresh content is always fetched.
-  # Default: true (recommended for monitoring to detect all changes)
-  bypass_cache: true
-  # Initial list of specific URLs to monitor. Full URLs are expected.
-  # Default: []
-  initial_monitor_urls:
-    # - https://example.com/main.js
-    # - https://example.com/app.js
-    # - https://anotherexample.com/index.html
-  # JavaScript file extensions to monitor (fast path comparison)
-  # Default: [".js", ".jsx", ".ts", ".tsx"]
-  js_file_extensions:
-    - ".js"
-    - ".jsx"
-    - ".ts"
-    - ".tsx"
-  # HTML file extensions to monitor (fast path comparison)
-  # Default: [".html", ".htm"]
-  html_file_extensions:
-    - ".html"
-    - ".htm"
-
 # Scheduler configuration: Settings for automated periodic scans (when mode is "automated").
 scheduler_config:
   # Scan cycle interval in minutes. The time between the end of one scan and the start of the next.

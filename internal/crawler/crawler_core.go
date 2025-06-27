@@ -26,18 +26,16 @@ type Crawler struct {
 	collector      *colly.Collector
 	discoveredURLs map[string]bool
 	// Track parent URL for each discovered URL
-	urlParentMap     map[string]string // child URL -> parent URL
-	mutex            sync.RWMutex
-	userAgent        string
-	requestTimeout   time.Duration
-	threads          int
-	maxDepth         int
-	seedURLs         []string
-	totalVisited     int
-	totalErrors      int
-	crawlStartTime   time.Time
-	scope            *ScopeSettings
-	respectRobotsTxt bool
+	urlParentMap   map[string]string // child URL -> parent URL
+	mutex          sync.RWMutex
+	requestTimeout time.Duration
+	threads        int
+	maxDepth       int
+	seedURLs       []string
+	totalVisited   int
+	totalErrors    int
+	crawlStartTime time.Time
+	scope          *ScopeSettings
 
 	logger zerolog.Logger
 	config *config.CrawlerConfig

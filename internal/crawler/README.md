@@ -242,13 +242,10 @@ crawler_config:
   request_timeout_secs: 30
   include_subdomains: true
   auto_add_seed_hostnames: true
-  respect_robots_txt: false
-  insecure_skip_tls_verify: false
   
   # Content settings
   enable_content_length_check: true
   max_content_length_mb: 50
-  user_agent: "MonsterInc-Crawler/1.0"
   
   # Seed URLs
   seed_urls:
@@ -290,6 +287,15 @@ crawler_config:
       - "--no-sandbox"
       - "--disable-dev-shm-usage"
       - "--disable-extensions"
+```
+
+### High-Performance Profile
+```yaml
+crawler_config:
+  max_concurrent_requests: 100
+  request_timeout_secs: 10
+httpx_runner_config:
+  # ... existing code ...
 ```
 
 ## Advanced Usage

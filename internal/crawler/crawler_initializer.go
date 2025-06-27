@@ -46,15 +46,12 @@ func (cr *Crawler) validateAndSetDefaults() error {
 		cr.logger.Warn().Msg("Crawler initialized with no seed URLs in config")
 	}
 
-	cr.userAgent = getValueOrDefault(cfg.UserAgent, config.DefaultCrawlerUserAgent)
-
 	requestTimeoutSecs := getIntValueOrDefault(cfg.RequestTimeoutSecs, config.DefaultCrawlerRequestTimeoutSecs)
 	cr.requestTimeout = time.Duration(requestTimeoutSecs) * time.Second
 
 	cr.maxDepth = getIntValueOrDefault(cfg.MaxDepth, config.DefaultCrawlerMaxDepth)
 	cr.threads = getIntValueOrDefault(cfg.MaxConcurrentRequests, config.DefaultCrawlerMaxConcurrentRequests)
 
-	cr.respectRobotsTxt = cfg.RespectRobotsTxt
 	cr.seedURLs = slices.Clone(cfg.SeedURLs)
 
 	// Update config to reflect used defaults
@@ -102,12 +99,8 @@ func (cr *Crawler) setupCollector() error {
 func (cr *Crawler) createCollector() (*colly.Collector, error) {
 	collectorOptions := []colly.CollectorOption{
 		colly.Async(true),
-		colly.UserAgent(cr.userAgent),
 		colly.MaxDepth(cr.maxDepth),
-	}
-
-	if !cr.respectRobotsTxt {
-		collectorOptions = append(collectorOptions, colly.IgnoreRobotsTxt())
+		colly.IgnoreRobotsTxt(),
 	}
 
 	collector := colly.NewCollector(collectorOptions...)
@@ -116,7 +109,7 @@ func (cr *Crawler) createCollector() (*colly.Collector, error) {
 	// Create base HTTP transport
 	baseTransport := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: cr.config.InsecureSkipTLSVerify,
+			InsecureSkipVerify: true,
 		},
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 2,
@@ -220,12 +213,9 @@ func (cr *Crawler) initializePatternDetector() {
 func (cr *Crawler) logInitialization() {
 	logEvent := cr.logger.Info().
 		// Strs("seeds", cr.seedURLs).
-		Str("user_agent", cr.userAgent).
 		Dur("timeout", cr.requestTimeout).
 		Int("threads", cr.threads).
-		Int("max_depth", cr.maxDepth).
-		Bool("respect_robots_txt", cr.respectRobotsTxt).
-		Bool("insecure_skip_tls_verify", cr.config.InsecureSkipTLSVerify)
+		Int("max_depth", cr.maxDepth)
 
 	// Log scope settings details if available
 	if cr.scope != nil {

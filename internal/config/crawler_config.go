@@ -86,15 +86,12 @@ func NewDefaultAutoCalibrateConfig() AutoCalibrateConfig {
 type CrawlerConfig struct {
 	AutoAddSeedHostnames bool `json:"auto_add_seed_hostnames" yaml:"auto_add_seed_hostnames"`
 
-	InsecureSkipTLSVerify bool                  `json:"insecure_skip_tls_verify" yaml:"insecure_skip_tls_verify"`
 	MaxConcurrentRequests int                   `json:"max_concurrent_requests,omitempty" yaml:"max_concurrent_requests,omitempty" validate:"omitempty,min=1"`
 	MaxContentLengthMB    int                   `json:"max_content_length_mb,omitempty" yaml:"max_content_length_mb,omitempty"`
 	MaxDepth              int                   `json:"max_depth,omitempty" yaml:"max_depth,omitempty" validate:"omitempty,min=0"`
 	RequestTimeoutSecs    int                   `json:"request_timeout_secs,omitempty" yaml:"request_timeout_secs,omitempty" validate:"omitempty,min=1"`
-	RespectRobotsTxt      bool                  `json:"respect_robots_txt" yaml:"respect_robots_txt"`
 	Scope                 CrawlerScopeConfig    `json:"scope,omitempty" yaml:"scope,omitempty"`
 	SeedURLs              []string              `json:"seed_urls,omitempty" yaml:"seed_urls,omitempty" validate:"omitempty,dive,url"`
-	UserAgent             string                `json:"user_agent,omitempty" yaml:"user_agent,omitempty"`
 	HeadlessBrowser       HeadlessBrowserConfig `json:"headless_browser,omitempty" yaml:"headless_browser,omitempty"`
 	AutoCalibrate         AutoCalibrateConfig   `json:"auto_calibrate,omitempty" yaml:"auto_calibrate,omitempty"`
 	// URL normalization configuration
@@ -108,15 +105,12 @@ func NewDefaultCrawlerConfig() CrawlerConfig {
 	return CrawlerConfig{
 		AutoAddSeedHostnames: true,
 
-		InsecureSkipTLSVerify: true,
 		MaxConcurrentRequests: DefaultCrawlerMaxConcurrentRequests,
 		MaxContentLengthMB:    2,
 		MaxDepth:              DefaultCrawlerMaxDepth,
 		RequestTimeoutSecs:    DefaultCrawlerRequestTimeoutSecs,
-		RespectRobotsTxt:      DefaultCrawlerRespectRobotsTxt,
 		Scope:                 NewDefaultCrawlerScopeConfig(),
 		SeedURLs:              []string{},
-		UserAgent:             DefaultCrawlerUserAgent,
 		HeadlessBrowser:       NewDefaultHeadlessBrowserConfig(),
 		AutoCalibrate:         NewDefaultAutoCalibrateConfig(),
 		URLNormalization:      urlhandler.DefaultURLNormalizationConfig(),

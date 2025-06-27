@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
@@ -26,7 +25,6 @@ type Scanner struct {
 	crawlerExecutor *CrawlerExecutor
 	httpxExecutor   *HTTPXExecutor
 	diffProcessor   *DiffStorageProcessor
-	progressDisplay *common.ProgressDisplayManager
 	urlPreprocessor *URLPreprocessor
 
 	notificationHelper interface {
@@ -89,19 +87,6 @@ func (s *Scanner) SetNotificationHelper(notificationHelper interface {
 	SendScanInterruptNotification(ctx context.Context, summary models.ScanSummaryData)
 }) {
 	s.notificationHelper = notificationHelper
-}
-
-// SetProgressDisplay đặt progress display manager
-func (s *Scanner) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
-	s.progressDisplay = progressDisplay
-
-	// Pass progress display to executors
-	if s.httpxExecutor != nil {
-		s.httpxExecutor.SetProgressDisplay(progressDisplay)
-	}
-	if s.crawlerExecutor != nil {
-		s.crawlerExecutor.SetProgressDisplay(progressDisplay)
-	}
 }
 
 // ResetCrawler shuts down the crawler executor to clean up its state.
@@ -209,11 +194,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 	// Note: Scan start notification is sent from the main entry point (main.go or scheduler)
 	// to avoid duplicate notifications when this workflow is called from different contexts
 
-	// Update progress: Starting URL preprocessing
-	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateWorkflowProgress(0, 5, "Preprocessing", "Normalizing and filtering URLs")
-	}
-
 	// Step 0: Preprocess URLs (normalize and auto-calibrate)
 	preprocessResult := s.urlPreprocessor.PreprocessURLs(seedURLs)
 	processedSeedURLs := preprocessResult.ProcessedURLs
@@ -228,10 +208,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Use processed URLs for the rest of the workflow
 	if len(processedSeedURLs) == 0 {
-		if s.progressDisplay != nil {
-			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "No URLs remaining after preprocessing")
-		}
-
 		// Send error notification
 		if s.notificationHelper != nil {
 			errorSummary := models.ScanSummaryData{
@@ -250,18 +226,9 @@ func (s *Scanner) ExecuteScanWorkflow(
 		return nil, nil, fmt.Errorf("no URLs remaining after preprocessing")
 	}
 
-	// Update progress: Starting crawler configuration
-	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", "Configuring crawler")
-	}
-
 	// Step 1: Configure and execute crawler
 	crawlerConfig, primaryRootTargetURL, err := s.configBuilder.BuildCrawlerConfig(processedSeedURLs, scanSessionID)
 	if err != nil {
-		if s.progressDisplay != nil {
-			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "Failed to build crawler config")
-		}
-
 		// Send error notification
 		if s.notificationHelper != nil {
 			errorSummary := models.ScanSummaryData{
@@ -287,10 +254,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 		PrimaryRootTargetURL: primaryRootTargetURL,
 	}
 
-	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", "Executing crawler")
-	}
-
 	// Check for context cancellation before crawler execution
 	if ctx.Err() != nil {
 		if s.notificationHelper != nil {
@@ -311,10 +274,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	crawlerResult := s.crawlerExecutor.Execute(crawlerInput)
 	if crawlerResult.Error != nil {
-		if s.progressDisplay != nil {
-			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "Crawler execution failed")
-		}
-
 		// Send error notification
 		if s.notificationHelper != nil {
 			errorSummary := models.ScanSummaryData{
@@ -337,10 +296,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 	s.httpxExecutor.SetCrawlerInstance(crawlerResult.CrawlerInstance)
 
 	// Step 2: Execute HTTPX probing
-	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateWorkflowProgress(2, 5, "Probing", "Configuring HTTPX probing")
-	}
-
 	httpxConfig := s.configBuilder.BuildHTTPXConfig(crawlerResult.DiscoveredURLs)
 	httpxInput := HTTPXExecutionInput{
 		Context:              ctx,
@@ -349,10 +304,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 		PrimaryRootTargetURL: primaryRootTargetURL,
 		ScanSessionID:        scanSessionID,
 		HttpxRunnerConfig:    httpxConfig,
-	}
-
-	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateWorkflowProgress(2, 5, "Probing", fmt.Sprintf("Starting HTTPX probing of %d URLs", len(crawlerResult.DiscoveredURLs)))
 	}
 
 	// Check for context cancellation before HTTPX execution
@@ -375,10 +326,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	httpxResult := s.httpxExecutor.Execute(httpxInput)
 	if httpxResult.Error != nil {
-		if s.progressDisplay != nil {
-			s.progressDisplay.SetScanStatus(common.ProgressStatusError, "HTTPX execution failed")
-		}
-
 		// Send error notification
 		if s.notificationHelper != nil {
 			errorSummary := models.ScanSummaryData{
@@ -398,10 +345,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 	}
 
 	// Step 3: Process diffing and storage
-	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateWorkflowProgress(3, 5, "Diffing", "Processing diffs and storage")
-	}
-
 	var urlDiffResults map[string]models.URLDiffResult
 	if s.diffProcessor != nil {
 		diffInput := ProcessDiffingAndStorageInput{
@@ -422,10 +365,6 @@ func (s *Scanner) ExecuteScanWorkflow(
 	}
 
 	// Step 4: Workflow completed
-	if s.progressDisplay != nil {
-		s.progressDisplay.UpdateWorkflowProgress(4, 5, "Complete", fmt.Sprintf("Found %d probe results", len(httpxResult.ProbeResults)))
-	}
-
 	// NOTE: Notification is sent from the caller level (main.go or scheduler)
 	// to avoid duplicate notifications and to include report file paths
 

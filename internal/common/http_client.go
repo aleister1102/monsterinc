@@ -128,11 +128,6 @@ func (c *HTTPClient) Do(req *HTTPRequest) (*HTTPResponse, error) {
 		httpReq.Header.Set(key, value)
 	}
 
-	// Set user agent (ensure it's always set)
-	if c.config.UserAgent != "" {
-		httpReq.Header.Set("User-Agent", c.config.UserAgent)
-	}
-
 	// Ensure Accept header is set if not provided
 	if httpReq.Header.Get("Accept") == "" {
 		httpReq.Header.Set("Accept", "*/*")
@@ -229,12 +224,12 @@ func (c *HTTPClient) sendDiscordJSON(ctx context.Context, webhookURL string, pay
 func (c *HTTPClient) splitAndSendFile(ctx context.Context, webhookURL string, payload interface{}, filePath string, fileSize int64) error {
 	const chunkSize = 8 * 1024 * 1024 // 8MB chunks to have buffer
 	totalChunks := int((fileSize + chunkSize - 1) / chunkSize)
-	
+
 	c.logger.Info().Int("total_chunks", totalChunks).Int64("file_size", fileSize).Msg("Splitting file for Discord upload")
-	
+
 	var errors []error
 	successCount := 0
-	
+
 	for i := 0; i < totalChunks; i++ {
 		chunkPath, err := c.createFileChunk(filePath, i, chunkSize)
 		if err != nil {
@@ -242,14 +237,14 @@ func (c *HTTPClient) splitAndSendFile(ctx context.Context, webhookURL string, pa
 			errors = append(errors, fmt.Errorf("chunk %d: %w", i+1, err))
 			continue
 		}
-		
+
 		// Send chunk with modified payload indicating part number
 		chunkPayload := c.modifyPayloadForChunk(payload, i+1, totalChunks)
 		err = c.sendSingleFileChunk(ctx, webhookURL, chunkPayload, chunkPath)
-		
+
 		// Clean up chunk file
 		os.Remove(chunkPath)
-		
+
 		if err != nil {
 			c.logger.Error().Err(err).Int("chunk", i+1).Msg("Failed to send file chunk")
 			errors = append(errors, fmt.Errorf("chunk %d: %w", i+1, err))
@@ -257,22 +252,22 @@ func (c *HTTPClient) splitAndSendFile(ctx context.Context, webhookURL string, pa
 			successCount++
 			c.logger.Info().Int("chunk", i+1).Int("total_chunks", totalChunks).Msg("File chunk sent successfully")
 		}
-		
+
 		// Small delay between chunks
 		if i < totalChunks-1 {
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
-	
+
 	if successCount == 0 {
 		return fmt.Errorf("failed to send any file chunks: %v", errors)
 	}
-	
+
 	if len(errors) > 0 {
 		c.logger.Warn().Int("success_count", successCount).Int("total_chunks", totalChunks).Msg("Some file chunks failed to send")
 		return fmt.Errorf("partial success: %d/%d chunks sent, errors: %v", successCount, totalChunks, errors)
 	}
-	
+
 	c.logger.Info().Int("total_chunks", totalChunks).Msg("All file chunks sent successfully")
 	return nil
 }
@@ -284,34 +279,34 @@ func (c *HTTPClient) createFileChunk(filePath string, chunkIndex int, chunkSize 
 		return "", WrapError(err, "failed to open source file")
 	}
 	defer sourceFile.Close()
-	
+
 	// Create temporary file for chunk
 	dir := filepath.Dir(filePath)
 	baseName := filepath.Base(filePath)
 	ext := filepath.Ext(baseName)
 	nameWithoutExt := strings.TrimSuffix(baseName, ext)
-	
+
 	chunkFileName := fmt.Sprintf("%s_part%d%s", nameWithoutExt, chunkIndex+1, ext)
 	chunkPath := filepath.Join(dir, chunkFileName)
-	
+
 	chunkFile, err := os.Create(chunkPath)
 	if err != nil {
 		return "", WrapError(err, "failed to create chunk file")
 	}
 	defer chunkFile.Close()
-	
+
 	// Seek to chunk start position
 	startPos := int64(chunkIndex) * chunkSize
 	if _, err := sourceFile.Seek(startPos, 0); err != nil {
 		return "", WrapError(err, "failed to seek to chunk position")
 	}
-	
+
 	// Copy chunk data
 	limitedReader := io.LimitReader(sourceFile, chunkSize)
 	if _, err := io.Copy(chunkFile, limitedReader); err != nil {
 		return "", WrapError(err, "failed to copy chunk data")
 	}
-	
+
 	return chunkPath, nil
 }
 
@@ -339,12 +334,12 @@ func (c *HTTPClient) sendSingleFileChunk(ctx context.Context, webhookURL string,
 	if err != nil {
 		return WrapError(err, "failed to get chunk file info")
 	}
-	
+
 	const maxDiscordFileSize = 10 * 1024 * 1024 // 10MB in bytes
 	if fileInfo.Size() > maxDiscordFileSize {
 		return fmt.Errorf("chunk file size %d bytes still exceeds Discord limit", fileInfo.Size())
 	}
-	
+
 	// Use the existing multipart sending logic
 	return c.sendDiscordMultipartInternal(ctx, webhookURL, payload, chunkPath)
 }

@@ -20,7 +20,6 @@ func NewHTTPClientFactory(logger zerolog.Logger) *HTTPClientFactory {
 func (f *HTTPClientFactory) CreateDiscordClient(timeout time.Duration) (*HTTPClient, error) {
 	return NewHTTPClientBuilder(f.logger).
 		WithTimeout(timeout).
-		WithUserAgent("MonsterInc Discord Bot/1.0").
 		WithFollowRedirects(true).
 		WithMaxRedirects(3).
 		WithHTTP2(true).
@@ -32,7 +31,6 @@ func (f *HTTPClientFactory) CreateMonitorClient(timeout time.Duration, insecureS
 	return NewHTTPClientBuilder(f.logger).
 		WithTimeout(timeout).
 		WithInsecureSkipVerify(insecureSkipVerify).
-		WithUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36").
 		WithFollowRedirects(true).
 		WithMaxRedirects(5).
 		WithConnectionPooling(50, 10, 0).

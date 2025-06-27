@@ -23,7 +23,6 @@ type GlobalConfig struct {
 	StorageConfig      StorageConfig      `json:"storage_config,omitempty" yaml:"storage_config,omitempty"`
 	ScanBatchConfig    ScanBatchConfig    `json:"scan_batch_config,omitempty" yaml:"scan_batch_config,omitempty"`
 	MonitorBatchConfig MonitorBatchConfig `json:"monitor_batch_config,omitempty" yaml:"monitor_batch_config,omitempty"`
-	ProgressConfig     ProgressConfig     `json:"progress_config,omitempty" yaml:"progress_config,omitempty"`
 }
 
 // NewDefaultGlobalConfig creates a new GlobalConfig with default values
@@ -41,7 +40,6 @@ func NewDefaultGlobalConfig() *GlobalConfig {
 		StorageConfig:      NewDefaultStorageConfig(),
 		ScanBatchConfig:    NewDefaultScanBatchConfig(),
 		MonitorBatchConfig: NewDefaultMonitorBatchConfig(),
-		ProgressConfig:     NewDefaultProgressConfig(),
 	}
 }
 

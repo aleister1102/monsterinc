@@ -12,7 +12,6 @@ type HTTPClientConfig struct {
 	MaxRedirects          int               // Maximum number of redirects to follow
 	Proxy                 string            // Proxy URL (HTTP/SOCKS)
 	CustomHeaders         map[string]string // Custom headers to add to all requests
-	UserAgent             string            // User-Agent header
 	MaxIdleConns          int               // Maximum idle connections
 	MaxIdleConnsPerHost   int               // Maximum idle connections per host
 	MaxConnsPerHost       int               // Maximum connections per host
@@ -31,7 +30,6 @@ func DefaultHTTPClientConfig() HTTPClientConfig {
 		InsecureSkipVerify:    true,
 		FollowRedirects:       true,
 		MaxRedirects:          10,
-		UserAgent:             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   10,
 		MaxConnsPerHost:       0, // 0 means no limit

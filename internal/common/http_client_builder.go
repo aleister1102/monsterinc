@@ -44,12 +44,6 @@ func (b *HTTPClientBuilder) WithMaxRedirects(max int) *HTTPClientBuilder {
 	return b
 }
 
-// WithUserAgent sets the User-Agent header
-func (b *HTTPClientBuilder) WithUserAgent(userAgent string) *HTTPClientBuilder {
-	b.config.UserAgent = userAgent
-	return b
-}
-
 // WithConnectionPooling sets connection pooling parameters
 func (b *HTTPClientBuilder) WithConnectionPooling(maxIdle, maxIdlePerHost, maxPerHost int) *HTTPClientBuilder {
 	b.config.MaxIdleConns = maxIdle
