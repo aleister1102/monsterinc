@@ -162,24 +162,6 @@ crawler_config:
       - ".css"
       - ".ico"
   
-  # Headless browser configuration
-  headless_browser:
-    enabled: true
-    chrome_path: "/usr/bin/google-chrome"
-    user_data_dir: "/tmp/chrome-data"
-    window_width: 1920
-    window_height: 1080
-    page_load_timeout_secs: 30
-    wait_after_load_ms: 2000
-    disable_images: true
-    disable_css: true
-    disable_javascript: false
-    ignore_https_errors: true
-    pool_size: 3
-    browser_args:
-      - "--no-sandbox"
-      - "--disable-dev-shm-usage"
-
 # Monitor Configuration
 monitor_config:
   enabled: true
@@ -216,8 +198,6 @@ notification_config:
   notify_on_scan_start: true
   notify_on_success: true
   notify_on_failure: true
-  notify_on_critical_error: true
-  auto_delete_partial_diff_reports: false
   mention_role_ids:
     - "123456789012345678"
     - "987654321098765432"
@@ -226,9 +206,7 @@ notification_config:
 reporter_config:
   output_dir: "./reports"
   report_title: "MonsterInc Security Scan Report"
-  template_path: ""
   embed_assets: true
-  generate_empty_report: false
   enable_data_tables: true
   items_per_page: 50
   default_items_per_page: 25

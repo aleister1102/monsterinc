@@ -56,14 +56,17 @@ func NewReportGenerationInputWithDiff(probeResults []models.ProbeResult, urlDiff
 // GenerateReports creates HTML reports from probe results
 // Returns list of generated file paths or error if any
 func (rg *ReportGenerator) GenerateReports(ctx context.Context, input *ReportGenerationInput) ([]string, error) {
-	if !rg.shouldGenerateReport(input) {
-		rg.logger.Info().
-			Str("session_id", input.ScanSessionID).
-			Msg("Report generation skipped - no results and GenerateEmptyReport is false")
+	rg.logger.Info().
+		Int("probe_results", len(input.ProbeResults)).
+		Int("diff_results", len(input.URLDiffResults)).
+		Msg("Starting report generation")
+
+	if len(input.ProbeResults) == 0 {
+		rg.logger.Info().Msg("No results found, skipping report generation.")
 		return nil, nil
 	}
 
-	htmlReporter, err := rg.createHTMLReporter()
+	reporter, err := rg.createHTMLReporter()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize HTML reporter: %w", err)
 	}
@@ -76,7 +79,7 @@ func (rg *ReportGenerator) GenerateReports(ctx context.Context, input *ReportGen
 	// OPTIMIZATION: Direct pointer conversion to avoid intermediate allocation
 	probeResultsPtr := rg.convertToPointersOptimized(allProbeResults)
 
-	reportPaths, err := htmlReporter.GenerateReport(probeResultsPtr, baseReportPath)
+	reportPaths, err := reporter.GenerateReport(probeResultsPtr, baseReportPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate HTML report(s): %w", err)
 	}
@@ -85,19 +88,7 @@ func (rg *ReportGenerator) GenerateReports(ctx context.Context, input *ReportGen
 	return reportPaths, nil
 }
 
-// shouldGenerateReport determines whether to generate reports
-func (rg *ReportGenerator) shouldGenerateReport(input *ReportGenerationInput) bool {
-	if !input.ShouldGenerate {
-		return false
-	}
-
-	hasResults := len(input.ProbeResults) > 0
-	shouldGenerateEmpty := rg.config.GenerateEmptyReport
-
-	return hasResults || shouldGenerateEmpty
-}
-
-// createHTMLReporter creates HTML reporter instance
+// createHTMLReporter creates and initializes a new HTML reporter
 func (rg *ReportGenerator) createHTMLReporter() (*reporter.HtmlReporter, error) {
 	return reporter.NewHtmlReporter(rg.config, rg.logger)
 }

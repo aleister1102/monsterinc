@@ -254,40 +254,6 @@ func (nh *NotificationHelper) sendSimpleMonitorNotification(ctx context.Context,
 	}
 }
 
-// SendCriticalErrorNotification sends a notification for critical application errors.
-func (nh *NotificationHelper) SendCriticalErrorNotification(ctx context.Context, componentName string, summaryData models.ScanSummaryData) {
-	if !nh.canSendCriticalErrorNotification() {
-		return
-	}
-
-	webhookURL := nh.getWebhookURL(ScanServiceNotification)
-	if webhookURL == "" {
-		nh.logger.Warn().Msg("Scan service webhook URL is not configured. Skipping critical error notification.")
-		return
-	}
-
-	summaryData.Component = componentName
-	nh.logger.Error().Str("component", componentName).Interface("summary", summaryData).Msg("Preparing to send critical error notification.")
-
-	payload := FormatCriticalErrorMessage(summaryData, nh.cfg)
-	nh.sendCriticalErrorNotification(ctx, webhookURL, payload, componentName)
-}
-
-// canSendCriticalErrorNotification checks if critical error notifications can be sent
-func (nh *NotificationHelper) canSendCriticalErrorNotification() bool {
-	return nh.cfg.NotifyOnCriticalError && nh.discordNotifier != nil
-}
-
-// sendCriticalErrorNotification sends a critical error notification to the specified webhook
-func (nh *NotificationHelper) sendCriticalErrorNotification(ctx context.Context, webhookURL string, payload models.DiscordMessagePayload, componentName string) {
-	err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, "")
-	if err != nil {
-		nh.logger.Error().Err(err).Str("component", componentName).Msg("Failed to send critical error notification")
-	} else {
-		nh.logger.Info().Str("component", componentName).Msg("Critical error notification sent successfully.")
-	}
-}
-
 // SendScanInterruptNotification sends a notification when a scan is interrupted.
 func (nh *NotificationHelper) SendScanInterruptNotification(ctx context.Context, summaryData models.ScanSummaryData) {
 	if !nh.canSendScanFailureNotification() {

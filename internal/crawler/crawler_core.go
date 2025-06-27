@@ -47,8 +47,6 @@ type Crawler struct {
 	batchShutdown chan struct{}
 	// Extension map cache for fast string operations
 	disallowedExtMap map[string]bool
-	// Headless browser manager
-	headlessBrowserManager *HeadlessBrowserManager
 	// URL pattern detector for auto-calibrate
 	patternDetector *URLPatternDetector
 	// Stats callback for monitoring

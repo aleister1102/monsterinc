@@ -3,7 +3,6 @@ package crawler
 import (
 	"crypto/tls"
 	"net/http"
-	"strings"
 	"time"
 
 	"slices"
@@ -24,10 +23,6 @@ func (cr *Crawler) initialize() error {
 	}
 
 	if err := cr.setupCollector(); err != nil {
-		return err
-	}
-
-	if err := cr.setupHeadlessBrowser(); err != nil {
 		return err
 	}
 
@@ -150,35 +145,6 @@ func (cr *Crawler) setupCallbacks() {
 	cr.collector.OnResponse(cr.handleResponse)
 }
 
-// setupHeadlessBrowser initializes headless browser manager if enabled
-func (cr *Crawler) setupHeadlessBrowser() error {
-	if !cr.config.HeadlessBrowser.Enabled {
-		cr.logger.Debug().Msg("Headless browser is disabled")
-		return nil
-	}
-
-	hbm := NewHeadlessBrowserManager(cr.config.HeadlessBrowser, cr.logger)
-	if err := hbm.Start(); err != nil {
-		// Check if this is a Windows Defender / antivirus blocking issue
-		if cr.isAntivirusBlockingError(err) {
-			cr.logger.Warn().
-				Err(err).
-				Msg("Headless browser blocked by antivirus software, falling back to traditional crawling")
-
-			// Automatically disable headless browser and continue
-			cr.config.HeadlessBrowser.Enabled = false
-			cr.headlessBrowserManager = nil
-			return nil
-		}
-
-		return common.WrapError(err, "failed to start headless browser manager")
-	}
-
-	cr.headlessBrowserManager = hbm
-	cr.logger.Info().Msg("Headless browser manager initialized")
-	return nil
-}
-
 // initializeURLBatcher sets up URL batching for improved performance
 func (cr *Crawler) initializeURLBatcher() {
 	// Size channel buffer based on expected concurrent requests
@@ -225,34 +191,4 @@ func (cr *Crawler) logInitialization() {
 	}
 
 	logEvent.Msg("Initialized with config")
-}
-
-// isAntivirusBlockingError checks if the error is related to antivirus blocking
-func (cr *Crawler) isAntivirusBlockingError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	errorMsg := strings.ToLower(err.Error())
-
-	// Common antivirus/Windows Defender error patterns
-	antivirusPatterns := []string{
-		"virus or potentially unwanted software",
-		"leakless.exe",
-		"operation did not complete successfully because the file contains a virus",
-		"windows defender",
-		"antivirus",
-		"quarantined",
-		"blocked by security software",
-		"access denied",
-		"file is being used by another process",
-	}
-
-	for _, pattern := range antivirusPatterns {
-		if strings.Contains(errorMsg, pattern) {
-			return true
-		}
-	}
-
-	return false
 }

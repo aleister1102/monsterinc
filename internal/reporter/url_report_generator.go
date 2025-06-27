@@ -43,6 +43,12 @@ func (r *HtmlReporter) generateSingleReport(probeResults []*models.ProbeResult, 
 		return nil, fmt.Errorf("failed to prepare report data: %w", err)
 	}
 
+	// Generate report only if there are results, unless configured to generate empty reports
+	if len(pageData.ProbeResults) == 0 {
+		r.logger.Info().Msg("No probe results found, skipping report generation.")
+		return nil, nil
+	}
+
 	outputPath := r.buildOutputPath(baseOutputPath, 0, 1)
 	if err := r.executeAndWriteReport(*pageData, outputPath); err != nil {
 		return nil, fmt.Errorf("failed to write report: %w", err)

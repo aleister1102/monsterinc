@@ -117,11 +117,5 @@ func (cr *Crawler) Stop() {
 		cr.logger.Debug().Msg("Colly collector stopped")
 	}
 
-	// Stop headless browser manager
-	if cr.headlessBrowserManager != nil {
-		cr.headlessBrowserManager.Stop()
-		cr.logger.Debug().Msg("Headless browser manager stopped")
-	}
-
 	cr.logger.Info().Msg("Crawler stopped completely")
 }

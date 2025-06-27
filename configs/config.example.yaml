@@ -240,21 +240,6 @@ crawler_config:
     # Default: [429] (Too Many Requests)
     retry_status_codes: [429]
 
-    # Domain-level rate limiting: Blacklist domains with excessive rate limiting.
-    domain_level_rate_limit:
-      # Enable domain-level rate limiting and blacklisting.
-      # Default: true
-      enabled: true
-      # Maximum number of 429 errors per domain before blacklisting.
-      # Default: 10
-      max_rate_limit_errors: 3
-      # Duration to blacklist domain after hitting max errors (in minutes).
-      # Default: 30
-      blacklist_duration_mins: 30
-      # Clear blacklist after this many hours (cleanup old entries).
-      # Default: 6
-      blacklist_clear_after_hours: 6
-
 # Reporter configuration: Settings for generating HTML reports.
 reporter_config:
   # Directory where HTML reports will be saved.
@@ -266,12 +251,6 @@ reporter_config:
   # Whether to embed assets (CSS, JS) directly into the HTML report for a single, portable file.
   # Default: true
   embed_assets: true
-  # Path to a custom HTML template for the report. If empty, a default template is used.
-  # Default: ""
-  template_path: "" # e.g., "/path/to/custom_report_template.html"
-  # Whether to generate a report even if no findings/results are available.
-  # Default: false
-  generate_empty_report: false
   # Title for the generated HTML report.
   # Default: "MonsterInc Scan Report"
   report_title: "MonsterInc Scan Report"
@@ -283,6 +262,18 @@ reporter_config:
   # A value of 0 means no limit (all results in one file). Default: 1000
   max_probe_results_per_report_file: 1000
   # Note: The exact report filename will be determined by the application logic (e.g., incorporating timestamps or target names).
+  # Send a notification when a scan completes successfully.
+  # Default: false
+  notify_on_success: false
+  # Send a notification when a scan fails.
+  # Default: true
+  notify_on_failure: false
+  # Send a notification when a scan starts.
+  # Default: false
+  notify_on_scan_start: false
+  # Send a notification on critical errors during the application run.
+  # Default: true
+  notify_on_critical_error: true
 
 # Storage configuration: Settings for how scan data is stored (e.g., Parquet files).
 storage_config:
@@ -315,11 +306,6 @@ notification_config:
   # Send a notification on critical errors during the application run.
   # Default: true
   notify_on_critical_error: true
-
-  # Automatically delete single diff report files after a Discord notification has been successfully sent.
-  # This only deletes individual diff reports (diff_*.html), keeping aggregated reports intact.
-  # Default: true
-  auto_delete_partial_diff_reports: true
 
 # Logging configuration: Settings for application logging.
 log_config:
@@ -366,6 +352,7 @@ log_config:
   # This prevents file locking issues when multiple processes write to logs simultaneously.
   # Default: true
   use_subdirs: true
+
 # Scheduler configuration: Settings for automated periodic scans (when mode is "automated").
 scheduler_config:
   # Scan cycle interval in minutes. The time between the end of one scan and the start of the next.

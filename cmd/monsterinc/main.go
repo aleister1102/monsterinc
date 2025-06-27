@@ -329,7 +329,7 @@ func runOnetimeScan(
 			criticalErrSummary.TargetSource = "config"
 		}
 		criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to load seed URLs: %v", err)}
-		notificationHelper.SendCriticalErrorNotification(context.Background(), "SeedURLLoad", criticalErrSummary)
+		notificationHelper.SendScanCompletionNotification(context.Background(), criticalErrSummary, notifier.ScanServiceNotification, nil)
 		return
 	}
 
@@ -516,7 +516,7 @@ func runAutomatedScan(
 		criticalErrSummary := models.GetDefaultScanSummaryData()
 		criticalErrSummary.Component = "SchedulerInitialization"
 		criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize scheduler: %v", schedulerErr)}
-		notificationHelper.SendCriticalErrorNotification(context.Background(), "SchedulerInitialization", criticalErrSummary)
+		notificationHelper.SendScanCompletionNotification(context.Background(), criticalErrSummary, notifier.ScanServiceNotification, nil)
 		zLogger.Fatal().Err(schedulerErr).Msg("Failed to initialize scheduler")
 		return
 	}
@@ -530,7 +530,7 @@ func runAutomatedScan(
 			criticalErrSummary := models.GetDefaultScanSummaryData()
 			criticalErrSummary.Component = "SchedulerRuntime"
 			criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Scheduler error: %v", err)}
-			notificationHelper.SendCriticalErrorNotification(context.Background(), "SchedulerRuntime", criticalErrSummary)
+			notificationHelper.SendScanCompletionNotification(context.Background(), criticalErrSummary, notifier.ScanServiceNotification, nil)
 			zLogger.Error().Err(err).Msg("Scheduler error")
 		}
 	}
