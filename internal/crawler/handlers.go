@@ -107,26 +107,6 @@ func (cr *Crawler) shouldAbortRequest(r *colly.Request) bool {
 	return false
 }
 
-// isScannableContent checks if the response content type is suitable for secret scanning.
-func (cr *Crawler) isScannableContent(r *colly.Response) bool {
-	contentType := strings.ToLower(r.Headers.Get("Content-Type"))
-	scannableTypes := []string{
-		"text/html",
-		"application/javascript",
-		"text/javascript",
-		"application/x-javascript",
-		"application/json",
-		"text/plain",
-	}
-
-	for _, t := range scannableTypes {
-		if strings.Contains(contentType, t) {
-			return true
-		}
-	}
-	return false
-}
-
 // isHTMLContent checks if response contains HTML content
 func (cr *Crawler) isHTMLContent(r *colly.Response) bool {
 	contentType := r.Headers.Get("Content-Type")

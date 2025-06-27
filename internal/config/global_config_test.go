@@ -18,7 +18,6 @@ func TestNewDefaultGlobalConfig(t *testing.T) {
 	assert.Equal(t, "onetime", cfg.Mode)
 	assert.NotNil(t, cfg.CrawlerConfig)
 	assert.NotNil(t, cfg.DiffConfig)
-	assert.NotNil(t, cfg.ExtractorConfig)
 	assert.NotNil(t, cfg.LogConfig)
 	assert.NotNil(t, cfg.MonitorConfig)
 	assert.NotNil(t, cfg.NotificationConfig)

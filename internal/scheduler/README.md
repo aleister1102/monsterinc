@@ -207,7 +207,6 @@ tasks := []scheduler.TaskDefinition{
             TargetsFile:       "production-targets.txt",
             EnableCrawling:    true,
             EnableDiffing:     true,
-            EnableSecretScan:  true,
             NotifyOnCompletion: true,
         },
     },
@@ -252,7 +251,6 @@ taskID, err := schedulerService.ExecuteImmediateScan(
         Options: scheduler.ScanOptions{
             EnableCrawling:     true,
             EnableDiffing:      true,
-            EnableSecretScan:   true,
             NotifyOnCompletion: true,
             OverrideRateLimit:  true, // For emergency scans
         },
@@ -440,7 +438,6 @@ type ScanTaskConfig struct {
     TargetsFile        string        `json:"targets_file"`
     EnableCrawling     bool         `json:"enable_crawling"`
     EnableDiffing      bool         `json:"enable_diffing"`
-    EnableSecretScan   bool         `json:"enable_secret_scan"`
     MaxConcurrent      int          `json:"max_concurrent"`
     TimeoutMinutes     int          `json:"timeout_minutes"`
     NotifyOnCompletion bool         `json:"notify_on_completion"`

@@ -14,7 +14,6 @@ type GlobalConfig struct {
 	CrawlerConfig         CrawlerConfig         `json:"crawler_config,omitempty" yaml:"crawler_config,omitempty"`
 	DiffConfig            DiffConfig            `json:"diff_config,omitempty" yaml:"diff_config,omitempty"`
 	DiffReporterConfig    DiffReporterConfig    `json:"diff_reporter_config,omitempty" yaml:"diff_reporter_config,omitempty"`
-	ExtractorConfig       ExtractorConfig       `json:"extractor_config,omitempty" yaml:"extractor_config,omitempty"`
 	HttpxRunnerConfig     HttpxRunnerConfig     `json:"httpx_runner_config,omitempty" yaml:"httpx_runner_config,omitempty"`
 	LogConfig             LogConfig             `json:"log_config,omitempty" yaml:"log_config,omitempty"`
 	Mode                  string                `json:"mode,omitempty" yaml:"mode,omitempty" validate:"required,mode"`
@@ -35,7 +34,6 @@ func NewDefaultGlobalConfig() *GlobalConfig {
 		CrawlerConfig:         NewDefaultCrawlerConfig(),
 		DiffConfig:            NewDefaultDiffConfig(),
 		DiffReporterConfig:    NewDefaultDiffReporterConfig(),
-		ExtractorConfig:       NewDefaultExtractorConfig(),
 		HttpxRunnerConfig:     NewDefaultHTTPXRunnerConfig(),
 		LogConfig:             NewDefaultLogConfig(),
 		Mode:                  "onetime",

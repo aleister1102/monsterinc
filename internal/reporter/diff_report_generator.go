@@ -134,17 +134,16 @@ func (r *HtmlDiffReporter) processDiffResults(latestDiffsMap map[string]*models.
 		}
 
 		display := models.DiffResultDisplay{
-			URL:            url,
-			Timestamp:      displayTimestamp,
-			ContentType:    diffResult.ContentType,
-			OldHash:        diffResult.OldHash,
-			NewHash:        diffResult.NewHash,
-			Summary:        summary,
-			DiffHTML:       diffHTML,
-			Diffs:          diffResult.Diffs,
-			IsIdentical:    diffResult.IsIdentical,
-			ErrorMessage:   diffResult.ErrorMessage,
-			ExtractedPaths: diffResult.ExtractedPaths,
+			URL:          url,
+			Timestamp:    displayTimestamp,
+			ContentType:  diffResult.ContentType,
+			OldHash:      diffResult.OldHash,
+			NewHash:      diffResult.NewHash,
+			Summary:      summary,
+			DiffHTML:     diffHTML,
+			Diffs:        diffResult.Diffs,
+			IsIdentical:  diffResult.IsIdentical,
+			ErrorMessage: diffResult.ErrorMessage,
 		}
 		diffResultsDisplay = append(diffResultsDisplay, display)
 	}
@@ -193,18 +192,17 @@ func (r *HtmlDiffReporter) createAggregatedPageData(displayResults []models.Diff
 // createSingleDiffDisplay creates display data for single diff
 func (r *HtmlDiffReporter) createSingleDiffDisplay(urlStr string, diffResult *models.ContentDiffResult, currentContent []byte) models.DiffResultDisplay {
 	return models.DiffResultDisplay{
-		URL:            urlStr,
-		Timestamp:      time.UnixMilli(diffResult.Timestamp),
-		ContentType:    diffResult.ContentType,
-		OldHash:        diffResult.OldHash,
-		NewHash:        diffResult.NewHash,
-		Summary:        r.diffUtils.CreateDiffSummary(diffResult.Diffs),
-		DiffHTML:       r.diffUtils.GenerateDiffHTML(diffResult.Diffs),
-		Diffs:          diffResult.Diffs,
-		IsIdentical:    diffResult.IsIdentical,
-		ErrorMessage:   diffResult.ErrorMessage,
-		FullContent:    string(currentContent),
-		ExtractedPaths: diffResult.ExtractedPaths,
+		URL:          urlStr,
+		Timestamp:    time.UnixMilli(diffResult.Timestamp),
+		ContentType:  diffResult.ContentType,
+		OldHash:      diffResult.OldHash,
+		NewHash:      diffResult.NewHash,
+		Summary:      r.diffUtils.CreateDiffSummary(diffResult.Diffs),
+		DiffHTML:     r.diffUtils.GenerateDiffHTML(diffResult.Diffs),
+		Diffs:        diffResult.Diffs,
+		IsIdentical:  diffResult.IsIdentical,
+		ErrorMessage: diffResult.ErrorMessage,
+		FullContent:  string(currentContent),
 	}
 }
 
@@ -279,32 +277,30 @@ func (r *HtmlDiffReporter) generateSingleReport(displayResults []models.DiffResu
 func (r *HtmlDiffReporter) populateDiffResultsJSON(pageData *models.DiffReportPageData) {
 	// Create a simplified version of diff results for JSON serialization
 	type SimplifiedDiffResult struct {
-		URL            string                     `json:"url"`
-		ContentType    string                     `json:"content_type"`
-		Timestamp      time.Time                  `json:"timestamp"`
-		IsIdentical    bool                       `json:"is_identical"`
-		ErrorMessage   string                     `json:"error_message"`
-		Diffs          []models.ContentDiff       `json:"diffs"`
-		OldHash        string                     `json:"old_hash"`
-		NewHash        string                     `json:"new_hash"`
-		Summary        string                     `json:"summary"`
-		ExtractedPaths []models.ExtractedPath     `json:"extracted_paths"`
+		URL          string               `json:"url"`
+		ContentType  string               `json:"content_type"`
+		Timestamp    time.Time            `json:"timestamp"`
+		IsIdentical  bool                 `json:"is_identical"`
+		ErrorMessage string               `json:"error_message"`
+		Diffs        []models.ContentDiff `json:"diffs"`
+		OldHash      string               `json:"old_hash"`
+		NewHash      string               `json:"new_hash"`
+		Summary      string               `json:"summary"`
 	}
 
 	// Convert DiffResultDisplay to simplified version
 	var simplifiedResults []SimplifiedDiffResult
 	for _, result := range pageData.DiffResults {
 		simplified := SimplifiedDiffResult{
-			URL:            result.URL,
-			ContentType:    result.ContentType,
-			Timestamp:      result.Timestamp,
-			IsIdentical:    result.IsIdentical,
-			ErrorMessage:   result.ErrorMessage,
-			Diffs:          result.Diffs, // Use raw diffs instead of pre-rendered HTML
-			OldHash:        result.OldHash,
-			NewHash:        result.NewHash,
-			Summary:        result.Summary,
-			ExtractedPaths: result.ExtractedPaths,
+			URL:          result.URL,
+			ContentType:  result.ContentType,
+			Timestamp:    result.Timestamp,
+			IsIdentical:  result.IsIdentical,
+			ErrorMessage: result.ErrorMessage,
+			Diffs:        result.Diffs, // Use raw diffs instead of pre-rendered HTML
+			OldHash:      result.OldHash,
+			NewHash:      result.NewHash,
+			Summary:      result.Summary,
 		}
 		simplifiedResults = append(simplifiedResults, simplified)
 	}

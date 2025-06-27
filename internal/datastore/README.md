@@ -331,7 +331,7 @@ type FileHistoryRecord struct {
     ETag               string  `parquet:"etag,zstd,optional"`
     LastModified       string  `parquet:"last_modified,zstd,optional"`
     DiffResultJSON     *string `parquet:"diff_result_json,zstd,optional"`
-    ExtractedPathsJSON *string `parquet:"extracted_paths_json,zstd,optional"`
+
 }
 ```
 

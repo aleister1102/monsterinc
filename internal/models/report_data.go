@@ -187,7 +187,6 @@ type DiffResultDisplay struct {
 	NewHash        string          `json:"new_hash,omitempty"`
 	Summary        string          `json:"summary,omitempty"`
 	FullContent    string          `json:"full_content,omitempty"`    // Added to display full new content
-	ExtractedPaths []ExtractedPath `json:"extracted_paths,omitempty"` // Added
 }
 
 // SetCustomCSS sets the custom CSS for the report page

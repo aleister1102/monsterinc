@@ -78,7 +78,6 @@ func NewMonitoringService(
 
 	// Initialize optional components
 	contentDiffer := initializeContentDiffer(gCfg, instanceLogger)
-	pathExtractor := initializePathExtractor(gCfg, instanceLogger)
 	htmlDiffReporter := initializeHtmlDiffReporter(gCfg, historyStore, instanceLogger, notificationHelper)
 
 	// Initialize modular components
@@ -106,7 +105,6 @@ func NewMonitoringService(
 		fetcher,
 		processor,
 		contentDiffer,
-		pathExtractor,
 		htmlDiffReporter,
 	)
 

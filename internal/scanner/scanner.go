@@ -9,7 +9,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
-	"github.com/aleister1102/monsterinc/internal/extractor"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 
@@ -23,7 +22,6 @@ type Scanner struct {
 	logger          zerolog.Logger
 	parquetReader   *datastore.ParquetReader
 	parquetWriter   *datastore.ParquetWriter
-	pathExtractor   *extractor.PathExtractor
 	configBuilder   *ConfigBuilder
 	crawlerExecutor *CrawlerExecutor
 	httpxExecutor   *HTTPXExecutor
@@ -57,13 +55,6 @@ func NewScanner(
 	// Initialize executors
 	scanner.crawlerExecutor = NewCrawlerExecutor(logger)
 	scanner.httpxExecutor = NewHTTPXExecutor(logger)
-
-	// Initialize path extractor with error handling
-	if pathExtractor, err := extractor.NewPathExtractor(globalConfig.ExtractorConfig, logger); err != nil {
-		logger.Warn().Err(err).Msg("Failed to initialize path extractor")
-	} else {
-		scanner.pathExtractor = pathExtractor
-	}
 
 	// Initialize diff processor with URL differ
 	if urlDiffer, err := differ.NewUrlDiffer(pReader, logger); err != nil {
@@ -144,9 +135,6 @@ func (s *Scanner) UpdateLogger(newLogger zerolog.Logger) {
 	// Update logger for sub-components
 	if s.configBuilder != nil {
 		s.configBuilder.logger = newLogger.With().Str("module", "ConfigBuilder").Logger()
-	}
-	if s.urlPreprocessor != nil {
-		s.urlPreprocessor.logger = newLogger.With().Str("component", "URLPreprocessor").Logger()
 	}
 
 	// Note: CrawlerExecutor, HTTPXExecutor, and DiffStorageProcessor don't have UpdateLogger methods

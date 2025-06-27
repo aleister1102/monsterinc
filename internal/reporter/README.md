@@ -79,8 +79,7 @@ reportData := &models.ReportData{
     ScanSummary:     scanSummary,
     ProbeResults:    allProbeResults,
     URLDiffResults:  urlDiffResults,
-    ExtractedPaths:  extractedPaths,
-    SecretsFindings: secretsFindings,
+
 }
 
 outputPath, err := reportGenerator.GenerateReport(reportData)
@@ -169,7 +168,7 @@ reportData := &models.ReportData{
     },
     ProbeResults:   probeResults,
     URLDiffResults: urlDiffResults,
-    ExtractedPaths: extractedPaths,
+
 }
 
 outputPath, err := urlReporter.GenerateReport(reportData)
@@ -235,8 +234,7 @@ type ReportData struct {
     ScanSummary     *ScanSummary      `json:"scan_summary"`
     ProbeResults    []*ProbeResult    `json:"probe_results"`
     URLDiffResults  map[string]*URLDiffResult `json:"url_diff_results"`
-    ExtractedPaths  []*ExtractedPath  `json:"extracted_paths"`
-    SecretsFindings []*SecretFinding  `json:"secrets_findings"`
+
 }
 ```
 

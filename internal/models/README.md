@@ -27,7 +27,6 @@ This package defines the core data models that flow between different components
 - **`probe_result.go`** - HTTP probing results and technology detection
 - **`file_history.go`** - File change tracking and history storage
 - **`content_diff.go`** - Content comparison and diff results
-- **`extracted_path.go`** - Path extraction from JavaScript/HTML
 - **`asset.go`** - Web assets discovered during crawling
 - **`target.go`** - URL targets for scanning
 - **`monitored_file.go`** - File monitoring structures
@@ -105,7 +104,7 @@ type FileHistoryRecord struct {
     ETag           string  `parquet:"etag,zstd,optional"`
     LastModified   string  `parquet:"last_modified,zstd,optional"`
     DiffResultJSON *string `parquet:"diff_result_json,zstd,optional"`
-    ExtractedPathsJSON *string `parquet:"extracted_paths_json,zstd,optional"`
+
 }
 ```
 
@@ -136,7 +135,7 @@ type ContentDiffResult struct {
     ProcessingTimeMs int64           `json:"processing_time_ms"`
     OldHash          string          `json:"old_hash,omitempty"`
     NewHash          string          `json:"new_hash,omitempty"`
-    ExtractedPaths   []ExtractedPath `json:"extracted_paths,omitempty"`
+
 }
 
 type ContentDiff struct {
@@ -145,20 +144,7 @@ type ContentDiff struct {
 }
 ```
 
-### 4. ExtractedPath
 
-Path extraction from JavaScript and HTML:
-
-```go
-type ExtractedPath struct {
-    SourceURL            string    `json:"source_url"`
-    ExtractedRawPath     string    `json:"extracted_raw_path"`
-    ExtractedAbsoluteURL string    `json:"extracted_absolute_url"`
-    Context              string    `json:"context"` // e.g., "script[src]", "JS:fetch"
-    Type                 string    `json:"type"`    // e.g., "html_attr_link", "js_string"
-    DiscoveryTimestamp   time.Time `json:"discovery_timestamp"`
-}
-```
 
 ## Notification Models
 

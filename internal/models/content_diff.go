@@ -20,18 +20,17 @@ type ContentDiff struct {
 
 // ContentDiffResult holds the structured result of a content diff operation.
 type ContentDiffResult struct {
-	Timestamp        int64           `json:"timestamp"`
-	ContentType      string          `json:"content_type"`
-	Diffs            []ContentDiff   `json:"diffs"`
-	LinesAdded       int             `json:"lines_added"`
-	LinesDeleted     int             `json:"lines_deleted"`
-	LinesChanged     int             `json:"lines_changed"` // Optional: if we can detect changed lines specifically
-	IsIdentical      bool            `json:"is_identical"`
-	ErrorMessage     string          `json:"error_message,omitempty"`
-	ProcessingTimeMs int64           `json:"processing_time_ms"`
-	OldHash          string          `json:"old_hash,omitempty"`
-	NewHash          string          `json:"new_hash,omitempty"`
-	ExtractedPaths   []ExtractedPath `json:"extracted_paths,omitempty"`
+	Timestamp        int64         `json:"timestamp"`
+	ContentType      string        `json:"content_type"`
+	Diffs            []ContentDiff `json:"diffs"`
+	LinesAdded       int           `json:"lines_added"`
+	LinesDeleted     int           `json:"lines_deleted"`
+	LinesChanged     int           `json:"lines_changed"` // Optional: if we can detect changed lines specifically
+	IsIdentical      bool          `json:"is_identical"`
+	ErrorMessage     string        `json:"error_message,omitempty"`
+	ProcessingTimeMs int64         `json:"processing_time_ms"`
+	OldHash          string        `json:"old_hash,omitempty"`
+	NewHash          string        `json:"new_hash,omitempty"`
 }
 
 // DiffDisplay holds processed diffs for HTML template rendering.

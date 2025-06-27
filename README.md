@@ -157,9 +157,6 @@ graph TD
     
     V --> O
     
-    I --> W["Path Extractor<br/>(internal/extractor)"]
-    W --> L
-    
     style A fill:#e1f5fe
     style D fill:#f3e5f5
     style E fill:#e8f5e8

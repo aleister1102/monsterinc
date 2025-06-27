@@ -44,7 +44,6 @@ type GlobalConfig struct {
     CrawlerConfig         CrawlerConfig         `yaml:"crawler_config"`
     DiffConfig            DiffConfig            `yaml:"diff_config"`
     DiffReporterConfig    DiffReporterConfig    `yaml:"diff_reporter_config"`
-    ExtractorConfig       ExtractorConfig       `yaml:"extractor_config"`
     HttpxRunnerConfig     HttpxRunnerConfig     `yaml:"httpx_runner_config"`
     LogConfig             LogConfig             `yaml:"log_config"`
     Mode                  string                `yaml:"mode" validate:"required,mode"`
@@ -256,16 +255,6 @@ diff_config:
 # Diff Reporter Configuration
 diff_reporter_config:
   max_diff_file_size_mb: 10
-
-# Extractor Configuration
-extractor_config:
-  custom_regexes:
-    - "api/v[0-9]+/[a-zA-Z0-9_-]+"
-    - "/admin/[a-zA-Z0-9_-]+"
-  allowlist:
-    - "*.example.com"
-  denylist:
-    - "*.ads.example.com"
 
 # Resource Limiter Configuration
 resource_limiter_config:

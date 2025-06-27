@@ -162,14 +162,8 @@ func addChangedURLsField(embedBuilder *DiscordEmbedBuilder, changes []models.Fil
 
 // Helper functions
 func calculateMonitorAggregatedStats(changes []models.FileChangeInfo) models.MonitorAggregatedStats {
-	totalPaths := 0
-	for _, change := range changes {
-		totalPaths += len(change.ExtractedPaths)
-	}
-
 	return models.MonitorAggregatedStats{
 		TotalChanges: len(changes),
-		TotalPaths:   totalPaths,
 	}
 }
 

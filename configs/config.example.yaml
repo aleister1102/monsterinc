@@ -528,38 +528,3 @@ monitor_batch_config:
   # For example, if set to 200, files with 500 URLs will create 10 batches of 50 URLs each.
   # Default: 200
   threshold_size: 200
-
-# Secrets configuration: Settings for secret detection and scanning.
-secrets_config:
-  # Whether secret detection is enabled during crawling.
-  # When enabled, the crawler will scan all response content for potential secrets like API keys, tokens, etc.
-  # Default: true
-  enabled: true
-  # Whether to send notifications when secrets are found.
-  # This works in conjunction with the notification_config settings.
-  # Default: true
-  notify_on_found: true
-  # Storage configuration for secret findings.
-  secrets_store:
-    # Compression codec for storing secret findings in Parquet format.
-    # Valid codecs: "snappy", "gzip", "lz4", "zstd", "brotli"
-    # Default: "zstd"
-    compression_codec: "zstd"
-    # Base path where secret findings Parquet files will be stored.
-    # Files will be created in a "secrets/" subdirectory under this path.
-    # Default: "parquet_data"
-    parquet_base_path: "parquet_data"
-
-# Extractor configuration: Settings for custom path extraction.
-extractor_config:
-  # List of custom regex patterns to extract paths/URLs from content.
-  # These regexes will be applied to the full content of downloaded files (e.g., JS, HTML).
-  # Each string in this list should be a valid Go regex.
-  # Example using block style (recommended for readability if manually editing):
-  custom_regexes:
-    - "/(?:[a-zA-Z0-9_\\-]+/)*[a-zA-Z0-9_\\-]+\\.js(?:\\?[^\\s\"]*)?" # Example: Finds /path/to/file.js?query
-    - "'(?:[a-zA-Z0-9_\\-]+/)*[a-zA-Z0-9_\\-]+\\.html(?:\\?[^\\s']*)?'" # Example: Finds '/path/to/file.html'
-    - "https?:\\/\\/[^\\s\\\"'\\`]+" # Example: Finds http(s)://anything_not_whitespace_or_quote
-    # - "another_custom_regex_pattern"
-  # If you prefer flow style (ensure correct escaping and quoting if regexes contain special characters):
-  # custom_regexes: ["regex1", "regex2"]

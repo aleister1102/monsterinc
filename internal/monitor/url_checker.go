@@ -9,7 +9,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/differ"
-	"github.com/aleister1102/monsterinc/internal/extractor"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/reporter"
 
@@ -18,16 +17,15 @@ import (
 
 // CheckResult represents the result of checking a URL
 type CheckResult struct {
-	URL            string
-	Changed        bool
-	NewHash        string
-	OldHash        string
-	ContentType    string
-	Content        []byte
-	Error          error
-	ProcessedAt    time.Time
-	DiffResult     *models.ContentDiffResult
-	ExtractedPaths []models.ExtractedPath
+	URL         string
+	Changed     bool
+	NewHash     string
+	OldHash     string
+	ContentType string
+	Content     []byte
+	Error       error
+	ProcessedAt time.Time
+	DiffResult  *models.ContentDiffResult
 }
 
 // URLChecker handles the checking of individual URLs with memory optimization
@@ -38,7 +36,6 @@ type URLChecker struct {
 	fetcher          *common.Fetcher
 	processor        *ContentProcessor
 	contentDiffer    *differ.ContentDiffer
-	pathExtractor    *extractor.PathExtractor
 	htmlDiffReporter *reporter.HtmlDiffReporter
 
 	// Memory optimization components
@@ -54,7 +51,6 @@ func NewURLChecker(
 	fetcher *common.Fetcher,
 	processor *ContentProcessor,
 	contentDiffer *differ.ContentDiffer,
-	pathExtractor *extractor.PathExtractor,
 	htmlDiffReporter *reporter.HtmlDiffReporter,
 ) *URLChecker {
 	return &URLChecker{
@@ -64,7 +60,6 @@ func NewURLChecker(
 		fetcher:          fetcher,
 		processor:        processor,
 		contentDiffer:    contentDiffer,
-		pathExtractor:    pathExtractor,
 		htmlDiffReporter: htmlDiffReporter,
 		// Initialize memory pools
 		bufferPool: common.NewBufferPool(64 * 1024), // 64KB buffers
@@ -145,12 +140,6 @@ func (uc *URLChecker) CheckURL(ctx context.Context, url string) CheckResult {
 		}
 	}
 
-	// Extract paths if path extractor is available and content type is suitable
-	if uc.pathExtractor != nil && uc.shouldExtractPaths(result.ContentType) {
-		extractedPaths := uc.extractPathsWithOptimization(url, fetchResult.Content, result.ContentType)
-		result.ExtractedPaths = extractedPaths
-	}
-
 	// Store the new record
 	if err := uc.storeFileRecord(url, result, fetchResult); err != nil {
 		uc.logger.Error().Err(err).Str("url", url).Msg("Failed to store file record")
@@ -213,30 +202,6 @@ func (uc *URLChecker) generateFirstTimeDiff(newContent []byte, contentType, newH
 	return diffResult
 }
 
-// shouldExtractPaths determines if paths should be extracted from the content type
-func (uc *URLChecker) shouldExtractPaths(contentType string) bool {
-	// Extract paths from JavaScript and HTML files
-	return contentType == "application/javascript" ||
-		contentType == "text/javascript" ||
-		contentType == "text/html" ||
-		contentType == "application/json"
-}
-
-// extractPathsWithOptimization extracts paths using memory-optimized approach
-func (uc *URLChecker) extractPathsWithOptimization(sourceURL string, content []byte, contentType string) []models.ExtractedPath {
-	// Use buffer pool for path extraction processing
-	buffer := uc.bufferPool.Get()
-	defer uc.bufferPool.Put(buffer)
-
-	paths, err := uc.pathExtractor.ExtractPaths(sourceURL, content, contentType)
-	if err != nil {
-		uc.logger.Error().Err(err).Str("url", sourceURL).Msg("Failed to extract paths")
-		return nil
-	}
-
-	return paths
-}
-
 // storeFileRecord stores the file record with extracted paths and diff results
 func (uc *URLChecker) storeFileRecord(url string, result CheckResult, fetchResult *common.FetchFileContentResult) error {
 	record := models.FileHistoryRecord{
@@ -262,15 +227,6 @@ func (uc *URLChecker) storeFileRecord(url string, result CheckResult, fetchResul
 		}
 	}
 
-	// Store extracted paths as JSON if available
-	if len(result.ExtractedPaths) > 0 {
-		if pathsJSON, err := uc.serializeExtractedPaths(result.ExtractedPaths); err == nil {
-			record.ExtractedPathsJSON = &pathsJSON
-		} else {
-			uc.logger.Warn().Err(err).Msg("Failed to serialize extracted paths")
-		}
-	}
-
 	return uc.historyStore.StoreFileRecord(record)
 }
 
@@ -283,20 +239,6 @@ func (uc *URLChecker) serializeDiffResult(diffResult *models.ContentDiffResult) 
 	jsonData, err := json.Marshal(diffResult)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal diff result: %w", err)
-	}
-
-	return string(jsonData), nil
-}
-
-// serializeExtractedPaths serializes extracted paths to JSON string
-func (uc *URLChecker) serializeExtractedPaths(paths []models.ExtractedPath) (string, error) {
-	if len(paths) == 0 {
-		return "", nil
-	}
-
-	jsonData, err := json.Marshal(paths)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal extracted paths: %w", err)
 	}
 
 	return string(jsonData), nil
@@ -331,14 +273,13 @@ func (uc *URLChecker) CheckURLWithBatchContext(ctx context.Context, url string, 
 
 	// File changed - create change info
 	changeInfo := &models.FileChangeInfo{
-		URL:            url,
-		OldHash:        result.OldHash,
-		NewHash:        result.NewHash,
-		ContentType:    result.ContentType,
-		ChangeTime:     result.ProcessedAt,
-		ExtractedPaths: result.ExtractedPaths,
-		CycleID:        cycleID,
-		BatchInfo:      batchInfo,
+		URL:         url,
+		OldHash:     result.OldHash,
+		NewHash:     result.NewHash,
+		ContentType: result.ContentType,
+		ChangeTime:  result.ProcessedAt,
+		CycleID:     cycleID,
+		BatchInfo:   batchInfo,
 	}
 
 	// Note: HTML diff report will be generated later at cycle level for all changed URLs

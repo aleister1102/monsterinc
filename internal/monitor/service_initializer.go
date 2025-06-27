@@ -8,7 +8,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
-	"github.com/aleister1102/monsterinc/internal/extractor"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/reporter"
@@ -87,16 +86,6 @@ func initializeContentDiffer(gCfg *config.GlobalConfig, logger zerolog.Logger) *
 		return nil
 	}
 	return contentDiffer
-}
-
-// initializePathExtractor creates the path extractor
-func initializePathExtractor(gCfg *config.GlobalConfig, logger zerolog.Logger) *extractor.PathExtractor {
-	pathExtractor, err := extractor.NewPathExtractor(gCfg.ExtractorConfig, logger)
-	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create path extractor")
-		return nil
-	}
-	return pathExtractor
 }
 
 // initializeHtmlDiffReporter creates the HTML diff reporter

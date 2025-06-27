@@ -311,36 +311,6 @@ body {
     width: 100%;
 }
 
-/* Secret findings styling */
-.secret-content {
-    max-width: 500px;
-    max-height: 200px;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    word-break: break-all;
-    font-size: 0.85rem;
-    line-height: 1.3;
-}
-
-.secret-content::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-
-.secret-content::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 3px;
-}
-
-.secret-content::-webkit-scrollbar-thumb {
-    background: #888;
-    border-radius: 3px;
-}
-
-.secret-content::-webkit-scrollbar-thumb:hover {
-    background: #555;
-}
-
 /* Fixed column widths */
 .table th:nth-child(1),
 /* Input URL */
@@ -702,10 +672,6 @@ body {
         font-size: 0.9rem;
     }
 
-    #secretsContainer .secret-content {
-        font-size: 0.8em;
-        max-height: 50px;
-    }
 }
 
 /* Scroll to top button */
@@ -758,101 +724,6 @@ body {
 
 .scroll-to-top.show {
     display: block;
-}
-
-/* Secrets Table Styling */
-#secretsContainer {
-    margin-top: 20px;
-}
-
-#secretsTable th {
-    background-color: var(--primary-color);
-    color: white;
-    border: none;
-    font-weight: 600;
-    text-align: center;
-    padding: 15px 12px;
-    vertical-align: middle;
-}
-
-#secretsTable td {
-    vertical-align: middle;
-    padding: 15px 12px;
-}
-
-#secretsContainer .secret-content {
-    word-break: break-all;
-    max-height: none;
-    overflow-y: visible;
-    font-family: 'Courier New', monospace;
-    font-size: 0.85em;
-    background-color: #f8f9fa;
-    padding: 8px 12px;
-    border-radius: 4px;
-    border: 1px solid #dee2e6;
-    text-align: left;
-    line-height: 1.2;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Secret text highlight in context */
-.secret-highlight {
-    background-color: #fff3cd;
-    border: 1px solid #ffeaa7;
-    padding: 2px 4px;
-    border-radius: 3px;
-    font-weight: bold;
-    color: #856404;
-    display: inline;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-}
-
-/* Ensure highlighting works in pre/code blocks */
-pre code .secret-highlight {
-    font-family: inherit;
-    font-size: inherit;
-    line-height: inherit;
-}
-
-/* Secrets table responsive improvements */
-#secretsTable {
-    table-layout: fixed;
-    width: 100%;
-}
-
-#secretsTable th:nth-child(1),
-#secretsTable td:nth-child(1) {
-    width: 30%;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-}
-
-#secretsTable th:nth-child(2),
-#secretsTable td:nth-child(2) {
-    width: 12%;
-    text-align: center;
-}
-
-#secretsTable th:nth-child(3),
-#secretsTable td:nth-child(3) {
-    width: 35%;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-}
-
-#secretsTable th:nth-child(4),
-#secretsTable td:nth-child(4) {
-    width: 13%;
-    text-align: center;
-}
-
-#secretsTable th:nth-child(5),
-#secretsTable td:nth-child(5) {
-    width: 10%;
-    text-align: center;
 }
 
 /* View switching buttons */

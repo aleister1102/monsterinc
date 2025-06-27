@@ -382,7 +382,6 @@ type FileChangeInfo struct {
 	ContentType    string
 	ChangeTime     time.Time       // Time the change was detected
 	DiffReportPath *string         // Path to the generated HTML diff report for this specific change
-	ExtractedPaths []ExtractedPath // Paths extracted from the content (for JS files)
 	CycleID        string          // Unique identifier for the monitoring cycle
 	BatchInfo      *BatchInfo      `json:"batch_info,omitempty"` // Information about the batch this change belongs to
 }

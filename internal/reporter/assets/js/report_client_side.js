@@ -194,14 +194,6 @@ class ReportManager {
         modal.show();
     }
 
-    renderModalSecretsSection() {
-        // Clear the section since secrets are removed
-        const modalSecretsSection = document.getElementById('modalSecretsSection');
-        if (modalSecretsSection) {
-            modalSecretsSection.innerHTML = '';
-        }
-    }
-
     getStatusBadgeClass(statusCode) {
         if (!statusCode) return 'bg-secondary';
         if (statusCode >= 200 && statusCode < 300) return 'bg-success';
