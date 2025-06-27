@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/monsterinc/httpx"
+	httpx "github.com/aleister1102/go-telescope"
 )
 
 // Required for TLSCertExpiry potentially if it becomes time.Time

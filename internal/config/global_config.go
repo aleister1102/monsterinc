@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"path/filepath"
 
+	logger "github.com/aleister1102/go-logbook"
 	"github.com/aleister1102/monsterinc/internal/common"
-	"github.com/monsterinc/logger"
 	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v3"
 )

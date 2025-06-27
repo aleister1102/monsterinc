@@ -5,19 +5,18 @@ go 1.24.4
 require (
 	github.com/BishopFox/jsluice v0.0.0-20240110145140-0ddfab153e06
 	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/aleister1102/go-comet v0.0.1
+	github.com/aleister1102/go-logbook v0.0.1
+	github.com/aleister1102/go-odometer v0.0.1
+	github.com/aleister1102/go-rslimiter v0.0.1
+	github.com/aleister1102/go-telescope v0.0.3
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/go-rod/rod v0.116.2
 	github.com/gocolly/colly/v2 v2.2.0
-	github.com/monsterinc/httpclient v0.0.0-00010101000000-000000000000
-	github.com/monsterinc/httpx v0.0.0-00010101000000-000000000000
-	github.com/monsterinc/limiter v0.0.0-00010101000000-000000000000
-	github.com/monsterinc/logger v0.0.0-00010101000000-000000000000
-	github.com/monsterinc/progress v0.0.0-00010101000000-000000000000
 	github.com/parquet-go/parquet-go v0.25.0
 	github.com/rs/zerolog v1.34.0
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/net v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.37.1
 )
@@ -184,6 +183,7 @@ require (
 	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
 	golang.org/x/mod v0.25.0 // indirect
+	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/oauth2 v0.29.0 // indirect
 	golang.org/x/sync v0.15.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
@@ -199,12 +199,4 @@ require (
 	modernc.org/libc v1.65.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-)
-
-replace (
-	github.com/monsterinc/httpclient => ./libs/httpclient
-	github.com/monsterinc/httpx => ./libs/httpx
-	github.com/monsterinc/limiter => ./libs/limiter
-	github.com/monsterinc/logger => ./libs/logger
-	github.com/monsterinc/progress => ./libs/progress
 )

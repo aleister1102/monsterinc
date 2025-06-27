@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	progress "github.com/aleister1102/go-odometer"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/crawler"
-	"github.com/monsterinc/progress"
 	"github.com/rs/zerolog"
 )
 

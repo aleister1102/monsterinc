@@ -3,10 +3,10 @@ package scanner
 import (
 	"context"
 
+	httpx "github.com/aleister1102/go-telescope"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
-	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 

@@ -5,10 +5,10 @@ import (
 	"io"
 	"os"
 
+	httpx "github.com/aleister1102/go-telescope"
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/monsterinc/httpx"
 	"github.com/parquet-go/parquet-go"
 	"github.com/rs/zerolog"
 )

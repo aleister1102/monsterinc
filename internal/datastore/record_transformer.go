@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
+	httpx "github.com/aleister1102/go-telescope"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 

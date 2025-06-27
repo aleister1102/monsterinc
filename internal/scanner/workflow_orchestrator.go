@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	httpx "github.com/aleister1102/go-telescope"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 

@@ -13,7 +13,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/monsterinc/httpclient"
+	httpclient "github.com/aleister1102/go-comet"
 	"github.com/rs/zerolog"
 )
 

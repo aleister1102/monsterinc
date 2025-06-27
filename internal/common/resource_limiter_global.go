@@ -3,7 +3,7 @@ package common
 import (
 	"sync"
 
-	"github.com/monsterinc/limiter"
+	limiter "github.com/aleister1102/go-rslimiter"
 )
 
 var (

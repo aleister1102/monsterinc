@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"time"
 
+	progress "github.com/aleister1102/go-odometer"
+	limiter "github.com/aleister1102/go-rslimiter"
+	httpx "github.com/aleister1102/go-telescope"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/extractor"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
-	"github.com/monsterinc/progress"
-	"github.com/monsterinc/limiter"
-	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 

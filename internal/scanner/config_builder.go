@@ -1,8 +1,8 @@
 package scanner
 
 import (
+	httpx "github.com/aleister1102/go-telescope"
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/monsterinc/httpx"
 	"github.com/rs/zerolog"
 )
 

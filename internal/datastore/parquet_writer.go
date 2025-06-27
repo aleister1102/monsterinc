@@ -11,7 +11,7 @@ import (
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
-	"github.com/monsterinc/httpx"
+	httpx "github.com/aleister1102/go-telescope"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/rs/zerolog"

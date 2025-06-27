@@ -1,8 +1,8 @@
 package differ
 
 import (
+	httpx "github.com/aleister1102/go-telescope"
 	"github.com/aleister1102/monsterinc/internal/datastore"
-	"github.com/monsterinc/httpx"
 )
 
 // HistoricalDataLoader handles loading historical probe results

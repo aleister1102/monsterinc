@@ -9,8 +9,8 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/monsterinc/httpclient"
-	"github.com/monsterinc/limiter"
+	httpclient "github.com/aleister1102/go-comet"
+	limiter "github.com/aleister1102/go-rslimiter"
 
 	"github.com/rs/zerolog"
 )

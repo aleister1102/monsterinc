@@ -5,7 +5,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
-	"github.com/monsterinc/httpx"
+	httpx "github.com/aleister1102/go-telescope"
 )
 
 // URLMapper creates lookup maps for URL comparison

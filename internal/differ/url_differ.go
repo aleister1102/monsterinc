@@ -3,7 +3,7 @@ package differ
 import (
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/monsterinc/httpx"
+	httpx "github.com/aleister1102/go-telescope"
 
 	"github.com/rs/zerolog"
 )

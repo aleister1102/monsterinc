@@ -11,8 +11,8 @@ import (
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/reporter"
-	"github.com/monsterinc/httpclient"
-	"github.com/monsterinc/limiter"
+	httpclient "github.com/aleister1102/go-comet"
+	limiter "github.com/aleister1102/go-rslimiter"
 	"github.com/rs/zerolog"
 )
 

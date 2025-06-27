@@ -19,10 +19,10 @@ import (
 	"github.com/aleister1102/monsterinc/internal/scanner"
 	"github.com/aleister1102/monsterinc/internal/scheduler"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
-	"github.com/monsterinc/httpclient"
-	"github.com/monsterinc/limiter"
-	"github.com/monsterinc/logger"
-	"github.com/monsterinc/progress"
+	httpclient "github.com/aleister1102/go-comet"
+	limiter "github.com/aleister1102/go-rslimiter"
+	logger "github.com/aleister1102/go-logbook"
+	progress "github.com/aleister1102/go-odometer"
 	"github.com/rs/zerolog"
 )
 

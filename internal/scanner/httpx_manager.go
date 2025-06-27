@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/monsterinc/httpx"
+	httpx "github.com/aleister1102/go-telescope"
 	"github.com/rs/zerolog"
 )
 

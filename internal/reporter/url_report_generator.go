@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/monsterinc/httpx"
+	httpx "github.com/aleister1102/go-telescope"
 )
 
 // GenerateReport generates HTML reports from probe results and secret findings

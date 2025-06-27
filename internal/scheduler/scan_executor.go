@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monsterinc/logger"
+	logger "github.com/aleister1102/go-logbook"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/scanner"
