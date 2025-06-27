@@ -2,11 +2,8 @@ package reporter
 
 import "embed"
 
-//go:embed assets/*
+//go:embed all:assets
 var assetsFS embed.FS
 
-//go:embed templates/*
+//go:embed all:templates
 var templatesFS embed.FS
-
-//go:embed assets/img/favicon.ico
-var faviconICODiff []byte

@@ -15,7 +15,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/logger"
 	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/aleister1102/monsterinc/internal/monitor"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/scanner"
 	"github.com/aleister1102/monsterinc/internal/scheduler"
@@ -188,23 +187,13 @@ func main() {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize scanner.")
 	}
 
-	ms, err := initializeMonitoringService(gCfg, flags.MonitorTargetsFile, zLogger, notificationHelper)
-	if err != nil {
-		zLogger.Fatal().Err(err).Msg("Failed to initialize monitoring service.")
-	}
-
-	setupSignalHandling(cancel, zLogger, notificationHelper, gCfg, ms)
+	setupSignalHandling(cancel, zLogger, notificationHelper, gCfg)
 
 	var schedulerPtr *scheduler.Scheduler
 
-	// Set parent context for monitoring service to handle cancellation
-	if ms != nil {
-		ms.SetParentContext(ctx)
-	}
+	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, scanner, &schedulerPtr, progressDisplay)
 
-	runApplicationLogic(ctx, gCfg, flags, zLogger, notificationHelper, scanner, ms, &schedulerPtr, progressDisplay)
-
-	shutdownServices(ms, scanner, schedulerPtr, progressDisplay, zLogger, ctx)
+	shutdownServices(scanner, schedulerPtr, progressDisplay, zLogger, ctx)
 }
 
 // loadConfiguration loads the global configuration from the specified file,
@@ -268,73 +257,11 @@ func initializeScanner(gCfg *config.GlobalConfig, appLogger zerolog.Logger) (*sc
 	return scannerInstance, nil
 }
 
-// initializeMonitoringService initializes the file monitoring service if enabled and a monitor targets file is provided.
-// Refactored ✅
-func initializeMonitoringService(
-	gCfg *config.GlobalConfig,
-	monitorTargetsFile string,
-	zLogger zerolog.Logger,
-	notificationHelper *notifier.NotificationHelper,
-) (*monitor.MonitoringService, error) {
-	if monitorTargetsFile == "" || !gCfg.MonitorConfig.Enabled {
-		zLogger.Info().Msg("Monitoring service not initialized: no monitor targets file provided or monitoring is disabled in configuration.")
-		return nil, nil // No monitoring service to initialize
-	}
-
-	// Initialize monitoring service
-	monitorLogger := zLogger.With().Str("service", "FileMonitor").Logger()
-	ms, err := monitor.NewMonitoringService(
-		gCfg,
-		monitorLogger,
-		notificationHelper,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize monitoring service: %w", err)
-	}
-	zLogger.Info().Str("mode", gCfg.Mode).Msg("File monitoring service initialized.")
-
-	// Preload monitor targets if provided
-	if monitorTargetsFile != "" {
-		if err := preloadMonitoringTargets(ms, monitorTargetsFile, zLogger); err != nil {
-			return nil, fmt.Errorf("failed to preload monitoring targets: %w", err)
-		}
-		zLogger.Info().Str("file", monitorTargetsFile).Msg("Preloaded monitoring targets from file.")
-	}
-
-	return ms, nil
-}
-
-// preloadMonitoringTargets preloads monitoring targets from a file.
-// Refactored ✅
-func preloadMonitoringTargets(
-	ms *monitor.MonitoringService,
-	monitorTargetsFile string,
-	zLogger zerolog.Logger,
-) error {
-	targetManager := urlhandler.NewTargetManager(zLogger)
-	monitorTargets, _, err := targetManager.LoadAndSelectTargets(monitorTargetsFile)
-	if err != nil {
-		return fmt.Errorf("failed to load monitor targets from file '%s': %w", monitorTargetsFile, err)
-	}
-
-	monitorUrls := targetManager.GetTargetStrings(monitorTargets) // Convert to string slice for notification
-	if len(monitorUrls) == 0 {
-		zLogger.Warn().Msg("No valid monitor targets loaded from file.")
-		return fmt.Errorf("no valid monitor targets loaded from file '%s'", monitorTargetsFile)
-	}
-	zLogger.Info().Int("count", len(monitorUrls)).Str("file", monitorTargetsFile).Msg("Loaded monitor targets from file.")
-
-	ms.Preload(monitorUrls)
-
-	return nil
-}
-
 func setupSignalHandling(
 	cancel context.CancelFunc,
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	gCfg *config.GlobalConfig,
-	monitoringService *monitor.MonitoringService,
 ) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -373,44 +300,6 @@ func setupSignalHandling(
 				zLogger.Info().Str("scan_session_id", currentActiveScanID).Msg("Scan interrupt notification already sent, skipping duplicate")
 				notificationSent = true
 			}
-		}
-
-		// Send monitor interrupt notification if there's an active monitor cycle
-		if monitoringService != nil && notificationHelper != nil {
-			currentURLs := monitoringService.GetCurrentlyMonitorUrls()
-			zLogger.Debug().Int("monitor_urls_count", len(currentURLs)).Msg("Checking for active monitor URLs")
-
-			if len(currentURLs) > 0 {
-				currentCycleID := monitoringService.GetCurrentCycleID()
-				if currentCycleID == "" {
-					currentCycleID = monitoringService.GenerateNewCycleID() // Create new cycle ID if none exists
-				}
-
-				// Get actual progress from monitoring service instead of hardcoded 0
-				processedTargets, totalTargets := monitoringService.GetCurrentProgress()
-
-				interruptData := models.MonitorInterruptData{
-					CycleID:          currentCycleID,
-					TotalTargets:     totalTargets,
-					ProcessedTargets: processedTargets,
-					Timestamp:        time.Now(),
-					Reason:           "user_signal",
-					LastActivity:     fmt.Sprintf("Monitor service interrupted by user signal (%s)", sig.String()),
-				}
-
-				zLogger.Info().
-					Str("cycle_id", currentCycleID).
-					Int("total_targets", totalTargets).
-					Int("processed_targets", processedTargets).
-					Msg("Sending monitor interrupt notification for active monitoring")
-				notificationHelper.SendMonitorInterruptNotification(notificationCtx, interruptData)
-				notificationSent = true
-			}
-		} else {
-			zLogger.Debug().
-				Bool("has_monitoring_service", monitoringService != nil).
-				Bool("has_notification_helper", notificationHelper != nil).
-				Msg("Monitor service or notification helper not available")
 		}
 
 		// Send general interrupt notification if no specific notification was sent
@@ -458,7 +347,6 @@ func runApplicationLogic(
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	scanner *scanner.Scanner,
-	monitoringService *monitor.MonitoringService,
 	schedulerPtr **scheduler.Scheduler,
 	progressDisplay *common.ProgressDisplayManager,
 ) {
@@ -466,12 +354,6 @@ func runApplicationLogic(
 	if flags.ScanTargetsFile != "" {
 		scanTargetsFile = flags.ScanTargetsFile
 		zLogger.Info().Str("file", scanTargetsFile).Msg("Using -st for main scan targets.")
-	}
-
-	monitorTargetsFile := ""
-	if flags.MonitorTargetsFile != "" {
-		monitorTargetsFile = flags.MonitorTargetsFile
-		// zLogger.Info().Str("file", monitorTargetsFile).Msg("Using -mt for monitor targets.")
 	}
 
 	// Set notification helper for scanner
@@ -493,8 +375,6 @@ func runApplicationLogic(
 			gCfg,
 			scanTargetsFile,
 			scanner,
-			monitorTargetsFile,
-			monitoringService,
 			zLogger,
 			notificationHelper,
 			schedulerPtr,
@@ -621,7 +501,7 @@ func runOnetimeScan(
 		summaryData.TargetSource = targetSource
 		summaryData.ScanMode = scanMode
 		summaryData.Targets = scanUrls
-		summaryData.TotalTargets = len(scanUrls)
+		summaryData.TotalTargets = len(scanTargets)
 		summaryData.Status = string(models.ScanStatusFailed)
 		if workflowErr != nil {
 			summaryData.ErrorMessages = []string{workflowErr.Error()}
@@ -698,8 +578,6 @@ func runAutomatedScan(
 	gCfg *config.GlobalConfig,
 	scanTargetsFile string,
 	scanner *scanner.Scanner,
-	monitorTargetsFile string,
-	monitoringService *monitor.MonitoringService,
 	zLogger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 	schedulerPtr **scheduler.Scheduler,
@@ -707,10 +585,10 @@ func runAutomatedScan(
 ) {
 	// Determine if the scheduler should run.
 	// Scheduler runs if scan targets are provided OR if monitor targets have been loaded into the service.
-	automatedModeActive := scanTargetsFile != "" || (monitoringService != nil && len(monitoringService.GetCurrentlyMonitorUrls()) > 0)
+	automatedModeActive := scanTargetsFile != ""
 
 	if !automatedModeActive {
-		zLogger.Info().Msg("Automated mode: Neither scan targets (-st) nor monitor targets (-mt) were provided or loaded with valid URLs. Scheduler will not start.")
+		zLogger.Info().Msg("Automated mode: Scan targets (-st) were not provided. Scheduler will not start.")
 		return
 	}
 
@@ -720,20 +598,11 @@ func runAutomatedScan(
 		progressDisplay.SetScanStatus(common.ProgressStatusRunning, "Scanner ready for automated mode")
 	}
 
-	if monitoringService != nil {
-		monitoringService.SetProgressDisplay(progressDisplay)
-		if progressDisplay != nil {
-			progressDisplay.SetMonitorStatus(common.ProgressStatusRunning, "Monitoring service active")
-		}
-	}
-
 	// Initialize scheduler
 	scheduler, schedulerErr := scheduler.NewScheduler(
 		gCfg,
 		scanTargetsFile,
 		scanner,
-		monitorTargetsFile,
-		monitoringService,
 		zLogger,
 		notificationHelper,
 	)
@@ -769,7 +638,6 @@ func runAutomatedScan(
 }
 
 func shutdownServices(
-	ms *monitor.MonitoringService,
 	scanner *scanner.Scanner,
 	scheduler *scheduler.Scheduler,
 	progressDisplay *common.ProgressDisplayManager,
@@ -796,11 +664,6 @@ func shutdownServices(
 			zLogger.Info().Msg("Stopping scheduler...")
 			scheduler.Stop()
 			zLogger.Info().Msg("Scheduler stopped.")
-		} else if ms != nil {
-			// If no scheduler but monitoring service exists, stop it directly
-			zLogger.Info().Msg("Stopping monitoring service...")
-			ms.Stop()
-			zLogger.Info().Msg("Monitoring service stopped.")
 		}
 
 		// Shutdown scanner (which will shutdown the singleton crawler)
