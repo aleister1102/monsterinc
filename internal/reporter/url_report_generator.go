@@ -3,8 +3,8 @@ package reporter
 import (
 	"fmt"
 
+	httpx "github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
-	httpx "github.com/aleister1102/go-telescope"
 )
 
 // GenerateReport generates HTML reports from probe results and secret findings

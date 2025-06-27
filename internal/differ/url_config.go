@@ -1,7 +1,7 @@
 package differ
 
 import (
-	httpx "github.com/aleister1102/go-telescope"
+	httpx "github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 
 // URLComparerConfig holds configuration for URL comparison

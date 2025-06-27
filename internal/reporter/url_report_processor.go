@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
+	httpx "github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
-	httpx "github.com/aleister1102/go-telescope"
 )
 
 // buildOutputPath constructs the output file path

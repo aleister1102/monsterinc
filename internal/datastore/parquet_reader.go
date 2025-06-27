@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	httpx "github.com/aleister1102/go-telescope"
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
+	httpx "github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 

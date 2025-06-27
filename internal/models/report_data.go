@@ -4,7 +4,7 @@ import (
 	"html/template"
 	"time"
 
-	httpx "github.com/aleister1102/go-telescope"
+	httpx "github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 
 // ProbeResultDisplay is a struct tailored for displaying probe results in the HTML report.

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	progress "github.com/aleister1102/go-odometer"
-	httpx "github.com/aleister1102/go-telescope"
 	"github.com/aleister1102/monsterinc/internal/crawler"
+	httpx "github.com/aleister1102/monsterinc/internal/httpxrunner"
+	"github.com/aleister1102/monsterinc/internal/progress"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
 )

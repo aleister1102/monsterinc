@@ -3,8 +3,8 @@ package reporter
 import (
 	"testing"
 
-	httpx "github.com/aleister1102/go-telescope"
 	"github.com/aleister1102/monsterinc/internal/config"
+	httpx "github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"

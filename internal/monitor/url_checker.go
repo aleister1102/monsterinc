@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	httpclient "github.com/aleister1102/go-comet"
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/extractor"
+	httpclient "github.com/aleister1102/monsterinc/internal/httpclient"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/reporter"
 

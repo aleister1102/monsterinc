@@ -2,8 +2,8 @@ package telescope
 
 import "time"
 
-// TelescopeResult holds the structured result of a single HTTP probe.
-type TelescopeResult struct {
+// ProbeResult holds the structured result of a single HTTP probe.
+type ProbeResult struct {
 	InputURL      string            `json:"input_url"`
 	FinalURL      string            `json:"final_url"`
 	RootTargetURL string            `json:"root_target_url"`

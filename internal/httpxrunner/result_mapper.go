@@ -23,7 +23,7 @@ func NewProbeResultMapper(logger zerolog.Logger) *ProbeResultMapper {
 }
 
 // MapResult converts an httpx runner.Result to a TelescopeResult
-func (prm *ProbeResultMapper) MapResult(res runner.Result, rootURL string) *TelescopeResult {
+func (prm *ProbeResultMapper) MapResult(res runner.Result, rootURL string) *ProbeResult {
 	probeResult := prm.createBaseProbeResult(res, rootURL)
 
 	prm.mapDuration(probeResult, res)
@@ -36,12 +36,12 @@ func (prm *ProbeResultMapper) MapResult(res runner.Result, rootURL string) *Tele
 }
 
 // createBaseProbeResult creates the basic probe result structure
-func (prm *ProbeResultMapper) createBaseProbeResult(res runner.Result, rootURL string) *TelescopeResult {
+func (prm *ProbeResultMapper) createBaseProbeResult(res runner.Result, rootURL string) *ProbeResult {
 	var err error
 	if res.Error != "" {
 		err = errors.New(res.Error)
 	}
-	return &TelescopeResult{
+	return &ProbeResult{
 		Body:          []byte(res.ResponseBody),
 		ContentLength: int64(res.ContentLength),
 		ContentType:   res.ContentType,
@@ -57,7 +57,7 @@ func (prm *ProbeResultMapper) createBaseProbeResult(res runner.Result, rootURL s
 }
 
 // mapDuration maps response time to duration
-func (prm *ProbeResultMapper) mapDuration(probeResult *TelescopeResult, res runner.Result) {
+func (prm *ProbeResultMapper) mapDuration(probeResult *ProbeResult, res runner.Result) {
 	if res.ResponseTime == "" {
 		return
 	}
@@ -81,7 +81,7 @@ func (prm *ProbeResultMapper) mapDuration(probeResult *TelescopeResult, res runn
 }
 
 // mapHeaders maps response headers
-func (prm *ProbeResultMapper) mapHeaders(probeResult *TelescopeResult, res runner.Result) {
+func (prm *ProbeResultMapper) mapHeaders(probeResult *ProbeResult, res runner.Result) {
 	if len(res.ResponseHeaders) == 0 {
 		return
 	}
@@ -122,7 +122,7 @@ func (prm *ProbeResultMapper) convertInterfaceSliceToString(val []interface{}) s
 }
 
 // mapTechnologies maps detected technologies
-func (prm *ProbeResultMapper) mapTechnologies(probeResult *TelescopeResult, res runner.Result) {
+func (prm *ProbeResultMapper) mapTechnologies(probeResult *ProbeResult, res runner.Result) {
 	if len(res.Technologies) == 0 {
 		return
 	}
@@ -135,7 +135,7 @@ func (prm *ProbeResultMapper) mapTechnologies(probeResult *TelescopeResult, res 
 }
 
 // mapNetworkInfo maps network information
-func (prm *ProbeResultMapper) mapNetworkInfo(probeResult *TelescopeResult, res runner.Result) {
+func (prm *ProbeResultMapper) mapNetworkInfo(probeResult *ProbeResult, res runner.Result) {
 	if len(res.A) > 0 {
 		probeResult.IPs = res.A
 	}
@@ -143,7 +143,7 @@ func (prm *ProbeResultMapper) mapNetworkInfo(probeResult *TelescopeResult, res r
 }
 
 // mapASNInfo maps ASN information
-func (prm *ProbeResultMapper) mapASNInfo(probeResult *TelescopeResult, res runner.Result) {
+func (prm *ProbeResultMapper) mapASNInfo(probeResult *ProbeResult, res runner.Result) {
 	if res.ASN == nil {
 		return
 	}

@@ -10,7 +10,7 @@ import (
 // ResultCollector is a thread-safe collector for probe results.
 type ResultCollector struct {
 	logger  zerolog.Logger
-	results []TelescopeResult
+	results []ProbeResult
 	mutex   sync.Mutex
 	mapper  *ProbeResultMapper
 	rootURL string
@@ -20,7 +20,7 @@ type ResultCollector struct {
 func NewResultCollector(logger zerolog.Logger, mapper *ProbeResultMapper, rootURL string) *ResultCollector {
 	return &ResultCollector{
 		logger:  logger.With().Str("component", "ResultCollector").Logger(),
-		results: make([]TelescopeResult, 0),
+		results: make([]ProbeResult, 0),
 		mapper:  mapper,
 		rootURL: rootURL,
 	}
@@ -43,7 +43,7 @@ func (rc *ResultCollector) Collect(result runner.Result) {
 }
 
 // GetResults returns all collected results.
-func (rc *ResultCollector) GetResults() []TelescopeResult {
+func (rc *ResultCollector) GetResults() []ProbeResult {
 	rc.mutex.Lock()
 	defer rc.mutex.Unlock()
 	return rc.results

@@ -125,6 +125,6 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 // GetResults returns all collected probe results after the run is complete
-func (r *Runner) GetResults() []TelescopeResult {
+func (r *Runner) GetResults() []ProbeResult {
 	return r.collector.GetResults()
 }

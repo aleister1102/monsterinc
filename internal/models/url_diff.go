@@ -1,6 +1,6 @@
 package models
 
-import httpx "github.com/aleister1102/go-telescope"
+import httpx "github.com/aleister1102/monsterinc/internal/httpxrunner"
 
 // URLStatus represents the status of a URL in a diff comparison.
 type URLStatus string
