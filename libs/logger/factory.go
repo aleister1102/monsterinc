@@ -34,7 +34,7 @@ func (wf *WriterFactory) CreateConsoleWriter(format LogFormat) io.Writer {
 }
 
 // CreateFileWriter creates a file writer with rotation and directory organization
-func (wf *WriterFactory) CreateFileWriter(config LoggerConfig) io.Writer {
+func (wf *WriterFactory) CreateFileWriter(config LoggerConfig) *lumberjack.Logger {
 	finalPath := wf.buildLogPath(config)
 
 	// Ensure directory exists
@@ -50,16 +50,7 @@ func (wf *WriterFactory) CreateFileWriter(config LoggerConfig) io.Writer {
 		MaxBackups: config.MaxBackups,
 	}
 
-	strategy, exists := wf.strategies[config.Format]
-	if !exists {
-		strategy = &JSONWriterStrategy{}
-	}
-
-	if config.Format == FormatConsole {
-		return (&ConsoleWriterStrategy{NoColor: true}).CreateWriter(lumberjackLogger)
-	}
-
-	return strategy.CreateWriter(lumberjackLogger)
+	return lumberjackLogger
 }
 
 // buildLogPath constructs the final log file path with subdirectories if enabled

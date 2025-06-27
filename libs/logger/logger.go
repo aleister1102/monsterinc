@@ -5,14 +5,16 @@ import (
 	stdlog "log" // Standard Go log package, aliased to avoid conflict with zerolog field
 
 	"github.com/rs/zerolog"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // Logger represents the main logger with configuration
 type Logger struct {
-	zerolog   zerolog.Logger
-	config    LoggerConfig
-	factory   *WriterFactory
-	converter *ConfigConverter
+	zerolog    zerolog.Logger
+	config     LoggerConfig
+	factory    *WriterFactory
+	converter  *ConfigConverter
+	fileWriter *lumberjack.Logger // Keep a reference to the file writer
 }
 
 // LoggerBuilder provides fluent interface for building loggers
@@ -89,7 +91,7 @@ func (lb *LoggerBuilder) Build() (*Logger, error) {
 		return nil, err
 	}
 
-	writers := lb.createWriters()
+	writers, fileWriter := lb.createWriters()
 	if len(writers) == 0 {
 		return nil, NewError("no output writers configured")
 	}
@@ -106,10 +108,11 @@ func (lb *LoggerBuilder) Build() (*Logger, error) {
 	lb.configureStandardLog(zerologInstance)
 
 	logger := &Logger{
-		zerolog:   zerologInstance,
-		config:    lb.config,
-		factory:   lb.factory,
-		converter: lb.converter,
+		zerolog:    zerologInstance,
+		config:     lb.config,
+		factory:    lb.factory,
+		converter:  lb.converter,
+		fileWriter: fileWriter,
 	}
 
 	return logger, nil
@@ -129,8 +132,9 @@ func (lb *LoggerBuilder) validateConfig() error {
 }
 
 // createWriters creates the appropriate writers based on configuration
-func (lb *LoggerBuilder) createWriters() []io.Writer {
+func (lb *LoggerBuilder) createWriters() ([]io.Writer, *lumberjack.Logger) {
 	var writers []io.Writer
+	var fileWriter *lumberjack.Logger
 
 	if lb.config.EnableConsole {
 		consoleWriter := lb.factory.CreateConsoleWriter(lb.config.Format)
@@ -138,11 +142,17 @@ func (lb *LoggerBuilder) createWriters() []io.Writer {
 	}
 
 	if lb.config.EnableFile {
-		fileWriter := lb.factory.CreateFileWriter(lb.config)
-		writers = append(writers, fileWriter)
+		fileWriter = lb.factory.CreateFileWriter(lb.config)
+		var writerToUse io.Writer = fileWriter
+		if lb.config.Format == FormatConsole {
+			writerToUse = (&ConsoleWriterStrategy{NoColor: true}).CreateWriter(fileWriter)
+		} else if lb.config.Format == FormatText {
+			writerToUse = (&TextWriterStrategy{}).CreateWriter(fileWriter)
+		}
+		writers = append(writers, writerToUse)
 	}
 
-	return writers
+	return writers, fileWriter
 }
 
 // configureStandardLog configures standard Go log package
@@ -185,7 +195,16 @@ func (l *Logger) Reconfigure(cfg FileLogConfig) error {
 	// Update current logger
 	l.zerolog = *newLogger.GetZerolog()
 	l.config = newLogger.config
+	l.fileWriter = newLogger.fileWriter
 
+	return nil
+}
+
+// Close closes the underlying file writer, if any.
+func (l *Logger) Close() error {
+	if l.fileWriter != nil {
+		return l.fileWriter.Close()
+	}
 	return nil
 }
 

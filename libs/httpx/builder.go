@@ -22,9 +22,7 @@ func NewRunnerBuilder(logger zerolog.Logger) *RunnerBuilder {
 
 // WithConfig sets the configuration
 func (b *RunnerBuilder) WithConfig(cfg *Config) *RunnerBuilder {
-	if cfg != nil {
-		b.config = cfg
-	}
+	b.config = cfg
 	return b
 }
 
