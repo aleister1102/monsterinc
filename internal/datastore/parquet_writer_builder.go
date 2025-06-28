@@ -1,8 +1,8 @@
 package datastore
 
 import (
-	"github.com/aleister1102/monsterinc/internal/common/errors"
-	"github.com/aleister1102/monsterinc/internal/common/file"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
+	"github.com/aleister1102/monsterinc/internal/common/filemanager"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/rs/zerolog"
 )
@@ -37,14 +37,14 @@ func (b *ParquetWriterBuilder) WithWriterConfig(cfg ParquetWriterConfig) *Parque
 // Build creates a new ParquetWriter instance
 func (b *ParquetWriterBuilder) Build() (*ParquetWriter, error) {
 	if b.config == nil {
-		return nil, errors.NewValidationError("config", b.config, "storage config cannot be nil")
+		return nil, errorwrapper.NewValidationError("config", b.config, "storage config cannot be nil")
 	}
 
 	if b.config.ParquetBasePath == "" {
 		b.logger.Warn().Msg("ParquetBasePath is empty in config")
 	}
 
-	fileManager := file.NewFileManager(b.logger)
+	fileManager := filemanager.NewFileManager(b.logger)
 
 	return &ParquetWriter{
 		config:       b.config,

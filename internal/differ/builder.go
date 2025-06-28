@@ -1,7 +1,7 @@
 package differ
 
 import (
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/rs/zerolog"
 )
@@ -36,7 +36,7 @@ func (b *UrlDifferBuilder) WithConfig(config URLDifferConfig) *UrlDifferBuilder 
 // Build creates a new UrlDiffer instance
 func (b *UrlDifferBuilder) Build() (*UrlDiffer, error) {
 	if b.parquetReader == nil {
-		return nil, errors.NewValidationError("parquet_reader", b.parquetReader, "parquet reader cannot be nil")
+		return nil, errorwrapper.NewValidationError("parquet_reader", b.parquetReader, "parquet reader cannot be nil")
 	}
 
 	dataLoader := NewHistoricalDataLoader(b.parquetReader)

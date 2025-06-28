@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/contextutils"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/crawler"
 	"github.com/rs/zerolog"
@@ -52,7 +52,7 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 	}
 
 	// Check for context cancellation before starting crawler
-	if cancelled := common.CheckCancellation(input.Context); cancelled.Cancelled {
+	if cancelled := contextutils.CheckCancellation(input.Context); cancelled.Cancelled {
 		result.Error = cancelled.Error
 		return result
 	}

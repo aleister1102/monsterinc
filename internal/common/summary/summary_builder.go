@@ -1,10 +1,11 @@
-package scanner
+package summary
 
 import (
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/common/contextutils"
+	"github.com/aleister1102/monsterinc/internal/differ"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/rs/zerolog"
 )
 
@@ -28,8 +29,8 @@ type SummaryInput struct {
 	ScanMode        string
 	Targets         []string
 	StartTime       time.Time
-	ProbeResults    []models.ProbeResult
-	URLDiffResults  map[string]models.URLDiffResult
+	ProbeResults    []httpxrunner.ProbeResult
+	URLDiffResults  map[string]differ.URLDiffResult
 	WorkflowError   error
 	ErrorMessages   []string
 	ReportFilePaths []string
@@ -37,8 +38,8 @@ type SummaryInput struct {
 
 // BuildSummary creates comprehensive scan summary from workflow results
 // Follows single responsibility principle by focusing only on summary creation
-func (sb *SummaryBuilder) BuildSummary(input *SummaryInput) models.ScanSummaryData {
-	summary := models.GetDefaultScanSummaryData()
+func (sb *SummaryBuilder) BuildSummary(input *SummaryInput) ScanSummaryData {
+	summary := GetDefaultScanSummaryData()
 
 	// Set basic information
 	summary.ScanSessionID = input.ScanSessionID
@@ -67,7 +68,7 @@ func (sb *SummaryBuilder) BuildSummary(input *SummaryInput) models.ScanSummaryDa
 }
 
 // calculateStats calculates both probe and diff statistics efficiently
-func (sb *SummaryBuilder) calculateStats(summary *models.ScanSummaryData, probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult) {
+func (sb *SummaryBuilder) calculateStats(summary *ScanSummaryData, probeResults []httpxrunner.ProbeResult, urlDiffResults map[string]differ.URLDiffResult) {
 	// Calculate probe stats
 	totalProbed := len(probeResults)
 	successCount := 0
@@ -79,7 +80,7 @@ func (sb *SummaryBuilder) calculateStats(summary *models.ScanSummaryData, probeR
 		}
 	}
 
-	summary.ProbeStats = models.ProbeStats{
+	summary.ProbeStats = ProbeStats{
 		TotalProbed:       totalProbed,
 		SuccessfulProbes:  successCount,
 		FailedProbes:      totalProbed - successCount,
@@ -94,7 +95,7 @@ func (sb *SummaryBuilder) calculateStats(summary *models.ScanSummaryData, probeR
 		totalExisting += diffResult.Existing
 	}
 
-	summary.DiffStats = models.DiffStats{
+	summary.DiffStats = DiffStats{
 		New:      totalNew,
 		Old:      totalOld,
 		Existing: totalExisting,
@@ -102,29 +103,29 @@ func (sb *SummaryBuilder) calculateStats(summary *models.ScanSummaryData, probeR
 }
 
 // determineStatus determines the final scan status based on workflow results
-func (sb *SummaryBuilder) determineStatus(summary *models.ScanSummaryData, input *SummaryInput) {
+func (sb *SummaryBuilder) determineStatus(summary *ScanSummaryData, input *SummaryInput) {
 	// Handle error messages
 	summary.ErrorMessages = append(summary.ErrorMessages, input.ErrorMessages...)
 
 	// Determine status based on workflow error and context
 	if input.WorkflowError != nil {
-		if common.ContainsCancellationError(summary.ErrorMessages) {
-			summary.Status = string(models.ScanStatusInterrupted)
+		if contextutils.ContainsCancellationError(summary.ErrorMessages) {
+			summary.Status = string(ScanStatusInterrupted)
 		} else {
-			summary.Status = string(models.ScanStatusFailed)
+			summary.Status = string(ScanStatusFailed)
 			summary.ErrorMessages = append(summary.ErrorMessages, input.WorkflowError.Error())
 		}
 	} else {
 		if len(summary.ErrorMessages) == 0 {
-			summary.Status = string(models.ScanStatusCompleted)
+			summary.Status = string(ScanStatusCompleted)
 		} else {
-			summary.Status = string(models.ScanStatusPartialComplete)
+			summary.Status = string(ScanStatusPartialComplete)
 		}
 	}
 }
 
 // setReportInfo sets report-related information in summary
-func (sb *SummaryBuilder) setReportInfo(summary *models.ScanSummaryData, reportFilePaths []string) {
+func (sb *SummaryBuilder) setReportInfo(summary *ScanSummaryData, reportFilePaths []string) {
 	switch len(reportFilePaths) {
 	case 0:
 		summary.ReportPath = ""

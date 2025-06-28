@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/gocolly/colly/v2"
 	"github.com/rs/zerolog"
@@ -52,8 +51,8 @@ type Crawler struct {
 }
 
 // NewCrawler initializes a new Crawler based on the provided configuration
-func NewCrawler(cfg *config.CrawlerConfig, notifier notifier.Notifier, appLogger zerolog.Logger) (*Crawler, error) {
-	builder := NewCrawlerBuilder(appLogger).WithConfig(cfg).WithNotifier(notifier)
+func NewCrawler(cfg *config.CrawlerConfig, appLogger zerolog.Logger) (*Crawler, error) {
+	builder := NewCrawlerBuilder(appLogger).WithConfig(cfg)
 	return builder.Build()
 }
 

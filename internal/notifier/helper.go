@@ -6,35 +6,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/common/summary"
 	"github.com/aleister1102/monsterinc/internal/config"
-
+	"github.com/aleister1102/monsterinc/internal/notifier/discord"
 	"github.com/rs/zerolog"
 )
 
-// NotificationServiceType defines the type of notification service.
-type NotificationServiceType int
-
-const (
-	ScanServiceNotification NotificationServiceType = iota
-	MonitorServiceNotification
-	GenericNotification
-)
-
-// DiffReportCleaner defines an interface for cleaning up diff reports.
-type DiffReportCleaner interface {
-	DeleteAllSingleDiffReports() error
-}
-
 // NotificationHelper provides a high-level interface for sending various scan-related notifications.
 type NotificationHelper struct {
-	discordNotifier   *DiscordNotifier
-	cfg               config.NotificationConfig
-	logger            zerolog.Logger
-	diffReportCleaner DiffReportCleaner // Added for cleaning up single diff reports
+	discordNotifier *discord.DiscordNotifier
+	cfg             config.NotificationConfig
+	logger          zerolog.Logger
 }
 
 // NewNotificationHelper creates a new NotificationHelper.
-func NewNotificationHelper(dn *DiscordNotifier, cfg config.NotificationConfig, logger zerolog.Logger) *NotificationHelper {
+func NewNotificationHelper(dn *discord.DiscordNotifier, cfg config.NotificationConfig, logger zerolog.Logger) *NotificationHelper {
 	nh := &NotificationHelper{
 		discordNotifier: dn,
 		cfg:             cfg,
@@ -43,32 +29,13 @@ func NewNotificationHelper(dn *DiscordNotifier, cfg config.NotificationConfig, l
 	return nh
 }
 
-// SetDiffReportCleaner sets the diff report cleaner for auto-deletion functionality.
-func (nh *NotificationHelper) SetDiffReportCleaner(cleaner DiffReportCleaner) {
-	nh.diffReportCleaner = cleaner
-}
-
 // getWebhookURL selects the appropriate webhook URL based on the service type.
-func (nh *NotificationHelper) getWebhookURL(serviceType NotificationServiceType) string {
-	switch serviceType {
-	case ScanServiceNotification:
-		return nh.cfg.ScanServiceDiscordWebhookURL
-	case MonitorServiceNotification:
-		return nh.cfg.MonitorServiceDiscordWebhookURL
-	case GenericNotification: // Fallback or for general critical errors
-		// Prefer scan service webhook for general errors, or make this configurable
-		if nh.cfg.ScanServiceDiscordWebhookURL != "" {
-			return nh.cfg.ScanServiceDiscordWebhookURL
-		}
-		return nh.cfg.MonitorServiceDiscordWebhookURL // Fallback to monitor if scan isn't set
-	default:
-		nh.logger.Warn().Int("service_type", int(serviceType)).Msg("Unknown service type for webhook URL, defaulting to scan service webhook.")
-		return nh.cfg.ScanServiceDiscordWebhookURL
-	}
+func (nh *NotificationHelper) getWebhookURL() string {
+	return nh.cfg.ScanServiceDiscordWebhookURL
 }
 
 // SendScanStartNotification sends a notification when a scan starts.
-func (nh *NotificationHelper) SendScanStartNotification(ctx context.Context, summary ScanSummaryData) {
+func (nh *NotificationHelper) SendScanStartNotification(ctx context.Context, summary summary.ScanSummaryData) {
 	if !nh.cfg.NotifyOnScanStart || nh.discordNotifier == nil || nh.cfg.ScanServiceDiscordWebhookURL == "" {
 		return
 	}
@@ -85,36 +52,36 @@ func (nh *NotificationHelper) SendScanStartNotification(ctx context.Context, sum
 }
 
 // SendScanCompletionNotification sends a notification when a scan completes (successfully or with failure).
-func (nh *NotificationHelper) SendScanCompletionNotification(ctx context.Context, summary ScanSummaryData, serviceType ServiceType, reportFilePaths []string) {
-	if !nh.shouldSendScanCompletionNotification(summary) {
+func (nh *NotificationHelper) SendScanCompletionNotification(ctx context.Context, summaryData summary.ScanSummaryData, reportFilePaths []string) {
+	if !nh.shouldSendScanCompletionNotification(summaryData) {
 		return
 	}
 
-	webhookURL := nh.getWebhookURL(serviceType)
+	webhookURL := nh.getWebhookURL()
 	if webhookURL == "" {
-		nh.logger.Warn().Str("service_type", fmt.Sprintf("%d", serviceType)).Msg("Webhook URL is not configured for this service type. Skipping scan completion notification.")
+		nh.logger.Warn().Msg("Webhook URL is not configured for this service type. Skipping scan completion notification.")
 		return
 	}
 
 	// Always send only summary notification (no individual report parts)
-	nh.sendSummaryOnlyReport(ctx, summary, webhookURL, reportFilePaths)
+	nh.sendSummaryOnlyReport(ctx, summaryData, webhookURL, reportFilePaths)
 }
 
 // shouldSendScanCompletionNotification checks if notification should be sent based on config and scan status
-func (nh *NotificationHelper) shouldSendScanCompletionNotification(summary ScanSummaryData) bool {
-	if !nh.cfg.NotifyOnSuccess && summary.Status == string(models.ScanStatusCompleted) {
-		nh.logger.Info().Str("status", summary.Status).Msg("Scan success notification is disabled, skipping.")
+func (nh *NotificationHelper) shouldSendScanCompletionNotification(summaryData summary.ScanSummaryData) bool {
+	if !nh.cfg.NotifyOnSuccess && summaryData.Status == string(summary.ScanStatusCompleted) {
+		nh.logger.Info().Str("status", summaryData.Status).Msg("Scan success notification is disabled, skipping.")
 		return false
 	}
-	if !nh.cfg.NotifyOnFailure && (summary.Status == string(models.ScanStatusFailed) || summary.Status == string(models.ScanStatusPartialComplete)) {
-		nh.logger.Info().Str("status", summary.Status).Msg("Scan failure notification is disabled, skipping.")
+	if !nh.cfg.NotifyOnFailure && (summaryData.Status == string(summary.ScanStatusFailed) || summaryData.Status == string(summary.ScanStatusPartialComplete)) {
+		nh.logger.Info().Str("status", summaryData.Status).Msg("Scan failure notification is disabled, skipping.")
 		return false
 	}
 	return true
 }
 
 // sendSummaryOnlyReport sends a single notification with all report files attached
-func (nh *NotificationHelper) sendSummaryOnlyReport(ctx context.Context, summary ScanSummaryData, webhookURL string, reportFilePaths []string) {
+func (nh *NotificationHelper) sendSummaryOnlyReport(ctx context.Context, summary summary.ScanSummaryData, webhookURL string, reportFilePaths []string) {
 	if len(reportFilePaths) > 0 {
 		// Send single notification with all reports
 		nh.sendSingleNotificationWithAllReports(ctx, summary, webhookURL, reportFilePaths)
@@ -125,7 +92,7 @@ func (nh *NotificationHelper) sendSummaryOnlyReport(ctx context.Context, summary
 }
 
 // sendSingleNotificationWithAllReports sends one notification with all report files attached
-func (nh *NotificationHelper) sendSingleNotificationWithAllReports(ctx context.Context, summary ScanSummaryData, webhookURL string, reportFilePaths []string) {
+func (nh *NotificationHelper) sendSingleNotificationWithAllReports(ctx context.Context, summary summary.ScanSummaryData, webhookURL string, reportFilePaths []string) {
 	payload := FormatScanCompleteMessageWithReports(summary, nh.cfg, true)
 
 	// Update payload to indicate multiple reports in single notification
@@ -160,7 +127,7 @@ func (nh *NotificationHelper) sendSingleNotificationWithAllReports(ctx context.C
 }
 
 // sendAdditionalReport sends additional report files as simple attachments
-func (nh *NotificationHelper) sendAdditionalReport(ctx context.Context, summary ScanSummaryData, webhookURL string, reportPath string, partNum, totalParts int) {
+func (nh *NotificationHelper) sendAdditionalReport(ctx context.Context, summary summary.ScanSummaryData, webhookURL string, reportPath string, partNum, totalParts int) {
 	payload := nh.buildSimpleReportPayload(summary.ScanSessionID, partNum, totalParts)
 
 	nh.logger.Info().
@@ -176,15 +143,15 @@ func (nh *NotificationHelper) sendAdditionalReport(ctx context.Context, summary 
 }
 
 // buildSimpleReportPayload creates a minimal payload for additional reports
-func (nh *NotificationHelper) buildSimpleReportPayload(sessionID string, partNum, totalParts int) models.DiscordMessagePayload {
-	embed := NewDiscordEmbedBuilder().
+func (nh *NotificationHelper) buildSimpleReportPayload(sessionID string, partNum, totalParts int) discord.DiscordMessagePayload {
+	embed := discord.NewDiscordEmbedBuilder().
 		WithTitle(fmt.Sprintf("📎 Report %d/%d", partNum, totalParts)).
 		WithDescription(fmt.Sprintf("**Session:** `%s`", sessionID)).
 		WithColor(DefaultEmbedColor).
 		WithTimestamp(time.Now()).
 		Build()
 
-	return NewDiscordMessagePayloadBuilder().
+	return discord.NewDiscordMessagePayloadBuilder().
 		WithUsername(DiscordUsername).
 		WithAvatarURL(DiscordAvatarURL).
 		AddEmbed(embed).
@@ -192,7 +159,7 @@ func (nh *NotificationHelper) buildSimpleReportPayload(sessionID string, partNum
 }
 
 // adjustPayloadForMultipleReports modifies payload to indicate multiple reports are being sent
-func (nh *NotificationHelper) adjustPayloadForMultipleReports(payload models.DiscordMessagePayload, reportCount int) {
+func (nh *NotificationHelper) adjustPayloadForMultipleReports(payload discord.DiscordMessagePayload, reportCount int) {
 	for embedIdx := range payload.Embeds {
 		foundReportField := false
 		for fieldIdx, field := range payload.Embeds[embedIdx].Fields {
@@ -204,7 +171,7 @@ func (nh *NotificationHelper) adjustPayloadForMultipleReports(payload models.Dis
 		}
 
 		if !foundReportField && payload.Embeds[embedIdx].Title != "" {
-			payload.Embeds[embedIdx].Fields = append(payload.Embeds[embedIdx].Fields, models.DiscordEmbedField{
+			payload.Embeds[embedIdx].Fields = append(payload.Embeds[embedIdx].Fields, discord.DiscordEmbedField{
 				Name:   "📄 Report",
 				Value:  fmt.Sprintf("%d reports will be sent (main report attached, additional files follow).", reportCount),
 				Inline: false,
@@ -214,7 +181,7 @@ func (nh *NotificationHelper) adjustPayloadForMultipleReports(payload models.Dis
 }
 
 // sendSingleReport sends a single report without attachments
-func (nh *NotificationHelper) sendSingleReport(ctx context.Context, summary ScanSummaryData, webhookURL string) {
+func (nh *NotificationHelper) sendSingleReport(ctx context.Context, summary summary.ScanSummaryData, webhookURL string) {
 	payload := FormatScanCompleteMessageWithReports(summary, nh.cfg, false)
 	nh.adjustPayloadForNoAttachments(payload, summary)
 
@@ -227,7 +194,7 @@ func (nh *NotificationHelper) sendSingleReport(ctx context.Context, summary Scan
 }
 
 // adjustPayloadForNoAttachments modifies payload when no attachments are present
-func (nh *NotificationHelper) adjustPayloadForNoAttachments(payload models.DiscordMessagePayload, summary ScanSummaryData) {
+func (nh *NotificationHelper) adjustPayloadForNoAttachments(payload discord.DiscordMessagePayload, summary summary.ScanSummaryData) {
 	if strings.HasPrefix(summary.ReportPath, "Multiple report files generated") {
 		for embedIdx := range payload.Embeds {
 			for fieldIdx, field := range payload.Embeds[embedIdx].Fields {
@@ -240,21 +207,8 @@ func (nh *NotificationHelper) adjustPayloadForNoAttachments(payload models.Disco
 	}
 }
 
-// canSendMonitorNotification checks if monitor notifications can be sent
-func (nh *NotificationHelper) canSendMonitorNotification() bool {
-	return nh.discordNotifier != nil && nh.cfg.MonitorServiceDiscordWebhookURL != ""
-}
-
-// sendSimpleMonitorNotification sends a monitor notification without file attachment
-func (nh *NotificationHelper) sendSimpleMonitorNotification(ctx context.Context, payload models.DiscordMessagePayload, notificationType string) {
-	err := nh.discordNotifier.SendNotification(ctx, nh.cfg.MonitorServiceDiscordWebhookURL, payload, "")
-	if err != nil {
-		nh.logger.Error().Err(err).Msgf("Failed to send %s notification", notificationType)
-	}
-}
-
 // SendScanInterruptNotification sends a notification when a scan is interrupted.
-func (nh *NotificationHelper) SendScanInterruptNotification(ctx context.Context, summary ScanSummaryData) {
+func (nh *NotificationHelper) SendScanInterruptNotification(ctx context.Context, summary summary.ScanSummaryData) {
 	if !nh.canSendScanFailureNotification() {
 		return
 	}
@@ -271,7 +225,7 @@ func (nh *NotificationHelper) canSendScanFailureNotification() bool {
 }
 
 // sendSimpleScanNotification sends a scan notification without file attachment
-func (nh *NotificationHelper) sendSimpleScanNotification(ctx context.Context, payload models.DiscordMessagePayload, notificationType string) {
+func (nh *NotificationHelper) sendSimpleScanNotification(ctx context.Context, payload discord.DiscordMessagePayload, notificationType string) {
 	err := nh.discordNotifier.SendNotification(ctx, nh.cfg.ScanServiceDiscordWebhookURL, payload, "")
 	if err != nil {
 		nh.logger.Error().Err(err).Msgf("Failed to send %s notification", notificationType)

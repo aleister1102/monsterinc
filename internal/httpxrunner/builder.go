@@ -1,7 +1,7 @@
 package httpxrunner
 
 import (
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/projectdiscovery/httpx/runner"
 	"github.com/rs/zerolog"
 )
@@ -38,11 +38,11 @@ func (b *RunnerBuilder) WithRootTargetURL(rootURL string) *RunnerBuilder {
 // Build creates a new Runner instance
 func (b *RunnerBuilder) Build() (*Runner, error) {
 	if b.config == nil {
-		return nil, errors.NewValidationError("config", b.config, "config cannot be nil")
+		return nil, errorwrapper.NewValidationError("config", b.config, "config cannot be nil")
 	}
 
 	if b.rootTargetURL == "" {
-		return nil, errors.NewValidationError("root_target_url", b.rootTargetURL, "root target URL cannot be empty")
+		return nil, errorwrapper.NewValidationError("root_target_url", b.rootTargetURL, "root target URL cannot be empty")
 	}
 
 	// Create components
@@ -62,7 +62,7 @@ func (b *RunnerBuilder) Build() (*Runner, error) {
 	// Create httpx runner
 	httpxRunner, err := runner.New(options)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to initialize httpx engine")
+		return nil, errorwrapper.WrapError(err, "failed to initialize httpx engine")
 	}
 
 	runnerInstance := &Runner{

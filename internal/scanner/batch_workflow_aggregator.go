@@ -1,14 +1,15 @@
 package scanner
 
 import (
+	"github.com/aleister1102/monsterinc/internal/common/summary"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 
 // aggregateBatchResults aggregates results from individual batches
 func (bwo *BatchWorkflowOrchestrator) aggregateBatchResults(
-	aggregated *httpxrunner.ScanSummaryData,
-	batchSummary httpxrunner.ScanSummaryData,
+	aggregated *summary.ScanSummaryData,
+	batchSummary summary.ScanSummaryData,
 ) {
 	// Aggregate probe stats
 	aggregated.ProbeStats.TotalProbed += batchSummary.ProbeStats.TotalProbed
@@ -34,7 +35,7 @@ func (bwo *BatchWorkflowOrchestrator) aggregateBatchResults(
 
 // finalizeBatchSummary finalizes the aggregated summary
 func (bwo *BatchWorkflowOrchestrator) finalizeBatchSummary(
-	summary *models.ScanSummaryData,
+	summaryData *summary.ScanSummaryData,
 	processedBatches int,
 	totalBatches int,
 	lastError error,
@@ -43,26 +44,26 @@ func (bwo *BatchWorkflowOrchestrator) finalizeBatchSummary(
 	// Determine final status
 	if wasInterrupted {
 		if processedBatches == 0 {
-			summary.Status = string(httpxrunner.ScanStatusFailed)
+			summaryData.Status = string(summary.ScanStatusFailed)
 		} else {
-			summary.Status = string(httpxrunner.ScanStatusPartialComplete)
+			summaryData.Status = string(summary.ScanStatusPartialComplete)
 		}
 	} else {
-		summary.Status = string(httpxrunner.ScanStatusCompleted)
+		summaryData.Status = string(summary.ScanStatusCompleted)
 	}
 
 	// Don't add batch processing info to error messages as it's not an error
 	// This information will be displayed in other parts of the notification
 
 	if lastError != nil && !wasInterrupted {
-		summary.Status = string(httpxrunner.ScanStatusFailed)
+		summaryData.Status = string(summary.ScanStatusFailed)
 	}
 }
 
 type AggregatedBatchResult struct {
 	ProbeResults    []httpxrunner.ProbeResult
 	URLDiffResults  map[string]differ.URLDiffResult
-	ScanSummaryData httpxrunner.ScanSummaryData
+	ScanSummaryData summary.ScanSummaryData
 	ReportFilePaths []string
 	Error           error
 }

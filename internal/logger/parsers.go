@@ -3,7 +3,7 @@ package logger
 import (
 	"strings"
 
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/rs/zerolog"
 )
 
@@ -19,7 +19,7 @@ func NewLogLevelParser() *LogLevelParser {
 func (llp *LogLevelParser) ParseLevel(levelStr string) (zerolog.Level, error) {
 	level, err := zerolog.ParseLevel(strings.ToLower(levelStr))
 	if err != nil {
-		return zerolog.InfoLevel, errors.WrapError(err, "invalid log level")
+		return zerolog.InfoLevel, errorwrapper.WrapError(err, "invalid log level")
 	}
 	return level, nil
 }

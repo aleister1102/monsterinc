@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/common/summary"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
@@ -47,7 +48,7 @@ type ScanWorkflowResult struct {
 	ProbeResults    []httpxrunner.ProbeResult
 	URLDiffResults  map[string]differ.URLDiffResult
 	ReportFilePaths []string
-	SummaryData     ScanSummaryData
+	SummaryData     summary.ScanSummaryData
 	WorkflowError   error
 	Duration        time.Duration
 }

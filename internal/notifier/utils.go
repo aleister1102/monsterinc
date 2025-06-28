@@ -5,9 +5,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/aleister1102/monsterinc/internal/common"
-	"github.com/aleister1102/monsterinc/internal/models"
 )
 
 // buildMentions creates mention strings for Discord role IDs
@@ -123,37 +120,4 @@ func compressMultipleErrors(errorMessages []string, maxLength int) string {
 // formatDuration formats duration truncated to seconds
 func formatDuration(d time.Duration) string {
 	return d.Truncate(time.Second).String()
-}
-
-// addErrorSamplesField adds error samples field to embed
-func addErrorSamplesField(embedBuilder *DiscordEmbedBuilder, errors []models.MonitorFetchErrorInfo) {
-	if len(errors) == 0 {
-		return
-	}
-
-	var errorTexts []string
-	for i, errorInfo := range errors {
-		if i >= MaxErrorSampleCount {
-			break
-		}
-		errorText := fmt.Sprintf("%s: ```%s```", errorInfo.URL, compressErrorMessage(errorInfo.Error))
-		errorTexts = append(errorTexts, errorText)
-	}
-
-	fieldValue := strings.Join(errorTexts, "\n\n")
-	if len(errorTexts) < len(errors) {
-		fieldValue += fmt.Sprintf("\n\n... and %d more errors", len(errors)-len(errorTexts))
-	}
-
-	// Truncate nếu quá dài
-	if len(fieldValue) > 900 {
-		fieldValue = truncateString(fieldValue, 900)
-	}
-
-	embedBuilder.AddField("⚠️ Error", fieldValue, false)
-}
-
-func sendDiscordNotification(client *common.HTTPClient, webhookURL string, payload *DiscordMessagePayload, filePaths []string) error {
-	// ... implementation
-	return nil
 }

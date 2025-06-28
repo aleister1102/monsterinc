@@ -10,11 +10,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/contextutils"
+	"github.com/aleister1102/monsterinc/internal/common/httpclient"
+	"github.com/aleister1102/monsterinc/internal/common/summary"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/logger"
 	"github.com/aleister1102/monsterinc/internal/notifier"
+	"github.com/aleister1102/monsterinc/internal/notifier/discord"
 	"github.com/aleister1102/monsterinc/internal/scanner"
 	"github.com/aleister1102/monsterinc/internal/scheduler"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
@@ -92,13 +95,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	discordHttpClient, err := common.NewHTTPClientFactory(zLogger).CreateDiscordClient(
+	discordHttpClient, err := httpclient.NewHTTPClientFactory(zLogger).CreateDiscordClient(
 		20 * time.Second,
 	)
 	if err != nil {
 		zLogger.Fatal().Err(err).Msg("Failed to create Discord HTTP client.")
 	}
-	discordNotifier, err := notifier.NewDiscordNotifier(&gCfg.NotificationConfig, zLogger, discordHttpClient)
+	discordNotifier, err := discord.NewDiscordNotifier(&gCfg.NotificationConfig, zLogger, discordHttpClient)
 	if err != nil {
 		zLogger.Fatal().Err(err).Msg("Failed to initialize DiscordNotifier infra.")
 	}
@@ -207,11 +210,11 @@ func setupSignalHandling(
 		if currentActiveScanID != "" && notificationHelper != nil {
 			// Check if notification already sent to avoid duplicates
 			if !getAndSetInterruptNotificationSent() {
-				interruptSummary := notifier.GetDefaultScanSummaryData()
+				interruptSummary := summary.GetDefaultScanSummaryData()
 				interruptSummary.ScanSessionID = currentActiveScanID
 				interruptSummary.ScanMode = gCfg.Mode
 				interruptSummary.TargetSource = "global_interrupt"
-				interruptSummary.Status = string(notifier.ScanStatusInterrupted)
+				interruptSummary.Status = string(summary.ScanStatusInterrupted)
 				interruptSummary.ErrorMessages = []string{fmt.Sprintf("Scan interrupted by user signal (%s)", sig.String())}
 				interruptSummary.Component = "SignalHandler"
 
@@ -228,10 +231,10 @@ func setupSignalHandling(
 		if !notificationSent && notificationHelper != nil {
 			zLogger.Info().Msg("No active scan or monitor found, sending general interrupt notification")
 
-			generalInterruptSummary := notifier.GetDefaultScanSummaryData()
+			generalInterruptSummary := summary.GetDefaultScanSummaryData()
 			generalInterruptSummary.ScanMode = gCfg.Mode
 			generalInterruptSummary.TargetSource = "system_interrupt"
-			generalInterruptSummary.Status = string(notifier.ScanStatusInterrupted)
+			generalInterruptSummary.Status = string(summary.ScanStatusInterrupted)
 			generalInterruptSummary.ErrorMessages = []string{fmt.Sprintf("MonsterInc service interrupted by user signal (%s)", sig.String())}
 			generalInterruptSummary.Component = "SystemService"
 			generalInterruptSummary.ScanSessionID = fmt.Sprintf("system-%s", time.Now().Format("20060102-150405"))
@@ -321,14 +324,14 @@ func runOnetimeScan(
 	if err != nil {
 		baseLogger.Error().Err(err).Msg("Failed to load seed URLs for onetime scan.")
 
-		criticalErrSummary := notifier.GetDefaultScanSummaryData()
+		criticalErrSummary := summary.GetDefaultScanSummaryData()
 		criticalErrSummary.ScanMode = gCfg.Mode
 		criticalErrSummary.TargetSource = scanTargetsFile
 		if criticalErrSummary.TargetSource == "" {
 			criticalErrSummary.TargetSource = "config"
 		}
 		criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to load seed URLs: %v", err)}
-		notificationHelper.SendScanCompletionNotification(context.Background(), criticalErrSummary, notifier.ScanServiceNotification, nil)
+		notificationHelper.SendScanCompletionNotification(context.Background(), criticalErrSummary, nil)
 		return
 	}
 
@@ -336,11 +339,11 @@ func runOnetimeScan(
 		baseLogger.Info().Msg("Onetime scan: No seed URLs loaded, scan will not run.")
 
 		if targetSource != "" && targetSource != "no_input" {
-			noTargetsSummary := notifier.GetDefaultScanSummaryData()
+			noTargetsSummary := summary.GetDefaultScanSummaryData()
 			noTargetsSummary.TargetSource = targetSource
-			noTargetsSummary.Status = string(notifier.ScanStatusNoTargets)
+			noTargetsSummary.Status = string(summary.ScanStatusNoTargets)
 			noTargetsSummary.ErrorMessages = []string{"No URLs provided or loaded."}
-			notificationHelper.SendScanCompletionNotification(context.Background(), noTargetsSummary, notifier.ScanServiceNotification, nil)
+			notificationHelper.SendScanCompletionNotification(context.Background(), noTargetsSummary, nil)
 		} else {
 			baseLogger.Info().Msg("No targets specified for onetime scan via CLI or config. 'NO_TARGETS' notification will be skipped.")
 		}
@@ -366,7 +369,7 @@ func runOnetimeScan(
 	}
 
 	// Prepare scan summary data for start notification
-	startSummary := notifier.GetDefaultScanSummaryData()
+	startSummary := summary.GetDefaultScanSummaryData()
 	startSummary.ScanSessionID = scanSessionID
 	startSummary.TargetSource = targetSource
 	startSummary.ScanMode = scanMode
@@ -391,7 +394,7 @@ func runOnetimeScan(
 	// Clear active scan session when done
 	setActiveScanSessionID("")
 
-	var summaryData notifier.ScanSummaryData
+	var summaryData summary.ScanSummaryData
 	var reportFilePaths []string
 
 	if batchResult != nil {
@@ -408,13 +411,13 @@ func runOnetimeScan(
 		}
 	} else {
 		// Fallback to default summary if batch result is nil
-		summaryData = notifier.GetDefaultScanSummaryData()
+		summaryData = summary.GetDefaultScanSummaryData()
 		summaryData.ScanSessionID = scanSessionID
 		summaryData.TargetSource = targetSource
 		summaryData.ScanMode = scanMode
 		summaryData.Targets = scanUrls
 		summaryData.TotalTargets = len(scanTargets)
-		summaryData.Status = string(notifier.ScanStatusFailed)
+		summaryData.Status = string(summary.ScanStatusFailed)
 		if workflowErr != nil {
 			summaryData.ErrorMessages = []string{workflowErr.Error()}
 		}
@@ -422,11 +425,11 @@ func runOnetimeScan(
 
 	// Handle workflow error or context cancellation
 	if workflowErr != nil || ctx.Err() != nil {
-		finalStatus := string(notifier.ScanStatusFailed)
+		finalStatus := string(summary.ScanStatusFailed)
 		if errors.Is(workflowErr, context.Canceled) || errors.Is(workflowErr, context.DeadlineExceeded) || ctx.Err() == context.Canceled {
 			baseLogger.Info().Str("scanSessionID", scanSessionID).Msg("Onetime scan workflow interrupted.")
-			finalStatus = string(notifier.ScanStatusInterrupted)
-			if !common.ContainsCancellationError(summaryData.ErrorMessages) { // summaryData is returned by ExecuteSingleScanWorkflowWithReporting
+			finalStatus = string(summary.ScanStatusInterrupted)
+			if !contextutils.ContainsCancellationError(summaryData.ErrorMessages) { // summaryData is returned by ExecuteSingleScanWorkflowWithReporting
 				summaryData.ErrorMessages = append(summaryData.ErrorMessages, "Onetime scan interrupted by signal or context cancellation.")
 			}
 		} else if workflowErr != nil {
@@ -439,7 +442,7 @@ func runOnetimeScan(
 		summaryData.Targets = scanUrls            // Ensure Targets are set
 		summaryData.TotalTargets = len(scanTargets)
 
-		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, notifier.ScanServiceNotification, reportFilePaths) // reportFilePaths might be nil
+		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, reportFilePaths) // reportFilePaths might be nil
 
 		// Shutdown scanner even on error to clean up singleton crawler with timeout
 		baseLogger.Info().Msg("Shutting down scanner after onetime scan error")
@@ -461,7 +464,7 @@ func runOnetimeScan(
 
 	// If successful, summaryData is already populated by ExecuteSingleScanWorkflowWithReporting with Completed status
 	baseLogger.Info().Str("scanSessionID", scanSessionID).Msg("Onetime scan workflow completed successfully via orchestrator. Sending completion notification.")
-	notificationHelper.SendScanCompletionNotification(ctx, summaryData, notifier.ScanServiceNotification, reportFilePaths)
+	notificationHelper.SendScanCompletionNotification(ctx, summaryData, reportFilePaths)
 
 	// Shutdown scanner to clean up singleton crawler with timeout
 	baseLogger.Info().Msg("Shutting down scanner after onetime scan completion")
@@ -512,10 +515,10 @@ func runAutomatedScan(
 		notificationHelper,
 	)
 	if schedulerErr != nil {
-		criticalErrSummary := notifier.GetDefaultScanSummaryData()
+		criticalErrSummary := summary.GetDefaultScanSummaryData()
 		criticalErrSummary.Component = "SchedulerInitialization"
 		criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize scheduler: %v", schedulerErr)}
-		notificationHelper.SendScanCompletionNotification(context.Background(), criticalErrSummary, notifier.ScanServiceNotification, nil)
+		notificationHelper.SendScanCompletionNotification(context.Background(), criticalErrSummary, nil)
 		zLogger.Fatal().Err(schedulerErr).Msg("Failed to initialize scheduler")
 		return
 	}
@@ -526,10 +529,10 @@ func runAutomatedScan(
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			zLogger.Info().Msg("Scheduler stopped due to context cancellation (interrupt).")
 		} else {
-			criticalErrSummary := notifier.GetDefaultScanSummaryData()
+			criticalErrSummary := summary.GetDefaultScanSummaryData()
 			criticalErrSummary.Component = "SchedulerRuntime"
 			criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Scheduler error: %v", err)}
-			notificationHelper.SendScanCompletionNotification(context.Background(), criticalErrSummary, notifier.ScanServiceNotification, nil)
+			notificationHelper.SendScanCompletionNotification(context.Background(), criticalErrSummary, nil)
 			zLogger.Error().Err(err).Msg("Scheduler error")
 		}
 	}

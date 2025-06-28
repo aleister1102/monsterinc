@@ -4,7 +4,8 @@ import (
 	"html/template"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/differ"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 
 // ProbeResultDisplay is a struct tailored for displaying probe results in the HTML report.
@@ -55,21 +56,21 @@ type ReportPageData struct {
 	UniqueStatusCodes  []int
 	UniqueContentTypes []string
 	UniqueTechnologies []string
-	UniqueRootTargets  []string                 // Deprecated: keeping for backward compatibility
-	UniqueHostnames    []string                 // New: for hostname-based grouping
-	UniqueURLStatuses  []string                 // For diff status filtering
-	CustomCSS          template.CSS             // For embedded styles.css
-	ReportJs           template.JS              // Embedded custom report.js
-	URLDiffs           map[string]URLDiffResult `json:"url_diffs,omitempty"` // Added to hold raw diff results
-	Theme              string                   // e.g., "dark" or "light"
-	FilterPlaceholders map[string]string        // e.g. "Search Title..."
-	TableHeaders       []string                 // For dynamic table generation if needed
-	ItemsPerPage       int                      // From config
-	EnableDataTables   bool                     // From config, determines if CDN links for DataTables are included
-	ShowTimelineView   bool                     // Future feature?
-	ErrorMessage       string                   // If report generation has a top-level error
-	FaviconBase64      string                   // Base64 encoded favicon
-	ProbeResultsJSON   template.JS              `json:"-"` // JSON string of ProbeResults for JavaScript processing
+	UniqueRootTargets  []string                        // Deprecated: keeping for backward compatibility
+	UniqueHostnames    []string                        // New: for hostname-based grouping
+	UniqueURLStatuses  []string                        // For diff status filtering
+	CustomCSS          template.CSS                    // For embedded styles.css
+	ReportJs           template.JS                     // Embedded custom report.js
+	URLDiffs           map[string]differ.URLDiffResult `json:"url_diffs,omitempty"` // Added to hold raw diff results
+	Theme              string                          // e.g., "dark" or "light"
+	FilterPlaceholders map[string]string               // e.g. "Search Title..."
+	TableHeaders       []string                        // For dynamic table generation if needed
+	ItemsPerPage       int                             // From config
+	EnableDataTables   bool                            // From config, determines if CDN links for DataTables are included
+	ShowTimelineView   bool                            // Future feature?
+	ErrorMessage       string                          // If report generation has a top-level error
+	FaviconBase64      string                          // Base64 encoded favicon
+	ProbeResultsJSON   template.JS                     `json:"-"` // JSON string of ProbeResults for JavaScript processing
 
 	// Diffing summary data, map key is RootTargetURL
 	DiffSummaryData map[string]DiffSummaryEntry `json:"diff_summary_data"`
@@ -86,7 +87,7 @@ type ReporterConfigForTemplate struct {
 // Helper function to transform ProbeResult to ProbeResultDisplay
 // This function should be in a package that can import both models and httpxrunner if ProbeResult is from there.
 // For now, assuming ProbeResult is models.ProbeResult.
-func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
+func ToProbeResultDisplay(pr httpxrunner.ProbeResult) ProbeResultDisplay {
 	// Determine if the probe was successful (e.g., status code 2xx and no major error)
 	isSuccess := pr.Error == "" && (pr.StatusCode >= 200 && pr.StatusCode < 400) // Consider 3xx as success for reachability
 
@@ -113,7 +114,7 @@ func ToProbeResultDisplay(pr ProbeResult) ProbeResultDisplay {
 		Headers:         pr.Headers,
 		Body:            pr.Body, // Consider snippet or link
 		Error:           pr.Error,
-		Timestamp:       common.FormatTimeOptional(pr.Timestamp, "2006-01-02 15:04:05 MST"),
+		Timestamp:       pr.Timestamp.Format("2006-01-02 15:04:05 MST"),
 		IsSuccess:       isSuccess,
 		HasTechnologies: len(technologies) > 0,
 		HasASN:          pr.ASN != 0,
@@ -154,41 +155,6 @@ type DiffSummaryEntry struct {
 	ChangedCount  int `json:"changed_count"` // Keep for future use
 }
 
-// DiffReportPageData holds all the data needed to render the diff_report_client_side.html.tmpl template.
-// It will now hold a list of diff results for multiple URLs.
-// Consider adding more metadata if needed, like report generation time, overall summary, etc.
-type DiffReportPageData struct {
-	ReportTitle      string              `json:"report_title"`
-	GeneratedAt      string              `json:"generated_at"`
-	DiffResults      []DiffResultDisplay `json:"diff_results"`
-	TotalDiffs       int                 `json:"total_diffs"`
-	ItemsPerPage     int                 `json:"items_per_page"`             // For potential pagination
-	EnableDataTables bool                `json:"enable_data_tables"`         // To enable/disable DataTables JS library features
-	ReportType       string              `json:"report_type,omitempty"`      // Added ReportType for template logic
-	FaviconBase64    string              `json:"favicon_base64,omitempty"`   // Base64 encoded favicon
-	ReportPartInfo   string              `json:"report_part_info,omitempty"` // Report Part Information (for multi-part reports)
-	CustomCSS        template.CSS        `json:"custom_css,omitempty"`       // Custom CSS for inline styling
-	ReportJs         template.JS         `json:"-"`                          // Embedded custom report.js
-	DiffResultsJSON  template.JS         `json:"-"`                          // JSON string of DiffResults for client-side rendering
-	// You can add more fields here, for example, a summary of changes, etc.
-}
-
-// DiffResultDisplay is a version of ContentDiffResult tailored for display in the template.
-// It might include additional presentation-specific fields or formatting.
-type DiffResultDisplay struct {
-	URL          string        `json:"url"`
-	ContentType  string        `json:"content_type"`
-	Timestamp    time.Time     `json:"timestamp"` // Timestamp of the current content
-	IsIdentical  bool          `json:"is_identical"`
-	Diffs        []ContentDiff `json:"diffs"`         // The raw diffs
-	ErrorMessage string        `json:"error_message"` // If an error occurred generating this specific diff
-	DiffHTML     template.HTML `json:"diff_html"`     // Pre-rendered HTML for this diff
-	OldHash      string        `json:"old_hash,omitempty"`
-	NewHash      string        `json:"new_hash,omitempty"`
-	Summary      string        `json:"summary,omitempty"`
-	FullContent  string        `json:"full_content,omitempty"` // Added to display full new content
-}
-
 // SetCustomCSS sets the custom CSS for the report page
 func (rpd *ReportPageData) SetCustomCSS(css template.CSS) {
 	rpd.CustomCSS = css
@@ -197,14 +163,4 @@ func (rpd *ReportPageData) SetCustomCSS(css template.CSS) {
 // SetReportJs sets the report JavaScript for the report page
 func (rpd *ReportPageData) SetReportJs(js template.JS) {
 	rpd.ReportJs = js
-}
-
-// SetReportJs sets the report JavaScript for the diff report page
-func (drpd *DiffReportPageData) SetReportJs(js template.JS) {
-	drpd.ReportJs = js
-}
-
-// SetCustomCSS sets the custom CSS for the diff report page
-func (drpd *DiffReportPageData) SetCustomCSS(css template.CSS) {
-	drpd.CustomCSS = css
 }

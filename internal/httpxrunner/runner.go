@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common/context"
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/contextutils"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 
 	"github.com/projectdiscovery/httpx/runner"
 	"github.com/rs/zerolog"
@@ -36,11 +36,11 @@ func NewRunner(cfg *Config, rootTargetForThisInstance string, appLogger zerolog.
 // validateRunState validates the runner state before execution
 func (r *Runner) validateRunState() error {
 	if r.httpxRunner == nil {
-		return errors.NewError("httpx engine not initialized")
+		return errorwrapper.NewError("httpx engine not initialized")
 	}
 
 	if r.collector == nil {
-		return errors.NewError("result collector not initialized")
+		return errorwrapper.NewError("result collector not initialized")
 	}
 
 	return nil
@@ -93,7 +93,7 @@ func (r *Runner) waitForCompletion(ctx stdcontext.Context) error {
 		r.logger.Debug().Msg("HTTPX runner completed successfully")
 		return nil
 	case <-ctx.Done():
-		result := context.CheckCancellationWithLog(ctx, r.logger, "HTTPX runner execution")
+		result := contextutils.CheckCancellationWithLog(ctx, r.logger, "HTTPX runner execution")
 		if result.Cancelled {
 			r.logger.Info().Msg("HTTPX runner cancelled immediately")
 			// Give a shorter grace period for immediate response
@@ -113,7 +113,7 @@ func (r *Runner) waitForCompletion(ctx stdcontext.Context) error {
 func (r *Runner) Run(ctx stdcontext.Context) error {
 	// Validate runner state
 	if err := r.validateRunState(); err != nil {
-		return errors.WrapError(err, "failed to validate runner state")
+		return errorwrapper.WrapError(err, "failed to validate runner state")
 	}
 
 	r.logger.Info().

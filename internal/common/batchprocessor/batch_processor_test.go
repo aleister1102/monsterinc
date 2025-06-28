@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -198,7 +198,7 @@ func TestBatchProcessor_ProcessBatches_WithError(t *testing.T) {
 
 	processFunc := func(ctx context.Context, batch []string, batchIndex int) error {
 		if batchIndex == 1 { // Second batch fails
-			return errors.NewError("batch processing failed")
+			return errorwrapper.NewError("batch processing failed")
 		}
 		return nil
 	}

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/contextutils"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/crawler"
 	"github.com/rs/zerolog"
@@ -35,7 +35,7 @@ func (cm *CrawlerManager) GetOrCreateCrawler(cfg *config.CrawlerConfig) (*crawle
 	// If crawler doesn't exist, create new one
 	if cm.crawlerInstance == nil {
 		cm.logger.Info().Msg("Creating new singleton crawler instance")
-		newCrawler, err := crawler.NewCrawler(cfg, nil, cm.logger)
+		newCrawler, err := crawler.NewCrawler(cfg, cm.logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create crawler: %w", err)
 		}
@@ -80,7 +80,7 @@ func (cm *CrawlerManager) ExecuteCrawlerBatch(
 	}
 
 	// Check for context cancellation
-	if cancelled := common.CheckCancellation(ctx); cancelled.Cancelled {
+	if cancelled := contextutils.CheckCancellation(ctx); cancelled.Cancelled {
 		return nil, cancelled.Error
 	}
 

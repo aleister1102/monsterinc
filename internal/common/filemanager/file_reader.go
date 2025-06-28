@@ -1,4 +1,4 @@
-package file
+package filemanager
 
 import (
 	"bufio"
@@ -8,30 +8,30 @@ import (
 	"os"
 	"strings"
 
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/aleister1102/monsterinc/internal/common/memory"
 	"github.com/rs/zerolog"
 )
 
 // FileReader handles file reading operations
 type FileReader struct {
-	logger    zerolog.Logger
-	validator *FileValidator
+	logger zerolog.Logger
 }
 
 // NewFileReader creates a new FileReader instance
 func NewFileReader(logger zerolog.Logger) *FileReader {
 	componentLogger := logger.With().Str("component", "FileReader").Logger()
 	return &FileReader{
-		logger:    componentLogger,
-		validator: NewFileValidator(componentLogger),
+		logger: componentLogger,
 	}
 }
 
 // ReadFile reads a file with the given options
 func (fr *FileReader) ReadFile(path string, opts FileReadOptions) ([]byte, error) {
+	fileManager := NewFileManager(fr.logger)
+
 	// Validate file and options
-	_, err := fr.validator.ValidateFileForReading(path, opts)
+	_, err := fileManager.ValidateFileForReading(path, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (fr *FileReader) ReadFile(path string, opts FileReadOptions) ([]byte, error
 	// Open file
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, errors.WrapError(err, fmt.Sprintf("failed to open file: %s", path))
+		return nil, errorwrapper.WrapError(err, fmt.Sprintf("failed to open file: %s", path))
 	}
 	defer func() {
 		err := file.Close()
@@ -102,10 +102,10 @@ func (fr *FileReader) performFileRead(path string, reader io.Reader, opts FileRe
 	select {
 	case <-ctx.Done():
 		fr.logger.Warn().Str("path", path).Msg("File read cancelled due to context timeout")
-		return nil, errors.WrapError(ctx.Err(), "file read operation cancelled")
+		return nil, errorwrapper.WrapError(ctx.Err(), "file read operation cancelled")
 	case <-done:
 		if readErr != nil {
-			return nil, errors.WrapError(readErr, fmt.Sprintf("failed to read file content: %s", path))
+			return nil, errorwrapper.WrapError(readErr, fmt.Sprintf("failed to read file content: %s", path))
 		}
 	}
 

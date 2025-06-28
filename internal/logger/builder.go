@@ -4,7 +4,7 @@ import (
 	"io"
 	stdlog "log" // Standard Go log package, aliased to avoid conflict with zerolog field
 
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/rs/zerolog"
 )
@@ -46,7 +46,7 @@ func (lb *LoggerBuilder) Build() (*Logger, error) {
 
 	writers := lb.createWriters()
 	if len(writers) == 0 {
-		return nil, errors.NewError("no output writers configured")
+		return nil, errorwrapper.NewError("no output writers configured")
 	}
 
 	multiWriter := zerolog.MultiLevelWriter(writers...)
@@ -71,11 +71,11 @@ func (lb *LoggerBuilder) Build() (*Logger, error) {
 // validateConfig validates the logger configuration
 func (lb *LoggerBuilder) validateConfig() error {
 	if lb.config.EnableFile && lb.config.FilePath == "" {
-		return errors.NewValidationError("file_path", lb.config.FilePath, "file path required when file logging enabled")
+		return errorwrapper.NewValidationError("file_path", lb.config.FilePath, "file path required when file logging enabled")
 	}
 
 	if lb.config.MaxSizeMB <= 0 {
-		return errors.NewValidationError("max_size_mb", lb.config.MaxSizeMB, "max size must be positive")
+		return errorwrapper.NewValidationError("max_size_mb", lb.config.MaxSizeMB, "max size must be positive")
 	}
 
 	return nil

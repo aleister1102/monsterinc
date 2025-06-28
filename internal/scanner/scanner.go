@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/common/summary"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/aleister1102/monsterinc/internal/notifier"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/rs/zerolog"
 )
@@ -30,9 +28,9 @@ type Scanner struct {
 	urlPreprocessor *URLPreprocessor
 
 	notificationHelper interface {
-		SendScanStartNotification(ctx context.Context, summary models.ScanSummaryData)
-		SendScanCompletionNotification(ctx context.Context, summary models.ScanSummaryData, serviceType notifier.NotificationServiceType, reportFilePaths []string)
-		SendScanInterruptNotification(ctx context.Context, summary models.ScanSummaryData)
+		SendScanStartNotification(ctx context.Context, summary summary.ScanSummaryData)
+		SendScanCompletionNotification(ctx context.Context, summary summary.ScanSummaryData, reportFilePaths []string)
+		SendScanInterruptNotification(ctx context.Context, summary summary.ScanSummaryData)
 	}
 }
 
@@ -84,9 +82,9 @@ func NewScanner(
 
 // SetNotificationHelper sets the notification helper for the scanner
 func (s *Scanner) SetNotificationHelper(notificationHelper interface {
-	SendScanStartNotification(ctx context.Context, summary models.ScanSummaryData)
-	SendScanCompletionNotification(ctx context.Context, summary models.ScanSummaryData, serviceType notifier.NotificationServiceType, reportFilePaths []string)
-	SendScanInterruptNotification(ctx context.Context, summary models.ScanSummaryData)
+	SendScanStartNotification(ctx context.Context, summary summary.ScanSummaryData)
+	SendScanCompletionNotification(ctx context.Context, summary summary.ScanSummaryData, reportFilePaths []string)
+	SendScanInterruptNotification(ctx context.Context, summary summary.ScanSummaryData)
 }) {
 	s.notificationHelper = notificationHelper
 }
@@ -122,11 +120,11 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 	scanSessionID string,
 	targetSource string,
 	scanMode string,
-) (models.ScanSummaryData, []httpxrunner.ProbeResult, []string, error) {
+) (summary.ScanSummaryData, []httpxrunner.ProbeResult, []string, error) {
 	startTime := time.Now()
 	probeResults, urlDiffResults, err := s.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
 	if err != nil {
-		return models.ScanSummaryData{}, nil, nil, err
+		return summary.ScanSummaryData{}, nil, nil, err
 	}
 
 	// Generate HTML reports if we have results
@@ -144,8 +142,8 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 
 	// Note: We use original seedURLs in summary for reporting purposes,
 	// but the actual processing used the preprocessed URLs
-	summaryBuilder := NewSummaryBuilder(s.logger)
-	summaryInput := &SummaryInput{
+	summaryBuilder := summary.NewSummaryBuilder(s.logger)
+	summaryInput := &summary.SummaryInput{
 		ScanSessionID:   scanSessionID,
 		TargetSource:    targetSource,
 		ScanMode:        scanMode,
@@ -166,15 +164,15 @@ func (s *Scanner) ExecuteCompleteScanWorkflow(
 	seedURLs []string,
 	scanSessionID string,
 	targetSource string,
-) (models.ScanSummaryData, []httpxrunner.ProbeResult, map[string]differ.URLDiffResult, error) {
+) (summary.ScanSummaryData, []httpxrunner.ProbeResult, map[string]differ.URLDiffResult, error) {
 	probeResults, urlDiffResults, err := s.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
 	if err != nil {
-		return models.ScanSummaryData{}, nil, nil, err
+		return summary.ScanSummaryData{}, nil, nil, err
 	}
 
 	// Build summary using new SummaryBuilder
-	summaryBuilder := NewSummaryBuilder(s.logger)
-	summaryInput := &SummaryInput{
+	summaryBuilder := summary.NewSummaryBuilder(s.logger)
+	summaryInput := &summary.SummaryInput{
 		ScanSessionID:  scanSessionID,
 		TargetSource:   targetSource,
 		Targets:        seedURLs,
@@ -212,17 +210,17 @@ func (s *Scanner) ExecuteScanWorkflow(
 	if len(processedSeedURLs) == 0 {
 		// Send error notification
 		if s.notificationHelper != nil {
-			errorSummary := models.ScanSummaryData{
+			errorSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",
 				TargetSource:  "scanner_workflow",
 				Targets:       seedURLs,
 				TotalTargets:  len(seedURLs),
-				Status:        string(models.ScanStatusFailed),
+				Status:        string(summary.ScanStatusFailed),
 				ScanDuration:  time.Since(startTime),
 				ErrorMessages: []string{"No URLs remaining after preprocessing"},
 			}
-			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, notifier.ScanServiceNotification, nil)
+			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, nil)
 		}
 
 		return nil, nil, fmt.Errorf("no URLs remaining after preprocessing")
@@ -233,17 +231,17 @@ func (s *Scanner) ExecuteScanWorkflow(
 	if err != nil {
 		// Send error notification
 		if s.notificationHelper != nil {
-			errorSummary := models.ScanSummaryData{
+			errorSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",
 				TargetSource:  "scanner_workflow",
 				Targets:       seedURLs,
 				TotalTargets:  len(seedURLs),
-				Status:        string(models.ScanStatusFailed),
+				Status:        string(summary.ScanStatusFailed),
 				ScanDuration:  time.Since(startTime),
 				ErrorMessages: []string{fmt.Sprintf("Failed to build crawler config: %v", err)},
 			}
-			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, notifier.ScanServiceNotification, nil)
+			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, nil)
 		}
 
 		return nil, nil, fmt.Errorf("failed to build crawler config: %w", err)
@@ -259,13 +257,13 @@ func (s *Scanner) ExecuteScanWorkflow(
 	// Check for context cancellation before crawler execution
 	if ctx.Err() != nil {
 		if s.notificationHelper != nil {
-			interruptSummary := models.ScanSummaryData{
+			interruptSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",
 				TargetSource:  "scanner_workflow",
 				Targets:       seedURLs,
 				TotalTargets:  len(seedURLs),
-				Status:        string(models.ScanStatusInterrupted),
+				Status:        string(summary.ScanStatusInterrupted),
 				ScanDuration:  time.Since(startTime),
 				Component:     "crawler",
 			}
@@ -278,17 +276,17 @@ func (s *Scanner) ExecuteScanWorkflow(
 	if crawlerResult.Error != nil {
 		// Send error notification
 		if s.notificationHelper != nil {
-			errorSummary := models.ScanSummaryData{
+			errorSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",
 				TargetSource:  "scanner_workflow",
 				Targets:       seedURLs,
 				TotalTargets:  len(seedURLs),
-				Status:        string(models.ScanStatusFailed),
+				Status:        string(summary.ScanStatusFailed),
 				ScanDuration:  time.Since(startTime),
 				ErrorMessages: []string{fmt.Sprintf("Crawler execution failed: %v", crawlerResult.Error)},
 			}
-			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, notifier.ScanServiceNotification, nil)
+			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, nil)
 		}
 
 		return nil, nil, fmt.Errorf("crawler execution failed: %w", crawlerResult.Error)
@@ -311,13 +309,13 @@ func (s *Scanner) ExecuteScanWorkflow(
 	// Check for context cancellation before HTTPX execution
 	if ctx.Err() != nil {
 		if s.notificationHelper != nil {
-			interruptSummary := models.ScanSummaryData{
+			interruptSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",
 				TargetSource:  "scanner_workflow",
 				Targets:       seedURLs,
 				TotalTargets:  len(seedURLs),
-				Status:        string(models.ScanStatusInterrupted),
+				Status:        string(summary.ScanStatusInterrupted),
 				ScanDuration:  time.Since(startTime),
 				Component:     "httpx",
 			}
@@ -330,17 +328,17 @@ func (s *Scanner) ExecuteScanWorkflow(
 	if httpxResult.Error != nil {
 		// Send error notification
 		if s.notificationHelper != nil {
-			errorSummary := models.ScanSummaryData{
+			errorSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",
 				TargetSource:  "scanner_workflow",
 				Targets:       seedURLs,
 				TotalTargets:  len(seedURLs),
-				Status:        string(models.ScanStatusFailed),
+				Status:        string(summary.ScanStatusFailed),
 				ScanDuration:  time.Since(startTime),
 				ErrorMessages: []string{fmt.Sprintf("HTTPX execution failed: %v", httpxResult.Error)},
 			}
-			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, notifier.ScanServiceNotification, nil)
+			s.notificationHelper.SendScanCompletionNotification(ctx, errorSummary, nil)
 		}
 
 		return nil, nil, fmt.Errorf("HTTPX execution failed: %w", httpxResult.Error)

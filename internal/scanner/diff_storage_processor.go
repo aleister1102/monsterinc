@@ -3,11 +3,9 @@ package scanner
 import (
 	"context"
 
-	"github.com/aleister1102/monsterinc/internal/common"
-	"github.com/aleister1102/monsterinc/internal/datastore"
+	"github.com/aleister1102/monsterinc/internal/common/contextutils"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
 )
@@ -22,7 +20,7 @@ type DiffStorageProcessor struct {
 
 // ParquetWriter interface for dependency injection and better testing
 type ParquetWriter interface {
-	Write(ctx context.Context, probeResults []models.ProbeResult, scanSessionID string, rootTarget string) error
+	Write(ctx context.Context, probeResults []httpxrunner.ProbeResult, scanSessionID string, rootTarget string) error
 }
 
 // NewDiffStorageProcessor creates a new diff storage processor
@@ -37,30 +35,30 @@ func NewDiffStorageProcessor(logger zerolog.Logger, parquetWriter ParquetWriter,
 // DiffTargetInput contains parameters for processing a single target
 type DiffTargetInput struct {
 	RootTarget            string
-	ProbeResultsForTarget []models.ProbeResult
+	ProbeResultsForTarget []httpxrunner.ProbeResult
 	ScanSessionID         string
 	URLDiffer             *differ.UrlDiffer
 }
 
 // DiffTargetResult contains the results from processing a single target
 type DiffTargetResult struct {
-	URLDiffResult *models.URLDiffResult
-	ProbeResults  []models.ProbeResult
+	URLDiffResult *differ.URLDiffResult
+	ProbeResults  []httpxrunner.ProbeResult
 	Error         error
 }
 
 // DiffHostnameInput contains the input for processing a single hostname
 type DiffHostnameInput struct {
 	Hostname                string
-	ProbeResultsForHostname []models.ProbeResult
+	ProbeResultsForHostname []httpxrunner.ProbeResult
 	ScanSessionID           string
 	URLDiffer               *differ.UrlDiffer
 }
 
 // DiffHostnameResult contains the result of processing a single hostname
 type DiffHostnameResult struct {
-	URLDiffResult *models.URLDiffResult
-	ProbeResults  []models.ProbeResult
+	URLDiffResult *differ.URLDiffResult
+	ProbeResults  []httpxrunner.ProbeResult
 	Error         error
 }
 
@@ -71,7 +69,7 @@ func (dsp *DiffStorageProcessor) ProcessTarget(input DiffTargetInput) *DiffTarge
 	}
 
 	// Perform URL diffing for this target
-	convertedProbes := make([]*models.ProbeResult, len(input.ProbeResultsForTarget))
+	convertedProbes := make([]*httpxrunner.ProbeResult, len(input.ProbeResultsForTarget))
 	for i := range input.ProbeResultsForTarget {
 		convertedProbes[i] = &input.ProbeResultsForTarget[i]
 	}
@@ -106,7 +104,7 @@ func (dsp *DiffStorageProcessor) ProcessHostname(input DiffHostnameInput) *DiffH
 	}
 
 	// Perform URL diffing for this hostname
-	convertedProbes := make([]*models.ProbeResult, len(input.ProbeResultsForHostname))
+	convertedProbes := make([]*httpxrunner.ProbeResult, len(input.ProbeResultsForHostname))
 	for i := range input.ProbeResultsForHostname {
 		convertedProbes[i] = &input.ProbeResultsForHostname[i]
 	}
@@ -137,7 +135,7 @@ func (dsp *DiffStorageProcessor) ProcessHostname(input DiffHostnameInput) *DiffH
 // ProcessDiffingAndStorageInput contains parameters for processing multiple targets
 type ProcessDiffingAndStorageInput struct {
 	Ctx                     context.Context
-	CurrentScanProbeResults []models.ProbeResult
+	CurrentScanProbeResults []httpxrunner.ProbeResult
 	SeedURLs                []string
 	PrimaryRootTargetURL    string
 	ScanSessionID           string
@@ -145,15 +143,15 @@ type ProcessDiffingAndStorageInput struct {
 
 // ProcessDiffingAndStorageOutput contains results from processing multiple targets
 type ProcessDiffingAndStorageOutput struct {
-	URLDiffResults          map[string]models.URLDiffResult
-	UpdatedScanProbeResults []models.ProbeResult
-	AllProbesToStore        []models.ProbeResult
+	URLDiffResults          map[string]differ.URLDiffResult
+	UpdatedScanProbeResults []httpxrunner.ProbeResult
+	AllProbesToStore        []httpxrunner.ProbeResult
 }
 
 // ProcessDiffingAndStorage handles diffing and storage for all targets
 func (dsp *DiffStorageProcessor) ProcessDiffingAndStorage(input ProcessDiffingAndStorageInput) (ProcessDiffingAndStorageOutput, error) {
 	// Early context cancellation check
-	if cancelled := common.CheckCancellation(input.Ctx); cancelled.Cancelled {
+	if cancelled := contextutils.CheckCancellation(input.Ctx); cancelled.Cancelled {
 		dsp.logger.Info().Msg("Context cancelled before diff processing")
 		return ProcessDiffingAndStorageOutput{}, cancelled.Error
 	}
@@ -163,9 +161,9 @@ func (dsp *DiffStorageProcessor) ProcessDiffingAndStorage(input ProcessDiffingAn
 
 	// Initialize output structure
 	output := ProcessDiffingAndStorageOutput{
-		URLDiffResults:          make(map[string]models.URLDiffResult),
-		UpdatedScanProbeResults: make([]models.ProbeResult, len(input.CurrentScanProbeResults)),
-		AllProbesToStore:        make([]models.ProbeResult, 0, len(input.CurrentScanProbeResults)),
+		URLDiffResults:          make(map[string]differ.URLDiffResult),
+		UpdatedScanProbeResults: make([]httpxrunner.ProbeResult, len(input.CurrentScanProbeResults)),
+		AllProbesToStore:        make([]httpxrunner.ProbeResult, 0, len(input.CurrentScanProbeResults)),
 	}
 
 	// Copy original results to avoid mutation
@@ -174,7 +172,7 @@ func (dsp *DiffStorageProcessor) ProcessDiffingAndStorage(input ProcessDiffingAn
 	// Process each hostname group
 	for hostname, resultsForHostname := range probeResultsByHostname {
 		// Check context cancellation before processing each hostname group
-		if cancelled := common.CheckCancellation(input.Ctx); cancelled.Cancelled {
+		if cancelled := contextutils.CheckCancellation(input.Ctx); cancelled.Cancelled {
 			dsp.logger.Info().Str("hostname", hostname).Msg("Context cancelled during hostname group processing")
 			return output, cancelled.Error
 		}
@@ -191,7 +189,7 @@ func (dsp *DiffStorageProcessor) ProcessDiffingAndStorage(input ProcessDiffingAn
 			&output,
 		); err != nil {
 			// Check if error is due to context cancellation
-			if input.Ctx.Err() != nil {
+			if input.Ctx.Err() != nil && input.Ctx.Err() != context.Canceled {
 				dsp.logger.Info().Str("hostname", hostname).Msg("Hostname group processing cancelled")
 				return output, input.Ctx.Err()
 			}
@@ -202,7 +200,7 @@ func (dsp *DiffStorageProcessor) ProcessDiffingAndStorage(input ProcessDiffingAn
 	}
 
 	// Final context check before returning results
-	if cancelled := common.CheckCancellation(input.Ctx); cancelled.Cancelled {
+	if cancelled := contextutils.CheckCancellation(input.Ctx); cancelled.Cancelled {
 		dsp.logger.Info().Msg("Context cancelled after diff processing completion")
 		return output, cancelled.Error
 	}
@@ -219,14 +217,14 @@ func (dsp *DiffStorageProcessor) ProcessDiffingAndStorage(input ProcessDiffingAn
 func (dsp *DiffStorageProcessor) processHostnameGroup(
 	ctx context.Context,
 	hostname string,
-	resultsForHostname []models.ProbeResult,
+	resultsForHostname []httpxrunner.ProbeResult,
 	originalIndicesForHostname []int,
 	scanSessionID string,
-	processedProbeResults []models.ProbeResult,
+	processedProbeResults []httpxrunner.ProbeResult,
 	output *ProcessDiffingAndStorageOutput,
 ) error {
 	// Check context cancellation at the start of hostname processing
-	if cancelled := common.CheckCancellation(ctx); cancelled.Cancelled {
+	if cancelled := contextutils.CheckCancellation(ctx); cancelled.Cancelled {
 		dsp.logger.Info().Str("hostname", hostname).Msg("Context cancelled at start of hostname processing")
 		return cancelled.Error
 	}
@@ -258,7 +256,7 @@ func (dsp *DiffStorageProcessor) processHostnameGroup(
 	}
 
 	// Check context cancellation before storage operations
-	if cancelled := common.CheckCancellation(ctx); cancelled.Cancelled {
+	if cancelled := contextutils.CheckCancellation(ctx); cancelled.Cancelled {
 		dsp.logger.Info().Str("hostname", hostname).Msg("Context cancelled before storage operations")
 		return cancelled.Error
 	}
@@ -282,7 +280,7 @@ func (dsp *DiffStorageProcessor) processHostnameGroup(
 	output.AllProbesToStore = append(output.AllProbesToStore, updatedProbesForHostnameStorage...)
 
 	// Final context check
-	if cancelled := common.CheckCancellation(ctx); cancelled.Cancelled {
+	if cancelled := contextutils.CheckCancellation(ctx); cancelled.Cancelled {
 		dsp.logger.Info().Str("hostname", hostname).Msg("Context cancelled after hostname processing")
 		return cancelled.Error
 	}
@@ -291,7 +289,7 @@ func (dsp *DiffStorageProcessor) processHostnameGroup(
 }
 
 // writeProbeResultsToParquet handles the persistence of probe results to Parquet
-func (dsp *DiffStorageProcessor) writeProbeResultsToParquet(ctx context.Context, probesToStore []models.ProbeResult, scanSessionID, hostname string) error {
+func (dsp *DiffStorageProcessor) writeProbeResultsToParquet(ctx context.Context, probesToStore []httpxrunner.ProbeResult, scanSessionID, hostname string) error {
 	if dsp.parquetWriter == nil {
 		return nil
 	}
@@ -314,8 +312,8 @@ func (dsp *DiffStorageProcessor) writeProbeResultsToParquet(ctx context.Context,
 
 // updateProcessedProbeResults updates the processed results with changes from diffing
 func (dsp *DiffStorageProcessor) updateProcessedProbeResults(
-	processedProbeResults []models.ProbeResult,
-	updatedProbesForTargetStorage []models.ProbeResult,
+	processedProbeResults []httpxrunner.ProbeResult,
+	updatedProbesForTargetStorage []httpxrunner.ProbeResult,
 	originalIndicesForTarget []int,
 ) {
 	// OPTIMIZATION: Direct assignment instead of loop where possible
@@ -334,9 +332,9 @@ func (dsp *DiffStorageProcessor) updateProcessedProbeResults(
 
 // groupProbeResultsByHostname groups probe results by their hostname
 func (dsp *DiffStorageProcessor) groupProbeResultsByHostname(
-	currentScanProbeResults []models.ProbeResult,
-) (map[string][]models.ProbeResult, map[string][]int) {
-	targetGroups := make(map[string][]models.ProbeResult)
+	currentScanProbeResults []httpxrunner.ProbeResult,
+) (map[string][]httpxrunner.ProbeResult, map[string][]int) {
+	targetGroups := make(map[string][]httpxrunner.ProbeResult)
 	originalIndices := make(map[string][]int)
 
 	for i, result := range currentScanProbeResults {
@@ -367,14 +365,13 @@ type DiffInput struct {
 	RootTarget     string
 	ScanSessionID  string
 	CurrentResults []httpxrunner.ProbeResult
-	URLDiffer      differ.URLDiffer
+	URLDiffer      *differ.UrlDiffer
 }
 
 type DiffOutput struct {
 	URLDiffResults      map[string]differ.URLDiffResult
 	ContentDiffResults  []differ.ContentDiffResult
 	Error               error
-	RecordsToStore      []datastore.FileHistoryRecord
 	NotificationsToSend []string
 }
 
@@ -393,12 +390,10 @@ func (dsp *DiffStorageProcessor) processURLDiff(input DiffInput) (*differ.URLDif
 	return urlDiffResult, nil
 }
 
-func (dsp *DiffStorageProcessor) convertToURLDifferProbes(probeResults []httpxrunner.ProbeResult) ([]differ.Probe, error) {
-	probes := make([]differ.Probe, len(probeResults))
+func (dsp *DiffStorageProcessor) convertToURLDifferProbes(probeResults []httpxrunner.ProbeResult) ([]*httpxrunner.ProbeResult, error) {
+	probes := make([]*httpxrunner.ProbeResult, len(probeResults))
 	for i, pr := range probeResults {
-		probes[i] = differ.Probe{
-			URL: pr.FinalURL,
-		}
+		probes[i] = &pr
 	}
 	return probes, nil
 }

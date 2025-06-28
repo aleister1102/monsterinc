@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/aleister1102/monsterinc/internal/common/summary"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/models"
 )
 
 // executeBatchedScan executes scan in batches
@@ -32,7 +32,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 	bwo.optimizeConfigForMemoryEfficiency(gCfg, batchSize)
 
 	var allReportPaths []string
-	var aggregatedSummary models.ScanSummaryData
+	var aggregatedSummary summary.ScanSummaryData
 	var lastBatchError error
 	processedBatches := 0
 	interruptedAt := 0
@@ -44,7 +44,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 	bwo.logger.Info().Msg("Aggregating all batch results into merged reports (respecting Discord file size limits)")
 
 	// Initialize summary data
-	aggregatedSummary = models.GetDefaultScanSummaryData()
+	aggregatedSummary = summary.GetDefaultScanSummaryData()
 	aggregatedSummary.ScanSessionID = scanSessionID
 	aggregatedSummary.TargetSource = targetSource
 	aggregatedSummary.ScanMode = scanMode
@@ -88,7 +88,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		// Create batch-specific session ID
 		batchSessionID := fmt.Sprintf("%s-batch-%d", scanSessionID, batchIndex)
 
-		var batchSummary models.ScanSummaryData
+		var batchSummary summary.ScanSummaryData
 		var err error
 
 		// Always execute core workflow without generating reports per batch
@@ -116,8 +116,8 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		}
 
 		// Create summary for this batch (without reports)
-		summaryBuilder := NewSummaryBuilder(bwo.logger)
-		summaryInput := &SummaryInput{
+		summaryBuilder := summary.NewSummaryBuilder(bwo.logger)
+		summaryInput := &summary.SummaryInput{
 			ScanSessionID:  batchSessionID,
 			TargetSource:   targetSource,
 			ScanMode:       scanMode,

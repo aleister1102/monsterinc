@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/rs/zerolog"
 )
 
@@ -146,7 +146,7 @@ func (rh *RetryHandler) DoWithRetry(ctx context.Context, client *HTTPClient, req
 
 	// All retries exhausted
 	if lastErr != nil {
-		return nil, errors.WrapError(lastErr, "all retry attempts failed")
+		return nil, errorwrapper.WrapError(lastErr, "all retry attempts failed")
 	}
 
 	// Return the last response even if it had a retryable status code

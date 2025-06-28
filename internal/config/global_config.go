@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"path/filepath"
 
-	"github.com/aleister1102/monsterinc/internal/common/errors"
-	"github.com/aleister1102/monsterinc/internal/common/file"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
+	"github.com/aleister1102/monsterinc/internal/common/filemanager"
 	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v3"
 )
@@ -49,26 +49,26 @@ func LoadGlobalConfig(providedPath string, logger zerolog.Logger) (*GlobalConfig
 		return cfg, nil
 	}
 
-	fileManager := file.NewFileManager(logger)
+	fileManager := filemanager.NewFileManager(logger)
 	if !fileManager.FileExists(filePath) {
-		return nil, errors.NewValidationError("config_file", filePath, "config file does not exist")
+		return nil, errorwrapper.NewValidationError("config_file", filePath, "config file does not exist")
 	}
 
 	data, err := loadConfigFileContent(fileManager, filePath)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to load config file content")
+		return nil, errorwrapper.WrapError(err, "failed to load config file content")
 	}
 
 	if err := parseConfigContent(data, filePath, cfg); err != nil {
-		return nil, errors.WrapError(err, "failed to parse config content")
+		return nil, errorwrapper.WrapError(err, "failed to parse config content")
 	}
 
 	return cfg, nil
 }
 
 // loadConfigFileContent reads the config file using FileManager
-func loadConfigFileContent(fileManager *file.FileManager, filePath string) ([]byte, error) {
-	opts := file.DefaultFileReadOptions()
+func loadConfigFileContent(fileManager *filemanager.FileManager, filePath string) ([]byte, error) {
+	opts := filemanager.DefaultFileReadOptions()
 	opts.MaxSize = 10 * 1024 * 1024 // 10MB max config file size
 
 	return fileManager.ReadFile(filePath, opts)
@@ -91,7 +91,7 @@ func isYAMLFile(ext string) bool {
 // parseYAMLConfig parses YAML configuration
 func parseYAMLConfig(data []byte, filePath string, cfg *GlobalConfig) error {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return errors.NewError("failed to unmarshal YAML from '%s': %w", filePath, err)
+		return errorwrapper.NewError("failed to unmarshal YAML from '%s': %w", filePath, err)
 	}
 	return nil
 }
@@ -99,7 +99,7 @@ func parseYAMLConfig(data []byte, filePath string, cfg *GlobalConfig) error {
 // parseJSONConfig parses JSON configuration
 func parseJSONConfig(data []byte, filePath string, cfg *GlobalConfig) error {
 	if err := json.Unmarshal(data, cfg); err != nil {
-		return errors.NewError("failed to unmarshal JSON from '%s': %w", filePath, err)
+		return errorwrapper.NewError("failed to unmarshal JSON from '%s': %w", filePath, err)
 	}
 	return nil
 }

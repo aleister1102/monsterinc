@@ -3,11 +3,11 @@ package reporter
 import (
 	"fmt"
 
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 
 // GenerateReport generates HTML reports from probe results
-func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, baseOutputPath string) ([]string, error) {
+func (r *HtmlReporter) GenerateReport(probeResults []*httpxrunner.ProbeResult, baseOutputPath string) ([]string, error) {
 	if len(probeResults) == 0 {
 		r.logger.Warn().Msg("No probe results provided for report generation.")
 		return []string{}, nil
@@ -37,7 +37,7 @@ func (r *HtmlReporter) GenerateReport(probeResults []*models.ProbeResult, baseOu
 }
 
 // generateSingleReport creates a single HTML report file
-func (r *HtmlReporter) generateSingleReport(probeResults []*models.ProbeResult, baseOutputPath string) ([]string, error) {
+func (r *HtmlReporter) generateSingleReport(probeResults []*httpxrunner.ProbeResult, baseOutputPath string) ([]string, error) {
 	pageData, err := r.prepareReportData(probeResults, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare report data: %w", err)
@@ -58,7 +58,7 @@ func (r *HtmlReporter) generateSingleReport(probeResults []*models.ProbeResult, 
 }
 
 // generateChunkedReports creates multiple HTML report files for large result sets
-func (r *HtmlReporter) generateChunkedReports(probeResults []*models.ProbeResult, baseOutputPath string, maxResults int) ([]string, error) {
+func (r *HtmlReporter) generateChunkedReports(probeResults []*httpxrunner.ProbeResult, baseOutputPath string, maxResults int) ([]string, error) {
 	totalChunks := (len(probeResults) + maxResults - 1) / maxResults
 	outputPaths := make([]string, 0, totalChunks)
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 
@@ -68,13 +69,13 @@ func GetDiffTemplateFunctions() template.FuncMap {
 		return template.HTML(prettyJSON.String())
 	}
 
-	funcMap["operationToString"] = func(op httpxrunner.DiffOperation) string {
+	funcMap["operationToString"] = func(op differ.DiffOperation) string {
 		switch op {
-		case httpxrunner.DiffDelete:
+		case differ.DiffDelete:
 			return "Delete"
-		case httpxrunner.DiffInsert:
+		case differ.DiffInsert:
 			return "Insert"
-		case httpxrunner.DiffEqual:
+		case differ.DiffEqual:
 			return "Equal"
 		default:
 			return "Unknown"

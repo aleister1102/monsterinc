@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aleister1102/monsterinc/internal/common/file"
+	"github.com/aleister1102/monsterinc/internal/common/filemanager"
 	"github.com/rs/zerolog"
 )
 
@@ -35,14 +35,14 @@ func GetConfigPath(configFilePathFlag string) string {
 
 // ConfigFileLocator handles the logic for finding configuration files
 type ConfigFileLocator struct {
-	fileManager *file.FileManager
+	fileManager *filemanager.FileManager
 	logger      zerolog.Logger
 }
 
 // NewConfigFileLocator creates a new ConfigFileLocator
 func NewConfigFileLocator(logger zerolog.Logger) *ConfigFileLocator {
 	return &ConfigFileLocator{
-		fileManager: file.NewFileManager(logger),
+		fileManager: filemanager.NewFileManager(logger),
 		logger:      logger,
 	}
 }

@@ -7,7 +7,7 @@ import (
 
 	"slices"
 
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
 )
@@ -125,12 +125,12 @@ func removeDuplicates(slice []string) []string {
 func (s *ScopeSettings) IsURLAllowed(urlString string) (bool, error) {
 	parsedURL, err := url.Parse(urlString)
 	if err != nil {
-		return false, errors.WrapError(err, "failed to parse URL for scope check")
+		return false, errorwrapper.WrapError(err, "failed to parse URL for scope check")
 	}
 
 	hostname := parsedURL.Hostname()
 	if hostname == "" {
-		return false, errors.NewValidationError("hostname", hostname, "hostname cannot be empty")
+		return false, errorwrapper.NewValidationError("hostname", hostname, "hostname cannot be empty")
 	}
 
 	if !s.checkHostnameScope(hostname) {

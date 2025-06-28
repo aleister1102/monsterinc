@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/rs/zerolog"
 	"golang.org/x/net/http2"
 )
@@ -61,7 +61,7 @@ func NewHTTPClient(config HTTPClientConfig, logger zerolog.Logger) (*HTTPClient,
 	if config.Proxy != "" {
 		proxyURL, err := url.Parse(config.Proxy)
 		if err != nil {
-			return nil, errors.WrapError(err, "failed to parse proxy URL")
+			return nil, errorwrapper.WrapError(err, "failed to parse proxy URL")
 		}
 		transport.Proxy = http.ProxyURL(proxyURL)
 		logger.Info().Str("proxy", config.Proxy).Msg("HTTP client configured with proxy")
@@ -111,7 +111,7 @@ func (c *HTTPClient) Do(req *HTTPRequest) (*HTTPResponse, error) {
 
 	httpReq, err := http.NewRequest(req.Method, req.URL, body)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to create HTTP request")
+		return nil, errorwrapper.WrapError(err, "failed to create HTTP request")
 	}
 
 	// Set context if provided
@@ -137,14 +137,14 @@ func (c *HTTPClient) Do(req *HTTPRequest) (*HTTPResponse, error) {
 	// Perform request
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
-		return nil, errors.WrapError(err, "HTTP request failed")
+		return nil, errorwrapper.WrapError(err, "HTTP request failed")
 	}
 	defer resp.Body.Close()
 
 	// Read response body
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to read response body")
+		return nil, errorwrapper.WrapError(err, "failed to read response body")
 	}
 
 	// Convert response
@@ -194,7 +194,7 @@ func (c *HTTPClient) SendDiscordNotification(ctx context.Context, webhookURL str
 func (c *HTTPClient) sendDiscordJSON(ctx context.Context, webhookURL string, payload interface{}) error {
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return errors.WrapError(err, "failed to marshal Discord payload")
+		return errorwrapper.WrapError(err, "failed to marshal Discord payload")
 	}
 
 	req := &HTTPRequest{
@@ -209,7 +209,7 @@ func (c *HTTPClient) sendDiscordJSON(ctx context.Context, webhookURL string, pay
 
 	resp, err := c.Do(req)
 	if err != nil {
-		return errors.WrapError(err, "failed to send Discord notification")
+		return errorwrapper.WrapError(err, "failed to send Discord notification")
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -277,7 +277,7 @@ func (c *HTTPClient) splitAndSendFile(ctx context.Context, webhookURL string, pa
 func (c *HTTPClient) createFileChunk(filePath string, chunkIndex int, chunkSize int64) (string, error) {
 	sourceFile, err := os.Open(filePath)
 	if err != nil {
-		return "", errors.WrapError(err, "failed to open source file")
+		return "", errorwrapper.WrapError(err, "failed to open source file")
 	}
 	defer sourceFile.Close()
 
@@ -292,20 +292,20 @@ func (c *HTTPClient) createFileChunk(filePath string, chunkIndex int, chunkSize 
 
 	chunkFile, err := os.Create(chunkPath)
 	if err != nil {
-		return "", errors.WrapError(err, "failed to create chunk file")
+		return "", errorwrapper.WrapError(err, "failed to create chunk file")
 	}
 	defer chunkFile.Close()
 
 	// Seek to chunk start position
 	startPos := int64(chunkIndex) * chunkSize
 	if _, err := sourceFile.Seek(startPos, 0); err != nil {
-		return "", errors.WrapError(err, "failed to seek to chunk position")
+		return "", errorwrapper.WrapError(err, "failed to seek to chunk position")
 	}
 
 	// Copy chunk data
 	limitedReader := io.LimitReader(sourceFile, chunkSize)
 	if _, err := io.Copy(chunkFile, limitedReader); err != nil {
-		return "", errors.WrapError(err, "failed to copy chunk data")
+		return "", errorwrapper.WrapError(err, "failed to copy chunk data")
 	}
 
 	return chunkPath, nil
@@ -333,7 +333,7 @@ func (c *HTTPClient) sendSingleFileChunk(ctx context.Context, webhookURL string,
 	// Check chunk file size to ensure it's within limits
 	fileInfo, err := os.Stat(chunkPath)
 	if err != nil {
-		return errors.WrapError(err, "failed to get chunk file info")
+		return errorwrapper.WrapError(err, "failed to get chunk file info")
 	}
 
 	const maxDiscordFileSize = 10 * 1024 * 1024 // 10MB in bytes
@@ -349,7 +349,7 @@ func (c *HTTPClient) sendDiscordMultipart(ctx context.Context, webhookURL string
 	// Check file size before attempting to send
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return errors.WrapError(err, "failed to get file info for Discord attachment")
+		return errorwrapper.WrapError(err, "failed to get file info for Discord attachment")
 	}
 
 	const maxDiscordFileSize = 10 * 1024 * 1024 // 10MB in bytes
@@ -369,31 +369,31 @@ func (c *HTTPClient) sendDiscordMultipartInternal(ctx context.Context, webhookUR
 	// Add JSON payload as form field
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return errors.WrapError(err, "failed to marshal Discord payload")
+		return errorwrapper.WrapError(err, "failed to marshal Discord payload")
 	}
 
 	if err := writer.WriteField("payload_json", string(jsonData)); err != nil {
-		return errors.WrapError(err, "failed to write payload_json field")
+		return errorwrapper.WrapError(err, "failed to write payload_json field")
 	}
 
 	// Add file attachment
 	file, err := os.Open(filePath)
 	if err != nil {
-		return errors.WrapError(err, "failed to open file for Discord attachment")
+		return errorwrapper.WrapError(err, "failed to open file for Discord attachment")
 	}
 	defer file.Close()
 
 	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
 	if err != nil {
-		return errors.WrapError(err, "failed to create form file")
+		return errorwrapper.WrapError(err, "failed to create form file")
 	}
 
 	if _, err := io.Copy(part, file); err != nil {
-		return errors.WrapError(err, "failed to copy file content")
+		return errorwrapper.WrapError(err, "failed to copy file content")
 	}
 
 	if err := writer.Close(); err != nil {
-		return errors.WrapError(err, "failed to close multipart writer")
+		return errorwrapper.WrapError(err, "failed to close multipart writer")
 	}
 
 	req := &HTTPRequest{
@@ -408,7 +408,7 @@ func (c *HTTPClient) sendDiscordMultipartInternal(ctx context.Context, webhookUR
 
 	resp, err := c.Do(req)
 	if err != nil {
-		return errors.WrapError(err, "failed to send Discord notification with attachment")
+		return errorwrapper.WrapError(err, "failed to send Discord notification with attachment")
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

@@ -135,7 +135,7 @@ func (rg *ReportGenerator) combineProbeResultsWithOldURLs(probeResults []httpxru
 	totalOldResults := 0
 	for _, urlDiffResult := range urlDiffResults {
 		for _, diffedURL := range urlDiffResult.Results {
-			if diffedURL.ProbeResult.URLStatus == string(models.StatusOld) {
+			if diffedURL.ProbeResult.URLStatus == string(differ.StatusOld) {
 				totalOldResults++
 			}
 		}
@@ -147,7 +147,7 @@ func (rg *ReportGenerator) combineProbeResultsWithOldURLs(probeResults []httpxru
 	// Add old URLs from diff results
 	for _, urlDiffResult := range urlDiffResults {
 		for _, diffedURL := range urlDiffResult.Results {
-			if diffedURL.ProbeResult.URLStatus == string(models.StatusOld) {
+			if diffedURL.ProbeResult.URLStatus == string(differ.StatusOld) {
 				allProbeResults = append(allProbeResults, diffedURL.ProbeResult)
 			}
 		}

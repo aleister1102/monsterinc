@@ -1,11 +1,11 @@
-package file
+package filemanager
 
 import (
 	"context"
 	"fmt"
 	"os"
 
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/rs/zerolog"
 )
 
@@ -38,10 +38,10 @@ func (fw *FileWriter) WriteFile(path string, data []byte, opts FileWriteOptions)
 	select {
 	case <-ctx.Done():
 		fw.logger.Warn().Str("path", path).Msg("File write cancelled due to context timeout")
-		return errors.WrapError(ctx.Err(), "file write operation cancelled")
+		return errorwrapper.WrapError(ctx.Err(), "file write operation cancelled")
 	case err := <-done:
 		if err != nil {
-			return errors.WrapError(err, fmt.Sprintf("failed to write file: %s", path))
+			return errorwrapper.WrapError(err, fmt.Sprintf("failed to write file: %s", path))
 		}
 	}
 

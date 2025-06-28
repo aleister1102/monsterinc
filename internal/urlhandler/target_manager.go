@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"os"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/rs/zerolog"
 )
 
@@ -32,7 +32,7 @@ func (tm *TargetManager) LoadAndSelectTargets(cliFile string) ([]Target, string,
 		// tm.logger.Info().Str("file", cliFile).Msg("Loading targets from command-line file option")
 		targets, err = tm.getTargetsFromFile(cliFile)
 		if err != nil {
-			return nil, source, common.WrapError(err, "failed to load URLs from file '"+cliFile+"'")
+			return nil, source, errorwrapper.WrapError(err, "failed to load URLs from file '"+cliFile+"'")
 		}
 		source = cliFile
 		tm.logger.Info().Int("count", len(targets)).Str("source", source).Msg("Loaded targets from command-line file")
@@ -45,7 +45,7 @@ func (tm *TargetManager) LoadAndSelectTargets(cliFile string) ([]Target, string,
 
 	// Validate that we have targets
 	if len(targets) == 0 {
-		return nil, source, common.NewError("no valid URLs found in source: %s", source)
+		return nil, source, errorwrapper.NewError("no valid URLs found in source: %s", source)
 	}
 
 	return targets, source, nil

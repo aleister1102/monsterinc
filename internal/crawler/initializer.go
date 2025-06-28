@@ -8,7 +8,7 @@ import (
 
 	"slices"
 
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/gocolly/colly/v2"
 )
@@ -94,7 +94,7 @@ func (cr *Crawler) setupScope() error {
 	)
 
 	if err != nil {
-		return errors.WrapError(err, "failed to initialize scope settings")
+		return errorwrapper.WrapError(err, "failed to initialize scope settings")
 	}
 
 	cr.scope = scope
@@ -118,7 +118,7 @@ func (cr *Crawler) extractRootHostname(seedURLs []string) string {
 func (cr *Crawler) setupCollector() error {
 	collector, err := cr.createCollector()
 	if err != nil {
-		return errors.WrapError(err, "failed to configure colly collector")
+		return errorwrapper.WrapError(err, "failed to configure colly collector")
 	}
 
 	cr.collector = collector
@@ -168,7 +168,7 @@ func (cr *Crawler) createCollector() (*colly.Collector, error) {
 	})
 
 	if err != nil {
-		return nil, errors.WrapError(err, "error setting up colly limit rule")
+		return nil, errorwrapper.WrapError(err, "error setting up colly limit rule")
 	}
 
 	return collector, nil

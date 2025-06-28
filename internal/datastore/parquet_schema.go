@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	stdtime "time"
 
-	"github.com/aleister1102/monsterinc/internal/common/time"
+	time "github.com/aleister1102/monsterinc/internal/common/timeutils"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 

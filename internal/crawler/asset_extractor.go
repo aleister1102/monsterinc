@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/PuerkitoBio/goquery"
@@ -146,7 +146,7 @@ func (hae *HTMLAssetExtractor) determineAssetTypeOptimized(tagName string, selec
 func (hae *HTMLAssetExtractor) parseHTML(htmlContent []byte) (*goquery.Document, error) {
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(htmlContent))
 	if err != nil {
-		return nil, errors.WrapError(err, "failed to parse HTML content")
+		return nil, errorwrapper.WrapError(err, "failed to parse HTML content")
 	}
 	return doc, nil
 }
