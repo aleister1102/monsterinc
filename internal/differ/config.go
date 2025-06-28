@@ -4,15 +4,15 @@ import (
 	"github.com/aleister1102/monsterinc/internal/models"
 )
 
-// URLComparerConfig holds configuration for URL comparison
-type URLComparerConfig struct {
+// URLDifferConfig holds configuration for URL comparison
+type URLDifferConfig struct {
 	EnableURLNormalization bool
 	CaseSensitive          bool
 }
 
-// DefaultURLComparerConfig returns default configuration
-func DefaultURLComparerConfig() URLComparerConfig {
-	return URLComparerConfig{
+// DefaultURLDifferConfig returns default configuration
+func DefaultURLDifferConfig() URLDifferConfig {
+	return URLDifferConfig{
 		EnableURLNormalization: false,
 		CaseSensitive:          true,
 	}

@@ -35,7 +35,7 @@ func TestURLDiffer_Compare_BothEmpty(t *testing.T) {
 	rootTarget := "http://example.com"
 	scanSessionID := "test-session"
 
-	diffResult, err := differ.Compare(currentProbes, rootTarget, scanSessionID)
+	diffResult, err := differ.Differentiate(currentProbes, rootTarget, scanSessionID)
 
 	require.NoError(t, err)
 	assert.Equal(t, rootTarget, diffResult.RootTargetURL)
@@ -58,7 +58,7 @@ func TestURLDiffer_Compare_OnlyNewResults(t *testing.T) {
 	rootTarget := "http://example.com"
 	scanSessionID := "test-session"
 
-	diffResult, err := differ.Compare(currentProbes, rootTarget, scanSessionID)
+	diffResult, err := differ.Differentiate(currentProbes, rootTarget, scanSessionID)
 
 	require.NoError(t, err)
 	assert.Equal(t, rootTarget, diffResult.RootTargetURL)
@@ -87,7 +87,7 @@ func TestURLDiffer_Compare_MixedResults(t *testing.T) {
 	rootTarget := "http://example.com"
 	scanSessionID := "test-session"
 
-	diffResult, err := differ.Compare(currentProbes, rootTarget, scanSessionID)
+	diffResult, err := differ.Differentiate(currentProbes, rootTarget, scanSessionID)
 
 	require.NoError(t, err)
 	assert.Equal(t, rootTarget, diffResult.RootTargetURL)
@@ -127,7 +127,7 @@ func TestURLDiffer_Compare_SameURLDifferentData(t *testing.T) {
 	rootTarget := "http://example.com"
 	scanSessionID := "test-session"
 
-	diffResult, err := differ.Compare(currentProbes, rootTarget, scanSessionID)
+	diffResult, err := differ.Differentiate(currentProbes, rootTarget, scanSessionID)
 
 	require.NoError(t, err)
 	assert.Len(t, diffResult.Results, 1)
@@ -158,7 +158,7 @@ func TestURLDiffer_Compare_PreserveOldestTimestamp(t *testing.T) {
 	rootTarget := "http://example.com"
 	scanSessionID := "test-session"
 
-	diffResult, err := differ.Compare(currentProbes, rootTarget, scanSessionID)
+	diffResult, err := differ.Differentiate(currentProbes, rootTarget, scanSessionID)
 
 	require.NoError(t, err)
 	require.Len(t, diffResult.Results, 1)
@@ -185,7 +185,7 @@ func TestURLDiffer_Compare_HandleZeroTimestamp(t *testing.T) {
 	rootTarget := "http://example.com"
 	scanSessionID := "test-session"
 
-	diffResult, err := differ.Compare(currentProbes, rootTarget, scanSessionID)
+	diffResult, err := differ.Differentiate(currentProbes, rootTarget, scanSessionID)
 
 	require.NoError(t, err)
 	require.Len(t, diffResult.Results, 1)
@@ -216,7 +216,7 @@ func TestURLDiffer_Compare_LargeDatasets(t *testing.T) {
 	rootTarget := "http://example.com"
 	scanSessionID := "test-session"
 
-	diffResult, err := differ.Compare(currentProbes, rootTarget, scanSessionID)
+	diffResult, err := differ.Differentiate(currentProbes, rootTarget, scanSessionID)
 
 	require.NoError(t, err)
 	assert.Equal(t, 1000, diffResult.New)
@@ -236,7 +236,7 @@ func TestURLDiffer_Compare_EmptyStrings(t *testing.T) {
 	rootTarget := "http://example.com"
 	scanSessionID := "test-session"
 
-	diffResult, err := differ.Compare(currentProbes, rootTarget, scanSessionID)
+	diffResult, err := differ.Differentiate(currentProbes, rootTarget, scanSessionID)
 
 	require.NoError(t, err)
 	assert.Len(t, diffResult.Results, 1)
@@ -260,7 +260,7 @@ func TestURLDiffer_Compare_DuplicateURLs(t *testing.T) {
 	rootTarget := "http://example.com"
 	scanSessionID := "test-session"
 
-	diffResult, err := differ.Compare(currentProbes, rootTarget, scanSessionID)
+	diffResult, err := differ.Differentiate(currentProbes, rootTarget, scanSessionID)
 
 	require.NoError(t, err)
 	assert.Len(t, diffResult.Results, 1)
@@ -302,7 +302,7 @@ func TestURLDiffer_Compare_ComplexProbeData(t *testing.T) {
 	rootTarget := "http://complex.com"
 	scanSessionID := "test-session"
 
-	diffResult, err := differ.Compare(currentProbes, rootTarget, scanSessionID)
+	diffResult, err := differ.Differentiate(currentProbes, rootTarget, scanSessionID)
 
 	require.NoError(t, err)
 	require.Len(t, diffResult.Results, 1)
