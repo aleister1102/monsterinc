@@ -2,6 +2,7 @@ package contextutils
 
 import (
 	"context"
+	"strings"
 
 	"slices"
 
@@ -54,13 +55,10 @@ func containsCancellationKeywords(message string) bool {
 		"canceled",
 	}
 
+	lowerMessage := strings.ToLower(message)
 	for _, keyword := range keywords {
-		if len(message) >= len(keyword) {
-			for i := 0; i <= len(message)-len(keyword); i++ {
-				if message[i:i+len(keyword)] == keyword {
-					return true
-				}
-			}
+		if strings.Contains(lowerMessage, keyword) {
+			return true
 		}
 	}
 	return false

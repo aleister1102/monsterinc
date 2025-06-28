@@ -17,7 +17,19 @@ func NewScanSummaryValidator() *ScanSummaryValidator {
 // ValidateSummary validates the scan summary data
 func (ssv *ScanSummaryValidator) ValidateSummary(summary ScanSummaryData) error {
 	if summary.ScanSessionID == "" {
-		return errorwrapper.NewValidationError("scan_session_id", summary.ScanSessionID, "scan session ID cannot be empty")
+		return errorwrapper.NewValidationError("scan_session_id", summary.ScanSessionID, "scan session ID is required")
+	}
+
+	if summary.TargetSource == "" {
+		return errorwrapper.NewValidationError("target_source", summary.TargetSource, "target source is required")
+	}
+
+	if summary.ScanMode == "" {
+		return errorwrapper.NewValidationError("scan_mode", summary.ScanMode, "scan mode is required")
+	}
+
+	if summary.Status == "" {
+		return errorwrapper.NewValidationError("status", summary.Status, "status is required")
 	}
 
 	if summary.TotalTargets < 0 {

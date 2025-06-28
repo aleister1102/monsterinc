@@ -26,7 +26,7 @@ var (
 // WrapError wraps an error with additional context information
 func WrapError(err error, message string) error {
 	if err == nil {
-		return nil
+		return fmt.Errorf("%s: <nil>", message)
 	}
 	return fmt.Errorf("%s: %w", message, err)
 }
@@ -44,7 +44,7 @@ type ValidationError struct {
 }
 
 func (e *ValidationError) Error() string {
-	return fmt.Sprintf("validation failed for field '%s': %s (value: %v)", e.Field, e.Message, e.Value)
+	return fmt.Sprintf("validation error: field '%s' with value '%v': %s", e.Field, e.Value, e.Message)
 }
 
 // NewValidationError creates a new validation error
@@ -64,10 +64,7 @@ type NetworkError struct {
 }
 
 func (e *NetworkError) Error() string {
-	if e.Wrapped != nil {
-		return fmt.Sprintf("network error for '%s': %s: %v", e.URL, e.Reason, e.Wrapped)
-	}
-	return fmt.Sprintf("network error for '%s': %s", e.URL, e.Reason)
+	return fmt.Sprintf("network error for URL '%s': %s", e.URL, e.Reason)
 }
 
 func (e *NetworkError) Unwrap() error {
@@ -92,7 +89,7 @@ type HTTPError struct {
 
 func (e *HTTPError) Error() string {
 	if e.URL != "" {
-		return fmt.Sprintf("HTTP %d error for '%s': %s", e.StatusCode, e.URL, e.Message)
+		return fmt.Sprintf("HTTP %d error for URL '%s': %s", e.StatusCode, e.URL, e.Message)
 	}
 	return fmt.Sprintf("HTTP %d error: %s", e.StatusCode, e.Message)
 }

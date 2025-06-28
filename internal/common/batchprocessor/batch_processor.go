@@ -54,11 +54,15 @@ type ProcessFunc func(ctx context.Context, batch []string, batchIndex int) error
 
 // ShouldUseBatching determines if batching should be used based on input size
 func (bp *BatchProcessor) ShouldUseBatching(inputSize int) bool {
-	return inputSize > bp.config.ThresholdSize
+	return inputSize >= bp.config.ThresholdSize
 }
 
 // SplitIntoBatches splits a slice of strings into batches
 func (bp *BatchProcessor) SplitIntoBatches(input []string) [][]string {
+	if len(input) == 0 {
+		return [][]string{}
+	}
+
 	if len(input) <= bp.config.BatchSize {
 		return [][]string{input}
 	}
@@ -248,14 +252,11 @@ func (bp *BatchProcessor) processConcurrently(
 // GetBatchingStats returns statistics about batch processing
 func (bp *BatchProcessor) GetBatchingStats(inputSize int) (batches int, remainingItems int) {
 	if !bp.ShouldUseBatching(inputSize) {
-		return 1, 0
+		return 1, inputSize
 	}
 
 	batches = (inputSize + bp.config.BatchSize - 1) / bp.config.BatchSize
 	remainingItems = inputSize % bp.config.BatchSize
-	if remainingItems == 0 && inputSize > 0 {
-		remainingItems = bp.config.BatchSize
-	}
 
 	return batches, remainingItems
 }

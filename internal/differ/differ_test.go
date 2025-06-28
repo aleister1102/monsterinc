@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/rs/zerolog"
@@ -12,11 +13,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func createMockParquetReader() *datastore.ParquetReader {
+	storageConfig := &config.StorageConfig{
+		ParquetBasePath: "/tmp/test", // Mock path for tests
+	}
+	logger := zerolog.Nop()
+	return datastore.NewParquetReader(storageConfig, logger)
+}
+
 func TestNewUrlDiffer(t *testing.T) {
 	logger := zerolog.Nop()
-
-	// Create mock parquet reader
-	mockParquetReader := &datastore.ParquetReader{} // This may need adjustment based on actual constructor
+	mockParquetReader := createMockParquetReader()
 
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 
@@ -26,7 +33,7 @@ func TestNewUrlDiffer(t *testing.T) {
 
 func TestURLDiffer_Compare_BothEmpty(t *testing.T) {
 	logger := zerolog.Nop()
-	mockParquetReader := &datastore.ParquetReader{}
+	mockParquetReader := createMockParquetReader()
 
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
@@ -46,7 +53,7 @@ func TestURLDiffer_Compare_BothEmpty(t *testing.T) {
 
 func TestURLDiffer_Compare_OnlyNewResults(t *testing.T) {
 	logger := zerolog.Nop()
-	mockParquetReader := &datastore.ParquetReader{}
+	mockParquetReader := createMockParquetReader()
 
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
@@ -75,7 +82,7 @@ func TestURLDiffer_Compare_OnlyNewResults(t *testing.T) {
 
 func TestURLDiffer_Compare_MixedResults(t *testing.T) {
 	logger := zerolog.Nop()
-	mockParquetReader := &datastore.ParquetReader{}
+	mockParquetReader := createMockParquetReader()
 
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
@@ -108,7 +115,7 @@ func TestURLDiffer_Compare_MixedResults(t *testing.T) {
 
 func TestURLDiffer_Compare_SameURLDifferentData(t *testing.T) {
 	logger := zerolog.Nop()
-	mockParquetReader := &datastore.ParquetReader{}
+	mockParquetReader := createMockParquetReader()
 
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
@@ -141,7 +148,7 @@ func TestURLDiffer_Compare_SameURLDifferentData(t *testing.T) {
 
 func TestURLDiffer_Compare_PreserveOldestTimestamp(t *testing.T) {
 	logger := zerolog.Nop()
-	mockParquetReader := &datastore.ParquetReader{}
+	mockParquetReader := createMockParquetReader()
 
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
@@ -170,7 +177,7 @@ func TestURLDiffer_Compare_PreserveOldestTimestamp(t *testing.T) {
 
 func TestURLDiffer_Compare_HandleZeroTimestamp(t *testing.T) {
 	logger := zerolog.Nop()
-	mockParquetReader := &datastore.ParquetReader{}
+	mockParquetReader := createMockParquetReader()
 
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
@@ -197,7 +204,7 @@ func TestURLDiffer_Compare_HandleZeroTimestamp(t *testing.T) {
 
 func TestURLDiffer_Compare_LargeDatasets(t *testing.T) {
 	logger := zerolog.Nop()
-	mockParquetReader := &datastore.ParquetReader{}
+	mockParquetReader := createMockParquetReader()
 
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
@@ -225,7 +232,7 @@ func TestURLDiffer_Compare_LargeDatasets(t *testing.T) {
 
 func TestURLDiffer_Compare_EmptyStrings(t *testing.T) {
 	logger := zerolog.Nop()
-	mockParquetReader := &datastore.ParquetReader{}
+	mockParquetReader := createMockParquetReader()
 
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
@@ -248,7 +255,7 @@ func TestURLDiffer_Compare_EmptyStrings(t *testing.T) {
 
 func TestURLDiffer_Compare_DuplicateURLs(t *testing.T) {
 	logger := zerolog.Nop()
-	mockParquetReader := &datastore.ParquetReader{}
+	mockParquetReader := createMockParquetReader()
 
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
@@ -273,7 +280,7 @@ func TestURLDiffer_Compare_DuplicateURLs(t *testing.T) {
 
 func TestURLDiffer_Compare_ComplexProbeData(t *testing.T) {
 	logger := zerolog.Nop()
-	mockParquetReader := &datastore.ParquetReader{}
+	mockParquetReader := createMockParquetReader()
 
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
