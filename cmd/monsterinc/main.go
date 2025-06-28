@@ -14,7 +14,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/logger"
-	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/scanner"
 	"github.com/aleister1102/monsterinc/internal/scheduler"
@@ -208,11 +207,11 @@ func setupSignalHandling(
 		if currentActiveScanID != "" && notificationHelper != nil {
 			// Check if notification already sent to avoid duplicates
 			if !getAndSetInterruptNotificationSent() {
-				interruptSummary := models.GetDefaultScanSummaryData()
+				interruptSummary := notifier.GetDefaultScanSummaryData()
 				interruptSummary.ScanSessionID = currentActiveScanID
 				interruptSummary.ScanMode = gCfg.Mode
 				interruptSummary.TargetSource = "global_interrupt"
-				interruptSummary.Status = string(models.ScanStatusInterrupted)
+				interruptSummary.Status = string(notifier.ScanStatusInterrupted)
 				interruptSummary.ErrorMessages = []string{fmt.Sprintf("Scan interrupted by user signal (%s)", sig.String())}
 				interruptSummary.Component = "SignalHandler"
 
@@ -229,10 +228,10 @@ func setupSignalHandling(
 		if !notificationSent && notificationHelper != nil {
 			zLogger.Info().Msg("No active scan or monitor found, sending general interrupt notification")
 
-			generalInterruptSummary := models.GetDefaultScanSummaryData()
+			generalInterruptSummary := notifier.GetDefaultScanSummaryData()
 			generalInterruptSummary.ScanMode = gCfg.Mode
 			generalInterruptSummary.TargetSource = "system_interrupt"
-			generalInterruptSummary.Status = string(models.ScanStatusInterrupted)
+			generalInterruptSummary.Status = string(notifier.ScanStatusInterrupted)
 			generalInterruptSummary.ErrorMessages = []string{fmt.Sprintf("MonsterInc service interrupted by user signal (%s)", sig.String())}
 			generalInterruptSummary.Component = "SystemService"
 			generalInterruptSummary.ScanSessionID = fmt.Sprintf("system-%s", time.Now().Format("20060102-150405"))
@@ -322,7 +321,7 @@ func runOnetimeScan(
 	if err != nil {
 		baseLogger.Error().Err(err).Msg("Failed to load seed URLs for onetime scan.")
 
-		criticalErrSummary := models.GetDefaultScanSummaryData()
+		criticalErrSummary := notifier.GetDefaultScanSummaryData()
 		criticalErrSummary.ScanMode = gCfg.Mode
 		criticalErrSummary.TargetSource = scanTargetsFile
 		if criticalErrSummary.TargetSource == "" {
@@ -337,9 +336,9 @@ func runOnetimeScan(
 		baseLogger.Info().Msg("Onetime scan: No seed URLs loaded, scan will not run.")
 
 		if targetSource != "" && targetSource != "no_input" {
-			noTargetsSummary := models.GetDefaultScanSummaryData()
+			noTargetsSummary := notifier.GetDefaultScanSummaryData()
 			noTargetsSummary.TargetSource = targetSource
-			noTargetsSummary.Status = string(models.ScanStatusNoTargets)
+			noTargetsSummary.Status = string(notifier.ScanStatusNoTargets)
 			noTargetsSummary.ErrorMessages = []string{"No URLs provided or loaded."}
 			notificationHelper.SendScanCompletionNotification(context.Background(), noTargetsSummary, notifier.ScanServiceNotification, nil)
 		} else {
@@ -367,7 +366,7 @@ func runOnetimeScan(
 	}
 
 	// Prepare scan summary data for start notification
-	startSummary := models.GetDefaultScanSummaryData()
+	startSummary := notifier.GetDefaultScanSummaryData()
 	startSummary.ScanSessionID = scanSessionID
 	startSummary.TargetSource = targetSource
 	startSummary.ScanMode = scanMode
@@ -392,7 +391,7 @@ func runOnetimeScan(
 	// Clear active scan session when done
 	setActiveScanSessionID("")
 
-	var summaryData models.ScanSummaryData
+	var summaryData notifier.ScanSummaryData
 	var reportFilePaths []string
 
 	if batchResult != nil {
@@ -409,13 +408,13 @@ func runOnetimeScan(
 		}
 	} else {
 		// Fallback to default summary if batch result is nil
-		summaryData = models.GetDefaultScanSummaryData()
+		summaryData = notifier.GetDefaultScanSummaryData()
 		summaryData.ScanSessionID = scanSessionID
 		summaryData.TargetSource = targetSource
 		summaryData.ScanMode = scanMode
 		summaryData.Targets = scanUrls
 		summaryData.TotalTargets = len(scanTargets)
-		summaryData.Status = string(models.ScanStatusFailed)
+		summaryData.Status = string(notifier.ScanStatusFailed)
 		if workflowErr != nil {
 			summaryData.ErrorMessages = []string{workflowErr.Error()}
 		}
@@ -423,10 +422,10 @@ func runOnetimeScan(
 
 	// Handle workflow error or context cancellation
 	if workflowErr != nil || ctx.Err() != nil {
-		finalStatus := string(models.ScanStatusFailed)
+		finalStatus := string(notifier.ScanStatusFailed)
 		if errors.Is(workflowErr, context.Canceled) || errors.Is(workflowErr, context.DeadlineExceeded) || ctx.Err() == context.Canceled {
 			baseLogger.Info().Str("scanSessionID", scanSessionID).Msg("Onetime scan workflow interrupted.")
-			finalStatus = string(models.ScanStatusInterrupted)
+			finalStatus = string(notifier.ScanStatusInterrupted)
 			if !common.ContainsCancellationError(summaryData.ErrorMessages) { // summaryData is returned by ExecuteSingleScanWorkflowWithReporting
 				summaryData.ErrorMessages = append(summaryData.ErrorMessages, "Onetime scan interrupted by signal or context cancellation.")
 			}
@@ -513,7 +512,7 @@ func runAutomatedScan(
 		notificationHelper,
 	)
 	if schedulerErr != nil {
-		criticalErrSummary := models.GetDefaultScanSummaryData()
+		criticalErrSummary := notifier.GetDefaultScanSummaryData()
 		criticalErrSummary.Component = "SchedulerInitialization"
 		criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Failed to initialize scheduler: %v", schedulerErr)}
 		notificationHelper.SendScanCompletionNotification(context.Background(), criticalErrSummary, notifier.ScanServiceNotification, nil)
@@ -527,7 +526,7 @@ func runAutomatedScan(
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			zLogger.Info().Msg("Scheduler stopped due to context cancellation (interrupt).")
 		} else {
-			criticalErrSummary := models.GetDefaultScanSummaryData()
+			criticalErrSummary := notifier.GetDefaultScanSummaryData()
 			criticalErrSummary.Component = "SchedulerRuntime"
 			criticalErrSummary.ErrorMessages = []string{fmt.Sprintf("Scheduler error: %v", err)}
 			notificationHelper.SendScanCompletionNotification(context.Background(), criticalErrSummary, notifier.ScanServiceNotification, nil)

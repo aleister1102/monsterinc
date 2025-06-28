@@ -4,7 +4,9 @@ import (
 	"context"
 
 	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
@@ -358,4 +360,45 @@ func (dsp *DiffStorageProcessor) extractHostnameFromURL(urlStr string) string {
 		return hostname
 	}
 	return ""
+}
+
+type DiffInput struct {
+	Ctx            context.Context
+	RootTarget     string
+	ScanSessionID  string
+	CurrentResults []httpxrunner.ProbeResult
+	URLDiffer      differ.URLDiffer
+}
+
+type DiffOutput struct {
+	URLDiffResults      map[string]differ.URLDiffResult
+	ContentDiffResults  []differ.ContentDiffResult
+	Error               error
+	RecordsToStore      []datastore.FileHistoryRecord
+	NotificationsToSend []string
+}
+
+func (dsp *DiffStorageProcessor) processURLDiff(input DiffInput) (*differ.URLDiffResult, error) {
+	convertedProbes, err := dsp.convertToURLDifferProbes(input.CurrentResults)
+	if err != nil {
+		return nil, err
+	}
+
+	urlDiffResult, err := input.URLDiffer.Differentiate(convertedProbes, input.RootTarget, input.ScanSessionID)
+	if err != nil {
+		dsp.logger.Warn().Err(err).Str("root_target", input.RootTarget).Msg("URL diffing failed")
+		return nil, err
+	}
+
+	return urlDiffResult, nil
+}
+
+func (dsp *DiffStorageProcessor) convertToURLDifferProbes(probeResults []httpxrunner.ProbeResult) ([]differ.Probe, error) {
+	probes := make([]differ.Probe, len(probeResults))
+	for i, pr := range probeResults {
+		probes[i] = differ.Probe{
+			URL: pr.FinalURL,
+		}
+	}
+	return probes, nil
 }

@@ -3,7 +3,7 @@ package config
 import (
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/batchprocessor"
 )
 
 // ScanBatchConfig defines configuration for scan batch processing
@@ -26,12 +26,12 @@ func NewDefaultScanBatchConfig() ScanBatchConfig {
 
 // BatchConfig interface for converting to common.BatchProcessorConfig
 type BatchConfig interface {
-	ToBatchProcessorConfig() common.BatchProcessorConfig
+	ToBatchProcessorConfig() batchprocessor.BatchProcessorConfig
 }
 
 // ToBatchProcessorConfig converts ScanBatchConfig to common.BatchProcessorConfig
-func (sbc ScanBatchConfig) ToBatchProcessorConfig() common.BatchProcessorConfig {
-	return common.BatchProcessorConfig{
+func (sbc ScanBatchConfig) ToBatchProcessorConfig() batchprocessor.BatchProcessorConfig {
+	return batchprocessor.BatchProcessorConfig{
 		BatchSize:          sbc.BatchSize,
 		MaxConcurrentBatch: sbc.MaxConcurrentBatch,
 		BatchTimeout:       time.Duration(sbc.BatchTimeoutMins) * time.Minute,

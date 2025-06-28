@@ -3,7 +3,7 @@ package differ
 import (
 	"strings"
 
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 )
 
@@ -20,14 +20,14 @@ func NewURLMapper(config URLDifferConfig) *URLMapper {
 }
 
 // CreateMaps creates lookup maps from probe result slices
-func (um *URLMapper) CreateMaps(historicalProbes []models.ProbeResult, currentProbes []*models.ProbeResult) URLMaps {
-	historicalURLMap := make(map[string]models.ProbeResult)
+func (um *URLMapper) CreateMaps(historicalProbes []httpxrunner.ProbeResult, currentProbes []*httpxrunner.ProbeResult) URLMaps {
+	historicalURLMap := make(map[string]httpxrunner.ProbeResult)
 	for _, p := range historicalProbes {
 		key := um.getURLKey(p.InputURL)
 		historicalURLMap[key] = p
 	}
 
-	currentURLMap := make(map[string]models.ProbeResult)
+	currentURLMap := make(map[string]httpxrunner.ProbeResult)
 	for _, p := range currentProbes {
 		key := um.getURLKey(p.InputURL)
 		currentURLMap[key] = *p
@@ -57,4 +57,3 @@ func (um *URLMapper) getURLKey(url string) string {
 
 	return key
 }
-

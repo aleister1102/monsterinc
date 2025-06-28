@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/rs/zerolog"
 )
 
@@ -21,12 +21,12 @@ func NewRecordTransformer(logger zerolog.Logger) *RecordTransformer {
 }
 
 // TransformToParquetResult converts a models.ProbeResult to a models.ParquetProbeResult
-func (rt *RecordTransformer) TransformToParquetResult(pr models.ProbeResult, scanTime time.Time, scanSessionID string) models.ParquetProbeResult {
+func (rt *RecordTransformer) TransformToParquetResult(pr httpxrunner.ProbeResult, scanTime time.Time, scanSessionID string) ParquetProbeResult {
 	headersJSON := rt.marshalHeaders(pr.Headers, pr.InputURL)
 	techNames := rt.extractTechnologyNames(pr.Technologies)
 	firstSeen := rt.determineFirstSeenTimestamp(pr.OldestScanTimestamp, scanTime)
 
-	return models.ParquetProbeResult{
+	return ParquetProbeResult{
 		OriginalURL:   pr.InputURL,
 		FinalURL:      StringPtrOrNil(pr.FinalURL),
 		StatusCode:    Int32PtrOrNilZero(int32(pr.StatusCode)),
@@ -44,8 +44,8 @@ func (rt *RecordTransformer) TransformToParquetResult(pr models.ProbeResult, sca
 		DiffStatus:         StringPtrOrNil(pr.URLStatus),
 		ScanSessionID:      StringPtrOrNil(scanSessionID),
 		ScanTimestamp:      scanTime.UnixMilli(),
-		FirstSeenTimestamp: models.TimePtrToUnixMilliOptional(firstSeen),
-		LastSeenTimestamp:  models.TimePtrToUnixMilliOptional(scanTime),
+		FirstSeenTimestamp: TimePtrToUnixMilliOptional(firstSeen),
+		LastSeenTimestamp:  TimePtrToUnixMilliOptional(scanTime),
 	}
 }
 
@@ -66,7 +66,7 @@ func (rt *RecordTransformer) marshalHeaders(headers map[string]string, inputURL 
 }
 
 // extractTechnologyNames extracts technology names from Technology slice
-func (rt *RecordTransformer) extractTechnologyNames(technologies []models.Technology) []string {
+func (rt *RecordTransformer) extractTechnologyNames(technologies []httpxrunner.Technology) []string {
 	var techNames []string
 	for _, tech := range technologies {
 		techNames = append(techNames, tech.Name)

@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/differ"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/reporter"
 	"github.com/rs/zerolog"
 )
@@ -28,28 +29,25 @@ func NewReportGenerator(config *config.ReporterConfig, logger zerolog.Logger) *R
 
 // ReportGenerationInput contains information needed to generate reports
 type ReportGenerationInput struct {
-	ProbeResults   []models.ProbeResult
-	URLDiffResults map[string]models.URLDiffResult
+	ProbeResults   []httpxrunner.ProbeResult
+	URLDiffResults map[string]differ.URLDiffResult
 	ScanSessionID  string
-	ShouldGenerate bool // Determines whether to generate reports
 }
 
 // NewReportGenerationInput creates input for report generation
-func NewReportGenerationInput(probeResults []models.ProbeResult, scanSessionID string) *ReportGenerationInput {
+func NewReportGenerationInput(probeResults []httpxrunner.ProbeResult, scanSessionID string) *ReportGenerationInput {
 	return &ReportGenerationInput{
-		ProbeResults:   probeResults,
-		ScanSessionID:  scanSessionID,
-		ShouldGenerate: true,
+		ProbeResults:  probeResults,
+		ScanSessionID: scanSessionID,
 	}
 }
 
 // NewReportGenerationInputWithDiff creates input for report generation including URL diff results
-func NewReportGenerationInputWithDiff(probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, scanSessionID string) *ReportGenerationInput {
+func NewReportGenerationInputWithDiff(probeResults []httpxrunner.ProbeResult, urlDiffResults map[string]differ.URLDiffResult, scanSessionID string) *ReportGenerationInput {
 	return &ReportGenerationInput{
 		ProbeResults:   probeResults,
 		URLDiffResults: urlDiffResults,
 		ScanSessionID:  scanSessionID,
-		ShouldGenerate: true,
 	}
 }
 
@@ -100,13 +98,13 @@ func (rg *ReportGenerator) buildBaseReportPath(scanSessionID string) string {
 }
 
 // convertToPointersOptimized converts ProbeResult slice to pointer slice efficiently
-func (rg *ReportGenerator) convertToPointersOptimized(probeResults []models.ProbeResult) []*models.ProbeResult {
+func (rg *ReportGenerator) convertToPointersOptimized(probeResults []httpxrunner.ProbeResult) []*httpxrunner.ProbeResult {
 	if len(probeResults) == 0 {
 		return nil
 	}
 
 	// Pre-allocate with exact capacity
-	probeResultsPtr := make([]*models.ProbeResult, len(probeResults))
+	probeResultsPtr := make([]*httpxrunner.ProbeResult, len(probeResults))
 	for i := range probeResults {
 		probeResultsPtr[i] = &probeResults[i]
 	}
@@ -129,7 +127,10 @@ func (rg *ReportGenerator) logReportGeneration(scanSessionID string, reportPaths
 }
 
 // combineProbeResultsWithOldURLs combines current scan results with old URLs from diff results
-func (rg *ReportGenerator) combineProbeResultsWithOldURLs(probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult) []models.ProbeResult {
+func (rg *ReportGenerator) combineProbeResultsWithOldURLs(probeResults []httpxrunner.ProbeResult, urlDiffResults map[string]differ.URLDiffResult) []httpxrunner.ProbeResult {
+	if len(urlDiffResults) == 0 {
+		return probeResults
+	}
 	// Calculate total capacity for pre-allocation
 	totalOldResults := 0
 	for _, urlDiffResult := range urlDiffResults {
@@ -140,7 +141,7 @@ func (rg *ReportGenerator) combineProbeResultsWithOldURLs(probeResults []models.
 		}
 	}
 
-	allProbeResults := make([]models.ProbeResult, 0, len(probeResults)+totalOldResults)
+	allProbeResults := make([]httpxrunner.ProbeResult, 0, len(probeResults)+totalOldResults)
 	allProbeResults = append(allProbeResults, probeResults...)
 
 	// Add old URLs from diff results
@@ -153,4 +154,19 @@ func (rg *ReportGenerator) combineProbeResultsWithOldURLs(probeResults []models.
 	}
 
 	return allProbeResults
+}
+
+func (rg *ReportGenerator) getReportTimestamp(probeResults []httpxrunner.ProbeResult) string {
+	if len(probeResults) == 0 {
+		return ""
+	}
+	// Implementation of getReportTimestamp method
+	return ""
+}
+
+func (rg *ReportGenerator) getReportRootURL(probeResults []httpxrunner.ProbeResult) string {
+	if len(probeResults) > 0 {
+		return probeResults[0].RootTargetURL
+	}
+	return ""
 }

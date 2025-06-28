@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/datastore"
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +31,7 @@ func TestURLDiffer_Compare_BothEmpty(t *testing.T) {
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
 
-	currentProbes := []*models.ProbeResult{}
+	currentProbes := []*httpxrunner.ProbeResult{}
 	rootTarget := "http://example.com"
 	scanSessionID := "test-session"
 
@@ -51,7 +51,7 @@ func TestURLDiffer_Compare_OnlyNewResults(t *testing.T) {
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
 
-	currentProbes := []*models.ProbeResult{
+	currentProbes := []*httpxrunner.ProbeResult{
 		{InputURL: "http://example.com", StatusCode: 200},
 		{InputURL: "http://test.com", StatusCode: 404},
 	}
@@ -68,7 +68,7 @@ func TestURLDiffer_Compare_OnlyNewResults(t *testing.T) {
 
 	// Verify all results are marked as new
 	for _, result := range diffResult.Results {
-		assert.Equal(t, string(models.StatusNew), result.ProbeResult.URLStatus)
+		assert.Equal(t, string(StatusNew), result.ProbeResult.URLStatus)
 		assert.Contains(t, []string{"http://example.com", "http://test.com"}, result.ProbeResult.InputURL)
 	}
 }
@@ -80,7 +80,7 @@ func TestURLDiffer_Compare_MixedResults(t *testing.T) {
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
 
-	currentProbes := []*models.ProbeResult{
+	currentProbes := []*httpxrunner.ProbeResult{
 		{InputURL: "http://existing.com", StatusCode: 200, Title: "New Title"},
 		{InputURL: "http://new.com", StatusCode: 201},
 	}
@@ -94,7 +94,7 @@ func TestURLDiffer_Compare_MixedResults(t *testing.T) {
 	assert.Len(t, diffResult.Results, 2)
 
 	// Find and verify each result type
-	var newResult *models.DiffedURL
+	var newResult *DiffedURL
 	for i, result := range diffResult.Results {
 		if result.ProbeResult.InputURL == "http://new.com" {
 			newResult = &diffResult.Results[i]
@@ -102,7 +102,7 @@ func TestURLDiffer_Compare_MixedResults(t *testing.T) {
 	}
 
 	require.NotNil(t, newResult)
-	assert.Equal(t, string(models.StatusNew), newResult.ProbeResult.URLStatus)
+	assert.Equal(t, string(StatusNew), newResult.ProbeResult.URLStatus)
 	assert.Equal(t, 201, newResult.ProbeResult.StatusCode)
 }
 
@@ -115,7 +115,7 @@ func TestURLDiffer_Compare_SameURLDifferentData(t *testing.T) {
 
 	oldTime := time.Now().Add(-24 * time.Hour)
 
-	currentProbes := []*models.ProbeResult{
+	currentProbes := []*httpxrunner.ProbeResult{
 		{
 			InputURL:            "http://example.com",
 			StatusCode:          404,
@@ -148,7 +148,7 @@ func TestURLDiffer_Compare_PreserveOldestTimestamp(t *testing.T) {
 
 	veryOldTime := time.Now().Add(-72 * time.Hour)
 
-	currentProbes := []*models.ProbeResult{
+	currentProbes := []*httpxrunner.ProbeResult{
 		{
 			InputURL:            "http://example.com",
 			StatusCode:          200,
@@ -175,7 +175,7 @@ func TestURLDiffer_Compare_HandleZeroTimestamp(t *testing.T) {
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
 
-	currentProbes := []*models.ProbeResult{
+	currentProbes := []*httpxrunner.ProbeResult{
 		{
 			InputURL:            "http://example.com",
 			StatusCode:          200,
@@ -203,11 +203,11 @@ func TestURLDiffer_Compare_LargeDatasets(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create large datasets to test performance
-	currentProbes := make([]*models.ProbeResult, 1000)
+	currentProbes := make([]*httpxrunner.ProbeResult, 1000)
 
 	for i := 0; i < 1000; i++ {
 		// All URLs are new (no historical data in this test)
-		currentProbes[i] = &models.ProbeResult{
+		currentProbes[i] = &httpxrunner.ProbeResult{
 			InputURL:   fmt.Sprintf("http://new%d.com", i),
 			StatusCode: 201,
 		}
@@ -230,7 +230,7 @@ func TestURLDiffer_Compare_EmptyStrings(t *testing.T) {
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
 
-	currentProbes := []*models.ProbeResult{
+	currentProbes := []*httpxrunner.ProbeResult{
 		{InputURL: "", StatusCode: 200},
 	}
 	rootTarget := "http://example.com"
@@ -254,7 +254,7 @@ func TestURLDiffer_Compare_DuplicateURLs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test with duplicate URLs in the same dataset
-	currentProbes := []*models.ProbeResult{
+	currentProbes := []*httpxrunner.ProbeResult{
 		{InputURL: "http://example.com", StatusCode: 404, Title: "New"},
 	}
 	rootTarget := "http://example.com"
@@ -278,7 +278,7 @@ func TestURLDiffer_Compare_ComplexProbeData(t *testing.T) {
 	differ, err := NewUrlDiffer(mockParquetReader, logger)
 	require.NoError(t, err)
 
-	currentProbes := []*models.ProbeResult{
+	currentProbes := []*httpxrunner.ProbeResult{
 		{
 			InputURL:      "http://complex.com",
 			FinalURL:      "https://complex.com",
@@ -288,7 +288,7 @@ func TestURLDiffer_Compare_ComplexProbeData(t *testing.T) {
 			Title:         "New Complex Site",
 			WebServer:     "nginx/1.20.0",
 			IPs:           []string{"1.2.3.4", "5.6.7.8"},
-			Technologies: []models.Technology{
+			Technologies: []httpxrunner.Technology{
 				{Name: "nginx", Version: "1.20.0"},
 				{Name: "react", Version: "17.0.0"},
 			},

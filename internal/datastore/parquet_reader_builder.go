@@ -1,7 +1,7 @@
 package datastore
 
 import (
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/file"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/rs/zerolog"
 )
@@ -39,7 +39,7 @@ func (b *ParquetReaderBuilder) Build() (*ParquetReader, error) {
 		b.logger.Warn().Msg("StorageConfig or ParquetBasePath is not properly configured")
 	}
 
-	fileManager := common.NewFileManager(b.logger)
+	fileManager := file.NewFileManager(b.logger)
 
 	return &ParquetReader{
 		storageConfig: b.storageConfig,

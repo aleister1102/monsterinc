@@ -9,7 +9,6 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/logger"
-	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/scanner"
 	"github.com/rs/zerolog"
@@ -126,7 +125,7 @@ func (s *Scheduler) executeScanCycle(
 	ctx context.Context,
 	scanSessionID string,
 	predeterminedTargetSource string,
-) (models.ScanSummaryData, []string, error) {
+) (notifier.ScanSummaryData, []string, error) {
 	startTime := time.Now()
 
 	// Track active scan session for interrupt handling
@@ -144,7 +143,7 @@ func (s *Scheduler) executeScanCycle(
 	// Build base summary
 	baseSummary, err := s.buildBaseScanSummary(scanSessionID, predeterminedTargetSource)
 	if err != nil {
-		return models.ScanSummaryData{}, nil, err
+		return notifier.ScanSummaryData{}, nil, err
 	}
 
 	// Load targets
@@ -154,13 +153,13 @@ func (s *Scheduler) executeScanCycle(
 	}
 
 	// Build and send scan start notification
-	startSummary := models.GetDefaultScanSummaryData()
+	startSummary := notifier.GetDefaultScanSummaryData()
 	startSummary.ScanSessionID = scanSessionID
 	startSummary.TargetSource = targetSource
 	startSummary.ScanMode = "automated"
 	startSummary.Targets = htmlURLs
 	startSummary.TotalTargets = len(htmlURLs)
-	startSummary.Status = string(models.ScanStatusStarted)
+	startSummary.Status = string(notifier.ScanStatusStarted)
 	startSummary.CycleMinutes = s.globalConfig.SchedulerConfig.CycleMinutes
 
 	s.logger.Info().
@@ -187,10 +186,10 @@ func (s *Scheduler) executeScanCycle(
 func (s *Scheduler) executeSchedulerBatchScan(
 	ctx context.Context,
 	scanSessionID string,
-	baseSummary models.ScanSummaryData,
+	baseSummary notifier.ScanSummaryData,
 	dbScanID int64,
 	scanLogger zerolog.Logger,
-) (models.ScanSummaryData, []string, error) {
+) (notifier.ScanSummaryData, []string, error) {
 	// Create batch workflow orchestrator
 	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(s.globalConfig, s.scanner, scanLogger)
 
@@ -230,8 +229,8 @@ func (s *Scheduler) executeSchedulerBatchScan(
 }
 
 // Helper functions for summary building and error handling
-func (s *Scheduler) updateSummaryWithAttemptResult(summary models.ScanSummaryData, attempt int, err error) models.ScanSummaryData {
-	builder := models.NewScanSummaryDataBuilder().
+func (s *Scheduler) updateSummaryWithAttemptResult(summary notifier.ScanSummaryData, attempt int, err error) notifier.ScanSummaryData {
+	builder := notifier.NewScanSummaryDataBuilder().
 		WithScanSessionID(summary.ScanSessionID).
 		WithScanMode(summary.ScanMode).
 		WithTargetSource(summary.TargetSource).
@@ -245,9 +244,9 @@ func (s *Scheduler) updateSummaryWithAttemptResult(summary models.ScanSummaryDat
 		WithErrorMessages(summary.ErrorMessages)
 
 	if err == nil {
-		builder.WithStatus(models.ScanStatusCompleted)
+		builder.WithStatus(notifier.ScanStatusCompleted)
 	} else {
-		builder.WithStatus(models.ScanStatusFailed)
+		builder.WithStatus(notifier.ScanStatusFailed)
 	}
 
 	result, _ := builder.Build()
@@ -258,7 +257,7 @@ func (s *Scheduler) isContextCancellationError(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func (s *Scheduler) handleContextCancellation(summary models.ScanSummaryData) {
+func (s *Scheduler) handleContextCancellation(summary notifier.ScanSummaryData) {
 	// Check if notification already sent to avoid duplicates
 	if !GetAndSetInterruptNotificationSent() {
 		interruptSummary := s.buildInterruptSummary(summary)
@@ -269,8 +268,8 @@ func (s *Scheduler) handleContextCancellation(summary models.ScanSummaryData) {
 	}
 }
 
-func (s *Scheduler) buildInterruptSummary(summary models.ScanSummaryData) models.ScanSummaryData {
-	builder := models.NewScanSummaryDataBuilder().
+func (s *Scheduler) buildInterruptSummary(summary notifier.ScanSummaryData) notifier.ScanSummaryData {
+	builder := notifier.NewScanSummaryDataBuilder().
 		WithScanSessionID(summary.ScanSessionID).
 		WithScanMode(summary.ScanMode).
 		WithTargetSource(summary.TargetSource).
@@ -281,7 +280,7 @@ func (s *Scheduler) buildInterruptSummary(summary models.ScanSummaryData) models
 		WithDiffStats(summary.DiffStats).
 		WithScanDuration(summary.ScanDuration).
 		WithReportPath(summary.ReportPath).
-		WithStatus(models.ScanStatusInterrupted).
+		WithStatus(notifier.ScanStatusInterrupted).
 		WithErrorMessages([]string{"Scan was interrupted by user signal (Ctrl+C)"})
 
 	result, _ := builder.Build()
@@ -303,34 +302,34 @@ func (s *Scheduler) handleFinalFailure(config scanAttemptConfig) {
 	)
 }
 
-func (s *Scheduler) buildFailureSummary(config scanAttemptConfig) models.ScanSummaryData {
-	summary, _ := models.NewScanSummaryDataBuilder().
+func (s *Scheduler) buildFailureSummary(config scanAttemptConfig) notifier.ScanSummaryData {
+	summary, _ := notifier.NewScanSummaryDataBuilder().
 		WithScanSessionID(config.scanSessionID).
 		WithScanMode("automated").
 		WithTargetSource(config.initialTargetSource).
 		WithRetriesAttempted(config.maxRetries).
-		WithStatus(models.ScanStatusFailed).
+		WithStatus(notifier.ScanStatusFailed).
 		WithErrorMessages([]string{"All retry attempts exhausted"}).
 		Build()
 
 	return summary
 }
 
-func (s *Scheduler) buildBaseScanSummary(scanSessionID, targetSource string) (models.ScanSummaryData, error) {
-	return models.NewScanSummaryDataBuilder().
+func (s *Scheduler) buildBaseScanSummary(scanSessionID, targetSource string) (notifier.ScanSummaryData, error) {
+	return notifier.NewScanSummaryDataBuilder().
 		WithScanSessionID(scanSessionID).
 		WithScanMode("automated").
 		WithTargetSource(targetSource).
-		WithStatus(models.ScanStatusStarted).
+		WithStatus(notifier.ScanStatusStarted).
 		Build()
 }
 
-func (s *Scheduler) buildErrorSummary(baseSummary models.ScanSummaryData, err error) models.ScanSummaryData {
-	result, _ := models.NewScanSummaryDataBuilder().
+func (s *Scheduler) buildErrorSummary(baseSummary notifier.ScanSummaryData, err error) notifier.ScanSummaryData {
+	result, _ := notifier.NewScanSummaryDataBuilder().
 		WithScanSessionID(baseSummary.ScanSessionID).
 		WithScanMode(baseSummary.ScanMode).
 		WithTargetSource(baseSummary.TargetSource).
-		WithStatus(models.ScanStatusFailed).
+		WithStatus(notifier.ScanStatusFailed).
 		WithErrorMessages([]string{err.Error()}).
 		Build()
 
@@ -352,7 +351,7 @@ func (s *Scheduler) updateDBOnFailure(dbScanID int64, err error) {
 	}
 }
 
-func (s *Scheduler) updateDBOnSuccess(dbScanID int64, result models.ScanSummaryData) {
+func (s *Scheduler) updateDBOnSuccess(dbScanID int64, result notifier.ScanSummaryData) {
 	reportPath := ""
 	if len(result.ReportPath) > 0 {
 		reportPath = result.ReportPath
@@ -373,7 +372,7 @@ func (s *Scheduler) updateDBOnSuccess(dbScanID int64, result models.ScanSummaryD
 	}
 }
 
-func (s *Scheduler) buildLogSummary(result models.ScanSummaryData) string {
+func (s *Scheduler) buildLogSummary(result notifier.ScanSummaryData) string {
 	parts := []string{
 		fmt.Sprintf("Targets: %d", result.TotalTargets),
 		fmt.Sprintf("Probed: %d", result.ProbeStats.TotalProbed),
@@ -387,8 +386,8 @@ func (s *Scheduler) buildLogSummary(result models.ScanSummaryData) string {
 	return strings.Join(parts, ", ")
 }
 
-func (s *Scheduler) updateSummaryWithScanResult(baseSummary models.ScanSummaryData, scanResult models.ScanSummaryData) models.ScanSummaryData {
-	result, _ := models.NewScanSummaryDataBuilder().
+func (s *Scheduler) updateSummaryWithScanResult(baseSummary notifier.ScanSummaryData, scanResult notifier.ScanSummaryData) notifier.ScanSummaryData {
+	result, _ := notifier.NewScanSummaryDataBuilder().
 		WithScanSessionID(baseSummary.ScanSessionID).
 		WithScanMode(baseSummary.ScanMode).
 		WithTargetSource(baseSummary.TargetSource).
@@ -398,7 +397,7 @@ func (s *Scheduler) updateSummaryWithScanResult(baseSummary models.ScanSummaryDa
 		WithDiffStats(scanResult.DiffStats).
 		WithScanDuration(scanResult.ScanDuration).
 		WithReportPath(scanResult.ReportPath).
-		WithStatus(models.ScanStatus(scanResult.Status)).
+		WithStatus(notifier.ScanStatus(scanResult.Status)).
 		WithErrorMessages(scanResult.ErrorMessages).
 		Build()
 

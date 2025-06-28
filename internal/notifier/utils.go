@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/models"
 )
 
@@ -150,4 +151,9 @@ func addErrorSamplesField(embedBuilder *DiscordEmbedBuilder, errors []models.Mon
 	}
 
 	embedBuilder.AddField("⚠️ Error", fieldValue, false)
+}
+
+func sendDiscordNotification(client *common.HTTPClient, webhookURL string, payload *DiscordMessagePayload, filePaths []string) error {
+	// ... implementation
+	return nil
 }

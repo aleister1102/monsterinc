@@ -3,13 +3,12 @@ package httpxrunner
 import (
 	"sync"
 
-	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
 
 // ResultCollector handles collection of probe results
 type ResultCollector struct {
-	results []models.ProbeResult
+	results []ProbeResult
 	mutex   sync.RWMutex
 	logger  zerolog.Logger
 }
@@ -17,13 +16,13 @@ type ResultCollector struct {
 // NewResultCollector creates a new result collector
 func NewResultCollector(logger zerolog.Logger) *ResultCollector {
 	return &ResultCollector{
-		results: make([]models.ProbeResult, 0),
+		results: make([]ProbeResult, 0),
 		logger:  logger.With().Str("component", "ResultCollector").Logger(),
 	}
 }
 
 // AddResult adds a result to the collection
-func (rc *ResultCollector) AddResult(result *models.ProbeResult) {
+func (rc *ResultCollector) AddResult(result *ProbeResult) {
 	if result == nil {
 		rc.logger.Warn().Msg("Attempted to add nil result")
 		return
@@ -40,12 +39,12 @@ func (rc *ResultCollector) AddResult(result *models.ProbeResult) {
 }
 
 // GetResults returns all collected results
-func (rc *ResultCollector) GetResults() []models.ProbeResult {
+func (rc *ResultCollector) GetResults() []ProbeResult {
 	rc.mutex.RLock()
 	defer rc.mutex.RUnlock()
 
 	// Return copy to prevent external modifications
-	resultsCopy := make([]models.ProbeResult, len(rc.results))
+	resultsCopy := make([]ProbeResult, len(rc.results))
 	copy(resultsCopy, rc.results)
 
 	return resultsCopy

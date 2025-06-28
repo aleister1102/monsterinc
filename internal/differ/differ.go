@@ -1,10 +1,9 @@
 package differ
 
 import (
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/errors"
 	"github.com/aleister1102/monsterinc/internal/datastore"
-	"github.com/aleister1102/monsterinc/internal/models"
-
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/rs/zerolog"
 )
 
@@ -26,10 +25,10 @@ func NewUrlDiffer(pr *datastore.ParquetReader, logger zerolog.Logger) (*UrlDiffe
 }
 
 // Differentiate performs the diffing logic
-func (ud *UrlDiffer) Differentiate(currentScanProbes []*models.ProbeResult, rootTarget string, scanSessionID string) (*models.URLDiffResult, error) {
+func (ud *UrlDiffer) Differentiate(currentScanProbes []*httpxrunner.ProbeResult, rootTarget string, scanSessionID string) (*URLDiffResult, error) {
 	// Validate inputs
 	if err := ud.validateInputs(currentScanProbes, rootTarget); err != nil {
-		return nil, common.WrapError(err, "failed to validate URL differ inputs")
+		return nil, errors.WrapError(err, "failed to validate URL differ inputs")
 	}
 
 	resultBuilder := NewURLDiffResultBuilder(rootTarget)
@@ -56,13 +55,13 @@ func (ud *UrlDiffer) Differentiate(currentScanProbes []*models.ProbeResult, root
 }
 
 // validateInputs validates the input parameters for URL comparison
-func (ud *UrlDiffer) validateInputs(currentScanProbes []*models.ProbeResult, rootTarget string) error {
+func (ud *UrlDiffer) validateInputs(currentScanProbes []*httpxrunner.ProbeResult, rootTarget string) error {
 	if rootTarget == "" {
-		return common.NewValidationError("root_target", rootTarget, "root target cannot be empty")
+		return errors.NewValidationError("root_target", rootTarget, "root target cannot be empty")
 	}
 
 	if currentScanProbes == nil {
-		return common.NewValidationError("current_scan_probes", currentScanProbes, "current scan probes cannot be nil")
+		return errors.NewValidationError("current_scan_probes", currentScanProbes, "current scan probes cannot be nil")
 	}
 
 	return nil

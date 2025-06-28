@@ -1,15 +1,17 @@
 package datastore
 
 import (
-	"context"
+	stdcontext "context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/context"
+	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/file"
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/parquet-go/parquet-go"
@@ -20,7 +22,7 @@ import (
 type ParquetWriter struct {
 	config       *config.StorageConfig
 	logger       zerolog.Logger
-	fileManager  *common.FileManager
+	fileManager  *file.FileManager
 	writerConfig ParquetWriterConfig
 }
 
@@ -33,7 +35,7 @@ func NewParquetWriter(cfg *config.StorageConfig, logger zerolog.Logger) (*Parque
 
 // WriteRequest encapsulates a write request
 type WriteRequest struct {
-	ProbeResults  []models.ProbeResult
+	ProbeResults  []httpxrunner.ProbeResult
 	ScanSessionID string
 	RootTarget    string
 	ScanTime      time.Time
@@ -48,7 +50,7 @@ type WriteResult struct {
 }
 
 // Write takes a slice of ProbeResult and writes them to a Parquet file
-func (pw *ParquetWriter) Write(ctx context.Context, currentProbeResults []models.ProbeResult, scanSessionID string, hostname string) error {
+func (pw *ParquetWriter) Write(ctx stdcontext.Context, currentProbeResults []httpxrunner.ProbeResult, scanSessionID string, hostname string) error {
 	request := WriteRequest{
 		ProbeResults:  currentProbeResults,
 		ScanSessionID: scanSessionID,
@@ -71,7 +73,7 @@ func (pw *ParquetWriter) Write(ctx context.Context, currentProbeResults []models
 }
 
 // writeProbeResults performs the actual write operation
-func (pw *ParquetWriter) writeProbeResults(ctx context.Context, request WriteRequest) (*WriteResult, error) {
+func (pw *ParquetWriter) writeProbeResults(ctx stdcontext.Context, request WriteRequest) (*WriteResult, error) {
 	startTime := time.Now()
 
 	if err := pw.validateWriteRequest(request); err != nil {
@@ -122,20 +124,20 @@ func (pw *ParquetWriter) writeProbeResults(ctx context.Context, request WriteReq
 // validateWriteRequest validates the write request parameters
 func (pw *ParquetWriter) validateWriteRequest(request WriteRequest) error {
 	if pw.config.ParquetBasePath == "" {
-		return common.NewValidationError("parquet_base_path", pw.config.ParquetBasePath, "ParquetBasePath is not configured")
+		return errors.NewValidationError("parquet_base_path", pw.config.ParquetBasePath, "ParquetBasePath is not configured")
 	}
 
 	sanitizedHostname := urlhandler.SanitizeFilename(request.RootTarget)
 	if sanitizedHostname == "" {
-		return common.NewValidationError("hostname", request.RootTarget, "sanitized hostname is empty, cannot write parquet file")
+		return errors.NewValidationError("hostname", request.RootTarget, "sanitized hostname is empty, cannot write parquet file")
 	}
 
 	return nil
 }
 
 // checkCancellation checks for context cancellation
-func (pw *ParquetWriter) checkCancellation(ctx context.Context, operation string) error {
-	if result := common.CheckCancellationWithLog(ctx, pw.logger, operation); result.Cancelled {
+func (pw *ParquetWriter) checkCancellation(ctx stdcontext.Context, operation string) error {
+	if result := context.CheckCancellationWithLog(ctx, pw.logger, operation); result.Cancelled {
 		return result.Error
 	}
 	return nil
@@ -147,7 +149,7 @@ func (pw *ParquetWriter) prepareOutputFile(hostname string) (string, error) {
 
 	scanOutputDir := filepath.Join(pw.config.ParquetBasePath, "scan")
 	if err := os.MkdirAll(scanOutputDir, 0755); err != nil {
-		return "", common.WrapError(err, "failed to create scan-specific Parquet directory: "+scanOutputDir)
+		return "", errors.WrapError(err, "failed to create scan-specific Parquet directory: "+scanOutputDir)
 	}
 
 	fileName := fmt.Sprintf("%s.parquet", sanitizedHostname)
@@ -157,9 +159,9 @@ func (pw *ParquetWriter) prepareOutputFile(hostname string) (string, error) {
 }
 
 // transformRecords transforms probe results to parquet format
-func (pw *ParquetWriter) transformRecords(ctx context.Context, request WriteRequest) ([]models.ParquetProbeResult, error) {
+func (pw *ParquetWriter) transformRecords(ctx stdcontext.Context, request WriteRequest) ([]ParquetProbeResult, error) {
 	transformer := NewRecordTransformer(pw.logger)
-	var parquetResults []models.ParquetProbeResult
+	var parquetResults []ParquetProbeResult
 
 	for _, pr := range request.ProbeResults {
 		// Check for cancellation during transformation
@@ -175,7 +177,7 @@ func (pw *ParquetWriter) transformRecords(ctx context.Context, request WriteRequ
 }
 
 // writeToParquetFile writes the transformed results to a Parquet file
-func (pw *ParquetWriter) writeToParquetFile(filePath string, parquetResults []models.ParquetProbeResult) (int, error) {
+func (pw *ParquetWriter) writeToParquetFile(filePath string, parquetResults []ParquetProbeResult) (int, error) {
 	// pw.logger.Info().
 	// 	Str("file_path", filePath).
 	// 	Int("probe_count", len(parquetResults)).
@@ -205,7 +207,7 @@ func (pw *ParquetWriter) writeToParquetFile(filePath string, parquetResults []mo
 
 	recordsWritten, err := pw.writeRecords(writer, parquetResults)
 	if err != nil {
-		return 0, common.WrapError(err, "failed to write probe results to parquet file")
+		return 0, errors.WrapError(err, "failed to write probe results to parquet file")
 	}
 
 	return recordsWritten, nil
@@ -215,15 +217,15 @@ func (pw *ParquetWriter) writeToParquetFile(filePath string, parquetResults []mo
 func (pw *ParquetWriter) createParquetFile(filePath string) (*os.File, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to create/truncate parquet file: "+filePath)
+		return nil, errors.WrapError(err, "failed to create/truncate parquet file: "+filePath)
 	}
 	return file, nil
 }
 
 // createParquetWriter creates a configured Parquet writer
-func (pw *ParquetWriter) createParquetWriter(file *os.File) (*parquet.GenericWriter[models.ParquetProbeResult], error) {
+func (pw *ParquetWriter) createParquetWriter(file *os.File) (*parquet.GenericWriter[ParquetProbeResult], error) {
 	compressionOption := pw.getCompressionOption()
-	writer := parquet.NewGenericWriter[models.ParquetProbeResult](file, compressionOption)
+	writer := parquet.NewGenericWriter[ParquetProbeResult](file, compressionOption)
 	return writer, nil
 }
 
@@ -242,7 +244,7 @@ func (pw *ParquetWriter) getCompressionOption() parquet.WriterOption {
 }
 
 // writeRecords writes all records to the Parquet writer
-func (pw *ParquetWriter) writeRecords(writer *parquet.GenericWriter[models.ParquetProbeResult], parquetResults []models.ParquetProbeResult) (int, error) {
+	func (pw *ParquetWriter) writeRecords(writer *parquet.GenericWriter[ParquetProbeResult], parquetResults []ParquetProbeResult) (int, error) {
 	recordsWritten, err := writer.Write(parquetResults)
 	if err != nil {
 		return 0, err

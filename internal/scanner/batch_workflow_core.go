@@ -5,6 +5,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
@@ -12,10 +13,14 @@ import (
 
 // BatchWorkflowOrchestrator handles batch processing for scan operations
 type BatchWorkflowOrchestrator struct {
-	logger         zerolog.Logger
-	batchProcessor *common.BatchProcessor
-	scanner        *Scanner
-	targetManager  *urlhandler.TargetManager
+	logger          zerolog.Logger
+	batchProcessor  *common.BatchProcessor
+	scanner         *Scanner
+	targetManager   *urlhandler.TargetManager
+	probeResults    []httpxrunner.ProbeResult
+	urlDiffResults  map[string]URLDiffResult
+	reportFilePaths []string
+	err             error
 }
 
 // NewBatchWorkflowOrchestrator creates a new batch workflow orchestrator
@@ -57,6 +62,14 @@ type BatchScanResult struct {
 	ProcessedBatches int
 	UsedBatching     bool
 	InterruptedAt    int // Which batch was interrupted (0 means completed)
+}
+
+// BatchWorkflowResult holds the result of batch scan processing
+type BatchWorkflowResult struct {
+	ProbeResults    []httpxrunner.ProbeResult
+	URLDiffResults  map[string]URLDiffResult
+	ReportFilePaths []string
+	Err             error
 }
 
 // ExecuteBatchScan executes scan workflow in batches
@@ -135,4 +148,27 @@ func (bwo *BatchWorkflowOrchestrator) ExecuteBatchScan(
 	}
 
 	return bwo.executeBatchedScan(ctx, gCfg, targetURLs, scanSessionID, targetSource, scanMode)
+}
+
+func (bwo *BatchWorkflowOrchestrator) executeScan() {
+	bwo.logger.Info().Strs("seed_urls", bwo.seedURLs).Msg("Executing scan workflow for batch")
+	probeResults, urlDiffResults, err := bwo.scanner.ExecuteScanWorkflow(
+		bwo.ctx,
+		bwo.seedURLs,
+		bwo.scanSessionID,
+	)
+	if err != nil {
+		bwo.err = err
+	}
+	bwo.probeResults = probeResults
+	bwo.urlDiffResults = urlDiffResults
+}
+
+func (bwo *BatchWorkflowOrchestrator) getResult() *BatchWorkflowResult {
+	return &BatchWorkflowResult{
+		ProbeResults:    bwo.probeResults,
+		URLDiffResults:  bwo.urlDiffResults,
+		ReportFilePaths: bwo.reportFilePaths,
+		Err:             bwo.err,
+	}
 }

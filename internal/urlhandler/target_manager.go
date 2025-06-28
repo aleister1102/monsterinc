@@ -1,8 +1,10 @@
 package urlhandler
 
 import (
+	"bufio"
+	"os"
+
 	"github.com/aleister1102/monsterinc/internal/common"
-	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
 
@@ -20,57 +22,61 @@ func NewTargetManager(logger zerolog.Logger) *TargetManager {
 }
 
 // LoadAndSelectTargets loads targets from the command-line file option
-func (tm *TargetManager) LoadAndSelectTargets(inputFileOption string) ([]models.Target, string, error) {
-	var targets []models.Target
-	var determinedSource string
+func (tm *TargetManager) LoadAndSelectTargets(cliFile string) ([]Target, string, error) {
+	var targets []Target
+	var source string
+	var err error
 
 	// Only source: Command-line file option
-	if inputFileOption != "" {
-		// tm.logger.Info().Str("file", inputFileOption).Msg("Loading targets from command-line file option")
-		urls, err := ReadURLsFromFile(inputFileOption, tm.logger)
+	if cliFile != "" {
+		// tm.logger.Info().Str("file", cliFile).Msg("Loading targets from command-line file option")
+		targets, err = tm.getTargetsFromFile(cliFile)
 		if err != nil {
-			return nil, determinedSource, common.WrapError(err, "failed to load URLs from file '"+inputFileOption+"'")
+			return nil, source, common.WrapError(err, "failed to load URLs from file '"+cliFile+"'")
 		}
-		targets = tm.convertURLsToTargets(urls)
-		determinedSource = inputFileOption
-		tm.logger.Info().Int("count", len(targets)).Str("source", determinedSource).Msg("Loaded targets from command-line file")
-		return targets, determinedSource, nil
+		source = cliFile
+		tm.logger.Info().Int("count", len(targets)).Str("source", source).Msg("Loaded targets from command-line file")
+		return targets, source, nil
 	}
 
 	// No input source available
 	tm.logger.Warn().Msg("No input source configured for targets")
-	determinedSource = "no_input"
+	source = "no_input"
 
 	// Validate that we have targets
 	if len(targets) == 0 {
-		return nil, determinedSource, common.NewError("no valid URLs found in source: %s", determinedSource)
+		return nil, source, common.NewError("no valid URLs found in source: %s", source)
 	}
 
-	return targets, determinedSource, nil
+	return targets, source, nil
 }
 
-// convertURLsToTargets converts a slice of URL strings to Target objects
-func (tm *TargetManager) convertURLsToTargets(urls []string) []models.Target {
-	targets := make([]models.Target, 0, len(urls))
-	for _, url := range urls {
+func (tm *TargetManager) getTargetsFromFile(filePath string) ([]Target, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var targets []Target
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		url := scanner.Text()
 		normalizedURL, err := NormalizeURL(url)
 		if err != nil {
 			tm.logger.Warn().Str("url", url).Err(err).Msg("Failed to normalize URL, skipping")
 			continue
 		}
-		targets = append(targets, models.Target{
-			OriginalURL:   url,
-			NormalizedURL: normalizedURL,
-		})
+		targets = append(targets, Target{URL: normalizedURL})
 	}
-	return targets
+	return targets, scanner.Err()
 }
 
 // GetTargetStrings extracts URL strings from Target objects
-func (tm *TargetManager) GetTargetStrings(targets []models.Target) []string {
+func (tm *TargetManager) GetTargetStrings(targets []Target) []string {
 	urls := make([]string, len(targets))
-	for i, target := range targets {
-		urls[i] = target.NormalizedURL
+	for i, t := range targets {
+		urls[i] = t.URL
 	}
 	return urls
 }

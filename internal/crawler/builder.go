@@ -1,7 +1,7 @@
 package crawler
 
 import (
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/errors"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/rs/zerolog"
@@ -36,7 +36,7 @@ func (cb *CrawlerBuilder) WithNotifier(notifier notifier.Notifier) *CrawlerBuild
 // Build creates a new Crawler instance with the configured settings
 func (cb *CrawlerBuilder) Build() (*Crawler, error) {
 	if cb.config == nil {
-		return nil, common.NewValidationError("config", nil, "crawler config cannot be nil")
+		return nil, errors.NewValidationError("config", nil, "crawler config cannot be nil")
 	}
 
 	crawler := &Crawler{
@@ -47,7 +47,7 @@ func (cb *CrawlerBuilder) Build() (*Crawler, error) {
 	}
 
 	if err := crawler.initialize(); err != nil {
-		return nil, common.WrapError(err, "failed to initialize crawler")
+		return nil, errors.WrapError(err, "failed to initialize crawler")
 	}
 
 	return crawler, nil

@@ -3,7 +3,6 @@ package notifier
 import (
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/models"
 )
 
 // DiscordEmbedBuilder helps in constructing models.DiscordEmbed objects.

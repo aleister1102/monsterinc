@@ -1,8 +1,6 @@
 package differ
 
-import (
-	"github.com/aleister1102/monsterinc/internal/models"
-)
+import "github.com/aleister1102/monsterinc/internal/httpxrunner"
 
 // URLDifferConfig holds configuration for URL comparison
 type URLDifferConfig struct {
@@ -20,8 +18,8 @@ func DefaultURLDifferConfig() URLDifferConfig {
 
 // URLMaps holds the mapping data for URL comparison
 type URLMaps struct {
-	HistoricalURLMap map[string]models.ProbeResult
-	CurrentURLMap    map[string]models.ProbeResult
+	HistoricalURLMap map[string]httpxrunner.ProbeResult
+	CurrentURLMap    map[string]httpxrunner.ProbeResult
 }
 
 // URLStatusCounts holds the counts for different URL statuses

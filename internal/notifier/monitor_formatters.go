@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/models"
 )
 
@@ -594,4 +595,9 @@ func buildMentionContent(roleIDs []string) string {
 	}
 
 	return strings.Join(mentions, " ")
+}
+
+func FormatFileContentChangeMessage(cfg *config.NotificationConfig, fileURL string, newHash string, diffResult *differ.ContentDiffResult) *DiscordMessagePayload {
+	// ... implementation
+	return nil
 }

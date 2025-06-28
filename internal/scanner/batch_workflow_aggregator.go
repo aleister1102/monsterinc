@@ -1,13 +1,14 @@
 package scanner
 
 import (
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/differ"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 
 // aggregateBatchResults aggregates results from individual batches
 func (bwo *BatchWorkflowOrchestrator) aggregateBatchResults(
-	aggregated *models.ScanSummaryData,
-	batchSummary models.ScanSummaryData,
+	aggregated *httpxrunner.ScanSummaryData,
+	batchSummary httpxrunner.ScanSummaryData,
 ) {
 	// Aggregate probe stats
 	aggregated.ProbeStats.TotalProbed += batchSummary.ProbeStats.TotalProbed
@@ -42,18 +43,26 @@ func (bwo *BatchWorkflowOrchestrator) finalizeBatchSummary(
 	// Determine final status
 	if wasInterrupted {
 		if processedBatches == 0 {
-			summary.Status = string(models.ScanStatusFailed)
+			summary.Status = string(httpxrunner.ScanStatusFailed)
 		} else {
-			summary.Status = string(models.ScanStatusPartialComplete)
+			summary.Status = string(httpxrunner.ScanStatusPartialComplete)
 		}
 	} else {
-		summary.Status = string(models.ScanStatusCompleted)
+		summary.Status = string(httpxrunner.ScanStatusCompleted)
 	}
 
 	// Don't add batch processing info to error messages as it's not an error
 	// This information will be displayed in other parts of the notification
 
 	if lastError != nil && !wasInterrupted {
-		summary.Status = string(models.ScanStatusFailed)
+		summary.Status = string(httpxrunner.ScanStatusFailed)
 	}
+}
+
+type AggregatedBatchResult struct {
+	ProbeResults    []httpxrunner.ProbeResult
+	URLDiffResults  map[string]differ.URLDiffResult
+	ScanSummaryData httpxrunner.ScanSummaryData
+	ReportFilePaths []string
+	Error           error
 }

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 
 // GetCommonTemplateFunctions returns common functions for templates
@@ -31,7 +31,7 @@ func GetCommonTemplateFunctions() template.FuncMap {
 			return template.JS(data)
 		},
 		"ToLower": strings.ToLower,
-		"title": strings.Title,
+		"title":   strings.Title,
 		"joinStrings": func(s []string, sep string) string {
 			return strings.Join(s, sep)
 		},
@@ -68,13 +68,13 @@ func GetDiffTemplateFunctions() template.FuncMap {
 		return template.HTML(prettyJSON.String())
 	}
 
-	funcMap["operationToString"] = func(op models.DiffOperation) string {
+	funcMap["operationToString"] = func(op httpxrunner.DiffOperation) string {
 		switch op {
-		case models.DiffDelete:
+		case httpxrunner.DiffDelete:
 			return "Delete"
-		case models.DiffInsert:
+		case httpxrunner.DiffInsert:
 			return "Insert"
-		case models.DiffEqual:
+		case httpxrunner.DiffEqual:
 			return "Equal"
 		default:
 			return "Unknown"
@@ -133,4 +133,34 @@ func compareGreaterThan(a, b interface{}) bool {
 		}
 	}
 	return false
+}
+
+func getFuncMap() template.FuncMap {
+	return template.FuncMap{
+		"prettyPrintJSON": func(v interface{}) (template.HTML, error) {
+			b, err := json.MarshalIndent(v, "", "  ")
+			if err != nil {
+				return "", err
+			}
+			return template.HTML(b), nil
+		},
+		"formatTime": func(t time.Time) string {
+			return t.Format("2006-01-02 15:04:05")
+		},
+		"hasData": func(probeResult httpxrunner.ProbeResult) bool {
+			return probeResult.StatusCode > 0
+		},
+		"statusClass": func(status string) string {
+			switch status {
+			case "new":
+				return "status-new"
+			case "old":
+				return "status-old"
+			case "existing":
+				return "status-existing"
+			default:
+				return ""
+			}
+		},
+	}
 }

@@ -6,6 +6,8 @@ import (
 	"runtime"
 
 	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/differ"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 )
 
@@ -37,8 +39,8 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 
 	// Always merge batch results to avoid separate reports per batch
 	// But still respect max_probe_results_per_report_file for Discord file size limits
-	var allProbeResults []models.ProbeResult
-	allURLDiffResults := make(map[string]models.URLDiffResult)
+	var allProbeResults []httpxrunner.ProbeResult
+	allURLDiffResults := make(map[string]differ.URLDiffResult)
 	bwo.logger.Info().Msg("Aggregating all batch results into merged reports (respecting Discord file size limits)")
 
 	// Initialize summary data

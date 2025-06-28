@@ -8,8 +8,10 @@ import (
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/datastore"
 	"github.com/aleister1102/monsterinc/internal/differ"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/aleister1102/monsterinc/internal/notifier"
+	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/rs/zerolog"
 )
@@ -120,7 +122,7 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 	scanSessionID string,
 	targetSource string,
 	scanMode string,
-) (models.ScanSummaryData, []models.ProbeResult, []string, error) {
+) (models.ScanSummaryData, []httpxrunner.ProbeResult, []string, error) {
 	startTime := time.Now()
 	probeResults, urlDiffResults, err := s.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
 	if err != nil {
@@ -164,7 +166,7 @@ func (s *Scanner) ExecuteCompleteScanWorkflow(
 	seedURLs []string,
 	scanSessionID string,
 	targetSource string,
-) (models.ScanSummaryData, []models.ProbeResult, map[string]models.URLDiffResult, error) {
+) (models.ScanSummaryData, []httpxrunner.ProbeResult, map[string]differ.URLDiffResult, error) {
 	probeResults, urlDiffResults, err := s.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
 	if err != nil {
 		return models.ScanSummaryData{}, nil, nil, err
@@ -189,7 +191,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 	ctx context.Context,
 	seedURLs []string,
 	scanSessionID string,
-) ([]models.ProbeResult, map[string]models.URLDiffResult, error) {
+) ([]httpxrunner.ProbeResult, map[string]differ.URLDiffResult, error) {
 	startTime := time.Now()
 	// Note: Scan start notification is sent from the main entry point (main.go or scheduler)
 	// to avoid duplicate notifications when this workflow is called from different contexts
@@ -345,7 +347,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 	}
 
 	// Step 3: Process diffing and storage
-	var urlDiffResults map[string]models.URLDiffResult
+	var urlDiffResults map[string]differ.URLDiffResult
 	if s.diffProcessor != nil {
 		diffInput := ProcessDiffingAndStorageInput{
 			Ctx:                     ctx,

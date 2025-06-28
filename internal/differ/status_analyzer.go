@@ -1,6 +1,6 @@
 package differ
 
-import "github.com/aleister1102/monsterinc/internal/models"
+import "github.com/aleister1102/monsterinc/internal/httpxrunner"
 
 // URLStatusAnalyzer analyzes URL status changes
 type URLStatusAnalyzer struct{}
@@ -11,8 +11,8 @@ func NewURLStatusAnalyzer() *URLStatusAnalyzer {
 }
 
 // AnalyzeCurrentURLs analyzes current URLs against historical data
-func (usa *URLStatusAnalyzer) AnalyzeCurrentURLs(currentProbes []*models.ProbeResult, urlMaps URLMaps) ([]models.DiffedURL, URLStatusCounts) {
-	var results []models.DiffedURL
+func (usa *URLStatusAnalyzer) AnalyzeCurrentURLs(currentProbes []*httpxrunner.ProbeResult, urlMaps URLMaps) ([]DiffedURL, URLStatusCounts) {
+	var results []DiffedURL
 	counts := URLStatusCounts{}
 
 	for _, currentProbe := range currentProbes {
@@ -21,29 +21,29 @@ func (usa *URLStatusAnalyzer) AnalyzeCurrentURLs(currentProbes []*models.ProbeRe
 
 		if existsInHistory {
 			counts.Existing++
-			currentProbe.URLStatus = string(models.StatusExisting)
+			currentProbe.URLStatus = string(StatusExisting)
 		} else {
 			counts.New++
-			currentProbe.URLStatus = string(models.StatusNew)
+			currentProbe.URLStatus = string(StatusNew)
 		}
 
-		results = append(results, models.DiffedURL{ProbeResult: *currentProbe})
+		results = append(results, DiffedURL{ProbeResult: *currentProbe})
 	}
 
 	return results, counts
 }
 
 // AnalyzeOldURLs analyzes historical URLs to find old ones
-func (usa *URLStatusAnalyzer) AnalyzeOldURLs(urlMaps URLMaps) ([]models.DiffedURL, int) {
-	var oldResults []models.DiffedURL
+func (usa *URLStatusAnalyzer) AnalyzeOldURLs(urlMaps URLMaps) ([]DiffedURL, int) {
+	var oldResults []DiffedURL
 	oldCount := 0
 
 	for historicalURL, historicalProbe := range urlMaps.HistoricalURLMap {
 		_, existsInCurrent := urlMaps.CurrentURLMap[historicalURL]
 		if !existsInCurrent {
 			oldCount++
-			historicalProbe.URLStatus = string(models.StatusOld)
-			oldResults = append(oldResults, models.DiffedURL{ProbeResult: historicalProbe})
+			historicalProbe.URLStatus = string(StatusOld)
+			oldResults = append(oldResults, DiffedURL{ProbeResult: historicalProbe})
 		}
 	}
 

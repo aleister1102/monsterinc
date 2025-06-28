@@ -1,13 +1,14 @@
 package config
 
 import (
-	"errors"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"reflect"
 	"strings"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/file"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
@@ -151,7 +152,7 @@ func (cv *ConfigValidator) validateFileExists(filePath string) bool {
 		return true // Optional field, valid if empty
 	}
 
-	fileManager := common.NewFileManager(cv.logger)
+	fileManager := file.NewFileManager(cv.logger)
 	return fileManager.FileExists(filePath)
 }
 
@@ -260,12 +261,12 @@ func (cv *ConfigValidator) createValidationView(cfg *GlobalConfig) interface{} {
 // handleValidationError processes validation errors and returns a meaningful error
 func (cv *ConfigValidator) handleValidationError(err error) error {
 	var validationErrors validator.ValidationErrors
-	if !errors.As(err, &validationErrors) {
-		return common.WrapError(err, "configuration validation error")
+	if !stderrors.As(err, &validationErrors) {
+		return errors.WrapError(err, "configuration validation error")
 	}
 
 	errorMessages := cv.formatValidationErrors(validationErrors)
-	return common.NewError("configuration validation failed:\n  %s", strings.Join(errorMessages, "\n  "))
+	return errors.NewError("configuration validation failed:\n  %s", strings.Join(errorMessages, "\n  "))
 }
 
 // formatValidationErrors formats validation errors into readable messages

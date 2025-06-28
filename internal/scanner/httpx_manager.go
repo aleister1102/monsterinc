@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
 
@@ -90,7 +90,7 @@ func (hm *HTTPXManager) createNewRunner(config *httpxrunner.Config, rootTargetUR
 }
 
 // ExecuteRunnerBatch executes httpx runner for a specific batch
-func (hm *HTTPXManager) ExecuteRunnerBatch(ctx context.Context, config *httpxrunner.Config, rootTargetURL, scanSessionID string) ([]models.ProbeResult, error) {
+func (hm *HTTPXManager) ExecuteRunnerBatch(ctx context.Context, config *httpxrunner.Config, rootTargetURL, scanSessionID string) ([]httpxrunner.ProbeResult, error) {
 	runner, err := hm.GetOrCreateRunner(config, rootTargetURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get httpx runner: %w", err)
@@ -141,4 +141,13 @@ func (hm *HTTPXManager) Shutdown() {
 		hm.lastRootTarget = ""
 		hm.logger.Info().Msg("HTTPXRunner shutdown complete")
 	}
+}
+
+func (hm *HTTPXManager) Execute(ctx context.Context, gCfg *config.GlobalConfig, seedURLs []string) ([]httpxrunner.ProbeResult, error) {
+	executor := NewHttpxExecutor(hm.logger)
+	result, err := executor.Run(ctx, gCfg, seedURLs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute httpx: %w", err)
+	}
+	return result.ProbeResults, nil
 }

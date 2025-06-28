@@ -1,18 +1,18 @@
 package datastore
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/errors"
+	"github.com/aleister1102/monsterinc/internal/common/file"
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
-
-	// "regexp" // No longer needed for local sanitization
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/rs/zerolog"
@@ -22,7 +22,7 @@ import (
 type ParquetReader struct {
 	storageConfig *config.StorageConfig
 	logger        zerolog.Logger
-	fileManager   *common.FileManager
+	fileManager   *file.FileManager
 	config        ParquetReaderConfig
 }
 
@@ -43,7 +43,7 @@ type ProbeResultQuery struct {
 
 // ProbeResultSearchResult contains search results and metadata
 type ProbeResultSearchResult struct {
-	Results      []models.ProbeResult
+	Results      []httpxrunner.ProbeResult
 	TotalCount   int
 	LastModified time.Time
 	FilePath     string
@@ -52,7 +52,7 @@ type ProbeResultSearchResult struct {
 // FindAllProbeResultsForTarget reads all probe results for a given rootTargetURL
 // from its consolidated Parquet file (e.g., database/example.com/data.parquet).
 // Returns the results and the last modification time of the file.
-func (pr *ParquetReader) FindAllProbeResultsForTarget(rootTargetURL string) ([]models.ProbeResult, time.Time, error) {
+func (pr *ParquetReader) FindAllProbeResultsForTarget(rootTargetURL string) ([]httpxrunner.ProbeResult, time.Time, error) {
 	query := ProbeResultQuery{
 		RootTargetURL: rootTargetURL,
 	}
@@ -87,7 +87,7 @@ func (pr *ParquetReader) searchProbeResults(query ProbeResultQuery) (*ProbeResul
 	if fileInfo == nil {
 		// File doesn't exist - return empty results
 		return &ProbeResultSearchResult{
-			Results:      []models.ProbeResult{},
+			Results:      []httpxrunner.ProbeResult{},
 			TotalCount:   0,
 			LastModified: time.Time{},
 			FilePath:     filePath,
@@ -96,7 +96,7 @@ func (pr *ParquetReader) searchProbeResults(query ProbeResultQuery) (*ProbeResul
 
 	results, err := pr.readProbeResultsFromFile(filePath, query.RootTargetURL)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to read probe results from file")
+		return nil, errors.WrapError(err, "failed to read probe results from file")
 	}
 
 	pr.logger.Info().
@@ -115,7 +115,7 @@ func (pr *ParquetReader) searchProbeResults(query ProbeResultQuery) (*ProbeResul
 // validateConfiguration checks if the reader is properly configured
 func (pr *ParquetReader) validateConfiguration() error {
 	if pr.storageConfig == nil || pr.storageConfig.ParquetBasePath == "" {
-		return common.NewValidationError("parquet_base_path", pr.storageConfig, "ParquetBasePath is not configured")
+		return errors.NewValidationError("parquet_base_path", pr.storageConfig, "ParquetBasePath is not configured")
 	}
 	return nil
 }
@@ -124,7 +124,7 @@ func (pr *ParquetReader) validateConfiguration() error {
 func (pr *ParquetReader) buildParquetFilePath(rootTargetURL string) (string, error) {
 	sanitizedTargetName := urlhandler.SanitizeFilename(rootTargetURL)
 	if sanitizedTargetName == "" {
-		return "", common.NewValidationError("root_target_url", rootTargetURL, "sanitized to empty string, cannot determine Parquet file path")
+		return "", errors.NewValidationError("root_target_url", rootTargetURL, "sanitized to empty string, cannot determine Parquet file path")
 	}
 
 	fileName := fmt.Sprintf("%s.parquet", sanitizedTargetName)
@@ -139,13 +139,13 @@ func (pr *ParquetReader) validateFileExists(filePath string) (os.FileInfo, error
 		return nil, nil // Not an error - file simply doesn't exist yet
 	}
 	if err != nil {
-		return nil, common.WrapError(err, "failed to stat Parquet file: "+filePath)
+		return nil, errors.WrapError(err, "failed to stat Parquet file: "+filePath)
 	}
 	return fileInfo, nil
 }
 
 // readProbeResultsFromFile reads all probe results from a specific Parquet file
-func (pr *ParquetReader) readProbeResultsFromFile(filePath, contextualRootTargetURL string) ([]models.ProbeResult, error) {
+func (pr *ParquetReader) readProbeResultsFromFile(filePath, contextualRootTargetURL string) ([]httpxrunner.ProbeResult, error) {
 	pr.logger.Debug().Str("file", filePath).Msg("Reading probe results from Parquet file")
 
 	file, err := pr.openParquetFile(filePath)
@@ -172,7 +172,7 @@ func (pr *ParquetReader) readProbeResultsFromFile(filePath, contextualRootTarget
 
 	results, err := pr.readAllRecords(reader, contextualRootTargetURL)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to read records from Parquet file")
+		return nil, errors.WrapError(err, "failed to read records from Parquet file")
 	}
 
 	pr.logger.Debug().
@@ -188,7 +188,7 @@ func (pr *ParquetReader) openParquetFile(filePath string) (*os.File, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		pr.logger.Error().Err(err).Str("file", filePath).Msg("Failed to open Parquet file")
-		return nil, common.WrapError(err, "failed to open Parquet file: "+filePath)
+		return nil, errors.WrapError(err, "failed to open Parquet file: "+filePath)
 	}
 	return file, nil
 }
@@ -212,9 +212,9 @@ func (pr *ParquetReader) buildReaderOptions() []parquet.ReaderOption {
 // readAllRecords reads all records from the Parquet reader
 //
 //nolint:staticcheck // TODO: Replace deprecated parquet.Reader with newer API
-func (pr *ParquetReader) readAllRecords(reader *parquet.Reader, contextualRootTargetURL string) ([]models.ProbeResult, error) {
-	var results []models.ProbeResult
-	row := models.ParquetProbeResult{} // Reusable buffer
+func (pr *ParquetReader) readAllRecords(reader *parquet.Reader, contextualRootTargetURL string) ([]httpxrunner.ProbeResult, error) {
+	var results []httpxrunner.ProbeResult
+	row := ParquetProbeResult{} // Reusable buffer
 
 	for {
 		if err := reader.Read(&row); err != nil {
@@ -222,7 +222,7 @@ func (pr *ParquetReader) readAllRecords(reader *parquet.Reader, contextualRootTa
 				break // End of file reached
 			}
 			pr.logger.Error().Err(err).Msg("Failed to read row from Parquet file")
-			return nil, common.WrapError(err, "failed to read row from Parquet file")
+			return nil, errors.WrapError(err, "failed to read row from Parquet file")
 		}
 
 		probeResult := pr.convertParquetRecord(row, contextualRootTargetURL)
@@ -233,7 +233,7 @@ func (pr *ParquetReader) readAllRecords(reader *parquet.Reader, contextualRootTa
 }
 
 // convertParquetRecord converts a Parquet record to ProbeResult
-func (pr *ParquetReader) convertParquetRecord(row models.ParquetProbeResult, contextualRootTargetURL string) models.ProbeResult {
+func (pr *ParquetReader) convertParquetRecord(row ParquetProbeResult, contextualRootTargetURL string) httpxrunner.ProbeResult {
 	probeResult := row.ToProbeResult()
 
 	// Ensure RootTargetURL is set using context if missing
@@ -242,4 +242,9 @@ func (pr *ParquetReader) convertParquetRecord(row models.ParquetProbeResult, con
 	}
 
 	return probeResult
+}
+
+func (pr *ParquetReader) Read(ctx context.Context, filePath string) ([]httpxrunner.ProbeResult, error) {
+	// ... implementation
+	return nil, nil
 }

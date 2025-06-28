@@ -8,11 +8,10 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/models"
 )
 
 // FormatScanStartMessage formats the message when a scan starts
-func FormatScanStartMessage(summary models.ScanSummaryData, cfg config.NotificationConfig) models.DiscordMessagePayload {
+func FormatScanStartMessage(summary ScanSummaryData, cfg config.NotificationConfig) DiscordMessagePayload {
 	content := buildMentions(cfg.MentionRoleIDs)
 	if content != "" {
 		content += "\n"
@@ -24,7 +23,7 @@ func FormatScanStartMessage(summary models.ScanSummaryData, cfg config.Notificat
 }
 
 // buildScanStartDescription creates the description for scan start message
-func buildScanStartDescription(summary models.ScanSummaryData) string {
+func buildScanStartDescription(summary ScanSummaryData) string {
 	description := fmt.Sprintf(
 		"🚀 **Scan initialization started**\n\n"+
 			"**Session ID:** `%s`\n"+
@@ -68,7 +67,7 @@ func addTargetURLsToDescription(description string, targets []string) string {
 }
 
 // buildScanStartEmbed creates the embed for scan start message
-func buildScanStartEmbed(description string) models.DiscordEmbed {
+func buildScanStartEmbed(description string) DiscordEmbed {
 	return NewDiscordEmbedBuilder().
 		WithTitle("🛡️ Security Scan Started").
 		WithDescription(description).
@@ -79,8 +78,8 @@ func buildScanStartEmbed(description string) models.DiscordEmbed {
 }
 
 // FormatScanCompleteMessage formats the message when a scan completes
-func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.NotificationConfig) models.DiscordMessagePayload {
-	scanStatus := models.ScanStatus(summary.Status)
+func FormatScanCompleteMessage(summary ScanSummaryData, cfg config.NotificationConfig) DiscordMessagePayload {
+	scanStatus := ScanStatus(summary.Status)
 	content, embedColor, statusEmoji, titleText := determineScanCompleteMessageStyle(scanStatus, cfg)
 
 	description := buildScanCompleteDescription(summary, statusEmoji)
@@ -96,8 +95,8 @@ func FormatScanCompleteMessage(summary models.ScanSummaryData, cfg config.Notifi
 }
 
 // FormatScanCompleteMessageWithReports formats the message when a scan completes with report info
-func FormatScanCompleteMessageWithReports(summary models.ScanSummaryData, cfg config.NotificationConfig, hasReports bool) models.DiscordMessagePayload {
-	scanStatus := models.ScanStatus(summary.Status)
+func FormatScanCompleteMessageWithReports(summary ScanSummaryData, cfg config.NotificationConfig, hasReports bool) DiscordMessagePayload {
+	scanStatus := ScanStatus(summary.Status)
 	content, embedColor, statusEmoji, titleText := determineScanCompleteMessageStyle(scanStatus, cfg)
 
 	description := buildScanCompleteDescription(summary, statusEmoji)
@@ -113,7 +112,7 @@ func FormatScanCompleteMessageWithReports(summary models.ScanSummaryData, cfg co
 }
 
 // determineScanCompleteMessageStyle determines the styling based on scan status
-func determineScanCompleteMessageStyle(scanStatus models.ScanStatus, cfg config.NotificationConfig) (string, int, string, string) {
+func determineScanCompleteMessageStyle(scanStatus ScanStatus, cfg config.NotificationConfig) (string, int, string, string) {
 	var content string
 	var embedColor int
 	var statusEmoji string
@@ -140,7 +139,7 @@ func determineScanCompleteMessageStyle(scanStatus models.ScanStatus, cfg config.
 }
 
 // buildScanCompleteDescription creates the description for scan complete message
-func buildScanCompleteDescription(summary models.ScanSummaryData, statusEmoji string) string {
+func buildScanCompleteDescription(summary ScanSummaryData, statusEmoji string) string {
 	baseDescription := fmt.Sprintf(
 		"%s **Scan execution completed**\n\n"+
 			"**Session ID:** `%s`\n"+
@@ -190,7 +189,7 @@ func extractReportPartInfo(reportPath string) string {
 }
 
 // buildScanCompleteEmbed creates the embed for scan complete message
-func buildScanCompleteEmbed(description, titleText string, embedColor int, summary models.ScanSummaryData) models.DiscordEmbed {
+func buildScanCompleteEmbed(description, titleText string, embedColor int, summary ScanSummaryData) DiscordEmbed {
 	embedBuilder := NewDiscordEmbedBuilder().
 		WithTitle(fmt.Sprintf("🛡️ %s", titleText)).
 		WithDescription(description).
@@ -208,7 +207,7 @@ func buildScanCompleteEmbed(description, titleText string, embedColor int, summa
 }
 
 // buildScanCompleteEmbedWithReports creates the embed for scan complete message with report info
-func buildScanCompleteEmbedWithReports(description, titleText string, embedColor int, summary models.ScanSummaryData, hasReports bool) models.DiscordEmbed {
+func buildScanCompleteEmbedWithReports(description, titleText string, embedColor int, summary ScanSummaryData, hasReports bool) DiscordEmbed {
 	embedBuilder := NewDiscordEmbedBuilder().
 		WithTitle(fmt.Sprintf("🛡️ %s", titleText)).
 		WithDescription(description).
@@ -231,7 +230,7 @@ func buildScanCompleteEmbedWithReports(description, titleText string, embedColor
 }
 
 // addProbeStatsField adds probe statistics field to embed
-func addProbeStatsField(embedBuilder *DiscordEmbedBuilder, stats models.ProbeStats) {
+func addProbeStatsField(embedBuilder *DiscordEmbedBuilder, stats ProbeStats) {
 	embedBuilder.AddField("🔍 Probe Statistics",
 		fmt.Sprintf("**Total Probed:** %d\n**Successful:** %d\n**Failed:** %d\n**Discoverable Items:** %d",
 			stats.TotalProbed,
@@ -242,7 +241,7 @@ func addProbeStatsField(embedBuilder *DiscordEmbedBuilder, stats models.ProbeSta
 }
 
 // addDiffStatsField adds diff statistics field to embed
-func addDiffStatsField(embedBuilder *DiscordEmbedBuilder, stats models.DiffStats) {
+func addDiffStatsField(embedBuilder *DiscordEmbedBuilder, stats DiffStats) {
 	embedBuilder.AddField("📊 Diff Statistics",
 		fmt.Sprintf("**New:** %d\n**Existing:** %d\n**Old:** %d\n**Changed:** %d",
 			stats.New,
@@ -253,7 +252,7 @@ func addDiffStatsField(embedBuilder *DiscordEmbedBuilder, stats models.DiffStats
 }
 
 // addBatchProcessingField adds batch processing info if applicable
-func addBatchProcessingField(embedBuilder *DiscordEmbedBuilder, summary models.ScanSummaryData) {
+func addBatchProcessingField(embedBuilder *DiscordEmbedBuilder, summary ScanSummaryData) {
 	// Check if this looks like a batch processing scenario
 	if strings.Contains(summary.ReportPath, "part") && strings.Contains(summary.ReportPath, "of") {
 		// Try to extract batch info from the file path
@@ -303,7 +302,7 @@ func addErrorsField(embedBuilder *DiscordEmbedBuilder, errorMessages []string) {
 // addMentionsIfNeeded adds mentions to payload builder if needed
 func addMentionsIfNeeded(payloadBuilder *DiscordMessagePayloadBuilder, isFailure bool, cfg config.NotificationConfig) *DiscordMessagePayloadBuilder {
 	if isFailure && len(cfg.MentionRoleIDs) > 0 {
-		payloadBuilder.WithAllowedMentions(models.AllowedMentions{
+		payloadBuilder.WithAllowedMentions(AllowedMentions{
 			Parse: []string{"roles"},
 			Roles: cfg.MentionRoleIDs,
 		})
@@ -312,7 +311,7 @@ func addMentionsIfNeeded(payloadBuilder *DiscordMessagePayloadBuilder, isFailure
 }
 
 // FormatInterruptNotificationMessage formats the message when a scan is interrupted
-func FormatInterruptNotificationMessage(summary models.ScanSummaryData, cfg config.NotificationConfig) models.DiscordMessagePayload {
+func FormatInterruptNotificationMessage(summary ScanSummaryData, cfg config.NotificationConfig) DiscordMessagePayload {
 	content := buildMentions(cfg.MentionRoleIDs)
 	if content != "" {
 		content += "\n"
@@ -324,7 +323,7 @@ func FormatInterruptNotificationMessage(summary models.ScanSummaryData, cfg conf
 }
 
 // buildInterruptDescription creates the description for interrupt message
-func buildInterruptDescription(summary models.ScanSummaryData) string {
+func buildInterruptDescription(summary ScanSummaryData) string {
 	return fmt.Sprintf(
 		"⚠️ **Scan is interrupted**\n\n"+
 			"**Session:** `%s`\n"+
@@ -339,7 +338,7 @@ func buildInterruptDescription(summary models.ScanSummaryData) string {
 }
 
 // buildInterruptEmbed creates the embed for interrupt message
-func buildInterruptEmbed(description string, summary models.ScanSummaryData) models.DiscordEmbed {
+func buildInterruptEmbed(description string, summary ScanSummaryData) DiscordEmbed {
 	embedBuilder := NewDiscordEmbedBuilder().
 		WithTitle("🛑 Scan is interrupted").
 		WithDescription(description).
@@ -354,7 +353,7 @@ func buildInterruptEmbed(description string, summary models.ScanSummaryData) mod
 }
 
 // addPartialResultsField adds partial results field if available
-func addPartialResultsField(embedBuilder *DiscordEmbedBuilder, stats models.ProbeStats) {
+func addPartialResultsField(embedBuilder *DiscordEmbedBuilder, stats ProbeStats) {
 	if stats.TotalProbed > 0 {
 		embedBuilder.AddField("📊 Kết Quả Một Phần",
 			fmt.Sprintf("**Đã quét:** %d\n**Thành công:** %d\n**Thất bại:** %d",
@@ -366,7 +365,7 @@ func addPartialResultsField(embedBuilder *DiscordEmbedBuilder, stats models.Prob
 }
 
 // FormatCriticalErrorMessage formats the message for critical errors
-func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.NotificationConfig) models.DiscordMessagePayload {
+func FormatCriticalErrorMessage(summary ScanSummaryData, cfg config.NotificationConfig) DiscordMessagePayload {
 	content := buildMentions(cfg.MentionRoleIDs)
 	if content != "" {
 		content += "\n"
@@ -378,7 +377,7 @@ func FormatCriticalErrorMessage(summary models.ScanSummaryData, cfg config.Notif
 }
 
 // buildCriticalErrorDescription creates the description for critical error message
-func buildCriticalErrorDescription(summary models.ScanSummaryData) string {
+func buildCriticalErrorDescription(summary ScanSummaryData) string {
 	return fmt.Sprintf(
 		"🚨 **Critical System Error**\n\n"+
 			"**Component:** %s\n"+
@@ -391,7 +390,7 @@ func buildCriticalErrorDescription(summary models.ScanSummaryData) string {
 }
 
 // buildCriticalErrorEmbed creates the embed for critical error message
-func buildCriticalErrorEmbed(description string, summary models.ScanSummaryData) models.DiscordEmbed {
+func buildCriticalErrorEmbed(description string, summary ScanSummaryData) DiscordEmbed {
 	embedBuilder := NewDiscordEmbedBuilder().
 		WithTitle("🚨 Critical System Error").
 		WithDescription(description).

@@ -2,10 +2,11 @@ package scanner
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
+	"github.com/aleister1102/monsterinc/internal/differ"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
@@ -17,6 +18,7 @@ type WorkflowOrchestrator struct {
 	reportGenerator *ReportGenerator
 	summaryBuilder  *SummaryBuilder
 	logger          zerolog.Logger
+	gCfg            *config.GlobalConfig
 }
 
 // NewWorkflowOrchestrator creates a new workflow orchestrator
@@ -26,6 +28,7 @@ func NewWorkflowOrchestrator(scanner *Scanner, config *config.GlobalConfig, logg
 		reportGenerator: NewReportGenerator(&config.ReporterConfig, logger),
 		summaryBuilder:  NewSummaryBuilder(logger),
 		logger:          logger.With().Str("module", "WorkflowOrchestrator").Logger(),
+		gCfg:            config,
 	}, nil
 }
 
@@ -86,25 +89,16 @@ func (wo *WorkflowOrchestrator) validateInput(input *ScanWorkflowInput) error {
 }
 
 // generateReports handles report generation with error handling
-func (wo *WorkflowOrchestrator) generateReports(ctx context.Context, probeResults []models.ProbeResult, urlDiffResults map[string]models.URLDiffResult, scanSessionID string) ([]string, error) {
+func (wo *WorkflowOrchestrator) generateReports(ctx context.Context, probeResults []httpxrunner.ProbeResult, urlDiffResults map[string]differ.URLDiffResult, scanSessionID string) ([]string, error) {
 	reportInput := NewReportGenerationInputWithDiff(probeResults, urlDiffResults, scanSessionID)
-
-	reportPaths, err := wo.reportGenerator.GenerateReports(ctx, reportInput)
-	if err != nil {
-		wo.logger.Error().Err(err).
-			Str("session_id", scanSessionID).
-			Msg("Failed to generate reports")
-		return nil, fmt.Errorf("report generation failed: %w", err)
-	}
-
-	return reportPaths, nil
+	return wo.reportGenerator.Generate(wo.gCfg, reportInput)
 }
 
 // buildSummary creates comprehensive scan summary
 func (wo *WorkflowOrchestrator) buildSummary(
 	input *ScanWorkflowInput,
-	probeResults []models.ProbeResult,
-	urlDiffResults map[string]models.URLDiffResult,
+	probeResults []httpxrunner.ProbeResult,
+	urlDiffResults map[string]differ.URLDiffResult,
 	reportPaths []string,
 	workflowError error,
 ) models.ScanSummaryData {
@@ -148,4 +142,8 @@ func (wo *WorkflowOrchestrator) createFailureResult(input *ScanWorkflowInput, er
 // Useful for cases where only scan results are needed
 func (wo *WorkflowOrchestrator) ExecuteCoreWorkflow(ctx context.Context, seedURLs []string, scanSessionID string) ([]models.ProbeResult, map[string]models.URLDiffResult, error) {
 	return wo.scanner.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
+}
+
+func (wo *WorkflowOrchestrator) getSeedURLs(inputFile string) ([]string, string, error) {
+	return wo.targetManager.LoadAndSelectTargets(inputFile)
 }

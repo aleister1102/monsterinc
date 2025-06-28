@@ -5,7 +5,8 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/datastore"
+	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/rs/zerolog"
 )
 
@@ -14,6 +15,7 @@ type DiscordNotifier struct {
 	logger     zerolog.Logger
 	httpClient *common.HTTPClient
 	webhookURL string
+	fileStore  datastore.FileHistoryStore
 }
 
 // NewDiscordNotifier creates a new DiscordNotifier instance
@@ -40,4 +42,23 @@ func (dn *DiscordNotifier) SendNotification(ctx context.Context, webhookURL stri
 
 	dn.logger.Info().Str("webhook_url", webhookURL).Msg("Discord notification sent successfully")
 	return nil
+}
+
+func (dn *DiscordNotifier) Send(ctx context.Context, notification Notification) error {
+	// ... implementation
+	return nil
+}
+
+func (dn *DiscordNotifier) SendFileContentChangeNotification(ctx context.Context, fileURL, newHash string, diffResult *differ.ContentDiffResult) error {
+	// ... implementation
+	return nil
+}
+
+func (dn *DiscordNotifier) SendURLScanCompletionNotification(ctx context.Context, summary ScanSummaryData, reportFilePaths []string) error {
+	// ... implementation
+	return nil
+}
+
+func (dn *DiscordNotifier) GetFileHistoryStore() datastore.FileHistoryStore {
+	return dn.fileStore
 }

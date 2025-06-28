@@ -1,12 +1,12 @@
 package httpxrunner
 
 import (
-	"context"
+	stdcontext "context"
 	"sync"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/common/context"
+	"github.com/aleister1102/monsterinc/internal/common/errors"
 
 	"github.com/projectdiscovery/httpx/runner"
 	"github.com/rs/zerolog"
@@ -36,18 +36,18 @@ func NewRunner(cfg *Config, rootTargetForThisInstance string, appLogger zerolog.
 // validateRunState validates the runner state before execution
 func (r *Runner) validateRunState() error {
 	if r.httpxRunner == nil {
-		return common.NewError("httpx engine not initialized")
+		return errors.NewError("httpx engine not initialized")
 	}
 
 	if r.collector == nil {
-		return common.NewError("result collector not initialized")
+		return errors.NewError("result collector not initialized")
 	}
 
 	return nil
 }
 
 // executeRunner executes the httpx runner in a goroutine with improved cancellation handling
-func (r *Runner) executeRunner(ctx context.Context) {
+func (r *Runner) executeRunner(ctx stdcontext.Context) {
 	defer r.wg.Done()
 
 	// Run enumeration in a separate goroutine to allow cancellation
@@ -81,7 +81,7 @@ func (r *Runner) executeRunner(ctx context.Context) {
 }
 
 // waitForCompletion waits for runner completion or context cancellation with immediate response
-func (r *Runner) waitForCompletion(ctx context.Context) error {
+func (r *Runner) waitForCompletion(ctx stdcontext.Context) error {
 	done := make(chan struct{})
 	go func() {
 		r.wg.Wait()
@@ -93,7 +93,7 @@ func (r *Runner) waitForCompletion(ctx context.Context) error {
 		r.logger.Debug().Msg("HTTPX runner completed successfully")
 		return nil
 	case <-ctx.Done():
-		result := common.CheckCancellationWithLog(ctx, r.logger, "HTTPX runner execution")
+		result := context.CheckCancellationWithLog(ctx, r.logger, "HTTPX runner execution")
 		if result.Cancelled {
 			r.logger.Info().Msg("HTTPX runner cancelled immediately")
 			// Give a shorter grace period for immediate response
@@ -110,10 +110,10 @@ func (r *Runner) waitForCompletion(ctx context.Context) error {
 }
 
 // Run executes the HTTPX runner with context support
-func (r *Runner) Run(ctx context.Context) error {
+func (r *Runner) Run(ctx stdcontext.Context) error {
 	// Validate runner state
 	if err := r.validateRunState(); err != nil {
-		return common.WrapError(err, "failed to validate runner state")
+		return errors.WrapError(err, "failed to validate runner state")
 	}
 
 	r.logger.Info().
@@ -130,6 +130,6 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 // GetResults returns all collected probe results after the run is complete
-func (r *Runner) GetResults() []models.ProbeResult {
+func (r *Runner) GetResults() []ProbeResult {
 	return r.collector.GetResults()
 }
