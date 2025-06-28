@@ -155,18 +155,3 @@ func (rg *ReportGenerator) combineProbeResultsWithOldURLs(probeResults []httpxru
 
 	return allProbeResults
 }
-
-func (rg *ReportGenerator) getReportTimestamp(probeResults []httpxrunner.ProbeResult) string {
-	if len(probeResults) == 0 {
-		return ""
-	}
-	// Implementation of getReportTimestamp method
-	return ""
-}
-
-func (rg *ReportGenerator) getReportRootURL(probeResults []httpxrunner.ProbeResult) string {
-	if len(probeResults) > 0 {
-		return probeResults[0].RootTargetURL
-	}
-	return ""
-}

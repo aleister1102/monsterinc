@@ -15,14 +15,10 @@ import (
 
 // BatchWorkflowOrchestrator handles batch processing for scan operations
 type BatchWorkflowOrchestrator struct {
-	logger          zerolog.Logger
-	batchProcessor  *batchprocessor.BatchProcessor
-	scanner         *Scanner
-	targetManager   *urlhandler.TargetManager
-	probeResults    []httpxrunner.ProbeResult
-	urlDiffResults  map[string]differ.URLDiffResult
-	reportFilePaths []string
-	err             error
+	logger         zerolog.Logger
+	batchProcessor *batchprocessor.BatchProcessor
+	scanner        *Scanner
+	targetManager  *urlhandler.TargetManager
 }
 
 // NewBatchWorkflowOrchestrator creates a new batch workflow orchestrator

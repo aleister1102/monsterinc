@@ -6,11 +6,6 @@ import (
 	"strings"
 )
 
-// createTemplateFunctionMap creates the function map for HTML templates
-func (r *HtmlReporter) createTemplateFunctionMap() template.FuncMap {
-	return GetCommonTemplateFunctions()
-}
-
 // loadEmbeddedTemplate loads the template from the embedded filesystem
 func (r *HtmlReporter) loadEmbeddedTemplate(tmpl *template.Template) error {
 	templateContent, err := templatesFS.ReadFile("templates/report_client_side.html.tmpl")

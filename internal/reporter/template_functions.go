@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/differ"
-	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 
 // GetCommonTemplateFunctions returns common functions for templates
@@ -134,34 +133,4 @@ func compareGreaterThan(a, b interface{}) bool {
 		}
 	}
 	return false
-}
-
-func getFuncMap() template.FuncMap {
-	return template.FuncMap{
-		"prettyPrintJSON": func(v interface{}) (template.HTML, error) {
-			b, err := json.MarshalIndent(v, "", "  ")
-			if err != nil {
-				return "", err
-			}
-			return template.HTML(b), nil
-		},
-		"formatTime": func(t time.Time) string {
-			return t.Format("2006-01-02 15:04:05")
-		},
-		"hasData": func(probeResult httpxrunner.ProbeResult) bool {
-			return probeResult.StatusCode > 0
-		},
-		"statusClass": func(status string) string {
-			switch status {
-			case "new":
-				return "status-new"
-			case "old":
-				return "status-old"
-			case "existing":
-				return "status-existing"
-			default:
-				return ""
-			}
-		},
-	}
 }
