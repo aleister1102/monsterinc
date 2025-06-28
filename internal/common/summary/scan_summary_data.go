@@ -72,6 +72,7 @@ type SummaryInput struct {
 	ScanMode        string
 	Targets         []string
 	StartTime       time.Time
+	ScanDuration    time.Duration // Pre-calculated scan duration
 	ProbeResults    []httpxrunner.ProbeResult
 	URLDiffResults  map[string]differ.URLDiffResult
 	WorkflowError   error
@@ -95,7 +96,11 @@ func (sb *SummaryBuilder) BuildSummary(input *SummaryInput) ScanSummaryData {
 	sb.calculateStats(&summary, input.ProbeResults, input.URLDiffResults)
 
 	// Set timing information
-	if !input.StartTime.IsZero() {
+	if input.ScanDuration > 0 {
+		// Use pre-calculated duration if provided
+		summary.ScanDuration = input.ScanDuration
+	} else if !input.StartTime.IsZero() {
+		// Fallback to time.Since calculation if no pre-calculated duration
 		summary.ScanDuration = time.Since(input.StartTime)
 	} else {
 		summary.ScanDuration = 0

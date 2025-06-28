@@ -389,14 +389,24 @@ func isAlphaNumeric(s string) bool {
 	return true
 }
 
-// GetPatternStats returns current pattern statistics
+// GetPatternStats returns statistics about detected patterns
 func (upd *URLPatternDetector) GetPatternStats() map[string]int {
 	upd.patternMutex.RLock()
 	defer upd.patternMutex.RUnlock()
 
-	stats := make(map[string]int, len(upd.patternCounts))
+	// Return a copy to avoid race conditions
+	stats := make(map[string]int)
 	for pattern, count := range upd.patternCounts {
 		stats[pattern] = count
 	}
 	return stats
+}
+
+// Reset clears all pattern tracking data
+func (upd *URLPatternDetector) Reset() {
+	upd.patternMutex.Lock()
+	defer upd.patternMutex.Unlock()
+	upd.patternCounts = make(map[string]int)
+
+	upd.logger.Debug().Msg("URL pattern detector reset")
 }

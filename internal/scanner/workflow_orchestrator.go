@@ -108,6 +108,7 @@ func (wo *WorkflowOrchestrator) buildSummary(
 		ScanMode:        input.ScanMode,
 		Targets:         input.SeedURLs,
 		StartTime:       input.StartTime,
+		ScanDuration:    0,
 		ProbeResults:    probeResults,
 		URLDiffResults:  urlDiffResults,
 		WorkflowError:   workflowError,

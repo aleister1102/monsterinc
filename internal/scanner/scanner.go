@@ -123,6 +123,9 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 ) (summary.ScanSummaryData, []httpxrunner.ProbeResult, []string, error) {
 	startTime := time.Now()
 	probeResults, urlDiffResults, err := s.ExecuteScanWorkflow(ctx, seedURLs, scanSessionID)
+	// Calculate scan duration immediately after scan completes, before report generation
+	scanDuration := time.Since(startTime)
+
 	if err != nil {
 		return summary.ScanSummaryData{}, nil, nil, err
 	}
@@ -148,10 +151,11 @@ func (s *Scanner) ExecuteSingleScanWorkflowWithReporting(
 		TargetSource:    targetSource,
 		ScanMode:        scanMode,
 		Targets:         seedURLs,
-		StartTime:       startTime,
+		StartTime:       time.Time{}, // Set to zero to use pre-calculated duration
 		ProbeResults:    probeResults,
 		URLDiffResults:  urlDiffResults,
 		ReportFilePaths: reportFilePaths,
+		ScanDuration:    scanDuration, // Pass pre-calculated scan duration
 	}
 	summary := summaryBuilder.BuildSummary(summaryInput)
 
@@ -176,6 +180,7 @@ func (s *Scanner) ExecuteCompleteScanWorkflow(
 		ScanSessionID:  scanSessionID,
 		TargetSource:   targetSource,
 		Targets:        seedURLs,
+		ScanDuration:   0, // Let BuildSummary calculate from StartTime
 		ProbeResults:   probeResults,
 		URLDiffResults: urlDiffResults,
 	}
@@ -208,8 +213,8 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Use processed URLs for the rest of the workflow
 	if len(processedSeedURLs) == 0 {
-		// Send error notification
-		if s.notificationHelper != nil {
+		// Only send error notification if not in batch mode (to avoid duplicate notifications)
+		if s.notificationHelper != nil && ctx.Value(disableNotificationsKey) == nil {
 			errorSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",
@@ -229,8 +234,8 @@ func (s *Scanner) ExecuteScanWorkflow(
 	// Step 1: Configure and execute crawler
 	crawlerConfig, primaryRootTargetURL, err := s.configBuilder.BuildCrawlerConfig(processedSeedURLs, scanSessionID)
 	if err != nil {
-		// Send error notification
-		if s.notificationHelper != nil {
+		// Only send error notification if not in batch mode
+		if s.notificationHelper != nil && ctx.Value(disableNotificationsKey) == nil {
 			errorSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",
@@ -256,7 +261,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Check for context cancellation before crawler execution
 	if ctx.Err() != nil {
-		if s.notificationHelper != nil {
+		if s.notificationHelper != nil && ctx.Value(disableNotificationsKey) == nil {
 			interruptSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",
@@ -274,8 +279,8 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	crawlerResult := s.crawlerExecutor.Execute(crawlerInput)
 	if crawlerResult.Error != nil {
-		// Send error notification
-		if s.notificationHelper != nil {
+		// Only send error notification if not in batch mode
+		if s.notificationHelper != nil && ctx.Value(disableNotificationsKey) == nil {
 			errorSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",
@@ -308,7 +313,7 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	// Check for context cancellation before HTTPX execution
 	if ctx.Err() != nil {
-		if s.notificationHelper != nil {
+		if s.notificationHelper != nil && ctx.Value(disableNotificationsKey) == nil {
 			interruptSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",
@@ -326,8 +331,8 @@ func (s *Scanner) ExecuteScanWorkflow(
 
 	httpxResult := s.httpxExecutor.Execute(httpxInput)
 	if httpxResult.Error != nil {
-		// Send error notification
-		if s.notificationHelper != nil {
+		// Only send error notification if not in batch mode
+		if s.notificationHelper != nil && ctx.Value(disableNotificationsKey) == nil {
 			errorSummary := summary.ScanSummaryData{
 				ScanSessionID: scanSessionID,
 				ScanMode:      "scan",

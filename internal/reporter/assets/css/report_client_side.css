@@ -253,6 +253,19 @@ body {
     margin-bottom: 20px;
 }
 
+.table-responsive {
+    border-radius: 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.table {
+    table-layout: auto;
+    width: 100%;
+    min-width: 1200px;
+    margin: 0 auto;
+}
+
 .table th {
     background: var(--primary-color);
     color: white;
@@ -263,6 +276,8 @@ body {
     cursor: pointer;
     user-select: none;
     position: relative;
+    text-align: center;
+    white-space: nowrap;
 }
 
 .table th:hover {
@@ -299,90 +314,104 @@ body {
     padding: 12px;
     vertical-align: middle;
     border-bottom: 1px solid #e9ecef;
+    text-align: center;
 }
 
 .table tbody tr:hover {
     background-color: #f8f9fa;
 }
 
-/* Table Column Fixed Widths */
-.table {
-    table-layout: fixed;
-    width: 100%;
-}
-
-/* Fixed column widths */
+/* Responsive column widths */
 .table th:nth-child(1),
 /* Input URL */
 .table td:nth-child(1) {
-    width: 180px;
+    width: 20%;
     min-width: 180px;
-    max-width: 180px;
 }
 
 .table th:nth-child(2),
 /* Final URL */
 .table td:nth-child(2) {
-    width: 180px;
+    width: 20%;
     min-width: 180px;
-    max-width: 180px;
 }
 
 .table th:nth-child(3),
 /* Diff Status */
 .table td:nth-child(3) {
-    width: 90px;
+    width: 8%;
     min-width: 90px;
-    max-width: 90px;
-    text-align: center;
 }
 
 .table th:nth-child(4),
 /* Status Code */
 .table td:nth-child(4) {
-    width: 90px;
+    width: 8%;
     min-width: 90px;
-    max-width: 90px;
 }
 
 .table th:nth-child(5),
 /* Title */
 .table td:nth-child(5) {
-    width: 130px;
+    width: 15%;
     min-width: 130px;
-    max-width: 130px;
 }
 
 .table th:nth-child(6),
 /* Content Type */
 .table td:nth-child(6) {
-    width: 150px;
-    min-width: 150px;
-    max-width: 150px;
+    width: 12%;
+    min-width: 120px;
 }
 
 .table th:nth-child(7),
 /* Technologies */
 .table td:nth-child(7) {
-    width: 170px;
-    min-width: 170px;
-    max-width: 170px;
+    width: 12%;
+    min-width: 150px;
 }
 
 .table th:nth-child(8),
 /* Details */
 .table td:nth-child(8) {
-    width: 80px;
+    width: 5%;
     min-width: 80px;
-    max-width: 80px;
 }
 
-/* Ensure text truncation works properly with fixed widths */
+/* Ensure text truncation works properly */
 .table td .text-truncate {
     width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Ensure full width usage */
+.container-fluid {
+    padding-left: 15px;
+    padding-right: 15px;
+}
+
+#resultsContainer {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.table-responsive {
+    width: 100%;
+    margin: 0;
+}
+
+/* URL column text alignment */
+.table td:nth-child(1),
+.table td:nth-child(2) {
+    text-align: left;
+    word-break: break-all;
+    overflow-wrap: break-word;
+}
+
+.table td:nth-child(5) {
+    text-align: left;
 }
 
 /* Loading State */
@@ -641,10 +670,20 @@ body {
         margin-bottom: 20px;
     }
 
+    .table {
+        min-width: 800px;
+    }
+
     .table th,
     .table td {
         padding: 8px 6px;
         font-size: 0.85em;
+    }
+
+    .table td:nth-child(1),
+    .table td:nth-child(2) {
+        max-width: 150px;
+        word-break: break-all;
     }
 }
 

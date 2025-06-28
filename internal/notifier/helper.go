@@ -3,6 +3,7 @@ package notifier
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -115,19 +116,30 @@ func (nh *NotificationHelper) sendSingleNotificationWithAllReports(ctx context.C
 
 	nh.logger.Info().Msg("Scan completion notification sent successfully.")
 
+	// Track successfully sent report files for cleanup
+	var sentReportFiles []string
+	sentReportFiles = append(sentReportFiles, reportFilePaths[0]) // First report sent successfully
+
 	// Send additional reports as follow-up messages if there are more than 1
 	for i := 1; i < len(reportFilePaths); i++ {
-		nh.sendAdditionalReport(ctx, summary, webhookURL, reportFilePaths[i], i+1, len(reportFilePaths))
+		err := nh.sendAdditionalReport(ctx, summary, webhookURL, reportFilePaths[i], i+1, len(reportFilePaths))
+		if err == nil {
+			// Only add to cleanup list if sent successfully
+			sentReportFiles = append(sentReportFiles, reportFilePaths[i])
+		}
 
 		// Small delay between sends
 		if i < len(reportFilePaths)-1 {
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
+
+	// Cleanup all sent report files after successful notification
+	nh.cleanupReportFiles(sentReportFiles)
 }
 
 // sendAdditionalReport sends additional report files as simple attachments
-func (nh *NotificationHelper) sendAdditionalReport(ctx context.Context, summary summary.ScanSummaryData, webhookURL string, reportPath string, partNum, totalParts int) {
+func (nh *NotificationHelper) sendAdditionalReport(ctx context.Context, summary summary.ScanSummaryData, webhookURL string, reportPath string, partNum, totalParts int) error {
 	payload := nh.buildSimpleReportPayload(summary.ScanSessionID, partNum, totalParts)
 
 	nh.logger.Info().
@@ -139,6 +151,24 @@ func (nh *NotificationHelper) sendAdditionalReport(ctx context.Context, summary 
 	err := nh.discordNotifier.SendNotification(ctx, webhookURL, payload, reportPath)
 	if err != nil {
 		nh.logger.Error().Err(err).Int("part", partNum).Msg("Failed to send additional report")
+		return err
+	}
+	return nil
+}
+
+// cleanupReportFiles removes report files after successful notification
+func (nh *NotificationHelper) cleanupReportFiles(reportFilePaths []string) {
+	for _, filePath := range reportFilePaths {
+		if filePath == "" {
+			continue
+		}
+
+		err := os.Remove(filePath)
+		if err != nil {
+			nh.logger.Error().Err(err).Str("file_path", filePath).Msg("Failed to cleanup report file")
+		} else {
+			nh.logger.Info().Str("file_path", filePath).Msg("Report file cleaned up successfully")
+		}
 	}
 }
 

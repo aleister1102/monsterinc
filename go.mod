@@ -7,7 +7,6 @@ toolchain go1.24.2
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/go-playground/validator/v10 v10.26.0
-	github.com/go-rod/rod v0.116.2
 	github.com/gocolly/colly/v2 v2.2.0
 	github.com/parquet-go/parquet-go v0.25.0
 	github.com/projectdiscovery/httpx v1.7.0
@@ -61,6 +60,7 @@ require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
+	github.com/go-rod/rod v0.116.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect

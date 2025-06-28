@@ -93,23 +93,20 @@ class ReportManager {
             ? technologies.slice(0, 3).join(', ') + (technologies.length > 3 ? '...' : '')
             : 'N/A';
 
-        // Content length formatting
-        const contentLength = item.ContentLength ? this.formatBytes(item.ContentLength) : 'N/A';
-
         // URL status for diff (if available)
         const urlStatus = item.URLStatus || '';
-        const diffBadge = urlStatus ? `<span class="badge badge-info">${urlStatus}</span>` : '';
+        const diffBadgeClass = this.getDiffStatusBadgeClass(urlStatus);
+        const diffBadge = urlStatus ? `<span class="badge ${diffBadgeClass}">${urlStatus}</span>` : '<span class="badge bg-secondary">None</span>';
 
         row.innerHTML = `
             <td class="text-truncate" style="max-width: 300px;" title="${this.escapeHtml(item.InputURL || '')}">${this.escapeHtml(item.InputURL || '')}</td>
             <td class="text-truncate" style="max-width: 200px;" title="${this.escapeHtml(item.FinalURL || '')}">${this.escapeHtml(item.FinalURL || '')}</td>
-            <td>${statusBadge}</td>
-            <td class="text-truncate" style="max-width: 200px;" title="${this.escapeHtml(item.Title || '')}">${this.escapeHtml(item.Title || '')}</td>
-            <td class="text-truncate" style="max-width: 150px;" title="${this.escapeHtml(techDisplay)}">${this.escapeHtml(techDisplay)}</td>
-            <td class="text-truncate" style="max-width: 120px;" title="${this.escapeHtml(item.WebServer || '')}">${this.escapeHtml(item.WebServer || '')}</td>
-            <td class="text-truncate" style="max-width: 120px;" title="${this.escapeHtml(item.ContentType || '')}">${this.escapeHtml(item.ContentType || '')}</td>
-            <td>${contentLength}</td>
             <td>${diffBadge}</td>
+            <td>${statusBadge}</td>
+            <td class="text-truncate hide-on-mobile" style="max-width: 200px;" title="${this.escapeHtml(item.Title || '')}">${this.escapeHtml(item.Title || '')}</td>
+            <td class="text-truncate hide-on-mobile" style="max-width: 120px;" title="${this.escapeHtml(item.ContentType || '')}">${this.escapeHtml(item.ContentType || '')}</td>
+            <td class="text-truncate hide-on-mobile" style="max-width: 150px;" title="${this.escapeHtml(techDisplay)}">${this.escapeHtml(techDisplay)}</td>
+            <td><button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); reportManager.openDetailModal(reportManager.probeResults[${index}])"><i class="fas fa-eye"></i></button></td>
         `;
 
         return row;
@@ -117,80 +114,68 @@ class ReportManager {
 
     openDetailModal(item) {
         // Populate modal with probe result details
-        document.getElementById('modalInputURL').textContent = item.InputURL || 'N/A';
-        document.getElementById('modalFinalURL').textContent = item.FinalURL || 'N/A';
-        document.getElementById('modalMethod').textContent = item.Method || 'N/A';
-        document.getElementById('modalStatusCode').textContent = item.StatusCode || 'N/A';
-        document.getElementById('modalContentLength').textContent = this.formatBytes(item.ContentLength) || 'N/A';
-        document.getElementById('modalContentType').textContent = item.ContentType || 'N/A';
-        document.getElementById('modalTitle').textContent = item.Title || 'N/A';
-        document.getElementById('modalWebServer').textContent = item.WebServer || 'N/A';
-        document.getElementById('modalDuration').textContent = item.Duration ? `${item.Duration.toFixed(2)}s` : 'N/A';
-        document.getElementById('modalTimestamp').textContent = item.Timestamp || 'N/A';
-        document.getElementById('modalError').textContent = item.Error || 'None';
+        document.getElementById('details-input-url').textContent = item.InputURL || 'N/A';
+        document.getElementById('details-final-url').textContent = item.FinalURL || 'N/A';
+        document.getElementById('details-root-target').textContent = item.RootTarget || 'N/A';
+        document.getElementById('details-diff-status').textContent = item.URLStatus || 'N/A';
+        document.getElementById('details-timestamp').textContent = item.Timestamp || 'N/A';
 
-        // Technologies
-        const technologies = item.Technologies || [];
-        const techList = document.getElementById('modalTechnologies');
-        techList.innerHTML = '';
-        if (technologies.length > 0) {
-            technologies.forEach(tech => {
-                const listItem = document.createElement('li');
-                listItem.textContent = tech;
-                listItem.className = 'list-group-item';
-                techList.appendChild(listItem);
-            });
-        } else {
-            const listItem = document.createElement('li');
-            listItem.textContent = 'No technologies detected';
-            listItem.className = 'list-group-item text-muted';
-            techList.appendChild(listItem);
-        }
+        document.getElementById('details-method').textContent = item.Method || 'N/A';
+        document.getElementById('details-status-code').textContent = item.StatusCode || 'N/A';
+        document.getElementById('details-content-type').textContent = item.ContentType || 'N/A';
+        document.getElementById('details-content-length').textContent = this.formatBytes(item.ContentLength) || 'N/A';
+        document.getElementById('details-web-server').textContent = item.WebServer || 'N/A';
 
         // IPs
         const ips = item.IPs || [];
-        document.getElementById('modalIPs').textContent = ips.length > 0 ? ips.join(', ') : 'N/A';
+        document.getElementById('details-ips').textContent = ips.length > 0 ? ips.join(', ') : 'N/A';
 
         // CNAMEs
         const cnames = item.CNAMEs || [];
-        document.getElementById('modalCNAMEs').textContent = cnames.length > 0 ? cnames.join(', ') : 'N/A';
+        document.getElementById('details-cnames').textContent = cnames.length > 0 ? cnames.join(', ') : 'N/A';
 
         // ASN
-        document.getElementById('modalASN').textContent = item.ASN || 'N/A';
-        document.getElementById('modalASNOrg').textContent = item.ASNOrg || 'N/A';
+        document.getElementById('details-asn').textContent = item.ASN || 'N/A';
+        document.getElementById('details-asn-org').textContent = item.ASNOrg || 'N/A';
 
-        // TLS Information
-        document.getElementById('modalTLSVersion').textContent = item.TLSVersion || 'N/A';
-        document.getElementById('modalTLSCipher').textContent = item.TLSCipher || 'N/A';
-        document.getElementById('modalTLSCertIssuer').textContent = item.TLSCertIssuer || 'N/A';
-        document.getElementById('modalTLSCertExpiry').textContent = item.TLSCertExpiry || 'N/A';
+        // Technologies
+        const technologies = item.Technologies || [];
+        const techContainer = document.getElementById('details-technologies');
+        if (technologies.length > 0) {
+            techContainer.innerHTML = technologies.map(tech =>
+                `<span class="badge bg-secondary me-1 mb-1">${this.escapeHtml(tech)}</span>`
+            ).join('');
+        } else {
+            techContainer.innerHTML = '<span class="text-muted">No technologies detected</span>';
+        }
 
         // Headers
         const headers = item.Headers || {};
-        const headersList = document.getElementById('modalHeaders');
+        const headersList = document.getElementById('details-headers');
         headersList.innerHTML = '';
         const headerEntries = Object.entries(headers);
         if (headerEntries.length > 0) {
             headerEntries.forEach(([key, value]) => {
-                const listItem = document.createElement('li');
-                listItem.innerHTML = `<strong>${this.escapeHtml(key)}:</strong> ${this.escapeHtml(value)}`;
-                listItem.className = 'list-group-item';
-                headersList.appendChild(listItem);
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><strong>${this.escapeHtml(key)}</strong></td>
+                    <td>${this.escapeHtml(value)}</td>
+                `;
+                headersList.appendChild(row);
             });
         } else {
-            const listItem = document.createElement('li');
-            listItem.textContent = 'No headers available';
-            listItem.className = 'list-group-item text-muted';
-            headersList.appendChild(listItem);
+            const row = document.createElement('tr');
+            row.innerHTML = '<td colspan="2" class="text-muted">No headers available</td>';
+            headersList.appendChild(row);
         }
 
         // Body (truncated for display)
         const body = item.Body || '';
         const truncatedBody = body.length > 1000 ? body.substring(0, 1000) + '...' : body;
-        document.getElementById('modalBody').textContent = truncatedBody || 'No body content';
+        document.getElementById('details-body').textContent = truncatedBody || 'No body content';
 
         // Show the modal
-        const modal = new bootstrap.Modal(document.getElementById('detailModal'));
+        const modal = new bootstrap.Modal(document.getElementById('detailsModal'));
         modal.show();
     }
 
@@ -201,6 +186,22 @@ class ReportManager {
         if (statusCode >= 400 && statusCode < 500) return 'bg-warning';
         if (statusCode >= 500) return 'bg-danger';
         return 'bg-secondary';
+    }
+
+    getDiffStatusBadgeClass(diffStatus) {
+        if (!diffStatus) return 'bg-secondary';
+        switch (diffStatus.toLowerCase()) {
+            case 'new':
+                return 'bg-success';
+            case 'modified':
+                return 'bg-warning';
+            case 'removed':
+                return 'bg-danger';
+            case 'unchanged':
+                return 'bg-info';
+            default:
+                return 'bg-secondary';
+        }
     }
 
     formatBytes(bytes) {
@@ -231,30 +232,28 @@ class ReportManager {
 
         try {
             // Prepare data for DataTables
-            const tableData = this.probeResults.map(item => [
+            const tableData = this.probeResults.map((item, index) => [
                 item.InputURL || '',
                 item.FinalURL || '',
+                item.URLStatus || '',
                 item.StatusCode || 0,
                 item.Title || '',
-                (item.Technologies || []).join(', '),
-                item.WebServer || '',
                 item.ContentType || '',
-                item.ContentLength || 0,
-                item.URLStatus || ''
+                (item.Technologies || []).join(', '),
+                index // for details button
             ]);
 
             this.table = $('#resultsTable').DataTable({
                 data: tableData,
                 columns: [
-                    { title: "Input URL", className: "text-truncate", width: "20%" },
-                    { title: "Final URL", className: "text-truncate", width: "20%" },
-                    { title: "Status", width: "8%" },
-                    { title: "Title", className: "text-truncate", width: "15%" },
-                    { title: "Technologies", className: "text-truncate", width: "12%" },
-                    { title: "Server", className: "text-truncate", width: "10%" },
-                    { title: "Content Type", className: "text-truncate", width: "10%" },
-                    { title: "Size", width: "8%" },
-                    { title: "Diff Status", width: "8%" }
+                    { title: "Input URL", className: "text-truncate", width: "25%" },
+                    { title: "Final URL", className: "text-truncate", width: "25%" },
+                    { title: "Diff Status", width: "10%" },
+                    { title: "Status Code", width: "10%" },
+                    { title: "Title", className: "text-truncate hide-on-mobile", width: "15%" },
+                    { title: "Content Type", className: "text-truncate hide-on-mobile", width: "10%" },
+                    { title: "Technologies", className: "text-truncate hide-on-mobile", width: "12%" },
+                    { title: "Details", width: "8%", orderable: false, searchable: false }
                 ],
                 pageLength: this.itemsPerPage,
                 responsive: true,
@@ -281,7 +280,7 @@ class ReportManager {
                     '<"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>',
                 columnDefs: [
                     {
-                        targets: [0, 1, 3, 4, 5, 6], // URL columns, title, tech, server, content type
+                        targets: [0, 1, 4, 5, 6], // URL columns, title, content type, tech
                         render: function (data, type, row) {
                             if (type === 'display' && data && data.length > 50) {
                                 return '<span title="' + data + '">' + data.substr(0, 47) + '...</span>';
@@ -290,7 +289,17 @@ class ReportManager {
                         }
                     },
                     {
-                        targets: 2, // Status code column
+                        targets: 2, // Diff status column
+                        render: function (data, type, row) {
+                            if (type === 'display') {
+                                const diffBadgeClass = this.getDiffStatusBadgeClass(data);
+                                return data ? '<span class="badge ' + diffBadgeClass + '">' + data + '</span>' : '<span class="badge bg-secondary">None</span>';
+                            }
+                            return data;
+                        }.bind(this)
+                    },
+                    {
+                        targets: 3, // Status code column
                         render: function (data, type, row) {
                             if (type === 'display') {
                                 const statusClass = data >= 200 && data < 300 ? 'bg-success' :
@@ -303,29 +312,17 @@ class ReportManager {
                         }
                     },
                     {
-                        targets: 7, // Content length column
+                        targets: 7, // Details column
                         render: function (data, type, row) {
-                            if (type === 'display' && data) {
-                                return this.formatBytes(data);
+                            if (type === 'display') {
+                                return '<button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); reportManager.openDetailModal(reportManager.probeResults[' + data + '])"><i class="fas fa-eye"></i></button>';
                             }
-                            return data || 'N/A';
-                        }.bind(this)
-                    },
-                    {
-                        targets: 8, // Diff status column
-                        render: function (data, type, row) {
-                            if (type === 'display' && data) {
-                                return '<span class="badge badge-info">' + data + '</span>';
-                            }
-                            return data || '';
+                            return data;
                         }
                     }
                 ],
                 createdRow: (row, data, dataIndex) => {
-                    $(row).css('cursor', 'pointer');
-                    $(row).on('click', () => {
-                        this.openDetailModal(this.probeResults[dataIndex]);
-                    });
+                    // No need for row click handler since we have Details button
                 }
             });
 
@@ -430,7 +427,14 @@ class ReportManager {
 
 // Initialize the report manager when the DOM is loaded
 document.addEventListener('DOMContentLoaded', function () {
-    // ProbeResultsData should be injected by the Go template
-    const reportManager = new ReportManager(window.ProbeResultsData || []);
+    // reportData should be injected by the Go template
+    const reportManager = new ReportManager(window.reportData || []);
     window.reportManager = reportManager; // Make it globally accessible for inline onclick handlers
+
+    // Hide loading and show content
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('controls').style.display = 'block';
+    document.getElementById('resultsContainer').style.display = 'block';
+    document.getElementById('paginationContainer').style.display = 'block';
+    document.getElementById('paginationContainerBottom').style.display = 'block';
 });

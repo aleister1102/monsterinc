@@ -68,8 +68,9 @@ func (up *URLPreprocessor) PreprocessURLs(inputURLs []string) *URLPreprocessorRe
 		Bool("auto_calibrate_enabled", up.config.AutoCalibrate.Enabled).
 		Msg("Starting URL preprocessing")
 
-	// Reset stats
+	// Reset stats and pattern detector to ensure fresh state for each preprocessing cycle
 	up.statsTracker.ResetStats()
+	up.patternDetector.Reset()
 
 	var processedURLs []string
 

@@ -11,6 +11,13 @@ import (
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 )
 
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+const (
+	disableNotificationsKey contextKey = "disable_individual_notifications"
+)
+
 // executeBatchedScan executes scan in batches
 func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 	ctx context.Context,
@@ -55,19 +62,6 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 	processFunc := func(ctx context.Context, batch []string, batchIndex int) error {
 		batchNumber := batchIndex + 1 // Make it 1-based for display
 
-		// Calculate processed URLs from previous batches
-		batchSize := len(targetURLs) / batchCount
-		processedURLsSoFar := batchIndex * batchSize
-
-		// Handle uneven distribution for the last few batches
-		if batchIndex > 0 {
-			remainder := len(targetURLs) % batchCount
-			if remainder > 0 && batchIndex >= batchCount-remainder {
-				// Add one extra URL for batches that handle the remainder
-				processedURLsSoFar += batchIndex - (batchCount - remainder)
-			}
-		}
-
 		bwo.logger.Info().
 			Int("batch_index", batchIndex).
 			Int("batch_number", batchNumber).
@@ -76,15 +70,6 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			Int("total", batchCount).
 			Msg("Processing scan batch")
 
-		// Log memory usage before batch
-		var memStats runtime.MemStats
-		runtime.ReadMemStats(&memStats)
-		bwo.logger.Debug().
-			Uint64("alloc_mb", memStats.Alloc/1024/1024).
-			Uint64("sys_mb", memStats.Sys/1024/1024).
-			Int("batch_index", batchIndex).
-			Msg("Memory before batch processing")
-
 		// Create batch-specific session ID
 		batchSessionID := fmt.Sprintf("%s-batch-%d", scanSessionID, batchIndex)
 
@@ -92,6 +77,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		var err error
 
 		// Always execute core workflow without generating reports per batch
+		ctx = context.WithValue(ctx, disableNotificationsKey, true)
 		batchProbeResults, batchURLDiffResults, err := bwo.scanner.ExecuteScanWorkflow(
 			ctx,
 			batch,
@@ -122,6 +108,7 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			TargetSource:   targetSource,
 			ScanMode:       scanMode,
 			Targets:        batch,
+			ScanDuration:   0, // Let BuildSummary calculate from StartTime
 			ProbeResults:   batchProbeResults,
 			URLDiffResults: batchURLDiffResults,
 		}
@@ -138,14 +125,12 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 		processedBatches++
 		// Force garbage collection after each batch to free memory
 		runtime.GC()
-		runtime.ReadMemStats(&memStats)
 
 		bwo.logger.Info().
 			Int("batch_index", batchIndex).
 			Int("batch_number", batchNumber).
 			Int("batch_targets", len(batch)).
 			Int("total_processed", processedBatches).
-			Uint64("alloc_mb_after_gc", memStats.Alloc/1024/1024).
 			Msg("Batch scan completed successfully with GC")
 
 		return nil
@@ -162,9 +147,6 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			Int("total_batches", batchCount).
 			Int("interrupted_at", interruptedAt).
 			Msg("Batch processing was interrupted or failed")
-
-	} else {
-
 	}
 
 	// Generate merged report from all batch results if we have any

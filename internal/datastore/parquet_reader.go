@@ -194,11 +194,9 @@ func (pr *ParquetReader) openParquetFile(filePath string) (*os.File, error) {
 }
 
 // createParquetReader creates a configured Parquet reader
-//
-//nolint:staticcheck // TODO: Replace deprecated parquet.Reader with newer API
-func (pr *ParquetReader) createParquetReader(file *os.File) (*parquet.Reader, error) {
+func (pr *ParquetReader) createParquetReader(file *os.File) (*parquet.GenericReader[ParquetProbeResult], error) {
 	readerOptions := pr.buildReaderOptions()
-	reader := parquet.NewReader(file, readerOptions...)
+	reader := parquet.NewGenericReader[ParquetProbeResult](file, readerOptions...)
 	return reader, nil
 }
 
@@ -210,23 +208,30 @@ func (pr *ParquetReader) buildReaderOptions() []parquet.ReaderOption {
 }
 
 // readAllRecords reads all records from the Parquet reader
-//
-//nolint:staticcheck // TODO: Replace deprecated parquet.Reader with newer API
-func (pr *ParquetReader) readAllRecords(reader *parquet.Reader, contextualRootTargetURL string) ([]httpxrunner.ProbeResult, error) {
+func (pr *ParquetReader) readAllRecords(reader *parquet.GenericReader[ParquetProbeResult], contextualRootTargetURL string) ([]httpxrunner.ProbeResult, error) {
 	var results []httpxrunner.ProbeResult
-	row := ParquetProbeResult{} // Reusable buffer
+
+	// Read all rows using a buffer and loop
+	const batchSize = 1000
+	rows := make([]ParquetProbeResult, batchSize)
 
 	for {
-		if err := reader.Read(&row); err != nil {
-			if err == io.EOF {
-				break // End of file reached
-			}
-			pr.logger.Error().Err(err).Msg("Failed to read row from Parquet file")
-			return nil, errorwrapper.WrapError(err, "failed to read row from Parquet file")
+		n, err := reader.Read(rows)
+		if err != nil && err != io.EOF {
+			pr.logger.Error().Err(err).Msg("Failed to read rows from Parquet file")
+			return nil, errorwrapper.WrapError(err, "failed to read rows from Parquet file")
 		}
 
-		probeResult := pr.convertParquetRecord(row, contextualRootTargetURL)
-		results = append(results, probeResult)
+		// Process the read rows
+		for i := 0; i < n; i++ {
+			probeResult := pr.convertParquetRecord(rows[i], contextualRootTargetURL)
+			results = append(results, probeResult)
+		}
+
+		// Break if we've reached the end of file
+		if err == io.EOF {
+			break
+		}
 	}
 
 	return results, nil

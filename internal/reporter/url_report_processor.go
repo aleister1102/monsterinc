@@ -34,7 +34,8 @@ func (r *HtmlReporter) buildOutputPath(baseOutputPath string, partNum, totalPart
 			return fmt.Sprintf("%s-part%d.html", basePath, partNum)
 		}
 	}
-	return filepath.Join(r.cfg.OutputDir, filename)
+	// Generate report in current directory instead of OutputDir
+	return filename
 }
 
 // prepareReportData sets up page data structure

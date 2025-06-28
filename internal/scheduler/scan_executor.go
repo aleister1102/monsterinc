@@ -179,7 +179,7 @@ func (s *Scheduler) executeScanCycle(
 	}
 
 	// Execute batch scan using orchestrator
-	return s.executeSchedulerBatchScan(ctx, scanSessionID, baseSummary, dbScanID, scanLogger)
+	return s.executeSchedulerBatchScan(ctx, scanSessionID, baseSummary, dbScanID, scanLogger, startTime)
 }
 
 // executeSchedulerBatchScan executes batch scan with scheduler-specific handling
@@ -189,6 +189,7 @@ func (s *Scheduler) executeSchedulerBatchScan(
 	baseSummary summary.ScanSummaryData,
 	dbScanID int64,
 	scanLogger zerolog.Logger,
+	startTime time.Time,
 ) (summary.ScanSummaryData, []string, error) {
 	// Create batch workflow orchestrator
 	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(s.globalConfig, s.scanner, scanLogger)
@@ -214,6 +215,21 @@ func (s *Scheduler) executeSchedulerBatchScan(
 		return s.buildErrorSummary(baseSummary, err), nil, err
 	}
 
+	// Check if batch result indicates actual scanning failure (all batches failed due to preprocessing)
+	if batchResult.SummaryData.Status == string(summary.ScanStatusFailed) &&
+		batchResult.SummaryData.ProbeStats.TotalProbed == 0 &&
+		batchResult.ProcessedBatches == 0 {
+		// All batches failed due to preprocessing, treat as scan failure
+		s.updateDBOnFailure(dbScanID, fmt.Errorf("all batches failed during preprocessing"))
+		return s.buildErrorSummary(baseSummary, fmt.Errorf("all batches failed: no URLs processed")), nil, fmt.Errorf("all batches failed during preprocessing")
+	}
+
+	// Calculate actual scan duration from start
+	actualScanDuration := time.Since(startTime)
+
+	// Update batch result with correct duration
+	batchResult.SummaryData.ScanDuration = actualScanDuration
+
 	// Update database with success
 	s.updateDBOnSuccess(dbScanID, batchResult.SummaryData)
 
@@ -222,6 +238,7 @@ func (s *Scheduler) executeSchedulerBatchScan(
 		Str("status", batchResult.SummaryData.Status).
 		Bool("used_batching", batchResult.UsedBatching).
 		Int("total_batches", batchResult.TotalBatches).
+		Dur("scan_duration", actualScanDuration).
 		Msg("Scheduler scan cycle completed")
 
 	updatedSummary := s.updateSummaryWithScanResult(baseSummary, batchResult.SummaryData)

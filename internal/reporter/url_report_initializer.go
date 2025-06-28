@@ -1,7 +1,7 @@
 package reporter
 
 import (
-	"embed"
+	_ "embed"
 	"encoding/base64"
 	"fmt"
 	"html/template"
@@ -9,9 +9,6 @@ import (
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/rs/zerolog"
 )
-
-//go:embed templates/report_client_side.html.tmpl
-var defaultTemplate embed.FS
 
 //go:embed assets/img/favicon.ico
 var faviconICO []byte
@@ -70,7 +67,8 @@ func (r *HtmlReporter) initializeOutputDirectory() error {
 
 // setupTemplate initializes the HTML template with function map
 func (r *HtmlReporter) setupTemplate() error {
-	return r.loadEmbeddedTemplate(template.New("report"))
+	tmpl := template.New("report").Funcs(GetCommonTemplateFunctions())
+	return r.loadEmbeddedTemplate(tmpl)
 }
 
 // initializeFavicon sets up the base64 encoded favicon
