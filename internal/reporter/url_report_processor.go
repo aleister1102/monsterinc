@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 )
 
 // buildOutputPath constructs the output file path

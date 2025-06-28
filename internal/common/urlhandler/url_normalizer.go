@@ -109,29 +109,3 @@ func (un *URLNormalizer) stripQueryParameters(parsedURL *url.URL) {
 		parsedURL.RawQuery = values.Encode()
 	}
 }
-
-// IsEquivalentURL checks if two URLs are equivalent after normalization
-func (un *URLNormalizer) IsEquivalentURL(url1, url2 string) bool {
-	normalized1, err1 := un.NormalizeURL(url1)
-	normalized2, err2 := un.NormalizeURL(url2)
-
-	if err1 != nil || err2 != nil {
-		return false
-	}
-
-	return normalized1 == normalized2
-}
-
-// ResolveAndNormalizeURL resolves and normalizes URL in one step
-func ResolveAndNormalizeURL(href string, base *url.URL, normalizer *URLNormalizer) (string, error) {
-	resolved, err := ResolveURL(href, base)
-	if err != nil {
-		return "", err
-	}
-
-	if normalizer != nil {
-		return normalizer.NormalizeURL(resolved)
-	}
-
-	return resolved, nil
-}

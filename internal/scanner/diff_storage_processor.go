@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/aleister1102/monsterinc/internal/common/contextutils"
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
 )
 

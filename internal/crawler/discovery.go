@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 )
 
 // DiscoverURL normalizes, validates and potentially adds a URL to the crawl queue.

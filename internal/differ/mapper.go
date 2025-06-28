@@ -3,8 +3,8 @@ package differ
 import (
 	"strings"
 
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 )
 
 // URLMapper creates lookup maps for URL comparison

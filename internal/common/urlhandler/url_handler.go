@@ -2,10 +2,8 @@ package urlhandler
 
 import (
 	"errors" // Assuming your error model is defined here
-	"fmt"
 	"net"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -200,24 +198,6 @@ func SanitizeFilename(input string) string {
 	return name
 }
 
-// ExtractHostnameWithPort extracts hostname with port from a URL string
-func ExtractHostnameWithPort(urlString string) (string, error) {
-	if urlString == "" {
-		return "", errorwrapper.NewError("URL string is empty")
-	}
-
-	parsedURL, err := url.Parse(urlString)
-	if err != nil {
-		return "", errorwrapper.WrapError(err, "could not parse URL '"+urlString+"'")
-	}
-
-	if parsedURL.Host == "" {
-		return "", errorwrapper.NewError("URL has no hostname component: " + urlString)
-	}
-
-	return parsedURL.Host, nil
-}
-
 // ValidateURLFormat validates if a URL string has proper format
 func ValidateURLFormat(rawURL string) error {
 	trimmedURL := strings.TrimSpace(rawURL)
@@ -231,29 +211,6 @@ func ValidateURLFormat(rawURL string) error {
 	}
 
 	return nil
-}
-
-// SanitizeHostnamePort creates a safe filename string from hostname:port format.
-// It specifically handles the colon character by replacing it with an underscore.
-// This allows for easier reversal compared to the general SanitizeFilename function.
-func SanitizeHostnamePort(hostnamePort string) string {
-	// Simply replace colon with underscore for hostname:port format
-	// This preserves the structure and allows for easy reversal
-	return strings.ReplaceAll(hostnamePort, ":", "_")
-}
-
-// RestoreHostnamePort converts a sanitized hostname_port back to hostname:port format.
-// This assumes the input was sanitized using SanitizeHostnamePort.
-func RestoreHostnamePort(sanitizedHostnamePort string) string {
-	// Find the last underscore, which should be the port separator
-	lastUnderscore := strings.LastIndex(sanitizedHostnamePort, "_")
-	if lastUnderscore == -1 {
-		// No underscore found, return as-is (shouldn't happen with valid input)
-		return sanitizedHostnamePort
-	}
-
-	// Replace the last underscore with colon to restore hostname:port format
-	return sanitizedHostnamePort[:lastUnderscore] + ":" + sanitizedHostnamePort[lastUnderscore+1:]
 }
 
 // ExtractHostname extracts hostname without port from a URL string
@@ -273,95 +230,4 @@ func ExtractHostname(urlString string) (string, error) {
 	}
 
 	return hostname, nil
-}
-
-// IsAbsoluteURL checks if a URL is absolute
-func IsAbsoluteURL(urlString string) bool {
-	if urlString == "" {
-		return false
-	}
-
-	parsedURL, err := url.Parse(urlString)
-	if err != nil {
-		return false
-	}
-
-	return parsedURL.IsAbs()
-}
-
-// CompareHostnames compares two hostnames with optional case sensitivity
-func CompareHostnames(hostname1, hostname2 string, caseSensitive bool) bool {
-	if !caseSensitive {
-		return strings.EqualFold(hostname1, hostname2)
-	}
-	return hostname1 == hostname2
-}
-
-// NormalizeURLSlice normalizes a slice of URLs
-func NormalizeURLSlice(urls []string) ([]string, error) {
-	normalized := make([]string, 0, len(urls))
-	var errors []string
-
-	for _, rawURL := range urls {
-		if normalizedURL, err := NormalizeURL(rawURL); err == nil {
-			normalized = append(normalized, normalizedURL)
-		} else {
-			errors = append(errors, fmt.Sprintf("URL '%s': %v", rawURL, err))
-		}
-	}
-
-	if len(errors) > 0 {
-		return normalized, errorwrapper.NewError("failed to normalize some URLs: %s", strings.Join(errors, "; "))
-	}
-
-	return normalized, nil
-}
-
-// ExtractDomainFromURL extracts domain from URL
-func ExtractDomainFromURL(urlStr string) (string, error) {
-	parsedURL, err := url.Parse(urlStr)
-	if err != nil {
-		return "", err
-	}
-	return parsedURL.Hostname(), nil
-}
-
-// IsValidHTTPURL checks if URL is valid HTTP/HTTPS
-func IsValidHTTPURL(urlStr string) bool {
-	parsedURL, err := url.Parse(urlStr)
-	if err != nil {
-		return false
-	}
-
-	scheme := strings.ToLower(parsedURL.Scheme)
-	return scheme == "http" || scheme == "https"
-}
-
-// CleanPath removes query parameters and fragments from path
-func CleanPath(path string) string {
-	// Remove query parameters
-	if queryIndex := strings.Index(path, "?"); queryIndex != -1 {
-		path = path[:queryIndex]
-	}
-
-	// Remove fragments
-	if fragmentIndex := strings.Index(path, "#"); fragmentIndex != -1 {
-		path = path[:fragmentIndex]
-	}
-
-	return path
-}
-
-// HasFileExtension checks if path has a file extension
-func HasFileExtension(path string, extensions []string) bool {
-	cleanPath := CleanPath(path)
-	ext := strings.ToLower(filepath.Ext(cleanPath))
-
-	for _, extension := range extensions {
-		if ext == strings.ToLower(extension) {
-			return true
-		}
-	}
-
-	return false
 }

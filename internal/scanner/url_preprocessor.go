@@ -4,8 +4,8 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
 )
 

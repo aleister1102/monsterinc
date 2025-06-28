@@ -6,10 +6,10 @@ import (
 	"github.com/aleister1102/monsterinc/internal/common/batchprocessor"
 	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/aleister1102/monsterinc/internal/common/summary"
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/differ"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
 )
 

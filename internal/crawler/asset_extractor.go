@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -454,7 +454,7 @@ func (hae *HTMLAssetExtractor) resolveURL(rawURL string) string {
 		hae.crawlerInstance.logger.Debug().
 			Str("url", rawURL).
 			Err(err).
-			Msg("Failed to resolve URL using urlhandler")
+			Msg("Failed to resolve URL using common/urlhandler")
 		return ""
 	}
 

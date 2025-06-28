@@ -10,9 +10,9 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/aleister1102/monsterinc/internal/common/filemanager"
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/rs/zerolog"

@@ -1,6 +1,6 @@
 package config
 
-import "github.com/aleister1102/monsterinc/internal/urlhandler"
+import "github.com/aleister1102/monsterinc/internal/common/urlhandler"
 
 // CrawlerScopeConfig defines scope restrictions for the crawler
 type CrawlerScopeConfig struct {

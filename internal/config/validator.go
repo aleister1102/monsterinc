@@ -9,7 +9,7 @@ import (
 
 	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
 	"github.com/aleister1102/monsterinc/internal/common/filemanager"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 )

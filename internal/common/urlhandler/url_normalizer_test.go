@@ -104,56 +104,6 @@ func TestURLNormalizer_NormalizeURL(t *testing.T) {
 	}
 }
 
-func TestURLNormalizer_IsEquivalentURL(t *testing.T) {
-	config := URLNormalizationConfig{
-		StripFragments:      true,
-		StripTrackingParams: true,
-		CustomStripParams:   []string{},
-	}
-	normalizer := NewURLNormalizer(config)
-
-	tests := []struct {
-		name     string
-		url1     string
-		url2     string
-		expected bool
-	}{
-		{
-			name:     "same URL without fragment",
-			url1:     "https://example.com/page",
-			url2:     "https://example.com/page",
-			expected: true,
-		},
-		{
-			name:     "same URL with different fragments",
-			url1:     "https://example.com/page#section1",
-			url2:     "https://example.com/page#section2",
-			expected: true,
-		},
-		{
-			name:     "same URL with different tracking params",
-			url1:     "https://example.com/page?utm_source=test1",
-			url2:     "https://example.com/page?utm_source=test2",
-			expected: true,
-		},
-		{
-			name:     "different URLs",
-			url1:     "https://example.com/page1",
-			url2:     "https://example.com/page2",
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := normalizer.IsEquivalentURL(tt.url1, tt.url2)
-			if result != tt.expected {
-				t.Errorf("Expected %v, got %v for URLs %q and %q", tt.expected, result, tt.url1, tt.url2)
-			}
-		})
-	}
-}
-
 func TestDefaultURLNormalizationConfig(t *testing.T) {
 	config := DefaultURLNormalizationConfig()
 
