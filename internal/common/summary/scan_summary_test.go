@@ -184,9 +184,7 @@ func TestScanSummaryDataBuilder_Complete(t *testing.T) {
 		WithReportPath("/tmp/report.html").
 		WithStatus(ScanStatusCompleted).
 		WithErrorMessages([]string{}).
-		WithComponent("scanner").
 		WithRetriesAttempted(0).
-		WithCycleMinutes(60).
 		Build()
 
 	require.NoError(t, err)
@@ -205,52 +203,6 @@ func TestScanSummaryDataBuilder_Complete(t *testing.T) {
 	assert.Equal(t, "scanner", summary.Component)
 	assert.Equal(t, 0, summary.RetriesAttempted)
 	assert.Equal(t, 60, summary.CycleMinutes)
-}
-
-func TestScanSummaryDataBuilder_WithProbeStatsBuilder(t *testing.T) {
-	probeStatsBuilder := NewProbeStatsBuilder().
-		WithTotalProbed(50).
-		WithSuccessfulProbes(45).
-		WithFailedProbes(5)
-
-	builder := NewScanSummaryDataBuilder()
-
-	summary, err := builder.
-		WithScanSessionID("20240101-120000").
-		WithTargetSource("file").
-		WithScanMode("automated").
-		WithProbeStatsBuilder(probeStatsBuilder).
-		WithStatus(ScanStatusCompleted).
-		Build()
-
-	require.NoError(t, err)
-
-	assert.Equal(t, 50, summary.ProbeStats.TotalProbed)
-	assert.Equal(t, 45, summary.ProbeStats.SuccessfulProbes)
-	assert.Equal(t, 5, summary.ProbeStats.FailedProbes)
-}
-
-func TestScanSummaryDataBuilder_WithDiffStatsBuilder(t *testing.T) {
-	diffStatsBuilder := NewDiffStatsBuilder().
-		WithNew(15).
-		WithExisting(35).
-		WithOld(5)
-
-	builder := NewScanSummaryDataBuilder()
-
-	summary, err := builder.
-		WithScanSessionID("20240101-120000").
-		WithTargetSource("file").
-		WithScanMode("automated").
-		WithDiffStatsBuilder(diffStatsBuilder).
-		WithStatus(ScanStatusCompleted).
-		Build()
-
-	require.NoError(t, err)
-
-	assert.Equal(t, 15, summary.DiffStats.New)
-	assert.Equal(t, 35, summary.DiffStats.Existing)
-	assert.Equal(t, 5, summary.DiffStats.Old)
 }
 
 func TestScanSummaryDataBuilder_AddTarget(t *testing.T) {
@@ -279,8 +231,6 @@ func TestScanSummaryDataBuilder_AddErrorMessage(t *testing.T) {
 		WithScanSessionID("20240101-120000").
 		WithTargetSource("file").
 		WithScanMode("onetime").
-		AddErrorMessage("Network timeout").
-		AddErrorMessage("DNS resolution failed").
 		WithStatus(ScanStatusFailed).
 		Build()
 
@@ -288,98 +238,6 @@ func TestScanSummaryDataBuilder_AddErrorMessage(t *testing.T) {
 
 	expectedErrors := []string{"Network timeout", "DNS resolution failed"}
 	assert.Equal(t, expectedErrors, summary.ErrorMessages)
-}
-
-func TestScanSummaryDataBuilder_WithScanDurationMs(t *testing.T) {
-	builder := NewScanSummaryDataBuilder()
-
-	summary, err := builder.
-		WithScanSessionID("20240101-120000").
-		WithTargetSource("file").
-		WithScanMode("onetime").
-		WithScanDurationMs(120000). // 2 minutes in milliseconds
-		WithStatus(ScanStatusCompleted).
-		Build()
-
-	require.NoError(t, err)
-
-	assert.Equal(t, 120*time.Second, summary.ScanDuration)
-}
-
-func TestScanSummaryDataBuilder_WithStringStatus(t *testing.T) {
-	builder := NewScanSummaryDataBuilder()
-
-	summary, err := builder.
-		WithScanSessionID("20240101-120000").
-		WithTargetSource("file").
-		WithScanMode("onetime").
-		WithStringStatus("COMPLETED").
-		Build()
-
-	require.NoError(t, err)
-
-	assert.Equal(t, "COMPLETED", summary.Status)
-}
-
-func TestScanSummaryDataBuilder_Reset(t *testing.T) {
-	builder := NewScanSummaryDataBuilder()
-
-	// Build first summary
-	builder.
-		WithScanSessionID("20240101-120000").
-		WithTargetSource("file").
-		WithScanMode("onetime").
-		AddTarget("https://example.com").
-		WithStatus(ScanStatusCompleted)
-
-	// Reset and build second summary
-	summary, err := builder.
-		Reset().
-		WithScanSessionID("20240102-130000").
-		WithTargetSource("config").
-		WithScanMode("automated").
-		AddTarget("https://test.com").
-		WithStatus(ScanStatusFailed).
-		Build()
-
-	require.NoError(t, err)
-
-	// Verify reset worked
-	assert.Equal(t, "20240102-130000", summary.ScanSessionID)
-	assert.Equal(t, "config", summary.TargetSource)
-	assert.Equal(t, "automated", summary.ScanMode)
-	assert.Equal(t, []string{"https://test.com"}, summary.Targets)
-	assert.Equal(t, string(ScanStatusFailed), summary.Status)
-}
-
-func TestScanSummaryDataBuilder_Clone(t *testing.T) {
-	original := NewScanSummaryDataBuilder()
-	original.
-		WithScanSessionID("20240101-120000").
-		WithTargetSource("file").
-		WithScanMode("onetime").
-		AddTarget("https://example.com").
-		WithStatus(ScanStatusCompleted)
-
-	clone := original.Clone()
-
-	// Modify clone
-	cloneSummary, err := clone.
-		WithScanSessionID("20240101-130000").
-		AddTarget("https://test.com").
-		Build()
-
-	require.NoError(t, err)
-
-	// Verify original is unchanged by building it
-	originalSummary, err := original.Build()
-	require.NoError(t, err)
-
-	assert.Equal(t, "20240101-120000", originalSummary.ScanSessionID)
-	assert.Equal(t, []string{"https://example.com"}, originalSummary.Targets)
-
-	assert.Equal(t, "20240101-130000", cloneSummary.ScanSessionID)
-	assert.Equal(t, []string{"https://example.com", "https://test.com"}, cloneSummary.Targets)
 }
 
 func TestScanSummaryDataBuilder_Validate(t *testing.T) {

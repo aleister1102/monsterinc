@@ -151,26 +151,3 @@ func (bwo *BatchWorkflowOrchestrator) ExecuteBatchScan(
 
 	return bwo.executeBatchedScan(ctx, gCfg, targetURLs, scanSessionID, targetSource, scanMode)
 }
-
-func (bwo *BatchWorkflowOrchestrator) executeScan(ctx context.Context, seedURLs []string, scanSessionID string) {
-	bwo.logger.Info().Strs("seed_urls", seedURLs).Msg("Executing scan workflow for batch")
-	probeResults, urlDiffResults, err := bwo.scanner.ExecuteScanWorkflow(
-		ctx,
-		seedURLs,
-		scanSessionID,
-	)
-	if err != nil {
-		bwo.err = err
-	}
-	bwo.probeResults = probeResults
-	bwo.urlDiffResults = urlDiffResults
-}
-
-func (bwo *BatchWorkflowOrchestrator) getResult() *BatchWorkflowResult {
-	return &BatchWorkflowResult{
-		ProbeResults:    bwo.probeResults,
-		URLDiffResults:  bwo.urlDiffResults,
-		ReportFilePaths: bwo.reportFilePaths,
-		Err:             bwo.err,
-	}
-}
