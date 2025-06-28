@@ -22,15 +22,3 @@ func NewDefaultReporterConfig() ReporterConfig {
 		ReportTitle:                  "MonsterInc Scan Report",
 	}
 }
-
-// DiffReporterConfig defines configuration for diff reporting
-type DiffReporterConfig struct {
-	MaxDiffFileSizeMB int `json:"max_diff_file_size_mb,omitempty" yaml:"max_diff_file_size_mb,omitempty"`
-}
-
-// NewDefaultDiffReporterConfig creates default diff reporter configuration
-func NewDefaultDiffReporterConfig() DiffReporterConfig {
-	return DiffReporterConfig{
-		MaxDiffFileSizeMB: 10,
-	}
-}

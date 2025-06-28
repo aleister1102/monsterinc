@@ -34,18 +34,6 @@ func (s *ScopeSettings) String() string {
 	)
 }
 
-// ScopeValidator provides methods for URL scope validation
-type ScopeValidator struct {
-	settings *ScopeSettings
-}
-
-// NewScopeValidator creates a new ScopeValidator instance
-func NewScopeValidator(settings *ScopeSettings) *ScopeValidator {
-	return &ScopeValidator{
-		settings: settings,
-	}
-}
-
 // NewScopeSettings creates a new ScopeSettings instance
 func NewScopeSettings(
 	rootURLHostname string,
@@ -53,7 +41,6 @@ func NewScopeSettings(
 	disallowedSubdomains []string,
 	disallowedFileExtensions []string,
 	logger zerolog.Logger,
-	includeSubdomains interface{}, // Deprecated parameter, ignored
 	autoAddSeedHostnames bool,
 	originalSeedURLs []string,
 ) (*ScopeSettings, error) {
@@ -69,7 +56,7 @@ func NewScopeSettings(
 
 	// Extract seed hostnames for auto-allow functionality
 	if len(originalSeedURLs) > 0 {
-		settings.seedHostnames = ExtractHostnamesFromSeedURLs(originalSeedURLs, scopeLogger)
+		settings.seedHostnames = extractHostnamesFromSeedURLs(originalSeedURLs, scopeLogger)
 		if autoAddSeedHostnames {
 			scopeLogger.Info().
 				Strs("seed_hostnames", settings.seedHostnames).
@@ -88,8 +75,77 @@ func NewScopeSettings(
 	return settings, nil
 }
 
-// CheckHostnameScope checks if a given hostname is within the defined scope
-func (s *ScopeSettings) CheckHostnameScope(hostname string) bool {
+// extractHostnamesFromSeedURLs extracts hostnames from a list of seed URLs
+func extractHostnamesFromSeedURLs(seedURLs []string, logger zerolog.Logger) []string {
+	var hostnames []string
+
+	for _, seedURL := range seedURLs {
+		if hostname := extractSingleHostname(seedURL, logger); hostname != "" {
+			hostnames = append(hostnames, hostname)
+		}
+	}
+
+	return removeDuplicates(hostnames)
+}
+
+// extractSingleHostname extracts hostname from a single URL
+func extractSingleHostname(seedURL string, logger zerolog.Logger) string {
+	// Validate URL format using urlhandler
+	if err := urlhandler.ValidateURLFormat(seedURL); err != nil {
+		logger.Warn().Str("seed_url", seedURL).Err(err).Msg("Invalid URL format")
+		return ""
+	}
+
+	// Extract hostname without port for scope validation
+	parsed, err := url.Parse(seedURL)
+	if err != nil {
+		logger.Warn().Str("seed_url", seedURL).Err(err).Msg("Failed to parse seed URL")
+		return ""
+	}
+
+	return parsed.Hostname()
+}
+
+// removeDuplicates removes duplicate strings from slice
+func removeDuplicates(slice []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0)
+
+	for _, item := range slice {
+		if !seen[item] {
+			seen[item] = true
+			result = append(result, item)
+		}
+	}
+
+	return result
+}
+
+// IsURLAllowed checks if a URL is allowed based on hostname and path scope
+func (s *ScopeSettings) IsURLAllowed(urlString string) (bool, error) {
+	parsedURL, err := url.Parse(urlString)
+	if err != nil {
+		return false, common.WrapError(err, "failed to parse URL for scope check")
+	}
+
+	hostname := parsedURL.Hostname()
+	if hostname == "" {
+		return false, common.NewValidationError("hostname", hostname, "hostname cannot be empty")
+	}
+
+	if !s.checkHostnameScope(hostname) {
+		return false, nil
+	}
+
+	if !s.checkPathScope(parsedURL.Path) {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// checkHostnameScope checks if a given hostname is within the defined scope
+func (s *ScopeSettings) checkHostnameScope(hostname string) bool {
 	s.logger.Debug().
 		Str("hostname", hostname).
 		Strs("seed_hostnames", s.seedHostnames).
@@ -155,6 +211,16 @@ func (s *ScopeSettings) CheckHostnameScope(hostname string) bool {
 	return true
 }
 
+// containsString checks if string exists in slice
+func containsString(str string, slice []string) bool {
+	return slices.Contains(slice, str)
+}
+
+// isSubdomainOf checks if hostname is a subdomain of baseHostname
+func isSubdomainOf(hostname, baseHostname string) bool {
+	return strings.HasSuffix(hostname, "."+baseHostname) && hostname != baseHostname
+}
+
 // hasDisallowedSubdomainPart checks if hostname has disallowed subdomain parts
 func (s *ScopeSettings) hasDisallowedSubdomainPart(hostname string) bool {
 	hostnameBase, err := urlhandler.GetBaseDomain(hostname)
@@ -206,85 +272,4 @@ func (s *ScopeSettings) checkPathScope(path string) bool {
 		Str("clean_path", cleanPath).
 		Msg("Path allowed by default")
 	return true
-}
-
-// IsURLAllowed checks if a URL is allowed based on hostname and path scope
-func (s *ScopeSettings) IsURLAllowed(urlString string) (bool, error) {
-	parsedURL, err := url.Parse(urlString)
-	if err != nil {
-		return false, common.WrapError(err, "failed to parse URL for scope check")
-	}
-
-	hostname := parsedURL.Hostname()
-	if hostname == "" {
-		return false, common.NewValidationError("hostname", hostname, "hostname cannot be empty")
-	}
-
-	if !s.CheckHostnameScope(hostname) {
-		return false, nil
-	}
-
-	if !s.checkPathScope(parsedURL.Path) {
-		return false, nil
-	}
-
-	return true, nil
-}
-
-// Utility functions
-
-// removeDuplicates removes duplicate strings from slice
-func removeDuplicates(slice []string) []string {
-	seen := make(map[string]bool)
-	result := make([]string, 0)
-
-	for _, item := range slice {
-		if !seen[item] {
-			seen[item] = true
-			result = append(result, item)
-		}
-	}
-
-	return result
-}
-
-// containsString checks if string exists in slice
-func containsString(str string, slice []string) bool {
-	return slices.Contains(slice, str)
-}
-
-// isSubdomainOf checks if hostname is a subdomain of baseHostname
-func isSubdomainOf(hostname, baseHostname string) bool {
-	return strings.HasSuffix(hostname, "."+baseHostname) && hostname != baseHostname
-}
-
-// ExtractHostnamesFromSeedURLs extracts hostnames from a list of seed URLs
-func ExtractHostnamesFromSeedURLs(seedURLs []string, logger zerolog.Logger) []string {
-	var hostnames []string
-
-	for _, seedURL := range seedURLs {
-		if hostname := extractSingleHostname(seedURL, logger); hostname != "" {
-			hostnames = append(hostnames, hostname)
-		}
-	}
-
-	return removeDuplicates(hostnames)
-}
-
-// extractSingleHostname extracts hostname from a single URL
-func extractSingleHostname(seedURL string, logger zerolog.Logger) string {
-	// Validate URL format using urlhandler
-	if err := urlhandler.ValidateURLFormat(seedURL); err != nil {
-		logger.Warn().Str("seed_url", seedURL).Err(err).Msg("Invalid URL format")
-		return ""
-	}
-
-	// Extract hostname without port for scope validation
-	parsed, err := url.Parse(seedURL)
-	if err != nil {
-		logger.Warn().Str("seed_url", seedURL).Err(err).Msg("Failed to parse seed URL")
-		return ""
-	}
-
-	return parsed.Hostname()
 }

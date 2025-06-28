@@ -3,6 +3,7 @@ package crawler
 import (
 	"crypto/tls"
 	"net/http"
+	"net/url"
 	"time"
 
 	"slices"
@@ -55,6 +56,29 @@ func (cr *Crawler) validateAndSetDefaults() error {
 	return nil
 }
 
+// getIntValueOrDefault returns value if greater than 0, otherwise returns default
+func getIntValueOrDefault(value, defaultValue int) int {
+	if value <= 0 {
+		return defaultValue
+	}
+	return value
+}
+
+// initializeURLBatcher sets up URL batching for improved performance
+func (cr *Crawler) initializeURLBatcher() {
+	// Size channel buffer based on expected concurrent requests
+	bufferSize := cr.config.MaxConcurrentRequests * 2
+	if bufferSize < 50 {
+		bufferSize = 50
+	} else if bufferSize > 500 {
+		bufferSize = 500
+	}
+
+	cr.urlQueue = make(chan string, bufferSize)
+	cr.urlBatchSize = 10
+	cr.batchShutdown = make(chan struct{})
+}
+
 // setupScope initializes scope settings for URL filtering
 func (cr *Crawler) setupScope() error {
 	cfg := cr.config
@@ -65,7 +89,6 @@ func (cr *Crawler) setupScope() error {
 		cfg.Scope.DisallowedSubdomains,
 		cfg.Scope.DisallowedFileExtensions,
 		cr.logger,
-		false, // includeSubdomains deprecated
 		cfg.AutoAddSeedHostnames,
 		cfg.SeedURLs,
 	)
@@ -76,6 +99,19 @@ func (cr *Crawler) setupScope() error {
 
 	cr.scope = scope
 	return nil
+}
+
+// extractRootHostname extracts hostname from the first seed URL
+func (cr *Crawler) extractRootHostname(seedURLs []string) string {
+	if len(seedURLs) == 0 {
+		return ""
+	}
+
+	if parsed, err := url.Parse(seedURLs[0]); err == nil {
+		return parsed.Hostname()
+	}
+
+	return ""
 }
 
 // setupCollector configures the colly collector
@@ -143,21 +179,6 @@ func (cr *Crawler) setupCallbacks() {
 	cr.collector.OnError(cr.handleError)
 	cr.collector.OnRequest(cr.handleRequest)
 	cr.collector.OnResponse(cr.handleResponse)
-}
-
-// initializeURLBatcher sets up URL batching for improved performance
-func (cr *Crawler) initializeURLBatcher() {
-	// Size channel buffer based on expected concurrent requests
-	bufferSize := cr.config.MaxConcurrentRequests * 2
-	if bufferSize < 50 {
-		bufferSize = 50
-	} else if bufferSize > 500 {
-		bufferSize = 500
-	}
-
-	cr.urlQueue = make(chan string, bufferSize)
-	cr.urlBatchSize = 10
-	cr.batchShutdown = make(chan struct{})
 }
 
 // initializeExtensionMap caches disallowed extensions for fast lookup

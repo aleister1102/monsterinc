@@ -100,7 +100,7 @@ func TestCheckHostnameScope_WithSeedURLs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := settings.CheckHostnameScope(tt.hostname)
+			result := settings.checkHostnameScope(tt.hostname)
 			if result != tt.expected {
 				t.Errorf("CheckHostnameScope(%q) = %v, expected %v", tt.hostname, result, tt.expected)
 			}
@@ -118,7 +118,7 @@ func TestCheckHostnameScope_NoSeeds(t *testing.T) {
 		logger:              logger,
 	}
 
-	if !settingsNoRestrictions.CheckHostnameScope("nginx.org") {
+	if !settingsNoRestrictions.checkHostnameScope("nginx.org") {
 		t.Error("Expected nginx.org to be allowed when no restrictions")
 	}
 
@@ -129,11 +129,11 @@ func TestCheckHostnameScope_NoSeeds(t *testing.T) {
 		logger:              logger,
 	}
 
-	if !settingsWithDisallowed.CheckHostnameScope("nginx.org") {
+	if !settingsWithDisallowed.checkHostnameScope("nginx.org") {
 		t.Error("Expected nginx.org to be allowed when only disallowed list exists")
 	}
 
-	if settingsWithDisallowed.CheckHostnameScope("blocked.com") {
+	if settingsWithDisallowed.checkHostnameScope("blocked.com") {
 		t.Error("Expected blocked.com to be denied")
 	}
 }

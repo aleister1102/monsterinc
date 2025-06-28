@@ -226,10 +226,6 @@ log_config:
   max_log_size_mb: 100
   max_log_backups: 5
 
-# Diff Configuration
-diff_config:
-  previous_scan_lookback_days: 7
-
 # Diff Reporter Configuration
 diff_reporter_config:
   max_diff_file_size_mb: 10

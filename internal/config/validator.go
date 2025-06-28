@@ -247,17 +247,13 @@ func (cv *ConfigValidator) validateMode(mode string) bool {
 // createValidationView creates a validation view struct for the config
 func (cv *ConfigValidator) createValidationView(cfg *GlobalConfig) interface{} {
 	return struct {
-		PreviousScanLookbackDays int      `validate:"min=1"`
-		JSFileExtensions         []string `validate:"dive,required"`
-		HTMLFileExtensions       []string `validate:"dive,required"`
-		CycleMinutes             int      `validate:"-"`
-		RetryAttempts            int      `validate:"-"`
-		SQLiteDBPath             string   `validate:"-"`
+		CycleMinutes  int    `validate:"-"`
+		RetryAttempts int    `validate:"-"`
+		SQLiteDBPath  string `validate:"-"`
 	}{
-		PreviousScanLookbackDays: cfg.DiffConfig.PreviousScanLookbackDays,
-		CycleMinutes:             cfg.SchedulerConfig.CycleMinutes,
-		RetryAttempts:            cfg.SchedulerConfig.RetryAttempts,
-		SQLiteDBPath:             cfg.SchedulerConfig.SQLiteDBPath,
+		CycleMinutes:  cfg.SchedulerConfig.CycleMinutes,
+		RetryAttempts: cfg.SchedulerConfig.RetryAttempts,
+		SQLiteDBPath:  cfg.SchedulerConfig.SQLiteDBPath,
 	}
 }
 

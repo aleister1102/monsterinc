@@ -99,7 +99,6 @@ filteredProbes := filterOutCurrentSession(historicalProbes, currentScanSessionID
 
 ```yaml
 diff_config:
-  previous_scan_lookback_days: 30  # How far back to look for historical data
 ```
 
 ### URL Comparer Configuration

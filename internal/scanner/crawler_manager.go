@@ -126,7 +126,6 @@ func (cm *CrawlerManager) DisableAutoCalibrateForPreprocessedURLs() {
 func (cm *CrawlerManager) runCrawlerBatchWithProgress(ctx context.Context, crawlerInstance *crawler.Crawler, seedURLs []string) ([]string, error) {
 	// Initial progress update
 
-
 	// Start progress monitoring in background
 	done := make(chan struct{})
 	go cm.monitorCrawlerProgress(ctx, crawlerInstance, done)

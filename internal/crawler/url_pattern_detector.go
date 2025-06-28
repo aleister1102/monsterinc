@@ -117,35 +117,6 @@ func (upd *URLPatternDetector) generateURLPattern(rawURL string) (string, error)
 	return pattern, nil
 }
 
-// filterQueryParameters filters out ignored parameters and returns normalized query string
-func (upd *URLPatternDetector) filterQueryParameters(params url.Values) string {
-	var filteredPairs []string
-
-	for key, values := range params {
-		if !upd.isIgnoredParameter(key) {
-			for range values {
-				// For pattern matching, we don't care about the actual value
-				// Just whether the parameter exists
-				filteredPairs = append(filteredPairs, key+"=*")
-			}
-		}
-	}
-
-	// Sort for consistent pattern generation
-	sort.Strings(filteredPairs)
-	return strings.Join(filteredPairs, "&")
-}
-
-// isIgnoredParameter checks if a parameter should be ignored for pattern matching
-func (upd *URLPatternDetector) isIgnoredParameter(paramName string) bool {
-	for _, ignored := range upd.config.IgnoreParameters {
-		if strings.EqualFold(paramName, ignored) {
-			return true
-		}
-	}
-	return false
-}
-
 // filterPathSegments filters out locale codes in path segments and returns normalized path
 func (upd *URLPatternDetector) filterPathSegments(path string) string {
 	if !upd.config.AutoDetectLocales {
@@ -293,76 +264,6 @@ func (upd *URLPatternDetector) isISO3166Country(code string) bool {
 	return countries[code]
 }
 
-// isCompoundLocaleCode checks compound locale codes like chde, chfr, kzkk, etc.
-func (upd *URLPatternDetector) isCompoundLocaleCode(code string) bool {
-	// Common compound locale codes
-	compounds := map[string]bool{
-		"chde": true, "chfr": true, "chit": true, // Switzerland
-		"kzkk": true, "kzru": true, // Kazakhstan
-		"benl": true, "befr": true, "bede": true, // Belgium
-		"caen": true, "cafr": true, // Canada
-		"lufr": true, "lude": true, "lulb": true, // Luxembourg
-		"inen": true, "inhi": true, // India
-		"pken": true, "pkur": true, // Pakistan
-		"bden": true, "bdbn": true, // Bangladesh
-		"lken": true, "lksi": true, "lkta": true, // Sri Lanka
-		"npen": true, "npne": true, // Nepal
-		"myen": true, "mymy": true, // Myanmar
-		"khen": true, "khkm": true, // Cambodia
-		"laen": true, "lalo": true, // Laos
-		"mmen": true, "mmmy": true, // Myanmar
-		"mden": true, "mdru": true, "mdro": true, // Moldova
-		"uaen": true, "uaru": true, "uauk": true, // Ukraine
-		"byru": true, "byen": true, "byby": true, // Belarus
-		"kzen": true,                             // Kazakhstan alternative
-		"kgen": true, "kgru": true, "kgky": true, // Kyrgyzstan
-		"tjen": true, "tjru": true, "tjtg": true, // Tajikistan
-		"tmen": true, "tmru": true, "tmtk": true, // Turkmenistan
-		"uzen": true, "uzru": true, "uzuz": true, // Uzbekistan
-		"mnen": true, "mnru": true, "mnmn": true, // Mongolia
-		"egen": true, "egar": true, // Egypt
-		"tnen": true, "tnar": true, "tnfr": true, // Tunisia
-		"dzen": true, "dzar": true, "dzfr": true, // Algeria
-		"maen": true, "maar": true, "mafr": true, // Morocco
-		"mren": true, "mrar": true, "mrfr": true, // Mauritania
-		"mlen": true, "mlfr": true, // Mali
-		"bfen": true, "bffr": true, // Burkina Faso
-		"neen": true, "nefr": true, // Niger
-		"tden": true, "tdfr": true, "tdar": true, // Chad
-		"ngen": true, "ngha": true, "ngig": true, // Nigeria
-		"cmen": true, "cmfr": true, // Cameroon
-		"cfen": true, "cffr": true, // Central African Republic
-		"gqen": true, "gqes": true, "gqfr": true, // Equatorial Guinea
-		"gaen": true, "gafr": true, // Gabon
-		"cgen": true, "cgfr": true, // Congo
-		"cden": true, "cdfr": true, // DR Congo
-		"aoen": true, "aopt": true, // Angola
-		"zmen": true, "zmny": true, // Zambia
-		"mwen": true, "mwny": true, // Malawi
-		"mzen": true, "mzpt": true, // Mozambique
-		"mgen": true, "mgfr": true, "mgmg": true, // Madagascar
-		"muen": true, "mufr": true, // Mauritius
-		"scen": true, "scfr": true, // Seychelles
-		"kmen": true, "kmar": true, "kmfr": true, // Comoros
-		"djen": true, "djar": true, "djfr": true, // Djibouti
-		"soen": true, "soar": true, // Somalia
-		"eten": true, "etar": true, "etam": true, // Ethiopia
-		"eren": true, "erar": true, "erti": true, // Eritrea
-		"keen": true, "kesw": true, // Kenya
-		"ugen": true, "ugsw": true, // Uganda
-		"tzen": true, "tzsw": true, // Tanzania
-		"rwen": true, "rwrw": true, "rwfr": true, // Rwanda
-		"bien": true, "birn": true, "bifr": true, // Burundi
-		"zaen": true, "zaaf": true, "zazu": true, // South Africa
-		"bwen": true, "bwtn": true, // Botswana
-		"naen": true, "naaf": true, // Namibia
-		"szen": true, "szss": true, // Eswatini
-		"lsen": true, "lsst": true, // Lesotho
-		"zwen": true, "zwsn": true, // Zimbabwe
-	}
-	return compounds[code]
-}
-
 // isSpecialLocaleCode checks special locale codes with dashes
 func (upd *URLPatternDetector) isSpecialLocaleCode(code string) bool {
 	// Special locale codes with dashes
@@ -478,6 +379,105 @@ func (upd *URLPatternDetector) isSpecialLocaleCode(code string) bool {
 		"sn-zw": true, // Shona
 	}
 	return specials[code]
+}
+
+// isCompoundLocaleCode checks compound locale codes like chde, chfr, kzkk, etc.
+func (upd *URLPatternDetector) isCompoundLocaleCode(code string) bool {
+	// Common compound locale codes
+	compounds := map[string]bool{
+		"chde": true, "chfr": true, "chit": true, // Switzerland
+		"kzkk": true, "kzru": true, // Kazakhstan
+		"benl": true, "befr": true, "bede": true, // Belgium
+		"caen": true, "cafr": true, // Canada
+		"lufr": true, "lude": true, "lulb": true, // Luxembourg
+		"inen": true, "inhi": true, // India
+		"pken": true, "pkur": true, // Pakistan
+		"bden": true, "bdbn": true, // Bangladesh
+		"lken": true, "lksi": true, "lkta": true, // Sri Lanka
+		"npen": true, "npne": true, // Nepal
+		"myen": true, "mymy": true, // Myanmar
+		"khen": true, "khkm": true, // Cambodia
+		"laen": true, "lalo": true, // Laos
+		"mmen": true, "mmmy": true, // Myanmar
+		"mden": true, "mdru": true, "mdro": true, // Moldova
+		"uaen": true, "uaru": true, "uauk": true, // Ukraine
+		"byru": true, "byen": true, "byby": true, // Belarus
+		"kzen": true,                             // Kazakhstan alternative
+		"kgen": true, "kgru": true, "kgky": true, // Kyrgyzstan
+		"tjen": true, "tjru": true, "tjtg": true, // Tajikistan
+		"tmen": true, "tmru": true, "tmtk": true, // Turkmenistan
+		"uzen": true, "uzru": true, "uzuz": true, // Uzbekistan
+		"mnen": true, "mnru": true, "mnmn": true, // Mongolia
+		"egen": true, "egar": true, // Egypt
+		"tnen": true, "tnar": true, "tnfr": true, // Tunisia
+		"dzen": true, "dzar": true, "dzfr": true, // Algeria
+		"maen": true, "maar": true, "mafr": true, // Morocco
+		"mren": true, "mrar": true, "mrfr": true, // Mauritania
+		"mlen": true, "mlfr": true, // Mali
+		"bfen": true, "bffr": true, // Burkina Faso
+		"neen": true, "nefr": true, // Niger
+		"tden": true, "tdfr": true, "tdar": true, // Chad
+		"ngen": true, "ngha": true, "ngig": true, // Nigeria
+		"cmen": true, "cmfr": true, // Cameroon
+		"cfen": true, "cffr": true, // Central African Republic
+		"gqen": true, "gqes": true, "gqfr": true, // Equatorial Guinea
+		"gaen": true, "gafr": true, // Gabon
+		"cgen": true, "cgfr": true, // Congo
+		"cden": true, "cdfr": true, // DR Congo
+		"aoen": true, "aopt": true, // Angola
+		"zmen": true, "zmny": true, // Zambia
+		"mwen": true, "mwny": true, // Malawi
+		"mzen": true, "mzpt": true, // Mozambique
+		"mgen": true, "mgfr": true, "mgmg": true, // Madagascar
+		"muen": true, "mufr": true, // Mauritius
+		"scen": true, "scfr": true, // Seychelles
+		"kmen": true, "kmar": true, "kmfr": true, // Comoros
+		"djen": true, "djar": true, "djfr": true, // Djibouti
+		"soen": true, "soar": true, // Somalia
+		"eten": true, "etar": true, "etam": true, // Ethiopia
+		"eren": true, "erar": true, "erti": true, // Eritrea
+		"keen": true, "kesw": true, // Kenya
+		"ugen": true, "ugsw": true, // Uganda
+		"tzen": true, "tzsw": true, // Tanzania
+		"rwen": true, "rwrw": true, "rwfr": true, // Rwanda
+		"bien": true, "birn": true, "bifr": true, // Burundi
+		"zaen": true, "zaaf": true, "zazu": true, // South Africa
+		"bwen": true, "bwtn": true, // Botswana
+		"naen": true, "naaf": true, // Namibia
+		"szen": true, "szss": true, // Eswatini
+		"lsen": true, "lsst": true, // Lesotho
+		"zwen": true, "zwsn": true, // Zimbabwe
+	}
+	return compounds[code]
+}
+
+// filterQueryParameters filters out ignored parameters and returns normalized query string
+func (upd *URLPatternDetector) filterQueryParameters(params url.Values) string {
+	var filteredPairs []string
+
+	for key, values := range params {
+		if !upd.isIgnoredParameter(key) {
+			for range values {
+				// For pattern matching, we don't care about the actual value
+				// Just whether the parameter exists
+				filteredPairs = append(filteredPairs, key+"=*")
+			}
+		}
+	}
+
+	// Sort for consistent pattern generation
+	sort.Strings(filteredPairs)
+	return strings.Join(filteredPairs, "&")
+}
+
+// isIgnoredParameter checks if a parameter should be ignored for pattern matching
+func (upd *URLPatternDetector) isIgnoredParameter(paramName string) bool {
+	for _, ignored := range upd.config.IgnoreParameters {
+		if strings.EqualFold(paramName, ignored) {
+			return true
+		}
+	}
+	return false
 }
 
 // isVariableFragment checks if a fragment appears to be variable (like #a, #123, #id=123, etc.)

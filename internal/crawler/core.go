@@ -2,11 +2,9 @@ package crawler
 
 import (
 	"context"
-	"net/url"
 	"sync"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/urlhandler"
@@ -57,52 +55,6 @@ type Crawler struct {
 func NewCrawler(cfg *config.CrawlerConfig, notifier notifier.Notifier, appLogger zerolog.Logger) (*Crawler, error) {
 	builder := NewCrawlerBuilder(appLogger).WithConfig(cfg).WithNotifier(notifier)
 	return builder.Build()
-}
-
-// CrawlerBuilder provides a fluent interface for creating Crawler instances
-type CrawlerBuilder struct {
-	config   *config.CrawlerConfig
-	logger   zerolog.Logger
-	notifier notifier.Notifier
-}
-
-// NewCrawlerBuilder creates a new CrawlerBuilder instance
-func NewCrawlerBuilder(logger zerolog.Logger) *CrawlerBuilder {
-	return &CrawlerBuilder{
-		logger: logger.With().Str("module", "Crawler").Logger(),
-	}
-}
-
-// WithConfig sets the crawler configuration
-func (cb *CrawlerBuilder) WithConfig(cfg *config.CrawlerConfig) *CrawlerBuilder {
-	cb.config = cfg
-	return cb
-}
-
-// WithNotifier sets the notifier for alerts
-func (cb *CrawlerBuilder) WithNotifier(notifier notifier.Notifier) *CrawlerBuilder {
-	cb.notifier = notifier
-	return cb
-}
-
-// Build creates a new Crawler instance with the configured settings
-func (cb *CrawlerBuilder) Build() (*Crawler, error) {
-	if cb.config == nil {
-		return nil, common.NewValidationError("config", nil, "crawler config cannot be nil")
-	}
-
-	crawler := &Crawler{
-		discoveredURLs: make(map[string]bool),
-		urlParentMap:   make(map[string]string),
-		logger:         cb.logger,
-		config:         cb.config,
-	}
-
-	if err := crawler.initialize(); err != nil {
-		return nil, common.WrapError(err, "failed to initialize crawler")
-	}
-
-	return crawler, nil
 }
 
 // GetDiscoveredURLs returns a slice of all unique URLs discovered
@@ -169,23 +121,4 @@ func (cr *Crawler) DisableAutoCalibrate() {
 	cr.logger.Debug().Msg("Auto-calibrate disabled - URLs preprocessed at Scanner level")
 	// Set auto-calibrate to disabled in runtime config
 	cr.config.AutoCalibrate.Enabled = false
-}
-
-// EnableAutoCalibrate re-enables auto-calibrate pattern detection
-func (cr *Crawler) EnableAutoCalibrate() {
-	cr.logger.Debug().Msg("Auto-calibrate enabled")
-	cr.config.AutoCalibrate.Enabled = true
-}
-
-// extractRootHostname extracts hostname from the first seed URL
-func (cr *Crawler) extractRootHostname(seedURLs []string) string {
-	if len(seedURLs) == 0 {
-		return ""
-	}
-
-	if parsed, err := url.Parse(seedURLs[0]); err == nil {
-		return parsed.Hostname()
-	}
-
-	return ""
 }

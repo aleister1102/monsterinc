@@ -22,9 +22,6 @@ const (
 	DefaultMaxLogSizeMB  = 100
 	DefaultMaxLogBackups = 3
 
-	// Diff Defaults
-	DefaultDiffPreviousScanLookbackDays = 7
-
 	// Monitor Defaults - using fast path file extensions
 	DefaultMonitorJSFileExtensions   = ".js,.jsx,.ts,.tsx"
 	DefaultMonitorHTMLFileExtensions = ".html,.htm"
