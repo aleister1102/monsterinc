@@ -3,11 +3,15 @@ package differ
 import "github.com/aleister1102/monsterinc/internal/httpxrunner"
 
 // URLStatusAnalyzer analyzes URL status changes
-type URLStatusAnalyzer struct{}
+type URLStatusAnalyzer struct {
+	urlMapper *URLMapper
+}
 
 // NewURLStatusAnalyzer creates a new URL status analyzer
-func NewURLStatusAnalyzer() *URLStatusAnalyzer {
-	return &URLStatusAnalyzer{}
+func NewURLStatusAnalyzer(urlMapper *URLMapper) *URLStatusAnalyzer {
+	return &URLStatusAnalyzer{
+		urlMapper: urlMapper,
+	}
 }
 
 // AnalyzeCurrentURLs analyzes current URLs against historical data
@@ -16,7 +20,7 @@ func (usa *URLStatusAnalyzer) AnalyzeCurrentURLs(currentProbes []*httpxrunner.Pr
 	counts := URLStatusCounts{}
 
 	for _, currentProbe := range currentProbes {
-		key := currentProbe.InputURL // Using InputURL directly for now
+		key := usa.urlMapper.GetURLKey(currentProbe.GetEffectiveURL()) // Using consistent key generation
 		_, existsInHistory := urlMaps.HistoricalURLMap[key]
 
 		if existsInHistory {

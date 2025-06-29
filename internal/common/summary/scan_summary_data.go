@@ -41,14 +41,18 @@ type ScanSummaryData struct {
 // GetDefaultScanSummaryData initializes a ScanSummaryData with default/empty values.
 func GetDefaultScanSummaryData() ScanSummaryData {
 	return ScanSummaryData{
-		ScanSessionID: "",
-		TargetSource:  "Unknown",
-		ScanMode:      "Unknown",
-		Targets:       []string{},
-		TotalTargets:  0,
-		ProbeStats:    ProbeStats{},
-		DiffStats:     DiffStats{},
-		Status:        string(ScanStatusUnknown), // Default to unknown status
+		ScanSessionID:    "",
+		TargetSource:     "Unknown",
+		ScanMode:         "Unknown",
+		Targets:          []string{},
+		TotalTargets:     0,
+		ProbeStats:       ProbeStats{},
+		DiffStats:        DiffStats{},
+		Status:           string(ScanStatusUnknown), // Default to unknown status
+		ErrorMessages:    []string{},
+		Component:        "scanner",
+		RetriesAttempted: 0,
+		CycleMinutes:     60,
 	}
 }
 

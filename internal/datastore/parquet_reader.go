@@ -159,9 +159,23 @@ func (pr *ParquetReader) readProbeResultsFromFile(filePath, contextualRootTarget
 		}
 	}()
 
+	// Check file size before attempting to create reader
+	if err := pr.validateParquetFile(file, filePath); err != nil {
+		// If file is too small, return empty results instead of error
+		pr.logger.Info().
+			Str("file", filePath).
+			Msg("Parquet file is too small or invalid, returning empty results")
+		return []httpxrunner.ProbeResult{}, nil
+	}
+
 	reader, err := pr.createParquetReader(file)
 	if err != nil {
-		return nil, err
+		// If parquet reader creation fails, return empty results instead of error
+		pr.logger.Info().
+			Str("file", filePath).
+			Err(err).
+			Msg("Failed to create Parquet reader, returning empty results")
+		return []httpxrunner.ProbeResult{}, nil
 	}
 	defer func() {
 		err := reader.Close()
@@ -193,10 +207,44 @@ func (pr *ParquetReader) openParquetFile(filePath string) (*os.File, error) {
 	return file, nil
 }
 
+// validateParquetFile checks if the Parquet file is valid and not empty
+func (pr *ParquetReader) validateParquetFile(file *os.File, filePath string) error {
+	// Get file stats to check size
+	stat, err := file.Stat()
+	if err != nil {
+		return errorwrapper.WrapError(err, "failed to get file stats for: "+filePath)
+	}
+
+	// Check if file is empty or too small to contain a valid Parquet file
+	// Parquet files need at least 12 bytes for magic header and footer
+	if stat.Size() < 12 {
+		pr.logger.Warn().
+			Int64("file_size", stat.Size()).
+			Str("file", filePath).
+			Msg("Parquet file is too small or empty, returning empty results")
+		return errorwrapper.NewValidationError("file_size", stat.Size(), "Parquet file is too small to be valid (minimum 12 bytes required)")
+	}
+
+	return nil
+}
+
 // createParquetReader creates a configured Parquet reader
-func (pr *ParquetReader) createParquetReader(file *os.File) (*parquet.GenericReader[ParquetProbeResult], error) {
+func (pr *ParquetReader) createParquetReader(file *os.File) (reader *parquet.GenericReader[ParquetProbeResult], err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			pr.logger.Error().
+				Interface("panic", r).
+				Str("file", file.Name()).
+				Msg("Panic occurred while creating Parquet reader")
+			err = errorwrapper.WrapError(fmt.Errorf("panic creating parquet reader: %v", r), "failed to create parquet reader due to panic")
+			reader = nil
+		}
+	}()
+
 	readerOptions := pr.buildReaderOptions()
-	reader := parquet.NewGenericReader[ParquetProbeResult](file, readerOptions...)
+
+	// Try to create reader with proper error handling
+	reader = parquet.NewGenericReader[ParquetProbeResult](file, readerOptions...)
 	return reader, nil
 }
 

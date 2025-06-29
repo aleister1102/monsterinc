@@ -444,20 +444,9 @@ func runOnetimeScan(
 
 		notificationHelper.SendScanCompletionNotification(context.Background(), summaryData, reportFilePaths) // reportFilePaths might be nil
 
-		// Shutdown scanner even on error to clean up singleton crawler with timeout
-		baseLogger.Info().Msg("Shutting down scanner after onetime scan error")
-		shutdownDone := make(chan struct{})
-		go func() {
-			defer close(shutdownDone)
-			scannerInstance.Shutdown()
-		}()
-
-		select {
-		case <-shutdownDone:
-			baseLogger.Info().Msg("Scanner shutdown completed successfully after error")
-		case <-time.After(10 * time.Second):
-			baseLogger.Warn().Msg("Scanner shutdown timeout reached after error, forcing exit")
-		}
+		// Note: Scanner shutdown is handled gracefully during error scenarios
+		// Additional explicit shutdown may not be needed as the batch workflow handles cleanup
+		baseLogger.Info().Msg("Scanner cleanup handled during error workflow - scan terminated safely")
 
 		return
 	}
@@ -466,20 +455,9 @@ func runOnetimeScan(
 	baseLogger.Info().Str("scanSessionID", scanSessionID).Msg("Onetime scan workflow completed successfully via orchestrator. Sending completion notification.")
 	notificationHelper.SendScanCompletionNotification(ctx, summaryData, reportFilePaths)
 
-	// Shutdown scanner to clean up singleton crawler with timeout
-	baseLogger.Info().Msg("Shutting down scanner after onetime scan completion")
-	shutdownDone := make(chan struct{})
-	go func() {
-		defer close(shutdownDone)
-		scannerInstance.Shutdown()
-	}()
-
-	select {
-	case <-shutdownDone:
-		baseLogger.Info().Msg("Scanner shutdown completed successfully")
-	case <-time.After(10 * time.Second):
-		baseLogger.Warn().Msg("Scanner shutdown timeout reached, forcing exit")
-	}
+	// Note: Scanner shutdown (including crawler cleanup) is now handled within the batch workflow
+	// to ensure all crawler requests are completed before report generation
+	baseLogger.Info().Msg("Scanner cleanup was handled within batch workflow - scan completed safely")
 
 	baseLogger.Info().Msg("MonsterInc Crawler finished (onetime mode).")
 

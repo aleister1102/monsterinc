@@ -33,7 +33,8 @@ function reportApp() {
             }).length;
 
             const hosts = new Set(data.map(item => {
-                try { return new URL(item.InputURL).hostname; } catch { return ''; }
+                const effectiveURL = item.FinalURL || item.InputURL;
+                try { return new URL(effectiveURL).hostname; } catch { return ''; }
             }).filter(Boolean));
 
             const techs = new Set(data.flatMap(item => item.Technologies || []));
@@ -57,16 +58,15 @@ function reportApp() {
             this.gridApi = agGrid.createGrid(grid, {
                 columnDefs: [
                     {
-                        headerName: 'Input URL',
-                        field: 'InputURL',
-                        cellRenderer: p => `<a href="${p.value}" target="_blank" class="text-blue-600 hover:underline truncate block">${p.value}</a>`,
-                        filter: 'agTextColumnFilter'
-                    },
-                    {
-                        headerName: 'Final URL',
-                        field: 'FinalURL',
-                        cellRenderer: p => `<a href="${p.value}" target="_blank" class="text-blue-600 hover:underline truncate block">${p.value}</a>`,
-                        filter: 'agTextColumnFilter'
+                        headerName: 'URL',
+                        field: 'effectiveURL',
+                        cellRenderer: p => {
+                            const effectiveURL = p.data.FinalURL || p.data.InputURL;
+                            return `<a href="${effectiveURL}" target="_blank" class="text-blue-600 hover:underline break-words">${effectiveURL}</a>`;
+                        },
+                        filter: 'agTextColumnFilter',
+                        valueGetter: p => p.data.FinalURL || p.data.InputURL,
+                        flex: 2
                     },
                     {
                         headerName: 'Status',
@@ -96,16 +96,18 @@ function reportApp() {
                     {
                         headerName: 'Title',
                         field: 'Title',
-                        cellRenderer: p => p.value ? `<span class="truncate block" title="${p.value}">${p.value}</span>` : '<span class="text-gray-400">No title</span>',
+                        cellRenderer: p => p.value ? `<span class="break-words">${p.value}</span>` : '<span class="text-gray-400">No title</span>',
                         filter: 'agTextColumnFilter',
-                        hide: window.innerWidth < 768
+                        hide: window.innerWidth < 768,
+                        flex: 1.5
                     },
                     {
                         headerName: 'Technologies',
                         field: 'Technologies',
-                        cellRenderer: p => p.value?.length ? `<div class="flex flex-wrap gap-1">${p.value.slice(0, 2).map(t => `<span class="px-1 py-0.5 bg-indigo-100 text-indigo-800 rounded text-xs">${t}</span>`).join('')}${p.value.length > 2 ? `<span class="text-xs text-gray-500">+${p.value.length - 2}</span>` : ''}</div>` : '<span class="text-gray-400 text-xs">None</span>',
+                        cellRenderer: p => p.value?.length ? `<div class="flex flex-wrap gap-1 justify-center">${p.value.slice(0, 3).map(t => `<span class="px-1 py-0.5 bg-indigo-100 text-indigo-800 rounded text-xs whitespace-nowrap">${t}</span>`).join('')}${p.value.length > 3 ? `<span class="text-xs text-gray-500">+${p.value.length - 3}</span>` : ''}</div>` : '<span class="text-gray-400 text-xs">None</span>',
                         filter: 'agSetColumnFilter',
-                        hide: window.innerWidth < 1024
+                        hide: window.innerWidth < 1024,
+                        flex: 1.2
                     },
                     {
                         headerName: 'Details',
@@ -117,11 +119,19 @@ function reportApp() {
                     }
                 ],
                 rowData: window.reportData || [],
-                defaultColDef: { sortable: true, filter: true, resizable: true, floatingFilter: true, flex: 1 },
+                defaultColDef: {
+                    sortable: true,
+                    filter: true,
+                    resizable: true,
+                    floatingFilter: true,
+                    flex: 1,
+                    cellStyle: { textAlign: 'center' },
+                    autoHeight: true,
+                    wrapText: true
+                },
                 pagination: true,
                 paginationPageSize: 25,
                 paginationPageSizeSelector: [10, 25, 50, 100],
-                rowHeight: 48,
                 headerHeight: 52,
                 onGridReady: params => {
                     this.gridApi = params.api;

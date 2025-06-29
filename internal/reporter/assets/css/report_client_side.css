@@ -108,11 +108,28 @@ body {
 .ag-theme-quartz .ag-header-cell {
     font-weight: 600;
     letter-spacing: 0.025em;
+    text-align: center;
+}
+
+.ag-theme-quartz .ag-header-cell-text {
+    text-align: center;
 }
 
 .ag-theme-quartz .ag-cell {
     display: flex;
     align-items: center;
+    white-space: normal !important;
+    word-wrap: break-word;
+    line-height: 1.4;
+    padding: 8px 12px;
+}
+
+.ag-theme-quartz .ag-cell-wrap-text {
+    white-space: normal !important;
+}
+
+.ag-theme-quartz .ag-row {
+    min-height: 48px;
 }
 
 .ag-theme-quartz .ag-row {
@@ -406,7 +423,8 @@ body {
     }
 
     #myGrid {
-        height: 500px !important;
+        height: 60vh !important;
+        min-height: 400px !important;
     }
 
     .modal-body {
@@ -439,7 +457,8 @@ body {
     }
 
     #myGrid {
-        height: 400px !important;
+        height: 50vh !important;
+        min-height: 350px !important;
     }
 
     .ag-theme-quartz {
@@ -466,6 +485,12 @@ body {
 .text-break {
     word-break: break-all;
     overflow-wrap: break-word;
+}
+
+.break-words {
+    word-break: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
 }
 
 .d-flex {

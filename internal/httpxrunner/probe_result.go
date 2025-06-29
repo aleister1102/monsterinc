@@ -28,6 +28,23 @@ type ProbeResult struct {
 	ASNOrg              string            `json:"asn_org,omitempty"`
 }
 
+// GetEffectiveURL returns the effective URL based on priority:
+// - FinalURL if available and not empty
+// - InputURL otherwise
+func (pr *ProbeResult) GetEffectiveURL() string {
+	if pr == nil {
+		return ""
+	}
+
+	// If FinalURL exists and is not empty, use it
+	if pr.FinalURL != "" {
+		return pr.FinalURL
+	}
+
+	// Otherwise, use InputURL
+	return pr.InputURL
+}
+
 // HasTechnologies returns true if any technologies were detected in the probe result.
 // No need to refactor ✅
 func (pr *ProbeResult) HasTechnologies() bool {

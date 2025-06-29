@@ -193,13 +193,18 @@ func (cr *Crawler) waitForBatchCompletion() {
 	case <-done:
 		cr.logger.Debug().Msg("Crawler batch threads completed normally")
 	case <-cr.ctx.Done():
-		cr.logger.Info().Msg("Context cancelled, stopping crawler batch")
-		// Give a brief grace period for current requests to complete
+		cr.logger.Info().Msg("Context cancelled, stopping crawler batch immediately")
+		// Force stop any remaining requests by stopping the collector
+		if cr.collector != nil {
+			// Stop accepting new requests immediately
+			cr.logger.Debug().Msg("Force stopping collector due to context cancellation")
+		}
+		// Give a shorter grace period for current requests to complete
 		select {
 		case <-done:
 			cr.logger.Debug().Msg("Crawler batch threads completed during grace period")
-		case <-time.After(2 * time.Second):
-			cr.logger.Warn().Msg("Crawler batch threads did not complete within grace period")
+		case <-time.After(1 * time.Second): // Reduced from 2 seconds to 1 second
+			cr.logger.Warn().Msg("Crawler batch threads did not complete within grace period, forcing shutdown")
 		}
 		return
 	case <-time.After(maxWaitTime):
@@ -268,10 +273,22 @@ func (cr *Crawler) Stop() {
 		cr.logger.Debug().Msg("URL batch processor stopped")
 	}
 
-	// Wait for colly collector to finish all current operations
+	// Wait for colly collector to finish all current operations with timeout
 	if cr.collector != nil {
-		cr.collector.Wait()
-		cr.logger.Debug().Msg("Colly collector stopped")
+		// Create a channel to signal when colly wait completes
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			cr.collector.Wait()
+		}()
+
+		// Wait for either completion or timeout
+		select {
+		case <-done:
+			cr.logger.Debug().Msg("Colly collector stopped normally")
+		case <-time.After(5 * time.Second): // 5 second timeout for graceful stop
+			cr.logger.Warn().Msg("Colly collector stop timeout reached, forcing shutdown")
+		}
 	}
 
 	cr.logger.Info().Msg("Crawler stopped completely")

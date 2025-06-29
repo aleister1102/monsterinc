@@ -232,6 +232,7 @@ func TestScanSummaryDataBuilder_AddErrorMessage(t *testing.T) {
 		WithTargetSource("file").
 		WithScanMode("onetime").
 		WithStatus(ScanStatusFailed).
+		WithErrorMessages([]string{"Network timeout", "DNS resolution failed"}).
 		Build()
 
 	require.NoError(t, err)

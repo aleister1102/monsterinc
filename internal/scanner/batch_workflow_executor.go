@@ -149,6 +149,9 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 			Msg("Batch processing was interrupted or failed")
 	}
 
+	// Ensure crawler is fully shutdown before generating reports to prevent ongoing requests
+	bwo.ensureCrawlerShutdown()
+
 	// Generate merged report from all batch results if we have any
 	if len(allProbeResults) > 0 && (err == nil && processedBatches > 0) {
 		bwo.logger.Info().
@@ -195,4 +198,16 @@ func (bwo *BatchWorkflowOrchestrator) executeBatchedScan(
 	bwo.logBatchProcessingSummary(result)
 
 	return result, err
+}
+
+// ensureCrawlerShutdown ensures the crawler is fully shutdown before continuing
+func (bwo *BatchWorkflowOrchestrator) ensureCrawlerShutdown() {
+	bwo.logger.Info().Msg("Ensuring crawler is fully shutdown before generating reports")
+
+	// Reset crawler executor to ensure cleanup
+	if bwo.scanner != nil {
+		bwo.scanner.ResetCrawler()
+	}
+
+	bwo.logger.Info().Msg("Crawler shutdown completed, safe to generate reports")
 }

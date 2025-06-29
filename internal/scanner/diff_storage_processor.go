@@ -85,9 +85,9 @@ func (dsp *DiffStorageProcessor) ProcessTarget(input DiffTargetInput) *DiffTarge
 
 	// Apply diff status to probe results
 	for i, probe := range result.ProbeResults {
-		// Find corresponding diff result
+		// Find corresponding diff result using effective URL
 		for _, diffURL := range urlDiffResult.Results {
-			if diffURL.ProbeResult.InputURL == probe.InputURL {
+			if diffURL.ProbeResult.GetEffectiveURL() == probe.GetEffectiveURL() {
 				result.ProbeResults[i].URLStatus = string(diffURL.ProbeResult.URLStatus)
 				break
 			}
@@ -120,9 +120,9 @@ func (dsp *DiffStorageProcessor) ProcessHostname(input DiffHostnameInput) *DiffH
 
 	// Apply diff status to probe results
 	for i, probe := range result.ProbeResults {
-		// Find corresponding diff result
+		// Find corresponding diff result using effective URL
 		for _, diffURL := range urlDiffResult.Results {
-			if diffURL.ProbeResult.InputURL == probe.InputURL {
+			if diffURL.ProbeResult.GetEffectiveURL() == probe.GetEffectiveURL() {
 				result.ProbeResults[i].URLStatus = string(diffURL.ProbeResult.URLStatus)
 				break
 			}

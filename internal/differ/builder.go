@@ -41,7 +41,7 @@ func (b *UrlDifferBuilder) Build() (*UrlDiffer, error) {
 
 	dataLoader := NewHistoricalDataLoader(b.parquetReader)
 	urlMapper := NewURLMapper(b.config)
-	statusAnalyzer := NewURLStatusAnalyzer()
+	statusAnalyzer := NewURLStatusAnalyzer(urlMapper)
 
 	return &UrlDiffer{
 		parquetReader:  b.parquetReader,

@@ -23,13 +23,13 @@ func NewURLMapper(config URLDifferConfig) *URLMapper {
 func (um *URLMapper) CreateMaps(historicalProbes []httpxrunner.ProbeResult, currentProbes []*httpxrunner.ProbeResult) URLMaps {
 	historicalURLMap := make(map[string]httpxrunner.ProbeResult)
 	for _, p := range historicalProbes {
-		key := um.getURLKey(p.InputURL)
+		key := um.GetURLKey(p.GetEffectiveURL())
 		historicalURLMap[key] = p
 	}
 
 	currentURLMap := make(map[string]httpxrunner.ProbeResult)
 	for _, p := range currentProbes {
-		key := um.getURLKey(p.InputURL)
+		key := um.GetURLKey(p.GetEffectiveURL())
 		currentURLMap[key] = *p
 	}
 
@@ -39,8 +39,8 @@ func (um *URLMapper) CreateMaps(historicalProbes []httpxrunner.ProbeResult, curr
 	}
 }
 
-// getURLKey returns the key to use for URL comparison
-func (um *URLMapper) getURLKey(url string) string {
+// GetURLKey returns the key to use for URL comparison
+func (um *URLMapper) GetURLKey(url string) string {
 	key := url
 
 	// Apply URL normalization if enabled
