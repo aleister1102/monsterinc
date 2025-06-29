@@ -1,6 +1,15 @@
-# URLHandler Package
+# URL Handler Package
 
-The `urlhandler` package provides utility functions and managers for handling URLs and targets in the MonsterInc application.
+URL normalization, validation, and management utilities for the MonsterInc security scanning pipeline.
+
+## Overview
+
+Provides comprehensive URL handling capabilities:
+- **URL Normalization**: Consistent URL formatting and validation
+- **Target Management**: Loading and managing scan targets from files/config
+- **URL Resolution**: Resolving relative URLs against base URLs
+- **Hostname Operations**: Extracting and manipulating hostnames
+- **Filename Sanitization**: Safe filename generation from URLs
 
 ## Core Functions
 
@@ -9,7 +18,7 @@ The `urlhandler` package provides utility functions and managers for handling UR
 ```go
 // Normalize URL (add scheme, lowercase domain)
 normalizedURL, err := urlhandler.NormalizeURL("example.com")
-// => "https://example.com"
+// Result: "https://example.com"
 
 // Validate URL format
 err := urlhandler.ValidateURLFormat("https://example.com")
@@ -25,47 +34,47 @@ isAbs = urlhandler.IsAbsoluteURL("/path/to/resource")    // false
 // Resolve relative URLs against base
 baseURL, _ := url.Parse("https://example.com/page")
 resolved, err := urlhandler.ResolveURL("../other", baseURL)
-// => "https://example.com/other"
+// Result: "https://example.com/other"
 
 // Works with absolute URLs too
 resolved, err := urlhandler.ResolveURL("https://other.com", baseURL)
-// => "https://other.com"
+// Result: "https://other.com"
 ```
 
-### Hostname Extraction and Management
+### Hostname Operations
 
 ```go
 // Extract hostname with port
 hostname, err := urlhandler.ExtractHostnameWithPort("https://example.com:8080/path")
-// => "example.com:8080"
+// Result: "example.com:8080"
 
 // Extract hostname without port
 hostname, err := urlhandler.ExtractHostname("https://example.com:8080/path")
-// => "example.com"
+// Result: "example.com"
 
 // Get base domain
 baseDomain, err := urlhandler.GetBaseDomain("sub.example.com")
-// => "example.com"
+// Result: "example.com"
 
-// Compare hostnames with case sensitivity options
-same := urlhandler.CompareHostnames("Example.COM", "example.com", false) // true
-same = urlhandler.CompareHostnames("Example.COM", "example.com", true)  // false
+// Compare hostnames
+same := urlhandler.CompareHostnames("Example.COM", "example.com", false) // true (case insensitive)
+same = urlhandler.CompareHostnames("Example.COM", "example.com", true)  // false (case sensitive)
 ```
 
 ### Filename Sanitization
 
 ```go
-// Sanitize for general filenames
+// Sanitize URL for filename use
 safe := urlhandler.SanitizeFilename("https://example.com/path?param=value")
-// => "example_com_path_param_value"
+// Result: "example_com_path_param_value"
 
 // Sanitize hostname:port for filenames
 safe := urlhandler.SanitizeHostnamePort("example.com:8080")
-// => "example_com_8080"
+// Result: "example_com_8080"
 
 // Restore from sanitized
 restored := urlhandler.RestoreHostnamePort("example_com_8080")
-// => "example.com:8080"
+// Result: "example.com:8080"
 ```
 
 ### Batch Operations
@@ -74,18 +83,20 @@ restored := urlhandler.RestoreHostnamePort("example_com_8080")
 // Normalize multiple URLs
 urls := []string{"example.com", "test.org", "invalid-url"}
 normalized, err := urlhandler.NormalizeURLSlice(urls)
-// Returns normalized valid URLs and error for invalid ones
+// Returns normalized valid URLs and errors for invalid ones
 ```
 
 ## Target Management
 
 ### TargetManager
 
+Manages loading targets from various sources with priority handling.
+
 ```go
 // Create target manager
 tm := urlhandler.NewTargetManager(logger)
 
-// Load targets from various sources with priority
+// Load targets with priority: CLI file > config URLs > config file
 targets, source, err := tm.LoadAndSelectTargets(
     fileFlag,        // CLI file option (highest priority)
     configURLs,      // Config input_urls 
@@ -101,19 +112,19 @@ urls := tm.GetTargetStrings(targets)
 ```go
 // Read URLs from file
 urls, err := urlhandler.ReadURLsFromFile("targets.txt", logger)
-// Supports:
-// - Comment lines (starting with #)
-// - Empty lines (skipped)
-// - Automatic URL validation
+// Features:
+// - Skips comment lines (starting with #)
+// - Ignores empty lines
+// - Validates each URL
 // - Detailed logging
 ```
 
 ## Integration Examples
 
-### Scanner Integration
+### With Scanner
 
 ```go
-// In scanner
+// Load targets for scanning
 tm := urlhandler.NewTargetManager(logger)
 targets, source, err := tm.LoadAndSelectTargets(flags.ScanTargetsFile)
 if err != nil {
@@ -123,10 +134,10 @@ if err != nil {
 seedURLs := tm.GetTargetStrings(targets)
 ```
 
-### Crawler Integration
+### With Crawler
 
 ```go
-// In crawler discovery
+// Resolve URLs during crawling
 absURL, err := urlhandler.ResolveURL(rawURL, baseURL)
 if err != nil {
     logger.Warn().Err(err).Msg("Could not resolve URL")
@@ -140,21 +151,10 @@ if err := urlhandler.ValidateURLFormat(absURL); err != nil {
 }
 ```
 
-### Extractor Integration
+### With Datastore
 
 ```go
-// In path extractor
-result := validator.ValidateAndResolveURL(rawPath, baseURL, sourceURL)
-if !result.IsValid {
-    logger.Debug().Err(result.Error).Msg("Invalid URL")
-    continue
-}
-```
-
-### Datastore Integration
-
-```go
-// In file path generation
+// Generate safe file paths
 hostnamePort, err := urlhandler.ExtractHostnameWithPort(recordURL)
 if err != nil {
     return "", err
@@ -163,79 +163,42 @@ if err != nil {
 sanitizedPath := urlhandler.SanitizeHostnamePort(hostnamePort)
 ```
 
-## Best Practices
-
-1. **Always validate URLs** before processing:
-   ```go
-   if err := urlhandler.ValidateURLFormat(rawURL); err != nil {
-       // Handle error
-   }
-   ```
-
-2. **Use normalization** for consistent comparison:
-   ```go
-   normalized, err := urlhandler.NormalizeURL(userInput)
-   ```
-
-3. **Leverage TargetManager** for input handling:
-   ```go
-   tm := urlhandler.NewTargetManager(logger)
-   targets, source, err := tm.LoadAndSelectTargets(...)
-   ```
-
-4. **Use resolution helpers** instead of manual parsing:
-   ```go
-   // Good
-   resolved, err := urlhandler.ResolveURL(href, baseURL)
-   
-   // Avoid manual url.Parse + ResolveReference
-   ```
-
-5. **Sanitize filenames** when saving files:
-   ```go
-   safeFilename := urlhandler.SanitizeFilename(urlString)
-   ```
-
 ## Error Handling
 
-The package provides comprehensive error handling for various URL operations:
-
-### Common Error Types
-
+Common error types:
 - **Invalid URL Format**: When URL cannot be parsed
-- **Unsupported Scheme**: For non-HTTP/HTTPS schemes
+- **Unsupported Scheme**: For non-HTTP/HTTPS schemes  
 - **Resolution Errors**: When relative URL resolution fails
 - **File Read Errors**: When target files cannot be read
 
-### Error Examples
-
 ```go
-// Handle normalization errors
+// Handle errors gracefully
 normalized, err := urlhandler.NormalizeURL(input)
 if err != nil {
-    // Log and skip invalid URL
     logger.Warn().Err(err).Str("url", input).Msg("Failed to normalize URL")
     continue
 }
-
-// Handle file reading errors
-urls, err := urlhandler.ReadURLsFromFile(filename, logger)
-if err != nil {
-    return fmt.Errorf("failed to read targets from %s: %w", filename, err)
-}
 ```
+
+## Best Practices
+
+1. **Always validate URLs** before processing
+2. **Use normalization** for consistent comparison
+3. **Leverage TargetManager** for input handling
+4. **Use resolution helpers** instead of manual parsing
+5. **Sanitize filenames** when creating files
 
 ## Dependencies
 
-- `net/url`: Standard URL parsing and manipulation
-- `net`: Network address parsing
+- `net/url`: Standard URL parsing
+- `net`: Network address parsing  
 - `strings`: String manipulation
 - `path/filepath`: File path operations
 - `github.com/rs/zerolog`: Structured logging
 
 ## Thread Safety
 
-All functions in this package are thread-safe and can be used concurrently. The TargetManager maintains internal state but uses safe operations for concurrent access.
+All functions are thread-safe and can be used concurrently.
 
 ## Testing
 

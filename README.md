@@ -1,168 +1,189 @@
 # MonsterInc
 
-MonsterInc is a comprehensive security tool written in Go, specialized for URL collection from websites, HTTP/HTTPS probing, real-time content change monitoring, and detailed report generation. This tool is designed to support security professionals in web application reconnaissance and monitoring.
+A comprehensive security tool for website crawling, HTTP/HTTPS probing, content monitoring, and vulnerability discovery with real-time change detection and automated reporting.
 
-## Key Features
+## Features
 
-### 🕷️ URL Collection (Web Crawling)
-- URL collection from websites with detailed scope configuration
-- Headless browser support for dynamic content
-- Scope control by hostname, subdomain, file extensions
-- Resource extraction from HTML (images, scripts, stylesheets)
-- **Responsive interrupt handling** - immediate stop upon receiving SIGINT/SIGTERM
+- **🕷️ Web Crawling**: Discover URLs and assets with scope control and headless browser support
+- **🔍 HTTP Probing**: Test endpoints with httpx integration and metadata extraction  
+- **📊 Content Monitoring**: Track changes with diff detection and history storage
+- **📈 Reporting**: Interactive HTML reports with DataTables and visualizations
+- **🔔 Notifications**: Real-time Discord alerts with file attachments
+- **⚡ Performance**: Batch processing, memory optimization, and interrupt handling
 
-### 🔍 HTTP/HTTPS Probing
-- URL probing with integrated httpx engine
-- Complete metadata extraction: headers, technologies, TLS information, ASN
-- Smart retry and rate limiting support
-- Automatic technology detection (tech detection)
-- **Batch processing** - efficient processing for large datasets
+## Quick Start
 
-### 📊 Real-time Change Monitoring
-- Continuous website content monitoring with customizable intervals
-- Change comparison using hash and diff algorithms
-- **Batch URL processing** - efficient management of large URL sets
-- Change history storage with Parquet format
-- Visual HTML diff reports with change highlighting
-
-
-
-### 📈 Reporting and Notifications
-- Interactive HTML reports with DataTables
-- Diff reports with syntax highlighting
-- Automatic Discord notifications with file attachments
-- Flexible template system for custom reports
-
-## Installation
-
-### Prerequisites
-- Go 1.21+
-- Google Chrome (for headless browsing)
-
-### Build from source
+### Installation
 
 ```bash
-git clone https://github.com/aleister1102/monsterinc.git
+git clone https://github.com/your-org/monsterinc.git
 cd monsterinc
 go build -o bin/monsterinc cmd/monsterinc/main.go
 ```
 
-### From GitHub
+### Configuration
 
+Copy example config:
 ```bash
-go install github.com/aleister1102/monsterinc/cmd/monsterinc@latest
+cp configs/config.example.yaml config.yaml
 ```
 
-## Usage
+Edit `config.yaml` with your settings (see [Configuration](#configuration)).
 
-### One-time Scan
+### Basic Usage
 
+**One-time scan:**
 ```bash
-./bin/monsterinc -config config.yaml -targets targets.txt
+./bin/monsterinc -config config.yaml -st targets.txt
 ```
 
-### Automated Scanning
-
+**Automated scanning:**
 ```bash
-./bin/monsterinc -config config.yaml -targets targets.txt -mode automated
+./bin/monsterinc -config config.yaml -st targets.txt -mode automated
 ```
 
-### Monitoring Mode
-
+**Custom configuration:**
 ```bash
-./bin/monsterinc -config config.yaml -targets monitor-targets.txt -mode monitor
-```
-
-### Advanced Options
-
-```bash
-# Custom config location
-./bin/monsterinc -config /path/to/config.yaml -targets targets.txt
-
-# Override mode
-./bin/monsterinc -config config.yaml -targets targets.txt -mode onetime
-
-# Enable debug logging
-./bin/monsterinc -config config.yaml -targets targets.txt -debug
+./bin/monsterinc -config /path/to/config.yaml -st targets.txt
 ```
 
 ## Configuration
 
-Create `config.yaml` file:
+### Essential Settings
 
 ```yaml
-mode: "onetime"  # or "automated", "monitor"
+# Application mode
+mode: "onetime"  # or "automated"
 
-crawler_config:
-  max_depth: 3
-  max_concurrent_requests: 20
-  request_timeout_secs: 30
-  seed_urls:
-    - "https://example.com"
-  
+# HTTP probing
 httpx_runner_config:
   threads: 50
   timeout_secs: 30
   tech_detect: true
-  
-monitor_config:
-  enabled: true
-  check_interval_seconds: 300
-  max_concurrent_checks: 10
-  
-notification_config:
-  scan_service_discord_webhook_url: "https://discord.com/api/webhooks/..."
-  monitor_service_discord_webhook_url: "https://discord.com/api/webhooks/..."
-  
+
+# Web crawling
+crawler_config:
+  max_depth: 3
+  max_concurrent_requests: 20
+  request_timeout_secs: 30
+
+# Data storage
 storage_config:
   parquet_base_path: "./data"
   compression_codec: "zstd"
+
+# Discord notifications
+notification_config:
+  scan_service_discord_webhook_url: "https://discord.com/api/webhooks/..."
+
+# HTML reports
+reporter_config:
+  output_dir: "./reports"
+  embed_assets: true
 ```
 
-## System Architecture
+## Architecture
 
-```mermaid
-graph TD
-    A["CLI Entry Point<br/>(cmd/monsterinc/main.go)"] --> B["Configuration Manager<br/>(internal/config)"]
-    B --> C{"Operation Mode"}
-    
-    C -->|One-time Scan| D["Scanner Service<br/>(internal/scanner)"]
-    C -->|Automated Mode| E["Scheduler Service<br/>(internal/scheduler)"]
-    C -->|Monitoring| F["Monitor Service<br/>(internal/monitor)"]
-    
-    D --> G["URL Handler<br/>(internal/urlhandler)"]
-    G --> H["Batch Workflow<br/>Orchestrator"]
-    
-    H --> I["Web Crawler<br/>(internal/crawler)"]
-    I --> J["HTTPX Runner<br/>(internal/httpxrunner)"]
-    J --> K["Diff Processor<br/>(internal/differ)"]
-    K --> L["Data Store<br/>(internal/datastore)"]
-    
-    L --> M["Reporter<br/>(internal/reporter)"]
-    M --> N["HTML Reports<br/>with Interactive UI"]
-    
-    L --> O["Notifier<br/>(internal/notifier)"]
-    O --> P["Discord Notifications"]
-    
-    E --> Q["Task Execution"]
-    Q --> D
-    
-    F --> R["Batch URL Manager"]
-    R --> S["URL Checker"]
-    S --> T["Content Processor"]
-    T --> U["Cycle Tracker"]
-    U --> L
-    U --> O
-    
-    
-    V --> O
-    
-    style A fill:#e1f5fe
-    style D fill:#f3e5f5
-    style E fill:#e8f5e8
-    style F fill:#fff3e0
-    style L fill:#fce4ec
-    style O fill:#f1f8e9
+```
+┌─────────────────────┐
+│   CLI Entry Point   │ 
+│  (cmd/monsterinc)   │
+└─────────┬───────────┘
+          │
+┌─────────▼───────────┐
+│      Scanner        │ ← Main orchestrator
+│  (internal/scanner) │
+└─────────┬───────────┘
+          │
+    ┌─────▼─────┐
+    │ Components │
+    └─────┬─────┘
+          │
+┌─────────▼───────────┐
+│    Web Crawler      │ → Discover URLs/assets
+│ (internal/crawler)  │
+└─────────────────────┘
+┌─────────────────────┐
+│   HTTPx Runner      │ → Probe endpoints  
+│(internal/httpxrunner)│
+└─────────────────────┘
+┌─────────────────────┐
+│     Datastore       │ → Store results
+│(internal/datastore) │
+└─────────────────────┘
+┌─────────────────────┐
+│      Reporter       │ → Generate reports
+│ (internal/reporter) │
+└─────────────────────┘
+┌─────────────────────┐
+│     Notifier        │ → Send alerts
+│ (internal/notifier) │
+└─────────────────────┘
+```
+
+## Core Packages
+
+| Package | Purpose | Key Features |
+|---------|---------|--------------|
+| `scanner` | Main orchestrator | Workflow coordination, batch processing |
+| `crawler` | Web crawling | URL discovery, asset extraction, scope control |
+| `httpxrunner` | HTTP probing | Endpoint testing, technology detection |
+| `datastore` | Data persistence | Parquet storage, query interface |
+| `reporter` | Report generation | Interactive HTML reports with charts |
+| `notifier` | Notifications | Discord integration with file attachments |
+| `differ` | Content comparison | Change detection and diff analysis |
+| `scheduler` | Automation | Periodic scans with SQLite persistence |
+| `config` | Configuration | YAML/JSON config management |
+| `logger` | Logging | Structured logging with file rotation |
+| `common` | Utilities | HTTP client, file operations, memory pools |
+
+## Usage Examples
+
+### Simple Security Scan
+
+```bash
+# Create targets file
+echo "https://example.com" > targets.txt
+
+# Run scan
+./bin/monsterinc -config config.yaml -st targets.txt
+
+# Check results
+ls reports/     # HTML reports
+ls data/        # Raw scan data
+```
+
+### Automated Monitoring
+
+```yaml
+# config.yaml
+mode: "automated"
+scheduler_config:
+  cycle_minutes: 60  # Scan every hour
+  retry_attempts: 3
+
+notification_config:
+  scan_service_discord_webhook_url: "your-webhook-url"
+  notify_on_success: true
+```
+
+```bash
+./bin/monsterinc -config config.yaml -st targets.txt -mode automated
+```
+
+### Custom Crawling Scope
+
+```yaml
+crawler_config:
+  max_depth: 2
+  include_subdomains: true
+  scope:
+    disallowed_hostnames:
+      - "ads.example.com"
+    disallowed_file_extensions:
+      - ".jpg"
+      - ".css"
+      - ".js"
 ```
 
 ## Development
@@ -171,29 +192,56 @@ graph TD
 ```
 monsterinc/
 ├── cmd/monsterinc/          # CLI entry point
-├── internal/                # Private packages
-│   ├── scanner/            # Main orchestration
-│   ├── monitor/            # Real-time monitoring  
+├── internal/                # Core packages
+│   ├── scanner/            # Main orchestrator
 │   ├── crawler/            # Web crawling
 │   ├── httpxrunner/        # HTTP probing
 │   ├── datastore/          # Data persistence
-│   ├── differ/             # Content comparison
 │   ├── reporter/           # Report generation
 │   ├── notifier/           # Notifications
-│   └── common/             # Shared utilities
-├── configs/                 # Sample configurations
-└── tasks/                  # Task definitions
+│   ├── differ/             # Content comparison
+│   ├── scheduler/          # Automation
+│   ├── config/             # Configuration
+│   ├── logger/             # Logging
+│   └── common/             # Utilities
+├── configs/                 # Example configurations
+└── tasks/                  # Development tasks
 ```
 
 ### Testing
-
 ```bash
 # Run all tests
 go test ./...
 
-# Run tests with coverage
-go test -cover ./...
-
-# Run specific package tests
+# Test specific package
 go test ./internal/scanner/
 ```
+
+### Building
+```bash
+# Build for current platform
+go build -o bin/monsterinc cmd/monsterinc/main.go
+
+# Cross-compile for Windows
+GOOS=windows GOARCH=amd64 go build -o bin/monsterinc.exe cmd/monsterinc/main.go
+```
+
+## Package Documentation
+
+Each internal package has detailed documentation:
+- [Common Utilities](internal/common/README.md)
+- [Configuration Management](internal/config/README.md)
+- [Web Crawler](internal/crawler/README.md)
+- [Data Storage](internal/datastore/README.md)
+- [Content Differ](internal/differ/README.md)
+- [HTTP Runner](internal/httpxrunner/README.md)
+- [Logging Framework](internal/logger/README.md)
+- [Notifications](internal/notifier/README.md)
+- [Report Generator](internal/reporter/README.md)
+- [Main Scanner](internal/scanner/README.md)
+- [Task Scheduler](internal/scheduler/README.md)
+- [URL Handler](internal/common/urlhandler/README.md)
+
+## License
+
+This project is licensed under the MIT License.

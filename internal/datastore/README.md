@@ -1,26 +1,21 @@
 # Datastore Package
 
-## Purpose
-The `datastore` package provides MonsterInc's high-performance persistence layer using Apache Parquet format. It stores scan results, file history, and monitoring data with compression, streaming operations, and efficient querying capabilities for the security scanning and monitoring pipeline.
+High-performance data persistence layer using Apache Parquet format for scan results, file history, and monitoring data with compression and efficient querying.
 
-## Package Role in MonsterInc
-As the data persistence backbone, this package:
-- **Scanner Integration**: Stores probe results and scan data from HTTPx Runner
-- **Monitor Support**: Persists file history and change tracking data
-- **Historical Analysis**: Enables trend analysis and diff generation
-- **Performance Optimization**: Uses Parquet format for fast querying and compression
-- **Data Integrity**: Provides structured schemas and validation for all stored data
+## Overview
 
-## Main Components
+Provides comprehensive data persistence:
+- **Parquet Storage**: Fast, compressed columnar storage format
+- **Streaming Operations**: Memory-efficient reading/writing for large datasets
+- **File History**: Track content changes and version history
+- **Query Interface**: Efficient search and retrieval capabilities
+- **Schema Management**: Structured data validation and transformation
 
-### 1. Parquet Writer (`parquet_writer.go`)
-#### Purpose
-- Write probe results and scan data to Parquet files
-- High-performance batch writing with compression
-- Context-aware operations with cancellation support
-- Memory-efficient transformations
+## Core Components
 
-#### API Usage
+### Parquet Writer
+
+Write probe results and scan data with high-performance batch processing.
 
 ```go
 // Create Parquet writer
@@ -51,14 +46,9 @@ writer, err = builder.
     Build()
 ```
 
-### 2. Parquet Reader (`parquet_reader.go`)
-#### Purpose
-- Read and query Parquet files efficiently
-- Support pagination and filtering
-- Memory-optimized streaming operations
-- Metadata extraction
+### Parquet Reader
 
-#### API Usage
+Read and query Parquet files efficiently with pagination support.
 
 ```go
 // Create Parquet reader
@@ -77,7 +67,7 @@ query := datastore.ProbeResultQuery{
     Offset:        0,
 }
 
-searchResult, err := reader.searchProbeResults(query)
+searchResult, err := reader.SearchProbeResults(query)
 if err != nil {
     return err
 }
@@ -86,14 +76,9 @@ fmt.Printf("Found %d results, total: %d\n",
     len(searchResult.Results), searchResult.TotalCount)
 ```
 
-### 3. Streaming Reader (`memory_optimized_reader.go`)
-#### Purpose
-- Memory-efficient streaming of large datasets
-- Callback-based processing to avoid loading all data into memory
-- Batch processing support
-- Real-time processing capabilities
+### Streaming Operations
 
-#### API Usage
+Memory-efficient processing for large datasets.
 
 ```go
 // Create streaming reader
@@ -116,33 +101,11 @@ err = streamReader.StreamFileHistory(ctx, "path/to/history.parquet",
 
 // Count records without loading them
 count, err := streamReader.CountRecords(ctx, "path/to/data.parquet")
-
-// Batch processing
-batchProcessor := datastore.NewBatchProcessor(100, 
-    func(batch []models.ProbeResult) error {
-        return processBatch(batch)
-    })
-
-// Add items to batch
-for _, result := range results {
-    err := batchProcessor.Add(result)
-    if err != nil {
-        return err
-    }
-}
-
-// Flush remaining items
-err = batchProcessor.Flush()
 ```
 
-### 4. File History Store (`parquet_file_history.go`)
-#### Purpose
-- Track file changes over time
-- Store content diffs and extracted paths
-- Support monitoring workflows
-- Thread-safe operations with URL-based mutexes
+### File History Store
 
-#### API Usage
+Track file changes over time with thread-safe operations.
 
 ```go
 // Create file history store
@@ -172,74 +135,43 @@ if lastRecord != nil {
 
 // Get multiple records with limit
 records, err := historyStore.GetRecordsForURL("https://example.com/api/data.json", 10)
-
-// Get all hostnames with history
-hostnames, err := historyStore.GetHostnamesWithHistory()
-
-// Get diff results
-diffResults, err := historyStore.GetAllLatestDiffResultsForURLs(urls)
 ```
 
-### 5. Record Transformation (`record_transformer.go`)
-#### Purpose
-- Transform between different data formats
-- Convert models.ProbeResult to Parquet-compatible format
-- Handle optional fields and null values
-- Optimize storage efficiency
+### Batch Processing
 
-#### API Usage
+Efficient batch processing for large datasets.
 
 ```go
-// Create transformer
-transformer := datastore.NewRecordTransformer(logger)
+// Batch processor
+batchProcessor := datastore.NewBatchProcessor(100, 
+    func(batch []models.ProbeResult) error {
+        return processBatch(batch)
+    })
 
-// Transform probe result to Parquet format
-parquetResult := transformer.TransformToParquetResult(probeResult, scanTime)
+// Add items to batch
+for _, result := range results {
+    err := batchProcessor.Add(result)
+    if err != nil {
+        return err
+    }
+}
 
-// The transformer handles:
-// - Technology names extraction
-// - Headers JSON marshaling
-// - Timestamp calculations
-// - Optional field conversions
-```
-
-### 6. URL Management (`url_hash_generator.go`, `url_mutex_manager.go`)
-#### Purpose
-- Generate consistent URL hashes for file naming
-- Thread-safe URL-based locking
-- Cleanup unused resources
-
-#### API Usage
-
-```go
-// URL hash generation
-hashGen := datastore.NewURLHashGenerator(8) // 8 character hash
-hash := hashGen.GenerateHash("https://example.com/very/long/path")
-fmt.Printf("Short hash: %s\n", hash) // e.g., "a1b2c3d4"
-
-// Mutex management
-mutexManager := datastore.NewURLMutexManager(true, logger)
-mutex := mutexManager.GetMutex("https://example.com")
-
-mutex.Lock()
-// Critical section for URL
-mutex.Unlock()
-
-// Cleanup unused mutexes
-activeURLs := []string{"https://example.com", "https://test.com"}
-mutexManager.CleanupUnusedMutexes(activeURLs)
+// Flush remaining items
+err = batchProcessor.Flush()
 ```
 
 ## Configuration
 
-### Storage Config
+### Storage Configuration
+
 ```yaml
 storage_config:
   parquet_base_path: "./data"           # Base directory for Parquet files
   compression_codec: "zstd"             # Compression: "zstd", "gzip", "snappy", "none"
 ```
 
-### Writer Config
+### Writer Configuration
+
 ```go
 writerConfig := datastore.ParquetWriterConfig{
     CompressionType:  "zstd",     // Compression algorithm
@@ -248,7 +180,8 @@ writerConfig := datastore.ParquetWriterConfig{
 }
 ```
 
-### Reader Config
+### Reader Configuration
+
 ```go
 readerConfig := datastore.ParquetReaderConfig{
     BufferSize: 4096,    // Buffer size for reading
@@ -256,20 +189,10 @@ readerConfig := datastore.ParquetReaderConfig{
 }
 ```
 
-### File History Config
-```go
-historyConfig := datastore.ParquetFileHistoryStoreConfig{
-    MaxFileSize:       100 * 1024 * 1024, // 100MB max file size
-    EnableCompression: true,                // Enable compression
-    CompressionCodec:  "zstd",             // Compression codec
-    EnableURLMutexes:  true,               // Enable URL-based locking
-    CleanupInterval:   3600,               // Cleanup interval in seconds
-}
-```
-
 ## File Organization
 
 ### Directory Structure
+
 ```
 data/
 ├── probe_results/
@@ -290,6 +213,7 @@ data/
 ```
 
 ### File Naming Convention
+
 - **Probe Results**: `{hostname}_{port}/scan_{timestamp}.parquet`
 - **File History**: `{hostname}_{port}/{url_hash}.parquet`
 - **Timestamps**: Format `YYYYMMDD_HHMMSS`
@@ -298,6 +222,7 @@ data/
 ## Data Schemas
 
 ### Probe Result Schema
+
 ```go
 type ParquetProbeResult struct {
     OriginalURL        string   `parquet:"original_url"`
@@ -311,16 +236,13 @@ type ParquetProbeResult struct {
     IPAddress          []string `parquet:"ip_address,list"`
     RootTargetURL      *string  `parquet:"root_target_url,optional"`
     ProbeError         *string  `parquet:"probe_error,optional"`
-    Method             *string  `parquet:"method,optional"`
-    HeadersJSON        *string  `parquet:"headers_json,optional"`
-    DiffStatus         *string  `parquet:"diff_status,optional"`
     ScanTimestamp      int64    `parquet:"scan_timestamp"`
-    FirstSeenTimestamp *int64   `parquet:"first_seen_timestamp,optional"`
-    LastSeenTimestamp  *int64   `parquet:"last_seen_timestamp,optional"`
+    HeadersJSON        *string  `parquet:"headers_json,optional"`
 }
 ```
 
 ### File History Schema
+
 ```go
 type FileHistoryRecord struct {
     URL                string  `parquet:"url,zstd"`
@@ -331,15 +253,50 @@ type FileHistoryRecord struct {
     ETag               string  `parquet:"etag,zstd,optional"`
     LastModified       string  `parquet:"last_modified,zstd,optional"`
     DiffResultJSON     *string `parquet:"diff_result_json,zstd,optional"`
+}
+```
 
+## Integration Examples
+
+### With Scanner Service
+
+```go
+// Write scan results
+err = parquetWriter.Write(ctx, probeResults, sessionID, rootTarget)
+if err != nil {
+    return fmt.Errorf("storage failed: %w", err)
+}
+
+// Read historical data for comparison
+historicalResults, err := parquetReader.FindAllProbeResultsForTarget(rootTarget)
+if err != nil {
+    return fmt.Errorf("failed to load historical data: %w", err)
+}
+```
+
+### With Monitor Service
+
+```go
+// Store file change record
+record := models.FileHistoryRecord{
+    URL:       monitoredURL,
+    Hash:      contentHash,
+    Content:   fileContent,
+    Timestamp: time.Now().UnixMilli(),
+}
+
+err = fileHistoryStore.StoreFileRecord(record)
+if err != nil {
+    return fmt.Errorf("failed to store file record: %w", err)
 }
 ```
 
 ## Performance Optimization
 
-### 1. Memory Management
+### Memory Management
+
 ```go
-// Use object pools
+// Use object pools for high-frequency operations
 var probeResultPool = sync.Pool{
     New: func() interface{} {
         return &models.ProbeResult{}
@@ -351,15 +308,15 @@ func getProbeResult() *models.ProbeResult {
 }
 
 func putProbeResult(pr *models.ProbeResult) {
-    // Reset fields
-    *pr = models.ProbeResult{}
+    *pr = models.ProbeResult{} // Reset fields
     probeResultPool.Put(pr)
 }
 ```
 
-### 2. Compression Tuning
+### Compression Tuning
+
 ```go
-// Compression level optimization
+// Compression level optimization based on data size
 func getOptimalCompression(dataSize int64) parquet.WriterOption {
     if dataSize < 1024*1024 { // < 1MB
         return parquet.Compression(&parquet.Snappy{}) // Fast compression
@@ -371,55 +328,26 @@ func getOptimalCompression(dataSize int64) parquet.WriterOption {
 }
 ```
 
-## Extending Datastore
+### Batch Operations
 
-### 1. Custom Storage Backends
 ```go
-// Storage interface
-type StorageBackend interface {
-    Write(ctx context.Context, data interface{}) error
-    Read(ctx context.Context, query interface{}) (interface{}, error)
-    Delete(ctx context.Context, key string) error
-}
-
-// S3 backend implementation
-type S3Backend struct {
-    client *s3.Client
-    bucket string
-}
-
-func (s3b *S3Backend) Write(ctx context.Context, data interface{}) error {
-    // Implementation for S3 storage
-}
-```
-
-### 2. Custom Data Formats
-```go
-// Format interface
-type DataFormat interface {
-    Marshal(data interface{}) ([]byte, error)
-    Unmarshal(data []byte, v interface{}) error
-    FileExtension() string
-}
-
-// JSON format implementation
-type JSONFormat struct{}
-
-func (jf *JSONFormat) Marshal(data interface{}) ([]byte, error) {
-    return json.Marshal(data)
+// Optimize batch sizes based on available memory
+func calculateOptimalBatchSize(availableMemoryMB int) int {
+    // Rough calculation: assume 1KB per record on average
+    return (availableMemoryMB * 1024) / 10 // Use 10% of available memory
 }
 ```
 
 ## Best Practices
 
-1. **Batch Writing**: Always batch multiple records to improve performance
+1. **Batch Writing**: Always batch multiple records for better performance
 2. **Compression**: Use appropriate compression based on data size and usage patterns
 3. **Error Handling**: Handle storage errors gracefully with retries
 4. **Resource Management**: Properly close files and cleanup resources
 5. **Monitoring**: Monitor disk space, I/O performance, and compression ratios
 6. **Schema Evolution**: Plan for schema changes and backward compatibility
-7. **Partitioning**: Partition data by time or other relevant dimensions
 
 ## Dependencies
+
 - `github.com/parquet-go/parquet-go`: Parquet implementation
-- `github.com/rs/zerolog`: Logging framework
+- `github.com/rs/zerolog`: Structured logging framework
