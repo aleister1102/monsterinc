@@ -66,24 +66,26 @@ function reportApp() {
                         },
                         filter: 'agTextColumnFilter',
                         valueGetter: p => p.data.FinalURL || p.data.InputURL,
-                        flex: 3,
-                        minWidth: 250,
+                        flex: 1,
+                        minWidth: 120,
                         cellStyle: { textAlign: 'left' }
                     },
                     {
                         headerName: 'Status',
                         field: 'diff_status',
-                        width: 100,
+                        flex: 1,
+                        minWidth: 120,
                         cellRenderer: p => {
                             const colors = { new: 'bg-green-100 text-green-800', existing: 'bg-gray-100 text-gray-800', old: 'bg-red-100 text-red-800' };
-                            return `<span class="px-2 py-1 rounded-full text-xs font-medium ${colors[p.value?.toLowerCase()] || colors.existing}">${p.value}</span>`;
+                            return `<span class="px-3 py-2 rounded-full text-xs font-medium ${colors[p.value?.toLowerCase()] || colors.existing}">${p.value}</span>`;
                         },
                         filter: 'agSetColumnFilter'
                     },
                     {
                         headerName: 'Code',
                         field: 'StatusCode',
-                        width: 80,
+                        flex: 1,
+                        minWidth: 120,
                         cellRenderer: p => {
                             const c = parseInt(p.value);
                             let color = 'bg-gray-100 text-gray-800';
@@ -91,19 +93,19 @@ function reportApp() {
                             else if (c >= 300 && c < 400) color = 'bg-yellow-100 text-yellow-800';
                             else if (c >= 400 && c < 500) color = 'bg-red-100 text-red-800';
                             else if (c >= 500) color = 'bg-purple-100 text-purple-800';
-                            return `<span class="px-2 py-1 rounded-full text-xs font-medium ${color}">${p.value}</span>`;
+                            return `<span class="px-3 py-2 rounded-full text-xs font-medium ${color}">${p.value}</span>`;
                         },
                         filter: 'agSetColumnFilter'
                     },
                     {
                         headerName: 'Content-Type',
                         field: 'ContentType',
-                        flex: 2,
-                        minWidth: 180,
+                        flex: 1,
+                        minWidth: 120,
                         cellRenderer: p => {
                             if (!p.value) return '<span class="text-gray-400 text-xs">N/A</span>';
                             const shortType = p.value.split(';')[0].split('/')[1] || p.value;
-                            return `<span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs" title="${p.value}">${shortType}</span>`;
+                            return `<span class="px-3 py-2 bg-blue-100 text-blue-800 rounded-full text-xs" title="${p.value}">${shortType}</span>`;
                         },
                         filter: 'agSetColumnFilter',
                         hide: window.innerWidth < 1024
@@ -114,17 +116,17 @@ function reportApp() {
                         cellRenderer: p => p.value ? `<span class="break-words">${p.value}</span>` : '<span class="text-gray-400">No title</span>',
                         filter: 'agTextColumnFilter',
                         hide: window.innerWidth < 768,
-                        flex: 2,
-                        minWidth: 150
+                        flex: 1,
+                        minWidth: 120
                     },
                     {
                         headerName: 'Technologies',
                         field: 'Technologies',
-                        cellRenderer: p => p.value?.length ? `<div class="flex flex-wrap gap-1 justify-center">${p.value.slice(0, 3).map(t => `<span class="px-1 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs whitespace-nowrap">${t}</span>`).join('')}${p.value.length > 3 ? `<span class="text-xs text-gray-500">+${p.value.length - 3}</span>` : ''}</div>` : '<span class="text-gray-400 text-xs">None</span>',
+                        cellRenderer: p => p.value?.length ? `<div class="flex flex-wrap gap-1 justify-center">${p.value.slice(0, 3).map(t => `<span class="px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs whitespace-nowrap">${t}</span>`).join('')}${p.value.length > 3 ? `<span class="text-xs text-gray-500">+${p.value.length - 3}</span>` : ''}</div>` : '<span class="text-gray-400 text-xs">None</span>',
                         filter: 'agSetColumnFilter',
                         hide: window.innerWidth < 1024,
-                        flex: 2,
-                        minWidth: 200
+                        flex: 1,
+                        minWidth: 120
                     },
                     {
                         headerName: 'Details',
@@ -140,10 +142,7 @@ function reportApp() {
                     sortable: true,
                     filter: true,
                     resizable: true,
-                    floatingFilter: true,
-                    floatingFilterComponentParams: {
-                        suppressFilterButton: true
-                    },
+                    floatingFilter: false,
                     minWidth: 80,
                     cellStyle: { textAlign: 'center' },
                     autoHeight: true,
