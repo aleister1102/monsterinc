@@ -15,8 +15,14 @@ A comprehensive security tool for website crawling, HTTP/HTTPS probing, content 
 
 ### Installation
 
+**From GitHub:**
 ```bash
-git clone https://github.com/your-org/monsterinc.git
+go install github.com/aleister1102/monsterinc/cmd/monsterinc@latest
+```
+
+**Build from source:**
+```bash
+git clone https://github.com/aleister1102/monsterinc.git
 cd monsterinc
 go build -o bin/monsterinc cmd/monsterinc/main.go
 ```
