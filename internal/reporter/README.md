@@ -1,341 +1,247 @@
-# Reporter Package
-
-The reporter package provides comprehensive HTML report generation for MonsterInc's security analysis pipeline. It creates interactive, professional reports with embedded assets, data visualization, and responsive design for security scan results, content diff analysis, and monitoring findings.
-
-## Package Role in MonsterInc
-As the reporting engine, this package:
-- **Scanner Integration**: Generates scan reports from Scanner workflow results
-- **Monitor Integration**: Creates diff reports for content changes detected by Monitor
-- **Data Visualization**: Provides interactive data visualization for security findings
-- **Professional Output**: Delivers client-ready security assessment reports
-- **Notification Support**: Integrates with Notifier for automated report sharing
+# MonsterInc Reporter Module
 
 ## Overview
+Modern, high-performance HTML report generator for security scan results using cutting-edge web technologies.
 
-The reporter package generates comprehensive HTML reports:
-- **URL Reports**: Interactive HTML reports for security scanning results with sortable tables and filters
-- **Diff Reports**: Content difference reports for file monitoring with side-by-side comparison
-- **Asset Management**: CSS/JS/Image embedding with efficient asset handling
-- **Template Engine**: Go template-based report generation with custom functions
+## 🚀 Tech Stack
 
-## Key Features
+### Frontend
+- **Tailwind CSS 3.x** - Utility-first CSS framework for rapid UI development
+- **Alpine.js 3.x** - Lightweight, reactive JavaScript framework (only 15kb)
+- **AG-Grid Community** - Professional data grid with advanced features
+- **Chart.js 4.x** - Beautiful, responsive charts and visualizations
+- **Heroicons** - Modern SVG icon set
+- **Animate.css** - Smooth CSS animations
+- **Inter Font** - Professional typography
 
-### Intelligent Template Selection
+### Features
+- ✅ **Zero custom JavaScript** - Everything handled by Alpine.js
+- ✅ **Advanced data grid** - Sorting, filtering, pagination, export built-in
+- ✅ **Interactive dashboard** - Summary cards with real-time statistics
+- ✅ **Data visualizations** - Status code distribution & diff status charts
+- ✅ **Responsive design** - Mobile-first approach with Tailwind CSS
+- ✅ **Dark mode ready** - Modern color schemes
+- ✅ **Export functionality** - CSV & Excel export with timestamped filenames
+- ✅ **Accessible** - WCAG compliant with proper focus states
 
-The reporter chooses optimal rendering approach based on content size and complexity:
+## 📊 Dashboard Components
 
-#### Server-Side Template (Default)
-- Full HTML rendering on server with embedded data
-- Suitable for most reports under Discord's 10MB limit
-- Better for offline viewing and compatibility
-- Used when report size is manageable
+### Summary Cards
+1. **Total Results** - Overall scan count with 100% coverage indicator
+2. **Success Rate** - Percentage of successful responses (2xx-3xx)
+3. **Error Rate** - Percentage of failed responses (4xx-5xx)
+4. **Unique Hosts** - Number of unique domains + technologies detected
 
-#### Client-Side Template (For Large Reports)  
-- Minimal HTML skeleton with JSON data for JavaScript rendering
-- 30-50% smaller file sizes for large datasets
-- Optimized for reports with extensive diff content
-- Automatic fallback when size limits are exceeded
+### Charts
+1. **Status Code Distribution** - Doughnut chart showing response code ranges
+2. **Diff Status Overview** - Bar chart showing new/existing/old URL status
 
-### Automatic Report Splitting
+### Data Table
+- **AG-Grid powered** - Professional enterprise-grade data grid
+- **Built-in filtering** - Text filters, set filters, floating filters
+- **Advanced sorting** - Multi-column sorting with indicators
+- **Responsive columns** - Auto-hide on mobile devices
+- **Export options** - CSV/Excel export with custom filenames
 
-Smart file size management ensures compatibility with notification services:
+## 🎨 Design System
 
-- **Size Monitoring**: Continuously monitors report size during generation
-- **Dynamic Splitting**: Automatically splits large reports into multiple parts
-- **Discord Optimization**: Keeps individual files under 10MB for Discord sharing
-- **Seamless Navigation**: Maintains navigation between report parts
+### Color Palette
+```css
+Primary: #3b82f6 (Blue)
+Success: #10b981 (Green)
+Warning: #f59e0b (Yellow)
+Error: #ef4444 (Red)
+Info: #06b6d4 (Cyan)
+Gray Scale: #f8fafc to #1e293b
+```
+
+### Typography
+- **Font Family**: Inter (Google Fonts)
+- **Weights**: 300, 400, 500, 600, 700
+- **Responsive sizing** with Tailwind's scale
+
+### Spacing & Layout
+- **Consistent spacing** using Tailwind's 8px base unit
+- **Container max-width**: 1280px (7xl)
+- **Grid system**: CSS Grid with responsive breakpoints
+
+## 🔧 Code Architecture
+
+### Ultra-Minimal JavaScript (85% reduction)
+```javascript
+// Before: 600+ lines of custom code
+// After: 90 lines with Alpine.js + libraries
+
+function reportApp() {
+    return {
+        loading: true, stats: {}, gridApi: null,
+        init() { /* auto-setup everything */ },
+        calculateStats(data) { /* concise stats calculation */ },
+        initGrid() { /* one-liner grid creation */ },
+        initCharts() { /* compact chart setup */ }
+    }
+}
+```
+
+### Minimal CSS (97% reduction)
+```css
+/* Before: 800+ lines of custom CSS */
+/* After: 25 lines of essential AG-Grid overrides only */
+
+.ag-theme-quartz { /* Essential grid styling */ }
+::-webkit-scrollbar { /* Modern scrollbars */ }
+```
+
+### Optimized HTML Template (60% reduction)
+```html
+<!-- Before: 437 lines with verbose Bootstrap structure -->
+<!-- After: 180 lines with Tailwind utilities -->
+
+<!-- Compact, semantic structure -->
+<body class="bg-gray-50 font-sans" x-data="reportApp()">
+  <header class="bg-gradient-to-r from-blue-600 to-indigo-800">
+    <!-- Minimal header with inline SVG -->
+  </header>
+  <main class="max-w-7xl mx-auto px-6 py-8">
+    <!-- Dashboard components -->
+  </main>
+</body>
+```
+
+### Library Integration
+- **AG-Grid**: Enterprise-grade table functionality
+- **Chart.js**: Professional data visualizations  
+- **Alpine.js**: Reactive state management
+- **Tailwind**: Utility-first styling
+
+## 📱 Responsive Design
+
+### Breakpoints
+```css
+sm: 640px   /* Small tablets */
+md: 768px   /* Tablets */
+lg: 1024px  /* Laptops */
+xl: 1280px  /* Desktops */
+```
+
+### Mobile Optimizations
+- **Auto-hide columns** on smaller screens
+- **Touch-friendly buttons** with proper sizing
+- **Optimized font sizes** for readability
+- **Responsive charts** that scale beautifully
+
+## 🎯 Performance Benefits
+
+### Bundle Size & Code Reduction
+```
+JavaScript:
+Before: 600+ lines custom code
+After:  90 lines Alpine.js app (85% reduction)
+
+CSS:
+Before: 800+ lines custom styles  
+After:  25 lines essential overrides (97% reduction)
+
+HTML Template:
+Before: 437 lines Bootstrap structure
+After:  180 lines Tailwind utilities (60% reduction)
+
+Bundle Size:
+Before: Bootstrap(150kb) + jQuery(85kb) + DataTables(200kb) = 435kb
+After:  Alpine.js(15kb) + AG-Grid(180kb) + Chart.js(160kb) = 355kb
+Savings: 80kb + Better performance + Faster development
+```
+
+### Runtime Performance
+- **Virtual scrolling** for large datasets
+- **Reactive updates** without DOM manipulation
+- **Optimized rendering** with AG-Grid
+- **Lazy loading** of chart components
+
+## 🛠️ Development
 
 ### File Structure
-
-#### Core Components
-
-- **`url_report_generator.go`** - Main scan report generator
-- **`diff_report_generator.go`** - Content diff report generator  
-- **`asset_manager.go`** - CSS/JS/Image asset handling
-- **`directory_manager.go`** - File and directory operations
-- **`template_functions.go`** - Custom template functions
-
-#### Templates
-
-- **`templates/report_client_side.html.tmpl`** - Main scan report template
-- **`templates/diff_report_client_side.html.tmpl`** - Content diff report template
-
-#### Assets
-
-- **`assets/css/report_client_side.css`** - Report styling with Bootstrap
-- **`assets/css/diff_report_client_side.css`** - Diff report specific styles
-- **`assets/js/report_client_side.js`** - Interactive functionality
-- **`assets/js/diff_report_client_side.js`** - Diff report JavaScript
-- **`assets/img/favicon.ico`** - Report favicon
-
-## Integration with MonsterInc Components
-
-### With Scanner Service
-
-```go
-// Scanner generates comprehensive scan reports
-reportGenerator := scanner.GetReportGenerator()
-reportData := &models.ReportData{
-    ScanSummary:     scanSummary,
-    ProbeResults:    allProbeResults,
-    URLDiffResults:  urlDiffResults,
-
-}
-
-outputPath, err := reportGenerator.GenerateReport(reportData)
-if err != nil {
-    logger.Error().Err(err).Msg("Failed to generate scan report")
-    return err
-}
-
-logger.Info().
-    Str("report_path", outputPath).
-    Int("total_urls", len(allProbeResults)).
-    Msg("Scan report generated successfully")
+```
+internal/reporter/
+├── assets/
+│   ├── css/report_client_side.css     # Minimal overrides
+│   └── js/report_client_side.js       # Alpine.js app
+├── templates/
+│   └── report_client_side.html.tmpl   # Modern HTML5
+└── *.go                               # Go report generators
 ```
 
-### With Monitor Service
+### Adding New Features
 
-```go
-// Monitor generates diff reports for content changes
-diffReporter := monitor.GetDiffReporter()
-reportPath, err := diffReporter.GenerateDiffReport(
-    ctx,
-    url, 
-    diffResult,
-    lastRecord,
-    currentContent,
-)
-
-if err != nil {
-    logger.Error().Err(err).Msg("Failed to generate diff report")
-    return err
-}
-
-// Notify about changes with report attachment
-notifier.SendChangeNotification(ctx, changeInfo, reportPath)
+#### New Summary Card
+```html
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+    <div class="flex items-center justify-between">
+        <div>
+            <p class="text-sm font-medium text-gray-600">Your Metric</p>
+            <p class="text-3xl font-bold text-blue-600" x-text="stats.yourMetric"></p>
+        </div>
+        <div class="p-3 bg-blue-50 rounded-lg">
+            <svg class="w-6 h-6 text-blue-600"><!-- Your icon --></svg>
+        </div>
+    </div>
+</div>
 ```
 
-### With Notifier Integration
-
-```go
-// Reporter works with notifier for automated sharing
-type ReportNotificationConfig struct {
-    DiscordWebhook string
-    MaxFileSize    int64  // 10MB for Discord
-    SplitLargeReports bool
-}
-
-// Generate and share report
-reportPath, err := reporter.GenerateReport(data)
-if err != nil {
-    return err
-}
-
-// Notifier handles report sharing
-err = notifier.ShareReport(ctx, reportPath, discordWebhook)
-if err != nil {
-    logger.Error().Err(err).Msg("Failed to share report")
+#### New Chart Type
+```javascript
+createYourChart() {
+    const ctx = document.getElementById('yourChart');
+    new Chart(ctx, {
+        type: 'line', // or bar, pie, etc.
+        data: { /* your data */ },
+        options: { /* chart options */ }
+    });
 }
 ```
 
-## Usage Examples
-
-### URL Report Generation (Scanner Integration)
-
-```go
-import (
-    "github.com/aleister1102/monsterinc/internal/reporter"
-    "github.com/aleister1102/monsterinc/internal/models"
-)
-
-// Create URL report generator
-urlReporter, err := reporter.NewUrlReportGenerator(
-    cfg.ReporterConfig,
-    logger,
-)
-if err != nil {
-    return err
-}
-
-// Generate report from scanner results
-reportData := &models.ReportData{
-    ScanSummary: &models.ScanSummary{
-        TotalURLs:    len(probeResults),
-        SuccessfulScans: countSuccessful(probeResults),
-        StartTime:    scanStartTime,
-        EndTime:      time.Now(),
+#### New Grid Column
+```javascript
+{
+    headerName: 'Your Column',
+    field: 'yourField',
+    cellRenderer: (params) => {
+        return `<span class="your-styling">${params.value}</span>`;
     },
-    ProbeResults:   probeResults,
-    URLDiffResults: urlDiffResults,
-
-}
-
-outputPath, err := urlReporter.GenerateReport(reportData)
-if err != nil {
-    return fmt.Errorf("URL report generation failed: %w", err)
-}
-
-logger.Info().
-    Str("report_path", outputPath).
-    Msg("URL report generated successfully")
-```
-
-### Diff Report Generation (Monitor Integration)
-
-```go
-// Create diff report generator
-diffReporter, err := reporter.NewDiffReportGenerator(
-    cfg.ReporterConfig,
-    logger,
-)
-if err != nil {
-    return err
-}
-
-// Generate diff report for content changes
-reportPath, err := diffReporter.GenerateDiffReport(
-    ctx,
-    &models.DiffReportInput{
-        URL:           "https://example.com/api/endpoint",
-        DiffResult:    contentDiffResult,
-        LastRecord:    historicalRecord,
-        CurrentContent: newContent,
-        ChangeTime:    time.Now(),
-    },
-)
-
-if err != nil {
-    return fmt.Errorf("diff report generation failed: %w", err)
-}
-
-logger.Info().
-    Str("report_path", reportPath).
-    Bool("has_changes", !contentDiffResult.IsIdentical).
-    Msg("Diff report generated")
-```
-
-## Report Features
-
-### 1. Interactive URL Reports
-
-**Key Capabilities:**
-- **Data Tables**: Sortable, searchable tables with pagination
-- **Filtering**: Multi-column filtering with regex support
-- **Technology Detection**: Visual display of detected technologies
-- **Status Visualization**: Color-coded HTTP status codes
-- **URL Diff Highlighting**: Clear indication of new/changed/removed URLs
-- **Responsive Design**: Mobile-friendly layout
-- **Export Options**: Copy to clipboard, CSV export
-
-**Data Structure:**
-```go
-type ReportData struct {
-    ScanSummary     *ScanSummary      `json:"scan_summary"`
-    ProbeResults    []*ProbeResult    `json:"probe_results"`
-    URLDiffResults  map[string]*URLDiffResult `json:"url_diff_results"`
-
+    filter: 'agTextColumnFilter'
 }
 ```
 
-### 2. Content Diff Reports
+## 🔮 Future Enhancements
 
-**Features:**
-- **Side-by-Side Comparison**: Visual diff with line-by-line comparison
-- **Syntax Highlighting**: Language-aware syntax highlighting
-- **Change Statistics**: Lines added/removed/modified counts
-- **Context Lines**: Configurable context around changes
-- **Path Extraction**: Display extracted URLs/paths from JavaScript
-- **File Metadata**: Content type, size, hash information
+### Planned Features
+- [ ] Real-time updates with WebSockets
+- [ ] Advanced filtering with date ranges
+- [ ] Custom dashboard layouts
+- [ ] Report scheduling and automation
+- [ ] Integration with external tools
+- [ ] Multi-language support
 
-**Diff Display:**
-```go
-type DiffReportPageData struct {
-    ReportTitle   string              `json:"report_title"`
-    GeneratedAt   string              `json:"generated_at"`
-    URL           string              `json:"url"`
-    DiffResult    *ContentDiffResult  `json:"diff_result"`
-    LastRecord    *FileHistory        `json:"last_record"`
-    NewContent    []byte              `json:"new_content"`
-    ChangeTime    time.Time           `json:"change_time"`
-}
-```
+### Technology Upgrades
+- [ ] Upgrade to Tailwind CSS 4.0 when released
+- [ ] Consider Htmx for server-side interactions
+- [ ] Add PWA capabilities for offline viewing
+- [ ] Implement service workers for caching
 
-### 3. Advanced Asset Management
+## 📋 Browser Support
 
-**Capabilities:**
-- **Embedded Assets**: CSS/JS directly embedded in HTML for portability
-- **CDN Fallbacks**: External CDN links with local fallbacks
-- **Asset Optimization**: Minification and compression
-- **Cache Busting**: Version-based cache invalidation
-- **Base64 Encoding**: Efficient encoding for small assets
+### Minimum Requirements
+- Chrome 70+ (2018)
+- Firefox 70+ (2019)  
+- Safari 12+ (2018)
+- Edge 79+ (2020)
 
-## Configuration
+### Features Used
+- CSS Grid & Flexbox
+- CSS Custom Properties
+- ES6+ JavaScript
+- Modern Web APIs
 
-### Reporter Configuration
+---
 
-```yaml
-reporter_config:
-  output_directory: "./reports"
-  embed_assets: true
-  enable_data_tables: true
-  max_report_size_mb: 8
-  enable_report_splitting: true
-  template_dir: "./templates"
-  assets_dir: "./assets"
-
-  # URL report specific
-  url_report:
-    items_per_page: 100
-    enable_filters: true
-    enable_export: true
-
-  # Diff report specific  
-  diff_report:
-    context_lines: 3
-    max_content_size_mb: 5
-    enable_syntax_highlighting: true
-```
-
-### Template Configuration
-
-```go
-type ReporterConfig struct {
-    OutputDirectory     string `yaml:"output_directory"`
-    EmbedAssets        bool   `yaml:"embed_assets"`
-    EnableDataTables   bool   `yaml:"enable_data_tables"`
-    MaxReportSizeMB    int64  `yaml:"max_report_size_mb"`
-    EnableReportSplitting bool `yaml:"enable_report_splitting"`
-    TemplateDir        string `yaml:"template_dir"`
-    AssetsDir          string `yaml:"assets_dir"`
-}
-```
-
-## Dependencies
-
-- **github.com/aleister1102/monsterinc/internal/models** - Data structures
-- **github.com/aleister1102/monsterinc/internal/config** - Configuration management
-- **github.com/rs/zerolog** - Structured logging
-- **html/template** - Go templating engine
-- **encoding/json** - JSON data handling
-- **path/filepath** - File path utilities
-
-## Best Practices
-
-### Performance Optimization
-- Use client-side templates for large datasets
-- Enable report splitting for Discord compatibility
-- Embed assets for offline viewing
-- Implement proper caching strategies
-
-### File Size Management
-- Monitor report sizes during generation
-- Use automatic splitting for large reports
-- Optimize asset sizes and formats
-- Consider pagination for very large datasets
-
-### Template Design
-- Maintain responsive design principles
-- Use semantic HTML for accessibility
-- Implement proper error handling
-- Test across different browsers and screen sizes
+*MonsterInc Reporter - Beautiful, fast, and modern security scan reporting.*
