@@ -63,6 +63,15 @@ body {
     padding: 0 1rem;
 }
 
+/* Grid Container for horizontal scroll */
+#myGrid {
+    width: 100%;
+    height: 600px;
+    overflow-x: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
 /* Loading State */
 .loading-container {
     text-align: center;
@@ -99,6 +108,8 @@ body {
     --ag-odd-row-background-color: #f8fafc;
     --ag-row-hover-color: #e0f2fe;
     --ag-border-color: #e2e8f0;
+    overflow-x: auto !important;
+    width: 100%;
 }
 
 .ag-theme-quartz .ag-header {
@@ -425,6 +436,7 @@ body {
     #myGrid {
         height: 60vh !important;
         min-height: 400px !important;
+        overflow-x: auto !important;
     }
 
     .modal-body {
@@ -459,6 +471,7 @@ body {
     #myGrid {
         height: 50vh !important;
         min-height: 350px !important;
+        overflow-x: auto !important;
     }
 
     .ag-theme-quartz {

@@ -66,12 +66,14 @@ function reportApp() {
                         },
                         filter: 'agTextColumnFilter',
                         valueGetter: p => p.data.FinalURL || p.data.InputURL,
-                        flex: 2
+                        flex: 3,
+                        minWidth: 250,
+                        cellStyle: { textAlign: 'left' }
                     },
                     {
                         headerName: 'Status',
                         field: 'diff_status',
-                        width: 120,
+                        width: 100,
                         cellRenderer: p => {
                             const colors = { new: 'bg-green-100 text-green-800', existing: 'bg-gray-100 text-gray-800', old: 'bg-red-100 text-red-800' };
                             return `<span class="px-2 py-1 rounded-full text-xs font-medium ${colors[p.value?.toLowerCase()] || colors.existing}">${p.value}</span>`;
@@ -81,7 +83,7 @@ function reportApp() {
                     {
                         headerName: 'Code',
                         field: 'StatusCode',
-                        width: 100,
+                        width: 80,
                         cellRenderer: p => {
                             const c = parseInt(p.value);
                             let color = 'bg-gray-100 text-gray-800';
@@ -94,20 +96,35 @@ function reportApp() {
                         filter: 'agSetColumnFilter'
                     },
                     {
+                        headerName: 'Content-Type',
+                        field: 'ContentType',
+                        flex: 2,
+                        minWidth: 180,
+                        cellRenderer: p => {
+                            if (!p.value) return '<span class="text-gray-400 text-xs">N/A</span>';
+                            const shortType = p.value.split(';')[0].split('/')[1] || p.value;
+                            return `<span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs" title="${p.value}">${shortType}</span>`;
+                        },
+                        filter: 'agSetColumnFilter',
+                        hide: window.innerWidth < 1024
+                    },
+                    {
                         headerName: 'Title',
                         field: 'Title',
                         cellRenderer: p => p.value ? `<span class="break-words">${p.value}</span>` : '<span class="text-gray-400">No title</span>',
                         filter: 'agTextColumnFilter',
                         hide: window.innerWidth < 768,
-                        flex: 1.5
+                        flex: 2,
+                        minWidth: 150
                     },
                     {
                         headerName: 'Technologies',
                         field: 'Technologies',
-                        cellRenderer: p => p.value?.length ? `<div class="flex flex-wrap gap-1 justify-center">${p.value.slice(0, 3).map(t => `<span class="px-1 py-0.5 bg-indigo-100 text-indigo-800 rounded text-xs whitespace-nowrap">${t}</span>`).join('')}${p.value.length > 3 ? `<span class="text-xs text-gray-500">+${p.value.length - 3}</span>` : ''}</div>` : '<span class="text-gray-400 text-xs">None</span>',
+                        cellRenderer: p => p.value?.length ? `<div class="flex flex-wrap gap-1 justify-center">${p.value.slice(0, 3).map(t => `<span class="px-1 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs whitespace-nowrap">${t}</span>`).join('')}${p.value.length > 3 ? `<span class="text-xs text-gray-500">+${p.value.length - 3}</span>` : ''}</div>` : '<span class="text-gray-400 text-xs">None</span>',
                         filter: 'agSetColumnFilter',
                         hide: window.innerWidth < 1024,
-                        flex: 1.2
+                        flex: 2,
+                        minWidth: 200
                     },
                     {
                         headerName: 'Details',
@@ -124,7 +141,10 @@ function reportApp() {
                     filter: true,
                     resizable: true,
                     floatingFilter: true,
-                    flex: 1,
+                    floatingFilterComponentParams: {
+                        suppressFilterButton: true
+                    },
+                    minWidth: 80,
                     cellStyle: { textAlign: 'center' },
                     autoHeight: true,
                     wrapText: true
@@ -133,10 +153,14 @@ function reportApp() {
                 paginationPageSize: 25,
                 paginationPageSizeSelector: [10, 25, 50, 100],
                 headerHeight: 52,
+                suppressHorizontalScroll: false,
                 onGridReady: params => {
                     this.gridApi = params.api;
-                    params.api.sizeColumnsToFit();
-                    window.addEventListener('resize', () => setTimeout(() => params.api.sizeColumnsToFit(), 100));
+                    // No need to auto-fit columns as we use flex for responsive sizing
+                    window.addEventListener('resize', () => setTimeout(() => {
+                        // Grid will auto-adjust with flex columns
+                        params.api.refreshHeader();
+                    }, 100));
                 }
             }).api;
         },
