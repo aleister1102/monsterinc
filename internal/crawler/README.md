@@ -112,44 +112,7 @@ assets = extractor.Extract(htmlContent)
 - `AssetTypeMedia`: Audio and video files
 - `AssetTypeDocument`: Document links (PDF, DOC, etc.)
 
-### 3. Headless Browser Management (`headless_browser.go`)
-#### Purpose
-- Browser pool management for JavaScript-heavy sites
-- Dynamic content rendering
-- Configurable browser options
-- Resource pooling for performance
-
-#### API Usage
-
-```go
-// Configuration
-browserConfig := config.HeadlessBrowserConfig{
-    Enabled:             true,
-    ChromePath:          "/usr/bin/google-chrome",
-    PoolSize:            3,
-    WindowWidth:         1920,
-    WindowHeight:        1080,
-    PageLoadTimeoutSecs: 30,
-    DisableImages:       true,
-    DisableCSS:          true,
-}
-
-// Create manager
-manager := crawler.NewHeadlessBrowserManager(browserConfig, logger)
-err := manager.Start()
-defer manager.Stop()
-
-// Crawl page with headless browser
-result, err := manager.CrawlPage(ctx, "https://example.com")
-if err != nil {
-    return err
-}
-
-fmt.Printf("Rendered HTML: %d bytes\n", len(result.HTML))
-fmt.Printf("Page title: %s\n", result.Title)
-```
-
-### 4. Scope Management (`scope.go`)
+### 3. Scope Management (`scope.go`)
 #### Purpose
 - Define crawling boundaries and rules
 - Hostname and subdomain filtering
@@ -242,13 +205,10 @@ crawler_config:
   request_timeout_secs: 30
   include_subdomains: true
   auto_add_seed_hostnames: true
-  respect_robots_txt: false
-  insecure_skip_tls_verify: false
   
   # Content settings
   enable_content_length_check: true
   max_content_length_mb: 50
-  user_agent: "MonsterInc-Crawler/1.0"
   
   # Seed URLs
   seed_urls:
@@ -290,6 +250,15 @@ crawler_config:
       - "--no-sandbox"
       - "--disable-dev-shm-usage"
       - "--disable-extensions"
+```
+
+### High-Performance Profile
+```yaml
+crawler_config:
+  max_concurrent_requests: 100
+  request_timeout_secs: 10
+httpx_runner_config:
+  # ... existing code ...
 ```
 
 ## Advanced Usage

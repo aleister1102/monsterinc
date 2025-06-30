@@ -1,81 +1,21 @@
 # Differ Package
 
-## Purpose
-The `differ` package provides comprehensive content comparison and URL diffing capabilities for MonsterInc's monitoring and analysis pipeline. It detects and analyzes changes in web content, URL status, and provides detailed diff reports for security monitoring and change tracking.
+Content comparison and change detection engine for analyzing differences between current and historical scan results.
 
-## Package Role in MonsterInc
-As the change detection engine, this package:
-- **Scanner Integration**: Compares current scan results with historical data stored in Datastore
-- **Monitor Integration**: Analyzes content changes detected by the monitoring service
-- **Report Support**: Provides diff data for HTML report generation via Reporter
-- **Security Analysis**: Identifies potentially malicious content changes
-- **Historical Analysis**: Enables understanding of website evolution over time
+## Overview
 
-## Main Components
+Provides comprehensive change detection:
+- **URL Comparison**: Detect new, existing, and removed URLs
+- **Status Analysis**: Track URL status changes over time
+- **Historical Integration**: Compare against stored scan data
+- **Report Support**: Generate diff data for HTML reports
+- **Performance**: Efficient comparison algorithms
 
-### 1. Content Differ (`content_differ.go`)
-#### Purpose
-- Generate detailed content diffs between different versions
-- Support various content types (HTML, JavaScript, CSS, text)
-- Provide statistical analysis of changes
-- Handle large content with size validation
+## Core Components
 
-#### API Usage
+### URL Differ
 
-```go
-// Create content differ
-differ, err := differ.NewContentDiffer(logger, diffReporterConfig)
-if err != nil {
-    return err
-}
-
-// Generate diff between content versions
-previousContent := []byte("old content")
-currentContent := []byte("new content")
-
-diffResult, err := differ.GenerateDiff(
-    previousContent,
-    currentContent,
-    "text/html",
-    "oldHash123",
-    "newHash456",
-)
-
-if err != nil {
-    return err
-}
-
-// Access diff results
-fmt.Printf("Lines added: %d\n", diffResult.LinesAdded)
-fmt.Printf("Lines deleted: %d\n", diffResult.LinesDeleted)
-fmt.Printf("Is identical: %t\n", diffResult.IsIdentical)
-```
-
-#### Advanced Usage
-
-```go
-// Create differ with custom configuration
-builder := differ.NewContentDifferBuilder().
-    WithDiffReporterConfig(&config.DiffReporterConfig{
-        MaxDiffFileSizeMB: 50,
-    }).
-    WithDiffConfig(differ.DiffConfig{
-        EnableSemanticCleanup: true,
-        EnableLineBasedDiff:   true,
-        ContextLines:          3,
-    })
-
-differ, err := builder.Build()
-```
-
-### 2. URL Differ (`url_differ.go`)
-#### Purpose
-- Compare current scan results with historical data from Datastore
-- Identify new, existing, and removed URLs
-- Track URL status changes over time
-- Provide comprehensive URL analysis for Scanner workflow
-
-#### API Usage
+Compare current scan results with historical data to identify changes.
 
 ```go
 // Create URL differ
@@ -97,7 +37,7 @@ if err != nil {
 // Access URL diff results
 fmt.Printf("New URLs: %d\n", diffResult.New)
 fmt.Printf("Existing URLs: %d\n", diffResult.Existing)
-fmt.Printf("Old URLs: %d\n", diffResult.Old)
+fmt.Printf("Removed URLs: %d\n", diffResult.Old)
 
 for _, diffedURL := range diffResult.Results {
     fmt.Printf("URL: %s, Status: %s\n", 
@@ -106,7 +46,7 @@ for _, diffedURL := range diffResult.Results {
 }
 ```
 
-#### Builder Pattern
+### Builder Pattern
 
 ```go
 // Create URL differ with builder
@@ -120,96 +60,15 @@ builder := differ.NewUrlDifferBuilder(logger).
 urlDiffer, err := builder.Build()
 ```
 
-### 3. Diff Processor (`diff_processor.go`)
-#### Purpose
-- Core diff processing using google/diff-match-patch
-- Semantic cleanup of diffs
-- Line-based diff analysis
-- Statistics calculation
-
-#### API Usage
-
-```go
-// Create diff processor
-processor := differ.NewDiffProcessor(differ.DiffConfig{
-    EnableSemanticCleanup: true,
-    EnableLineBasedDiff:   true,
-    ContextLines:          3,
-})
-
-// Process diff between texts
-diffs := processor.ProcessDiff("old text", "new text")
-
-// Calculate statistics
-calculator := differ.NewDiffStatsCalculator()
-stats := calculator.CalculateStats(diffs, "oldHash", "newHash")
-
-fmt.Printf("Lines added: %d\n", stats.LinesAdded)
-fmt.Printf("Lines deleted: %d\n", stats.LinesDeleted)
-fmt.Printf("Is identical: %t\n", stats.IsIdentical)
-```
-
-## Integration with MonsterInc Components
-
-### With Scanner Service
-```go
-// Scanner uses differ to compare current vs historical results
-diffProcessor := scanner.GetDiffProcessor()
-urlDiffResult, err := diffProcessor.CompareWithHistorical(
-    ctx, currentProbeResults, rootTargetURL, scanSessionID)
-
-// Results are used for generating diff reports
-if urlDiffResult.New > 0 || urlDiffResult.Old > 0 {
-    logger.Info().
-        Int("new_urls", urlDiffResult.New).
-        Int("old_urls", urlDiffResult.Old).
-        Msg("URL changes detected")
-}
-```
-
-### With Monitor Service
-```go
-// Monitor uses content differ for file change analysis
-contentDiffer := monitor.GetContentDiffer()
-if lastRecord != nil {
-    diffResult, err := contentDiffer.GenerateDiff(
-        lastRecord.Content,
-        currentContent,
-        contentType,
-        lastRecord.Hash,
-        currentHash,
-    )
-    
-    if !diffResult.IsIdentical {
-        // Generate diff report and notify
-        reportPath := generateDiffReport(url, diffResult)
-        notifier.SendChangeNotification(ctx, changeInfo, reportPath)
-    }
-}
-```
-
-### With Datastore
-```go
-// Differ relies on datastore for historical data
-historicalProbes, _, err := parquetReader.FindAllProbeResultsForTarget(rootTarget)
-if err != nil {
-    return nil, fmt.Errorf("failed to load historical data: %w", err)
-}
-
-// Filter out current scan session to avoid self-comparison
-filteredProbes := filterOutCurrentSession(historicalProbes, currentScanSessionID)
-```
-
 ## Configuration
 
 ### Diff Configuration
 
 ```yaml
 diff_config:
-  previous_scan_lookback_days: 30  # How far back to look for historical data
-
-diff_reporter_config:
-  max_diff_file_size_mb: 10  # Maximum file size for diff processing
+  enable_url_normalization: true    # Normalize URLs before comparison
+  case_sensitive: false             # Case-sensitive URL comparison
+  lookback_days: 30                 # Days to look back for historical data
 ```
 
 ### URL Comparer Configuration
@@ -221,57 +80,183 @@ config := differ.URLComparerConfig{
 }
 ```
 
-### Diff Processing Configuration
+## Features
+
+### URL Analysis
+
+- **Status Tracking**: Identifies new, existing, and removed URLs
+- **Historical Comparison**: Compares against previous scan results from Datastore
+- **URL Normalization**: Consistent URL comparison across scans  
+- **Session Filtering**: Excludes current scan session from historical comparison
+
+### Diff Result Structure
 
 ```go
-config := differ.DiffConfig{
-    EnableSemanticCleanup: true,    // Apply semantic cleanup to diffs
-    EnableLineBasedDiff:   true,    // Enable line-based diff analysis
-    ContextLines:          3,       // Number of context lines around changes
+type URLDiffResult struct {
+    New      int                    // Count of new URLs
+    Existing int                    // Count of existing URLs
+    Old      int                    // Count of removed URLs
+    Results  []DiffedProbeResult    // Detailed diff results
+}
+
+type DiffedProbeResult struct {
+    ProbeResult models.ProbeResult
+    Status      string             // "new", "existing", "old"
 }
 ```
 
-## Features
+## Integration Examples
 
-### 1. Content Diffing
-- **Multiple Algorithms**: Supports character-level and line-based diffs
-- **Semantic Cleanup**: Improves diff quality by removing noise
-- **Size Validation**: Prevents memory issues with large files
-- **Content Type Aware**: Optimizes processing based on content type
-- **Error Handling**: Graceful handling of diff failures
+### With Scanner Service
 
-### 2. URL Analysis
-- **Status Tracking**: Identifies new, existing, and removed URLs
-- **Historical Comparison**: Compares against previous scan results from Datastore
-- **URL Normalization**: Consistent URL comparison across scans
-- **Session Filtering**: Excludes current scan session from historical comparison
+```go
+// Scanner uses differ to compare current vs historical results
+diffProcessor := scanner.GetDiffProcessor()
+urlDiffResult, err := diffProcessor.CompareWithHistorical(
+    ctx, currentProbeResults, rootTargetURL, scanSessionID)
 
-### 3. Statistical Analysis
-- **Change Metrics**: Lines added, deleted, and modified
-- **Performance Tracking**: Processing time measurement
-- **Error Reporting**: Detailed error messages for diff failures
+// Results used for generating diff reports
+if urlDiffResult.New > 0 || urlDiffResult.Old > 0 {
+    logger.Info().
+        Int("new_urls", urlDiffResult.New).
+        Int("old_urls", urlDiffResult.Old).
+        Msg("URL changes detected")
+}
+```
 
-## Dependencies
+### With Datastore
 
-- **github.com/aleister1102/monsterinc/internal/datastore** - Historical data access
-- **github.com/aleister1102/monsterinc/internal/models** - Data structures
-- **github.com/aleister1102/monsterinc/internal/config** - Configuration management
-- **github.com/sergi/go-diff** - Core diff algorithms
-- **github.com/rs/zerolog** - Structured logging
+```go
+// Differ relies on datastore for historical data
+historicalProbes, _, err := parquetReader.FindAllProbeResultsForTarget(rootTarget)
+if err != nil {
+    return nil, fmt.Errorf("failed to load historical data: %w", err)
+}
+
+// Filter out current scan session to avoid self-comparison
+filteredProbes := filterOutCurrentSession(historicalProbes, currentScanSessionID)
+```
+
+### With Reporter
+
+```go
+// Generate diff report with comparison results
+diffReportData := reporter.DiffReportData{
+    CurrentResults:    currentProbes,
+    HistoricalResults: historicalProbes,
+    DiffSummary:      urlDiffResult,
+    ComparisonDate:   time.Now(),
+}
+
+reportPath, err := reporter.GenerateDiffReport(diffReportData)
+if err != nil {
+    return fmt.Errorf("diff report generation failed: %w", err)
+}
+```
+
+## Usage Examples
+
+### Basic Comparison
+
+```go
+// Initialize components
+parquetReader := datastore.NewParquetReader(storageConfig, logger)
+urlDiffer, err := differ.NewUrlDiffer(parquetReader, logger)
+if err != nil {
+    return err
+}
+
+// Perform comparison
+diffResult, err := urlDiffer.Compare(
+    currentScanResults,
+    "https://example.com",
+    "scan-20240101-120000",
+)
+
+// Process results
+for _, result := range diffResult.Results {
+    switch result.Status {
+    case "new":
+        logger.Info().Str("url", result.ProbeResult.InputURL).Msg("New URL discovered")
+    case "old":
+        logger.Info().Str("url", result.ProbeResult.InputURL).Msg("URL no longer accessible")
+    case "existing":
+        logger.Debug().Str("url", result.ProbeResult.InputURL).Msg("URL still accessible")
+    }
+}
+```
+
+### Advanced Configuration
+
+```go
+// Custom differ configuration
+config := differ.URLComparerConfig{
+    EnableURLNormalization: true,
+    CaseSensitive:         false,
+    MaxHistoricalDays:     30,
+    IgnoreQueryParams:     true,
+}
+
+urlDiffer, err := differ.NewUrlDifferBuilder(logger).
+    WithParquetReader(parquetReader).
+    WithConfig(config).
+    Build()
+```
+
+### Error Handling
+
+```go
+// Handle comparison errors gracefully
+diffResult, err := urlDiffer.Compare(currentResults, rootTarget, sessionID)
+if err != nil {
+    logger.Error().Err(err).Msg("URL comparison failed")
+    // Continue with other operations, diff is not critical
+    diffResult = &differ.URLDiffResult{
+        New:      0,
+        Existing: len(currentResults),
+        Old:      0,
+        Results:  []differ.DiffedProbeResult{},
+    }
+}
+```
+
+### Performance Optimization
+
+```go
+// Optimize for large datasets
+if len(currentResults) > 10000 {
+    // Use streaming comparison for large datasets
+    err := urlDiffer.StreamingCompare(ctx, currentResults, rootTarget, 
+        func(batchResult *differ.URLDiffResult) error {
+            // Process batch results
+            return processDiffBatch(batchResult)
+        })
+}
+```
 
 ## Best Practices
 
 ### Performance Optimization
-- Set appropriate file size limits to prevent memory issues
+
 - Use streaming operations for large datasets
-- Configure reasonable context lines for diff processing
+- Configure reasonable lookback days for historical comparison
+- Filter out irrelevant historical data early
 
 ### Error Handling
-- Always check for diff processing errors
-- Handle cases where historical data might not be available
-- Implement fallbacks for large file processing
 
-### Configuration Tuning
-- Adjust lookback days based on scan frequency
-- Set file size limits based on available memory
-- Enable semantic cleanup for better diff quality
+- Always check for errors when comparing URLs
+- Handle cases where historical data might not be available
+- Gracefully degrade when diff operations fail
+
+### Resource Management
+
+- Properly cleanup resources after comparison
+- Monitor memory usage during large comparisons
+- Use context cancellation for long-running operations
+
+## Dependencies
+
+- `github.com/aleister1102/monsterinc/internal/datastore`: Historical data access
+- `github.com/aleister1102/monsterinc/internal/models`: Data structures
+- `github.com/aleister1102/monsterinc/internal/config`: Configuration management
+- `github.com/rs/zerolog`: Structured logging

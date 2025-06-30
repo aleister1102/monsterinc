@@ -63,16 +63,7 @@ func (cr *Crawler) handleResponse(r *colly.Response) {
 
 	cr.incrementVisitedCount()
 
-	// Perform secret scanning on the response body for relevant content types
-	if cr.detector != nil && cr.isScannableContent(r) {
-		go cr.detector.ScanAndProcess(r.Request.URL.String(), r.Body)
-	}
-
 	if cr.isHTMLContent(r) {
-		// Try headless browser if enabled and page might have dynamic content
-		if cr.shouldUseHeadlessBrowser(r) {
-			cr.tryHeadlessBrowserCrawl(r)
-		}
 		cr.extractAssetsFromResponse(r)
 	}
 }
@@ -109,26 +100,6 @@ func (cr *Crawler) shouldAbortRequest(r *colly.Request) bool {
 		return isDisallowed
 	}
 
-	return false
-}
-
-// isScannableContent checks if the response content type is suitable for secret scanning.
-func (cr *Crawler) isScannableContent(r *colly.Response) bool {
-	contentType := strings.ToLower(r.Headers.Get("Content-Type"))
-	scannableTypes := []string{
-		"text/html",
-		"application/javascript",
-		"text/javascript",
-		"application/x-javascript",
-		"application/json",
-		"text/plain",
-	}
-
-	for _, t := range scannableTypes {
-		if strings.Contains(contentType, t) {
-			return true
-		}
-	}
 	return false
 }
 
@@ -193,76 +164,4 @@ func (cr *Crawler) handleVisitError(normalizedURL string, err error) {
 		Str("url", normalizedURL).
 		Err(err).
 		Msg("Error queueing visit")
-}
-
-// shouldUseHeadlessBrowser determines if headless browser should be used for this page
-func (cr *Crawler) shouldUseHeadlessBrowser(r *colly.Response) bool {
-	if cr.headlessBrowserManager == nil || !cr.headlessBrowserManager.IsEnabled() {
-		return false
-	}
-
-	// Check if response body contains indicators of dynamic content
-	bodyStr := string(r.Body)
-
-	// Look for JavaScript frameworks or AJAX patterns
-	jsIndicators := []string{
-		"<script",
-		"angular",
-		"react",
-		"vue",
-		"jquery",
-		"ajax",
-		"fetch(",
-		"XMLHttpRequest",
-		"document.getElementById",
-		"document.querySelector",
-	}
-
-	bodyLower := strings.ToLower(bodyStr)
-	for _, indicator := range jsIndicators {
-		if strings.Contains(bodyLower, indicator) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// tryHeadlessBrowserCrawl attempts to crawl the page using headless browser
-func (cr *Crawler) tryHeadlessBrowserCrawl(r *colly.Response) {
-	if cr.headlessBrowserManager == nil {
-		return
-	}
-
-	url := r.Request.URL.String()
-	result, err := cr.headlessBrowserManager.CrawlPage(cr.ctx, url)
-	if err != nil {
-		cr.logger.Warn().
-			Str("url", url).
-			Err(err).
-			Msg("Headless browser crawl failed")
-		return
-	}
-
-	if result.Error != nil {
-		cr.logger.Warn().
-			Str("url", url).
-			Err(result.Error).
-			Msg("Headless browser returned error")
-		return
-	}
-
-	// Extract additional assets from headless browser rendered HTML
-	if result.HTML != "" && len(result.HTML) > len(string(r.Body)) {
-		cr.logger.Info().
-			Str("url", url).
-			Int("original_size", len(r.Body)).
-			Int("rendered_size", len(result.HTML)).
-			Msg("Headless browser found additional content")
-
-		// Create a modified response with rendered HTML for asset extraction
-		renderedResponse := *r
-		renderedResponse.Body = []byte(result.HTML)
-		cr.extractAssetsFromResponse(&renderedResponse)
-	}
 }

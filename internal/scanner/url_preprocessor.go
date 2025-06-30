@@ -4,8 +4,8 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 	"github.com/rs/zerolog"
 )
 
@@ -68,8 +68,9 @@ func (up *URLPreprocessor) PreprocessURLs(inputURLs []string) *URLPreprocessorRe
 		Bool("auto_calibrate_enabled", up.config.AutoCalibrate.Enabled).
 		Msg("Starting URL preprocessing")
 
-	// Reset stats
+	// Reset stats and pattern detector to ensure fresh state for each preprocessing cycle
 	up.statsTracker.ResetStats()
+	up.patternDetector.Reset()
 
 	var processedURLs []string
 

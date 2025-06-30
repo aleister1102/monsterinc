@@ -23,9 +23,9 @@
   - [x] 1.5 Define `ReporterConfig` for HTML reports (e.g., `OutputDir`, `ItemsPerPage`, `EmbedAssets`).
   - [x] 1.6 Define `StorageConfig` for Parquet (e.g., `ParquetBasePath`, `CompressionCodec`).
   - [x] 1.7 Define `NotificationConfig` for Discord (e.g., `DiscordWebhookURL`, `MentionRoles []string`, `NotifyOnSuccess`, `NotifyOnFailure`).
-  - [x] 1.8 Define `LogConfig` (e.g., `LogLevel` (debug, info, warn, error), `LogFormat` (text, json), `LogFile`).
-  - [x] 1.9 Define `DiffConfig` (e.g., `PreviousScanLookbackDays`).
-  - [x] 1.10 Define `MonitorConfig` for JS/HTML file monitoring (e.g., `JSFileExtensions`, `HTMLFileExtensions`).
+  - [x] 1.8 Define `SchedulerConfig` (e.g., `ScanIntervalDays`, `RetryAttempts`).
+  - [x] 1.9 Define `DiffConfig`.
+  - [x] 1.10 Define `LogConfig` (e.g., `LogLevel`, `LogFormat`, `LogFile`).
   - [x] 1.11 Add `SetDefaults()` method to `GlobalConfig` and individual config structs to apply default values.
 
 - [x] 2.0 Implement Configuration Loading (in `internal/config/loader.go`)

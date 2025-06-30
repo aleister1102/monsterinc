@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/contextutils"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
+	"github.com/aleister1102/monsterinc/internal/common/summary"
 	"github.com/aleister1102/monsterinc/internal/logger"
-	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/scanner"
 	"github.com/rs/zerolog"
 )
@@ -76,7 +76,7 @@ func (s *Scheduler) createScanAttemptConfig() scanAttemptConfig {
 
 // shouldCancelScan checks if scan should be cancelled
 func (s *Scheduler) shouldCancelScan(ctx context.Context, attempt int) bool {
-	if result := common.CheckCancellationWithLog(ctx, s.logger, fmt.Sprintf("scan attempt %d", attempt+1)); result.Cancelled {
+	if result := contextutils.CheckCancellationWithLog(ctx, s.logger, fmt.Sprintf("scan attempt %d", attempt+1)); result.Cancelled {
 		s.logger.Info().Int("attempt", attempt+1).Msg("Scan cancelled before attempt")
 		return true
 	}
@@ -107,7 +107,6 @@ func (s *Scheduler) attemptScanCycle(ctx context.Context, config scanAttemptConf
 		s.notificationHelper.SendScanCompletionNotification(
 			context.Background(),
 			updatedSummary,
-			notifier.ScanServiceNotification,
 			reportFilePaths,
 		)
 		return true
@@ -126,7 +125,7 @@ func (s *Scheduler) executeScanCycle(
 	ctx context.Context,
 	scanSessionID string,
 	predeterminedTargetSource string,
-) (models.ScanSummaryData, []string, error) {
+) (summary.ScanSummaryData, []string, error) {
 	startTime := time.Now()
 
 	// Track active scan session for interrupt handling
@@ -144,7 +143,7 @@ func (s *Scheduler) executeScanCycle(
 	// Build base summary
 	baseSummary, err := s.buildBaseScanSummary(scanSessionID, predeterminedTargetSource)
 	if err != nil {
-		return models.ScanSummaryData{}, nil, err
+		return summary.ScanSummaryData{}, nil, err
 	}
 
 	// Load targets
@@ -154,13 +153,13 @@ func (s *Scheduler) executeScanCycle(
 	}
 
 	// Build and send scan start notification
-	startSummary := models.GetDefaultScanSummaryData()
+	startSummary := summary.GetDefaultScanSummaryData()
 	startSummary.ScanSessionID = scanSessionID
 	startSummary.TargetSource = targetSource
 	startSummary.ScanMode = "automated"
 	startSummary.Targets = htmlURLs
 	startSummary.TotalTargets = len(htmlURLs)
-	startSummary.Status = string(models.ScanStatusStarted)
+	startSummary.Status = string(summary.ScanStatusStarted)
 	startSummary.CycleMinutes = s.globalConfig.SchedulerConfig.CycleMinutes
 
 	s.logger.Info().
@@ -180,17 +179,18 @@ func (s *Scheduler) executeScanCycle(
 	}
 
 	// Execute batch scan using orchestrator
-	return s.executeSchedulerBatchScan(ctx, scanSessionID, baseSummary, dbScanID, scanLogger)
+	return s.executeSchedulerBatchScan(ctx, scanSessionID, baseSummary, dbScanID, scanLogger, startTime)
 }
 
 // executeSchedulerBatchScan executes batch scan with scheduler-specific handling
 func (s *Scheduler) executeSchedulerBatchScan(
 	ctx context.Context,
 	scanSessionID string,
-	baseSummary models.ScanSummaryData,
+	baseSummary summary.ScanSummaryData,
 	dbScanID int64,
 	scanLogger zerolog.Logger,
-) (models.ScanSummaryData, []string, error) {
+	startTime time.Time,
+) (summary.ScanSummaryData, []string, error) {
 	// Create batch workflow orchestrator
 	batchOrchestrator := scanner.NewBatchWorkflowOrchestrator(s.globalConfig, s.scanner, scanLogger)
 
@@ -215,6 +215,21 @@ func (s *Scheduler) executeSchedulerBatchScan(
 		return s.buildErrorSummary(baseSummary, err), nil, err
 	}
 
+	// Check if batch result indicates actual scanning failure (all batches failed due to preprocessing)
+	if batchResult.SummaryData.Status == string(summary.ScanStatusFailed) &&
+		batchResult.SummaryData.ProbeStats.TotalProbed == 0 &&
+		batchResult.ProcessedBatches == 0 {
+		// All batches failed due to preprocessing, treat as scan failure
+		s.updateDBOnFailure(dbScanID, fmt.Errorf("all batches failed during preprocessing"))
+		return s.buildErrorSummary(baseSummary, fmt.Errorf("all batches failed: no URLs processed")), nil, fmt.Errorf("all batches failed during preprocessing")
+	}
+
+	// Calculate actual scan duration from start
+	actualScanDuration := time.Since(startTime)
+
+	// Update batch result with correct duration
+	batchResult.SummaryData.ScanDuration = actualScanDuration
+
 	// Update database with success
 	s.updateDBOnSuccess(dbScanID, batchResult.SummaryData)
 
@@ -223,6 +238,7 @@ func (s *Scheduler) executeSchedulerBatchScan(
 		Str("status", batchResult.SummaryData.Status).
 		Bool("used_batching", batchResult.UsedBatching).
 		Int("total_batches", batchResult.TotalBatches).
+		Dur("scan_duration", actualScanDuration).
 		Msg("Scheduler scan cycle completed")
 
 	updatedSummary := s.updateSummaryWithScanResult(baseSummary, batchResult.SummaryData)
@@ -230,24 +246,21 @@ func (s *Scheduler) executeSchedulerBatchScan(
 }
 
 // Helper functions for summary building and error handling
-func (s *Scheduler) updateSummaryWithAttemptResult(summary models.ScanSummaryData, attempt int, err error) models.ScanSummaryData {
-	builder := models.NewScanSummaryDataBuilder().
-		WithScanSessionID(summary.ScanSessionID).
-		WithScanMode(summary.ScanMode).
-		WithTargetSource(summary.TargetSource).
-		WithRetriesAttempted(attempt).
-		WithTargets(summary.Targets).
-		WithTotalTargets(summary.TotalTargets).
-		WithProbeStats(summary.ProbeStats).
-		WithDiffStats(summary.DiffStats).
-		WithScanDuration(summary.ScanDuration).
-		WithReportPath(summary.ReportPath).
-		WithErrorMessages(summary.ErrorMessages)
+func (s *Scheduler) updateSummaryWithAttemptResult(summaryData summary.ScanSummaryData, attempt int, err error) summary.ScanSummaryData {
+	builder := summary.NewScanSummaryDataBuilder().
+		WithScanSessionID(summaryData.ScanSessionID).
+		WithScanMode(summaryData.ScanMode).
+		WithTargetSource(summaryData.TargetSource).
+		WithTargets(summaryData.Targets).
+		WithTotalTargets(summaryData.TotalTargets).
+		WithProbeStats(summaryData.ProbeStats).
+		WithDiffStats(summaryData.DiffStats).
+		WithScanDuration(summaryData.ScanDuration)
 
 	if err == nil {
-		builder.WithStatus(models.ScanStatusCompleted)
+		builder.WithStatus(summary.ScanStatus(summary.ScanStatusCompleted))
 	} else {
-		builder.WithStatus(models.ScanStatusFailed)
+		builder.WithStatus(summary.ScanStatus(summary.ScanStatusFailed))
 	}
 
 	result, _ := builder.Build()
@@ -258,7 +271,7 @@ func (s *Scheduler) isContextCancellationError(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func (s *Scheduler) handleContextCancellation(summary models.ScanSummaryData) {
+func (s *Scheduler) handleContextCancellation(summary summary.ScanSummaryData) {
 	// Check if notification already sent to avoid duplicates
 	if !GetAndSetInterruptNotificationSent() {
 		interruptSummary := s.buildInterruptSummary(summary)
@@ -269,19 +282,19 @@ func (s *Scheduler) handleContextCancellation(summary models.ScanSummaryData) {
 	}
 }
 
-func (s *Scheduler) buildInterruptSummary(summary models.ScanSummaryData) models.ScanSummaryData {
-	builder := models.NewScanSummaryDataBuilder().
-		WithScanSessionID(summary.ScanSessionID).
-		WithScanMode(summary.ScanMode).
-		WithTargetSource(summary.TargetSource).
-		WithRetriesAttempted(summary.RetriesAttempted).
-		WithTargets(summary.Targets).
-		WithTotalTargets(summary.TotalTargets).
-		WithProbeStats(summary.ProbeStats).
-		WithDiffStats(summary.DiffStats).
-		WithScanDuration(summary.ScanDuration).
-		WithReportPath(summary.ReportPath).
-		WithStatus(models.ScanStatusInterrupted).
+func (s *Scheduler) buildInterruptSummary(summaryData summary.ScanSummaryData) summary.ScanSummaryData {
+	builder := summary.NewScanSummaryDataBuilder().
+		WithScanSessionID(summaryData.ScanSessionID).
+		WithScanMode(summaryData.ScanMode).
+		WithTargetSource(summaryData.TargetSource).
+		WithRetriesAttempted(summaryData.RetriesAttempted).
+		WithTargets(summaryData.Targets).
+		WithTotalTargets(summaryData.TotalTargets).
+		WithProbeStats(summaryData.ProbeStats).
+		WithDiffStats(summaryData.DiffStats).
+		WithScanDuration(summaryData.ScanDuration).
+		WithReportPath(summaryData.ReportPath).
+		WithStatus(summary.ScanStatusInterrupted).
 		WithErrorMessages([]string{"Scan was interrupted by user signal (Ctrl+C)"})
 
 	result, _ := builder.Build()
@@ -298,39 +311,38 @@ func (s *Scheduler) handleFinalFailure(config scanAttemptConfig) {
 	s.notificationHelper.SendScanCompletionNotification(
 		context.Background(),
 		summary,
-		notifier.ScanServiceNotification,
-		nil,
+		[]string{},
 	)
 }
 
-func (s *Scheduler) buildFailureSummary(config scanAttemptConfig) models.ScanSummaryData {
-	summary, _ := models.NewScanSummaryDataBuilder().
+func (s *Scheduler) buildFailureSummary(config scanAttemptConfig) summary.ScanSummaryData {
+	summary, _ := summary.NewScanSummaryDataBuilder().
 		WithScanSessionID(config.scanSessionID).
 		WithScanMode("automated").
 		WithTargetSource(config.initialTargetSource).
 		WithRetriesAttempted(config.maxRetries).
-		WithStatus(models.ScanStatusFailed).
+		WithStatus(summary.ScanStatusFailed).
 		WithErrorMessages([]string{"All retry attempts exhausted"}).
 		Build()
 
 	return summary
 }
 
-func (s *Scheduler) buildBaseScanSummary(scanSessionID, targetSource string) (models.ScanSummaryData, error) {
-	return models.NewScanSummaryDataBuilder().
+func (s *Scheduler) buildBaseScanSummary(scanSessionID, targetSource string) (summary.ScanSummaryData, error) {
+	return summary.NewScanSummaryDataBuilder().
 		WithScanSessionID(scanSessionID).
 		WithScanMode("automated").
 		WithTargetSource(targetSource).
-		WithStatus(models.ScanStatusStarted).
+		WithStatus(summary.ScanStatusStarted).
 		Build()
 }
 
-func (s *Scheduler) buildErrorSummary(baseSummary models.ScanSummaryData, err error) models.ScanSummaryData {
-	result, _ := models.NewScanSummaryDataBuilder().
+func (s *Scheduler) buildErrorSummary(baseSummary summary.ScanSummaryData, err error) summary.ScanSummaryData {
+	result, _ := summary.NewScanSummaryDataBuilder().
 		WithScanSessionID(baseSummary.ScanSessionID).
 		WithScanMode(baseSummary.ScanMode).
 		WithTargetSource(baseSummary.TargetSource).
-		WithStatus(models.ScanStatusFailed).
+		WithStatus(summary.ScanStatusFailed).
 		WithErrorMessages([]string{err.Error()}).
 		Build()
 
@@ -352,7 +364,7 @@ func (s *Scheduler) updateDBOnFailure(dbScanID int64, err error) {
 	}
 }
 
-func (s *Scheduler) updateDBOnSuccess(dbScanID int64, result models.ScanSummaryData) {
+func (s *Scheduler) updateDBOnSuccess(dbScanID int64, result summary.ScanSummaryData) {
 	reportPath := ""
 	if len(result.ReportPath) > 0 {
 		reportPath = result.ReportPath
@@ -373,7 +385,7 @@ func (s *Scheduler) updateDBOnSuccess(dbScanID int64, result models.ScanSummaryD
 	}
 }
 
-func (s *Scheduler) buildLogSummary(result models.ScanSummaryData) string {
+func (s *Scheduler) buildLogSummary(result summary.ScanSummaryData) string {
 	parts := []string{
 		fmt.Sprintf("Targets: %d", result.TotalTargets),
 		fmt.Sprintf("Probed: %d", result.ProbeStats.TotalProbed),
@@ -387,8 +399,8 @@ func (s *Scheduler) buildLogSummary(result models.ScanSummaryData) string {
 	return strings.Join(parts, ", ")
 }
 
-func (s *Scheduler) updateSummaryWithScanResult(baseSummary models.ScanSummaryData, scanResult models.ScanSummaryData) models.ScanSummaryData {
-	result, _ := models.NewScanSummaryDataBuilder().
+func (s *Scheduler) updateSummaryWithScanResult(baseSummary summary.ScanSummaryData, scanResult summary.ScanSummaryData) summary.ScanSummaryData {
+	result, _ := summary.NewScanSummaryDataBuilder().
 		WithScanSessionID(baseSummary.ScanSessionID).
 		WithScanMode(baseSummary.ScanMode).
 		WithTargetSource(baseSummary.TargetSource).
@@ -398,7 +410,7 @@ func (s *Scheduler) updateSummaryWithScanResult(baseSummary models.ScanSummaryDa
 		WithDiffStats(scanResult.DiffStats).
 		WithScanDuration(scanResult.ScanDuration).
 		WithReportPath(scanResult.ReportPath).
-		WithStatus(models.ScanStatus(scanResult.Status)).
+		WithStatus(summary.ScanStatus(scanResult.Status)).
 		WithErrorMessages(scanResult.ErrorMessages).
 		Build()
 
@@ -410,7 +422,7 @@ func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlU
 	s.logger.Info().Msg("Scheduler: Starting to load and prepare scan targets.")
 	targets, detSource, loadErr := s.targetManager.LoadAndSelectTargets(s.scanTargetsFile)
 	if loadErr != nil {
-		return nil, initialTargetSource, common.WrapError(loadErr, "failed to load targets")
+		return nil, initialTargetSource, errorwrapper.WrapError(loadErr, "failed to load targets")
 	}
 
 	determinedSource = detSource
@@ -420,13 +432,13 @@ func (s *Scheduler) loadAndPrepareScanTargets(initialTargetSource string) (htmlU
 
 	if len(targets) == 0 {
 		s.logger.Info().Str("source", determinedSource).Msg("Scheduler: No targets loaded to process.")
-		return nil, determinedSource, common.NewError("no targets to process from source: %s", determinedSource)
+		return nil, determinedSource, errorwrapper.NewError("no targets to process from source: %s", determinedSource)
 	}
 
 	// Convert targets to string slice
 	allTargetURLs := make([]string, len(targets))
 	for i, target := range targets {
-		allTargetURLs[i] = target.NormalizedURL
+		allTargetURLs[i] = target.URL
 	}
 
 	// All loaded URLs are used for scanning
@@ -449,7 +461,7 @@ func (s *Scheduler) recordScanStartToDB(
 ) (int64, error) {
 	dbScanID, err := s.db.RecordScanStart(scanSessionID, targetSource, len(htmlURLs), startTime)
 	if err != nil {
-		return 0, common.WrapError(err, fmt.Sprintf("scheduler failed to record scan start in DB for session %s", scanSessionID))
+		return 0, errorwrapper.WrapError(err, fmt.Sprintf("scheduler failed to record scan start in DB for session %s", scanSessionID))
 	}
 
 	s.logger.Info().

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/contextutils"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/crawler"
 	"github.com/rs/zerolog"
@@ -14,12 +14,9 @@ import (
 
 // CrawlerManager manages a singleton crawler instance for reuse across batches
 type CrawlerManager struct {
-	logger           zerolog.Logger
-	crawlerInstance  *crawler.Crawler
-	progressDisplay  *common.ProgressDisplayManager
-	mu               sync.RWMutex
-	isInstanceActive bool
-	autoCalibrateSet bool
+	logger          zerolog.Logger
+	crawlerInstance *crawler.Crawler
+	mu              sync.RWMutex
 }
 
 // NewCrawlerManager creates a new crawler manager
@@ -38,7 +35,7 @@ func (cm *CrawlerManager) GetOrCreateCrawler(cfg *config.CrawlerConfig) (*crawle
 	// If crawler doesn't exist, create new one
 	if cm.crawlerInstance == nil {
 		cm.logger.Info().Msg("Creating new singleton crawler instance")
-		newCrawler, err := crawler.NewCrawler(cfg, nil, cm.logger)
+		newCrawler, err := crawler.NewCrawler(cfg, cm.logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create crawler: %w", err)
 		}
@@ -58,7 +55,6 @@ func (cm *CrawlerManager) ExecuteCrawlerBatch(
 	cfg *config.CrawlerConfig,
 	seedURLs []string,
 	sessionID string,
-	progressDisplay *common.ProgressDisplayManager,
 ) (*CrawlerBatchResult, error) {
 	// Get or create crawler instance
 	crawlerInstance, err := cm.GetOrCreateCrawler(cfg)
@@ -84,13 +80,8 @@ func (cm *CrawlerManager) ExecuteCrawlerBatch(
 	}
 
 	// Check for context cancellation
-	if cancelled := common.CheckCancellation(ctx); cancelled.Cancelled {
+	if cancelled := contextutils.CheckCancellation(ctx); cancelled.Cancelled {
 		return nil, cancelled.Error
-	}
-
-	// Update progress
-	if progressDisplay != nil {
-		progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", fmt.Sprintf("Running crawler batch with %d seed URLs", len(seedURLs)))
 	}
 
 	cm.logger.Info().
@@ -99,17 +90,12 @@ func (cm *CrawlerManager) ExecuteCrawlerBatch(
 		Msg("Running crawler batch")
 
 	// Execute crawler with progress callback
-	discoveredURLs, err := cm.runCrawlerBatchWithProgress(ctx, crawlerInstance, seedURLs, progressDisplay)
+	discoveredURLs, err := cm.runCrawlerBatchWithProgress(ctx, crawlerInstance, seedURLs)
 	if err != nil {
 		return nil, fmt.Errorf("crawler batch execution failed: %w", err)
 	}
 
 	result.DiscoveredURLs = discoveredURLs
-
-	// Update progress
-	if progressDisplay != nil {
-		progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler Complete", fmt.Sprintf("Crawler batch completed: %d URLs discovered", len(discoveredURLs)))
-	}
 
 	cm.logger.Info().
 		Int("discovered_count", len(discoveredURLs)).
@@ -136,30 +122,13 @@ func (cm *CrawlerManager) DisableAutoCalibrateForPreprocessedURLs() {
 	}
 }
 
-// runCrawlerBatch runs a single crawler batch and returns discovered URLs
-func (cm *CrawlerManager) runCrawlerBatch(ctx context.Context, crawlerInstance *crawler.Crawler, seedURLs []string) ([]string, error) {
-	// Run crawler with context
-	crawlerInstance.RunBatch(ctx, seedURLs)
-
-	// Get discovered URLs
-	discoveredURLs := crawlerInstance.GetDiscoveredURLs()
-
-	return discoveredURLs, nil
-}
-
 // runCrawlerBatchWithProgress runs a single crawler batch with progress updates
-func (cm *CrawlerManager) runCrawlerBatchWithProgress(ctx context.Context, crawlerInstance *crawler.Crawler, seedURLs []string, progressDisplay *common.ProgressDisplayManager) ([]string, error) {
+func (cm *CrawlerManager) runCrawlerBatchWithProgress(ctx context.Context, crawlerInstance *crawler.Crawler, seedURLs []string) ([]string, error) {
 	// Initial progress update
-	if progressDisplay != nil {
-		progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", fmt.Sprintf("Starting crawler batch with %d seed URLs", len(seedURLs)))
-	}
 
 	// Start progress monitoring in background
 	done := make(chan struct{})
-	if progressDisplay != nil {
-		// Start monitoring with proper frequency
-		go cm.monitorCrawlerProgress(ctx, crawlerInstance, len(seedURLs), progressDisplay, done)
-	}
+	go cm.monitorCrawlerProgress(ctx, crawlerInstance, done)
 
 	// Run crawler with context
 	crawlerInstance.RunBatch(ctx, seedURLs)
@@ -169,15 +138,12 @@ func (cm *CrawlerManager) runCrawlerBatchWithProgress(ctx context.Context, crawl
 
 	// Final progress update
 	discoveredURLs := crawlerInstance.GetDiscoveredURLs()
-	if progressDisplay != nil {
-		progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler Complete", fmt.Sprintf("Completed: %d discovered URLs from %d seeds", len(discoveredURLs), len(seedURLs)))
-	}
 
 	return discoveredURLs, nil
 }
 
 // monitorCrawlerProgress monitors crawler progress and updates display
-func (cm *CrawlerManager) monitorCrawlerProgress(ctx context.Context, crawlerInstance *crawler.Crawler, totalSeeds int, progressDisplay *common.ProgressDisplayManager, done chan struct{}) {
+func (cm *CrawlerManager) monitorCrawlerProgress(ctx context.Context, crawlerInstance *crawler.Crawler, done chan struct{}) {
 	ticker := time.NewTicker(3 * time.Second) // Reduce frequency to avoid spam
 	defer ticker.Stop()
 
@@ -190,9 +156,7 @@ func (cm *CrawlerManager) monitorCrawlerProgress(ctx context.Context, crawlerIns
 		case <-ticker.C:
 			// Get current stats from crawler
 			discoveredCount := len(crawlerInstance.GetDiscoveredURLs())
-
-			// Update progress display with actual discovered URLs count
-			progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", fmt.Sprintf("Processing: %d discovered URLs from %d seeds", discoveredCount, totalSeeds))
+			cm.logger.Info().Int("discovered_count", discoveredCount).Msg("Crawler progress")
 		}
 	}
 }

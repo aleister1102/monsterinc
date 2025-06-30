@@ -12,20 +12,6 @@ type RetryConfig struct {
 	EnableJitter bool `json:"enable_jitter" yaml:"enable_jitter"`
 	// HTTP status codes that should trigger retries (default: [429])
 	RetryStatusCodes []int `json:"retry_status_codes,omitempty" yaml:"retry_status_codes,omitempty"`
-	// Domain-level rate limiting configuration
-	DomainLevelRateLimit DomainRateLimitConfig `json:"domain_level_rate_limit,omitempty" yaml:"domain_level_rate_limit,omitempty"`
-}
-
-// DomainRateLimitConfig configures domain-level rate limiting behavior
-type DomainRateLimitConfig struct {
-	// Enable domain-level rate limiting
-	Enabled bool `json:"enabled" yaml:"enabled"`
-	// Maximum number of 429 errors per domain before blacklisting
-	MaxRateLimitErrors int `json:"max_rate_limit_errors,omitempty" yaml:"max_rate_limit_errors,omitempty" validate:"omitempty,min=1,max=100"`
-	// Duration to blacklist domain after hitting max errors (in minutes)
-	BlacklistDurationMins int `json:"blacklist_duration_mins,omitempty" yaml:"blacklist_duration_mins,omitempty" validate:"omitempty,min=1,max=1440"`
-	// Clear blacklist after this many hours
-	BlacklistClearAfterHours int `json:"blacklist_clear_after_hours,omitempty" yaml:"blacklist_clear_after_hours,omitempty" validate:"omitempty,min=1,max=72"`
 }
 
 // NewDefaultRetryConfig creates default retry configuration
@@ -36,11 +22,5 @@ func NewDefaultRetryConfig() RetryConfig {
 		MaxDelaySecs:     60,
 		EnableJitter:     true,
 		RetryStatusCodes: []int{429},
-		DomainLevelRateLimit: DomainRateLimitConfig{
-			Enabled:                  true,
-			MaxRateLimitErrors:       10,
-			BlacklistDurationMins:    30,
-			BlacklistClearAfterHours: 6,
-		},
 	}
 }

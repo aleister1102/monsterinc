@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/contextutils"
 	"github.com/aleister1102/monsterinc/internal/config"
 	"github.com/aleister1102/monsterinc/internal/crawler"
 	"github.com/rs/zerolog"
@@ -13,9 +13,8 @@ import (
 // CrawlerExecutor handles the execution of the crawler component
 // Separates crawler execution logic from the main scanner
 type CrawlerExecutor struct {
-	logger          zerolog.Logger
-	progressDisplay *common.ProgressDisplayManager
-	crawlerManager  *CrawlerManager // Added crawler manager for singleton instance
+	logger         zerolog.Logger
+	crawlerManager *CrawlerManager // Added crawler manager for singleton instance
 }
 
 // NewCrawlerExecutor creates a new crawler executor
@@ -24,11 +23,6 @@ func NewCrawlerExecutor(logger zerolog.Logger) *CrawlerExecutor {
 		logger:         logger.With().Str("module", "CrawlerExecutor").Logger(),
 		crawlerManager: NewCrawlerManager(logger), // Initialize crawler manager
 	}
-}
-
-// SetProgressDisplay sets the progress display manager
-func (ce *CrawlerExecutor) SetProgressDisplay(progressDisplay *common.ProgressDisplayManager) {
-	ce.progressDisplay = progressDisplay
 }
 
 // CrawlerExecutionInput contains parameters for crawler execution
@@ -58,14 +52,9 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 	}
 
 	// Check for context cancellation before starting crawler
-	if cancelled := common.CheckCancellation(input.Context); cancelled.Cancelled {
+	if cancelled := contextutils.CheckCancellation(input.Context); cancelled.Cancelled {
 		result.Error = cancelled.Error
 		return result
-	}
-
-	// Update progress - starting crawler
-	if ce.progressDisplay != nil {
-		ce.progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler", fmt.Sprintf("Starting crawler with %d seed URLs", len(input.CrawlerConfig.SeedURLs)))
 	}
 
 	ce.logger.Info().
@@ -83,28 +72,16 @@ func (ce *CrawlerExecutor) Execute(input CrawlerExecutionInput) *CrawlerExecutio
 		input.CrawlerConfig,
 		input.CrawlerConfig.SeedURLs,
 		input.ScanSessionID,
-		ce.progressDisplay,
 	)
 
 	if err != nil {
 		ce.logger.Error().Err(err).Msg("Failed to execute crawler batch")
-
-		// Update progress - failed
-		if ce.progressDisplay != nil {
-			ce.progressDisplay.UpdateWorkflowProgress(1, 5, "Failed", fmt.Sprintf("Crawler execution failed: %v", err))
-		}
-
 		result.Error = fmt.Errorf("failed to execute crawler batch: %w", err)
 		return result
 	}
 
 	result.DiscoveredURLs = batchResult.DiscoveredURLs
 	result.CrawlerInstance = batchResult.CrawlerInstance
-
-	// Update progress - crawler completed
-	if ce.progressDisplay != nil {
-		ce.progressDisplay.UpdateWorkflowProgress(1, 5, "Crawler Complete", fmt.Sprintf("Discovered %d URLs", len(result.DiscoveredURLs)))
-	}
 
 	ce.logger.Info().
 		Int("discovered_count", len(result.DiscoveredURLs)).

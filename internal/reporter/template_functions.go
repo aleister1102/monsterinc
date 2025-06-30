@@ -8,9 +8,30 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
-	"github.com/aleister1102/monsterinc/internal/models"
+	"github.com/aleister1102/monsterinc/internal/differ"
 )
+
+// titleCase converts string to title case (replaces deprecated strings.Title)
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+
+	words := strings.Fields(s)
+	for i, word := range words {
+		if len(word) > 0 {
+			runes := []rune(word)
+			runes[0] = unicode.ToUpper(runes[0])
+			for j := 1; j < len(runes); j++ {
+				runes[j] = unicode.ToLower(runes[j])
+			}
+			words[i] = string(runes)
+		}
+	}
+	return strings.Join(words, " ")
+}
 
 // GetCommonTemplateFunctions returns common functions for templates
 func GetCommonTemplateFunctions() template.FuncMap {
@@ -31,7 +52,7 @@ func GetCommonTemplateFunctions() template.FuncMap {
 			return template.JS(data)
 		},
 		"ToLower": strings.ToLower,
-		"title": strings.Title,
+		"title":   titleCase,
 		"joinStrings": func(s []string, sep string) string {
 			return strings.Join(s, sep)
 		},
@@ -68,13 +89,13 @@ func GetDiffTemplateFunctions() template.FuncMap {
 		return template.HTML(prettyJSON.String())
 	}
 
-	funcMap["operationToString"] = func(op models.DiffOperation) string {
+	funcMap["operationToString"] = func(op differ.DiffOperation) string {
 		switch op {
-		case models.DiffDelete:
+		case differ.DiffDelete:
 			return "Delete"
-		case models.DiffInsert:
+		case differ.DiffInsert:
 			return "Insert"
-		case models.DiffEqual:
+		case differ.DiffEqual:
 			return "Equal"
 		default:
 			return "Unknown"

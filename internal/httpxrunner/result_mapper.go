@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/projectdiscovery/httpx/runner"
 	"github.com/rs/zerolog"
 )
@@ -23,7 +22,7 @@ func NewProbeResultMapper(logger zerolog.Logger) *ProbeResultMapper {
 }
 
 // MapResult converts an httpx runner.Result to a models.ProbeResult
-func (prm *ProbeResultMapper) MapResult(res runner.Result, rootURL string) *models.ProbeResult {
+func (prm *ProbeResultMapper) MapResult(res runner.Result, rootURL string) *ProbeResult {
 	probeResult := prm.createBaseProbeResult(res, rootURL)
 
 	prm.mapDuration(probeResult, res)
@@ -36,8 +35,8 @@ func (prm *ProbeResultMapper) MapResult(res runner.Result, rootURL string) *mode
 }
 
 // createBaseProbeResult creates the basic probe result structure
-func (prm *ProbeResultMapper) createBaseProbeResult(res runner.Result, rootURL string) *models.ProbeResult {
-	return &models.ProbeResult{
+func (prm *ProbeResultMapper) createBaseProbeResult(res runner.Result, rootURL string) *ProbeResult {
+	return &ProbeResult{
 		Body:          res.ResponseBody,
 		ContentLength: int64(res.ContentLength),
 		ContentType:   res.ContentType,
@@ -54,7 +53,7 @@ func (prm *ProbeResultMapper) createBaseProbeResult(res runner.Result, rootURL s
 }
 
 // mapDuration maps response time to duration
-func (prm *ProbeResultMapper) mapDuration(probeResult *models.ProbeResult, res runner.Result) {
+func (prm *ProbeResultMapper) mapDuration(probeResult *ProbeResult, res runner.Result) {
 	if res.ResponseTime == "" {
 		return
 	}
@@ -78,7 +77,7 @@ func (prm *ProbeResultMapper) mapDuration(probeResult *models.ProbeResult, res r
 }
 
 // mapHeaders maps response headers
-func (prm *ProbeResultMapper) mapHeaders(probeResult *models.ProbeResult, res runner.Result) {
+func (prm *ProbeResultMapper) mapHeaders(probeResult *ProbeResult, res runner.Result) {
 	if len(res.ResponseHeaders) == 0 {
 		return
 	}
@@ -119,20 +118,20 @@ func (prm *ProbeResultMapper) convertInterfaceSliceToString(val []interface{}) s
 }
 
 // mapTechnologies maps detected technologies
-func (prm *ProbeResultMapper) mapTechnologies(probeResult *models.ProbeResult, res runner.Result) {
+func (prm *ProbeResultMapper) mapTechnologies(probeResult *ProbeResult, res runner.Result) {
 	if len(res.Technologies) == 0 {
 		return
 	}
 
-	probeResult.Technologies = make([]models.Technology, 0, len(res.Technologies))
+	probeResult.Technologies = make([]Technology, 0, len(res.Technologies))
 	for _, techName := range res.Technologies {
-		tech := models.Technology{Name: techName}
+		tech := Technology{Name: techName}
 		probeResult.Technologies = append(probeResult.Technologies, tech)
 	}
 }
 
 // mapNetworkInfo maps network information
-func (prm *ProbeResultMapper) mapNetworkInfo(probeResult *models.ProbeResult, res runner.Result) {
+func (prm *ProbeResultMapper) mapNetworkInfo(probeResult *ProbeResult, res runner.Result) {
 	if len(res.A) > 0 {
 		probeResult.IPs = res.A
 	}
@@ -140,7 +139,7 @@ func (prm *ProbeResultMapper) mapNetworkInfo(probeResult *models.ProbeResult, re
 }
 
 // mapASNInfo maps ASN information
-func (prm *ProbeResultMapper) mapASNInfo(probeResult *models.ProbeResult, res runner.Result) {
+func (prm *ProbeResultMapper) mapASNInfo(probeResult *ProbeResult, res runner.Result) {
 	if res.ASN == nil {
 		return
 	}

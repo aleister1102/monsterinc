@@ -1,17 +1,14 @@
 package reporter
 
 import (
-	"embed"
+	_ "embed"
 	"encoding/base64"
+	"fmt"
 	"html/template"
 
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
-
-//go:embed templates/report_client_side.html.tmpl
-var defaultTemplate embed.FS
 
 //go:embed assets/img/favicon.ico
 var faviconICO []byte
@@ -22,39 +19,32 @@ const (
 	embeddedJSPath                = "assets/js/report_client_side.js"
 )
 
-// HtmlReporter uses composition of utility modules for better maintainability
+// HtmlReporter generates HTML reports from scan results
 type HtmlReporter struct {
-	cfg            *config.ReporterConfig
-	logger         zerolog.Logger
-	template       *template.Template
-	templatePath   string
-	favicon        string
-	assetManager   *AssetManager
-	directoryMgr   *DirectoryManager
-	SecretFindings []models.SecretFinding
+	cfg          *config.ReporterConfig
+	logger       zerolog.Logger
+	template     *template.Template
+	favicon      string
+	assetManager *AssetManager
+	directoryMgr *DirectoryManager
 }
 
-// NewHtmlReporter creates a new HtmlReporter using utility modules
+// NewHtmlReporter creates a new HtmlReporter instance
 func NewHtmlReporter(cfg *config.ReporterConfig, appLogger zerolog.Logger) (*HtmlReporter, error) {
-	moduleLogger := appLogger.With().Str("module", "HtmlReporter").Logger()
-
 	reporter := &HtmlReporter{
 		cfg:          cfg,
-		logger:       moduleLogger,
-		templatePath: cfg.TemplatePath,
-		assetManager: NewAssetManager(moduleLogger),
-		directoryMgr: NewDirectoryManager(moduleLogger),
+		logger:       appLogger.With().Str("component", "HtmlReporter").Logger(),
+		assetManager: NewAssetManager(appLogger),
+		directoryMgr: NewDirectoryManager(appLogger),
+	}
+
+	if err := reporter.initialize(); err != nil {
+		return nil, fmt.Errorf("failed to initialize reporter: %w", err)
 	}
 
 	if err := reporter.initializeOutputDirectory(); err != nil {
 		return nil, err
 	}
-
-	if err := reporter.setupTemplate(); err != nil {
-		return nil, err
-	}
-
-	reporter.initializeFavicon()
 
 	// Copy assets to output directory if not embedding
 	if !cfg.EmbedAssets {
@@ -77,13 +67,7 @@ func (r *HtmlReporter) initializeOutputDirectory() error {
 
 // setupTemplate initializes the HTML template with function map
 func (r *HtmlReporter) setupTemplate() error {
-	funcMap := r.createTemplateFunctionMap()
-	tmpl := template.New(defaultHtmlReportTemplateName).Funcs(funcMap)
-
-	if r.cfg.TemplatePath != "" {
-		return r.loadCustomTemplate()
-	}
-
+	tmpl := template.New("report").Funcs(GetCommonTemplateFunctions())
 	return r.loadEmbeddedTemplate(tmpl)
 }
 
@@ -109,4 +93,9 @@ func (r *HtmlReporter) getItemsPerPage() int {
 func (r *HtmlReporter) copyAssets() error {
 	assetsDir := r.cfg.OutputDir + "/assets"
 	return r.assetManager.CopyEmbedDir(assetsFS, "assets", assetsDir)
+}
+
+func (r *HtmlReporter) initialize() error {
+	r.initializeFavicon()
+	return r.setupTemplate()
 }

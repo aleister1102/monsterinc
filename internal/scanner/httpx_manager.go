@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/aleister1102/monsterinc/internal/httpxrunner"
-	"github.com/aleister1102/monsterinc/internal/models"
 	"github.com/rs/zerolog"
 )
 
@@ -90,7 +89,7 @@ func (hm *HTTPXManager) createNewRunner(config *httpxrunner.Config, rootTargetUR
 }
 
 // ExecuteRunnerBatch executes httpx runner for a specific batch
-func (hm *HTTPXManager) ExecuteRunnerBatch(ctx context.Context, config *httpxrunner.Config, rootTargetURL, scanSessionID string) ([]models.ProbeResult, error) {
+func (hm *HTTPXManager) ExecuteRunnerBatch(ctx context.Context, config *httpxrunner.Config, rootTargetURL, scanSessionID string) ([]httpxrunner.ProbeResult, error) {
 	runner, err := hm.GetOrCreateRunner(config, rootTargetURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get httpx runner: %w", err)

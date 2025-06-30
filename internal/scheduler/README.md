@@ -1,21 +1,18 @@
 # Scheduler Package
 
-The scheduler package provides automated task scheduling and execution for MonsterInc security operations. It manages periodic scans, coordinates monitoring workflows, and maintains persistent scheduling state using SQLite database.
+The scheduler package provides automated task scheduling and execution for MonsterInc security operations. It manages periodic scans and maintains persistent scheduling state using SQLite database.
 
 ## Package Role in MonsterInc
 As the automation engine, this package:
 - **Scanner Automation**: Schedules and executes automated security scans at configurable intervals
-- **Monitor Orchestration**: Coordinates monitoring cycles and file change detection workflows
 - **Task Persistence**: Provides reliable SQLite-based task storage with execution history
-- **Resource Management**: Manages concurrent task execution and system resource allocation
-- **Integration Hub**: Coordinates Scanner and Monitor services with automated execution
+- **Integration Hub**: Coordinates Scanner service with automated execution
 
 ## Overview
 
 The scheduler package enables:
 - **Automated Scanning**: Schedule periodic security scans with flexible timing configurations
 - **Task Persistence**: SQLite-based storage for reliable task management across restarts
-- **Worker Coordination**: Concurrent execution of scanning and monitoring tasks with resource limits
 - **Retry Logic**: Automatic retry mechanisms for failed operations with exponential backoff
 - **State Management**: Track task execution history and manage schedule states
 
@@ -44,27 +41,6 @@ summary := &models.ScanSummaryData{
 // Notifier integration through scheduler
 notifier.SendScanCompletionNotification(ctx, summary, 
     notifier.ScanServiceNotification, taskResult.ReportPaths)
-```
-
-### With Monitor Service
-
-```go  
-// Scheduler coordinates monitoring cycles
-monitorExecutor := scheduler.GetMonitorExecutor()
-err := monitorExecutor.ExecuteMonitoringCycle(ctx, monitorConfig)
-
-if err != nil {
-    logger.Error().Err(err).Msg("Monitoring cycle failed")
-    // Scheduler manages retry and error reporting
-    return scheduler.HandleMonitorError(err, cycleID)
-}
-
-// Monitor integration with batch processing
-batchManager := monitor.GetBatchURLManager()
-changedURLs, err := batchManager.ProcessBatch(ctx, urlBatch)
-
-// Scheduler tracks monitoring statistics
-scheduler.UpdateMonitorStats(cycleID, changedURLs, err)
 ```
 
 ### With Datastore Integration
@@ -116,7 +92,6 @@ db.SaveTaskExecution(execution)
 - **Flexible Intervals**: Configure scan intervals in minutes, hours, or days
 - **Cron-like Scheduling**: Support for complex scheduling patterns
 - **Task Priorities**: Manage task execution order and resource allocation
-- **Concurrent Execution**: Multiple tasks running simultaneously with limits
 - **Dynamic Scheduling**: Add, modify, or remove schedules at runtime
 
 ### 2. Database-Backed Persistence
@@ -127,15 +102,6 @@ db.SaveTaskExecution(execution)
 - **Schedule State**: Persistent schedule state across application restarts
 - **Atomic Operations**: ACID compliance with transaction support
 - **Schema Migrations**: Automatic database schema updates
-
-### 3. Worker Management
-
-**Coordination:**
-- **Resource Pools**: Separate worker pools for scan and monitor tasks
-- **Load Balancing**: Smart distribution of tasks across available workers
-- **Graceful Shutdown**: Proper cleanup and task completion on shutdown
-- **Resource Limits**: Configurable limits to prevent system overload
-- **Health Monitoring**: Track worker health and performance metrics
 
 ## Usage Examples
 
@@ -152,7 +118,6 @@ schedulerService, err := scheduler.NewScheduler(
     cfg.SchedulerConfig,
     logger,
     scannerService,  // Scanner service for automated scans
-    monitorService,  // Monitor service for monitoring cycles
     notificationHelper, // Notifier for task completion alerts
 )
 if err != nil {
@@ -193,7 +158,6 @@ schedulerConfig := config.SchedulerConfig{
     RetryAttempts:         3,               // Retry failed tasks up to 3 times
     SQLiteDBPath:          "./scheduler.db", // Database path
     MaxConcurrentScans:    2,               // Limit concurrent scans
-    MaxConcurrentMonitors: 5,               // Limit concurrent monitor tasks
     TaskTimeoutMinutes:    120,             // 2-hour task timeout
 }
 
@@ -207,18 +171,7 @@ tasks := []scheduler.TaskDefinition{
             TargetsFile:       "production-targets.txt",
             EnableCrawling:    true,
             EnableDiffing:     true,
-            EnableSecretScan:  true,
             NotifyOnCompletion: true,
-        },
-    },
-    {
-        Name:     "continuous-monitoring",
-        Type:     scheduler.TaskTypeMonitor,
-        Interval: 30 * time.Minute, // Every 30 minutes
-        Config: scheduler.MonitorTaskConfig{
-            BatchSize:     50,
-            CheckInterval: 300, // 5 minutes per check
-            MaxRetries:    2,
         },
     },
     {
@@ -252,7 +205,6 @@ taskID, err := schedulerService.ExecuteImmediateScan(
         Options: scheduler.ScanOptions{
             EnableCrawling:     true,
             EnableDiffing:      true,
-            EnableSecretScan:   true,
             NotifyOnCompletion: true,
             OverrideRateLimit:  true, // For emergency scans
         },
@@ -344,7 +296,6 @@ scheduler_config:
   
   # Resource management
   max_concurrent_scans: 2        # Maximum concurrent scan tasks
-  max_concurrent_monitors: 5     # Maximum concurrent monitor tasks
   task_timeout_minutes: 120      # Task execution timeout (2 hours)
   
   # Maintenance settings
@@ -371,7 +322,6 @@ type SchedulerConfig struct {
     RetryAttempts             int     `yaml:"retry_attempts"`
     SQLiteDBPath              string  `yaml:"sqlite_db_path"`
     MaxConcurrentScans        int     `yaml:"max_concurrent_scans"`
-    MaxConcurrentMonitors     int     `yaml:"max_concurrent_monitors"`
     TaskTimeoutMinutes        int     `yaml:"task_timeout_minutes"`
     CleanupIntervalHours      int     `yaml:"cleanup_interval_hours"`
     MaxTaskHistoryDays        int     `yaml:"max_task_history_days"`
@@ -390,7 +340,7 @@ type SchedulerConfig struct {
 CREATE TABLE scheduled_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL,           -- 'scan' or 'monitor'
+    type TEXT NOT NULL,           -- 'scan'
     schedule_type TEXT NOT NULL,  -- 'interval' or 'cron'
     schedule_value TEXT NOT NULL, -- interval duration or cron expression
     next_run_time INTEGER NOT NULL,
@@ -440,7 +390,6 @@ type ScanTaskConfig struct {
     TargetsFile        string        `json:"targets_file"`
     EnableCrawling     bool         `json:"enable_crawling"`
     EnableDiffing      bool         `json:"enable_diffing"`
-    EnableSecretScan   bool         `json:"enable_secret_scan"`
     MaxConcurrent      int          `json:"max_concurrent"`
     TimeoutMinutes     int          `json:"timeout_minutes"`
     NotifyOnCompletion bool         `json:"notify_on_completion"`
@@ -449,23 +398,9 @@ type ScanTaskConfig struct {
 }
 ```
 
-### Monitor Task Configuration
-
-```go
-type MonitorTaskConfig struct {
-    BatchSize         int           `json:"batch_size"`
-    CheckInterval     int           `json:"check_interval"`
-    MaxRetries        int           `json:"max_retries"`
-    NotifyOnChanges   bool         `json:"notify_on_changes"`
-    DiffReporting     bool         `json:"diff_reporting"`
-    TargetFilter      string       `json:"target_filter"` // Filter expression
-}
-```
-
 ## Dependencies
 
 - **github.com/aleister1102/monsterinc/internal/scanner** - Scanner service integration
-- **github.com/aleister1102/monsterinc/internal/monitor** - Monitor service integration
 - **github.com/aleister1102/monsterinc/internal/notifier** - Notification delivery
 - **github.com/aleister1102/monsterinc/internal/models** - Data structures
 - **github.com/aleister1102/monsterinc/internal/config** - Configuration management
@@ -480,12 +415,6 @@ type MonitorTaskConfig struct {
 - Set appropriate timeout values based on expected task duration
 - Implement proper retry logic with exponential backoff
 - Monitor task execution success rates and adjust schedules accordingly
-
-### Resource Management
-- Configure concurrent limits based on system resources
-- Monitor system performance during peak task execution
-- Implement graceful degradation when resources are constrained
-- Use priority queues for critical tasks
 
 ### Database Management
 - Regularly clean up old task execution records

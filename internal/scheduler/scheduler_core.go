@@ -6,26 +6,23 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/monitor"
 	"github.com/aleister1102/monsterinc/internal/notifier"
 	"github.com/aleister1102/monsterinc/internal/scanner"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
 
 	"github.com/rs/zerolog"
 )
 
-// Scheduler manages both scan and monitor operations in automated mode
+// Scheduler manages scan operations in automated mode
 type Scheduler struct {
 	globalConfig       *config.GlobalConfig
 	db                 *DB
 	logger             zerolog.Logger
 	scanTargetsFile    string
-	monitorTargetsFile string
 	notificationHelper *notifier.NotificationHelper
 	targetManager      *urlhandler.TargetManager
 	scanner            *scanner.Scanner
-	monitoringService  *monitor.MonitoringService
 	stopChan           chan struct{}
 	wg                 sync.WaitGroup
 	isRunning          bool
@@ -39,8 +36,6 @@ func NewScheduler(
 	cfg *config.GlobalConfig,
 	scanTargetsFile string,
 	scanner *scanner.Scanner,
-	monitorTargetsFile string,
-	monitoringService *monitor.MonitoringService,
 	logger zerolog.Logger,
 	notificationHelper *notifier.NotificationHelper,
 ) (*Scheduler, error) {
@@ -56,11 +51,9 @@ func NewScheduler(
 		db:                 db,
 		logger:             schedulerLogger,
 		scanTargetsFile:    scanTargetsFile,
-		monitorTargetsFile: monitorTargetsFile,
 		notificationHelper: notificationHelper,
 		targetManager:      urlhandler.NewTargetManager(schedulerLogger),
 		scanner:            scanner,
-		monitoringService:  monitoringService,
 		stopChan:           make(chan struct{}),
 	}, nil
 }

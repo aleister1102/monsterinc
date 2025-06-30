@@ -3,17 +3,20 @@ package scanner
 import (
 	"context"
 
-	"github.com/aleister1102/monsterinc/internal/common"
+	"github.com/aleister1102/monsterinc/internal/common/batchprocessor"
+	"github.com/aleister1102/monsterinc/internal/common/errorwrapper"
+	"github.com/aleister1102/monsterinc/internal/common/summary"
+	"github.com/aleister1102/monsterinc/internal/common/urlhandler"
 	"github.com/aleister1102/monsterinc/internal/config"
-	"github.com/aleister1102/monsterinc/internal/models"
-	"github.com/aleister1102/monsterinc/internal/urlhandler"
+	"github.com/aleister1102/monsterinc/internal/differ"
+	"github.com/aleister1102/monsterinc/internal/httpxrunner"
 	"github.com/rs/zerolog"
 )
 
 // BatchWorkflowOrchestrator handles batch processing for scan operations
 type BatchWorkflowOrchestrator struct {
 	logger         zerolog.Logger
-	batchProcessor *common.BatchProcessor
+	batchProcessor *batchprocessor.BatchProcessor
 	scanner        *Scanner
 	targetManager  *urlhandler.TargetManager
 }
@@ -42,7 +45,7 @@ func NewBatchWorkflowOrchestrator(
 
 	return &BatchWorkflowOrchestrator{
 		logger:         orchestratorLogger,
-		batchProcessor: common.NewBatchProcessor(bpConfig, logger),
+		batchProcessor: batchprocessor.NewBatchProcessor(bpConfig, logger),
 		scanner:        scanner,
 		targetManager:  urlhandler.NewTargetManager(logger),
 	}
@@ -50,13 +53,21 @@ func NewBatchWorkflowOrchestrator(
 
 // BatchScanResult holds the result of batch scan processing
 type BatchScanResult struct {
-	SummaryData      models.ScanSummaryData
+	SummaryData      summary.ScanSummaryData
 	ReportFilePaths  []string
-	BatchResults     []common.BatchResult
+	BatchResults     []batchprocessor.BatchResult
 	TotalBatches     int
 	ProcessedBatches int
 	UsedBatching     bool
 	InterruptedAt    int // Which batch was interrupted (0 means completed)
+}
+
+// BatchWorkflowResult holds the result of batch scan processing
+type BatchWorkflowResult struct {
+	ProbeResults    []httpxrunner.ProbeResult
+	URLDiffResults  map[string]differ.URLDiffResult
+	ReportFilePaths []string
+	Err             error
 }
 
 // ExecuteBatchScan executes scan workflow in batches
@@ -76,23 +87,23 @@ func (bwo *BatchWorkflowOrchestrator) ExecuteBatchScan(
 
 	// Validate inputs
 	if gCfg == nil {
-		return nil, common.NewError("global config cannot be nil")
+		return nil, errorwrapper.NewError("global config cannot be nil")
 	}
 	if scanTargetsFile == "" {
-		return nil, common.NewError("scan targets file cannot be empty")
+		return nil, errorwrapper.NewError("scan targets file cannot be empty")
 	}
 	if scanSessionID == "" {
-		return nil, common.NewError("scan session ID cannot be empty")
+		return nil, errorwrapper.NewError("scan session ID cannot be empty")
 	}
 
 	// Load targets from file
 	targets, determinedSource, err := bwo.targetManager.LoadAndSelectTargets(scanTargetsFile)
 	if err != nil {
-		return nil, common.WrapError(err, "failed to load scan targets")
+		return nil, errorwrapper.WrapError(err, "failed to load scan targets")
 	}
 
 	if len(targets) == 0 {
-		return nil, common.NewError("no valid targets found in source: %s", determinedSource)
+		return nil, errorwrapper.NewError("no valid targets found in source: %s", determinedSource)
 	}
 
 	targetURLs := bwo.targetManager.GetTargetStrings(targets)
@@ -126,7 +137,7 @@ func (bwo *BatchWorkflowOrchestrator) ExecuteBatchScan(
 		return &BatchScanResult{
 			SummaryData:      summaryData,
 			ReportFilePaths:  reportPaths,
-			BatchResults:     []common.BatchResult{},
+			BatchResults:     []batchprocessor.BatchResult{},
 			TotalBatches:     1,
 			ProcessedBatches: 1,
 			UsedBatching:     false,

@@ -200,13 +200,29 @@ httpx_runner_config:
   timeout_secs: 30
   retries: 3
   
-diff_config:
-  previous_scan_lookback_days: 30
-  
 reporter_config:
   output_dir: "./reports"
   embed_assets: true
   enable_data_tables: true
+
+# Logging Configuration
+log_config:
+  log_level: "info"
+  log_format: "json"
+  log_file: "./logs/monsterinc.log"
+  max_log_size_mb: 100
+  max_log_backups: 5
+
+# Diff Reporter Configuration
+diff_reporter_config:
+  max_diff_file_size_mb: 10
+
+# Resource Limiter Configuration
+resource_limiter_config:
+  max_memory_mb: 512        # Memory limit (reduced for earlier detection)
+  memory_threshold: 0.7     # 70% threshold
+  check_interval_secs: 15   # Check every 15 seconds
+  enable_auto_shutdown: true
 ```
 
 ## Workflow Orchestration
